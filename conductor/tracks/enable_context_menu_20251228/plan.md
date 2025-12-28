@@ -17,7 +17,7 @@ Goal: Provide a custom menu if native menus are still blocked by Wails/WebKit on
 - [x] Task: Frontend - Custom Context Menu Component (ac37274)
     - [ ] Write Tests: Verify menu renders at cursor position and has Copy/Paste/Select All
     - [ ] Implement: Create `ContextMenu.tsx` and integrate into a global provider or wrapper
-- [ ] Task: UI/UX - Integrate Custom Menu with Inputs
+- [x] Task: UI/UX - Integrate Custom Menu with Inputs (ec828bb)
     - [ ] Write Tests: Verify right-click on `PreferenceModal` inputs triggers custom menu
     - [ ] Implement: Hook inputs to the custom context menu logic
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Custom Fallback Context Menu' (Protocol in workflow.md)
