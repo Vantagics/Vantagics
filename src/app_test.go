@@ -39,3 +39,16 @@ func TestDashboardDataSerialization(t *testing.T) {
 		t.Errorf("Expected 'Total Sales', got '%s'", decoded.Metrics[0].Title)
 	}
 }
+
+func TestGetDashboardData(t *testing.T) {
+	app := NewApp()
+	data := app.GetDashboardData()
+
+	if len(data.Metrics) == 0 {
+		t.Error("Expected metrics to be populated")
+	}
+
+	if len(data.Insights) == 0 {
+		t.Error("Expected insights to be populated")
+	}
+}

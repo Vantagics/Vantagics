@@ -131,3 +131,20 @@ func (a *App) SaveConfig(config Config) error {
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
+
+// GetDashboardData returns mock data for the dashboard
+func (a *App) GetDashboardData() DashboardData {
+	return DashboardData{
+		Metrics: []Metric{
+			{Title: "Total Sales", Value: "$45,231", Change: "+12.5%"},
+			{Title: "Active Users", Value: "2,845", Change: "+8.2%"},
+			{Title: "Conversion Rate", Value: "3.4%", Change: "-1.2%"},
+			{Title: "Avg. Session", Value: "4m 32s", Change: "+2.1%"},
+		},
+		Insights: []Insight{
+			{Text: "Sales are trending up this week! Consider increasing your ad spend.", Icon: "trending-up"},
+			{Text: "You have a high user retention rate. Keep up the good work!", Icon: "user-check"},
+			{Text: "Conversion rate dropped slightly. Check your checkout flow.", Icon: "alert-circle"},
+		},
+	}
+}
