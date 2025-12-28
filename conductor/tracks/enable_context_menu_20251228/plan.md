@@ -11,7 +11,7 @@ Goal: Unblock the standard system context menu for editable elements.
     - [ ] Implement: Add global event listener to allow standard behavior for editable elements
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Enable Native Context Menu' (Protocol in workflow.md)
 
-## Phase 2: Custom Fallback Context Menu (Optional/Contingency)
+## Phase 2: Custom Fallback Context Menu (Optional/Contingency) [checkpoint: 78b0667]
 Goal: Provide a custom menu if native menus are still blocked by Wails/WebKit on macOS.
 
 - [x] Task: Frontend - Custom Context Menu Component (ac37274)
