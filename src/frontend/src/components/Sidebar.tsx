@@ -44,6 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
                 </button>
                 <button 
                     onClick={onOpenSettings}
+                    aria-label="Settings"
                     className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
                     <span>⚙️</span> Settings

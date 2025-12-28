@@ -5,6 +5,7 @@ import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';
 import ChatSidebar from './components/ChatSidebar';
 import MessageBubble from './components/MessageBubble';
+import ContextMenu from './components/ContextMenu';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { GetDashboardData, SendMessage } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
@@ -28,6 +29,9 @@ function App() {
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Context Menu State
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: HTMLElement } | null>(null);
+
     useEffect(() => {
         // Fetch dashboard data
         GetDashboardData().then(setDashboardData).catch(console.error);
@@ -36,7 +40,20 @@ function App() {
         const unsubscribe = EventsOn("open-settings", () => {
             setIsPreferenceOpen(true);
         });
+
+        // Global Context Menu Listener
+        const handleContextMenu = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, target });
+            }
+        };
+
+        window.addEventListener('contextmenu', handleContextMenu);
+
         return () => {
+            window.removeEventListener('contextmenu', handleContextMenu);
         };
     }, []);
 
@@ -113,6 +130,14 @@ function App() {
                 isOpen={isPreferenceOpen} 
                 onClose={() => setIsPreferenceOpen(false)} 
             />
+
+            {contextMenu && (
+                <ContextMenu 
+                    position={{ x: contextMenu.x, y: contextMenu.y }}
+                    target={contextMenu.target}
+                    onClose={() => setContextMenu(null)}
+                />
+            )}
         </div>
     );
 }

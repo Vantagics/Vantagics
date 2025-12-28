@@ -59,8 +59,52 @@ describe('App Integration', () => {
 
         expect(screen.getByText('How is business?')).toBeInTheDocument();
         
-        await waitFor(() => {
-            expect(screen.getByText('Hello! I am your AI assistant.')).toBeInTheDocument();
+                await waitFor(() => {
+        
+                    expect(screen.getByText('Hello! I am your AI assistant.')).toBeInTheDocument();
+        
+                });
+        
+            });
+        
+        
+        
+            it('shows custom context menu on right-click of input', async () => {
+        
+                (AppBindings.GetConfig as any).mockResolvedValue({});
+        
+                (AppBindings.GetDashboardData as any).mockResolvedValue({ metrics: [], insights: [] });
+        
+        
+        
+                render(<App />);
+        
+        
+        
+                // Assuming settings button opens modal with inputs
+        
+                const settingsButton = screen.getByLabelText(/Settings/i);
+        
+                fireEvent.click(settingsButton);
+        
+        
+        
+                await waitFor(() => {
+        
+                    const apiKeyInput = screen.getByLabelText(/API Key/i);
+        
+                    fireEvent.contextMenu(apiKeyInput, { clientX: 100, clientY: 100 });
+        
+                });
+        
+        
+        
+                expect(screen.getByRole('menu')).toBeInTheDocument();
+        
+                expect(screen.getByText('Paste')).toBeInTheDocument();
+        
+            });
+        
         });
-    });
-});
+        
+        
