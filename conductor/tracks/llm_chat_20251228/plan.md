@@ -7,7 +7,7 @@ Goal: Create the visual container for the chat and the message components.
 - [x] Task: Frontend - Chat Sidebar Component (4bb0a49)
     - [ ] Write Tests: Verify sidebar toggles visibility and renders correctly
     - [ ] Implement: Create `ChatSidebar.tsx` with toggle logic
-- [~] Task: Frontend - Message Bubble Component
+- [x] Task: Frontend - Message Bubble Component (f1b1b6d)
     - [ ] Write Tests: Verify Markdown rendering and different sender styles
     - [ ] Implement: Create `MessageBubble.tsx` with `react-markdown`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Sidebar Infrastructure & UI Scaffolding' (Protocol in workflow.md)
