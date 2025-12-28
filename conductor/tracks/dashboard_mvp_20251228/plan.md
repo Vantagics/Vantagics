@@ -1,6 +1,6 @@
 # Track Plan: Smart Dashboard MVP
 
-## Phase 1: Project Foundation & Mock Data Service
+## Phase 1: Project Foundation & Mock Data Service [checkpoint: 71b5485]
 Goal: Set up the backend structure to serve data and establish the frontend scaffolding.
 
 - [x] Task: Backend - Define Data Structures in Go (901d880)
