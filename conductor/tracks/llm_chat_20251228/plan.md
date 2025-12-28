@@ -15,7 +15,7 @@ Goal: Create the visual container for the chat and the message components.
 ## Phase 2: LLM Service Integration (Backend)
 Goal: Implement the communication layer with OpenAI and Anthropic.
 
-- [ ] Task: Backend - LLM Client Factory
+- [x] Task: Backend - LLM Client Factory (36b860d)
     - [ ] Write Tests: Verify switching between providers and correct API calls (mocked)
     - [ ] Implement: Create LLM client logic in `llm_service.go`
 - [ ] Task: Backend - Chat Handler in App
