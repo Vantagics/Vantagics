@@ -6,7 +6,7 @@ Goal: Unblock the standard system context menu for editable elements.
 - [x] Task: CSS - Allow Text Selection in Inputs (2b5d97d)
     - [ ] Write Tests: Verify `-webkit-user-select: text` is applied to inputs
     - [ ] Implement: Add global CSS rules for inputs and textareas in `style.css`
-- [ ] Task: JS - Ensure Context Menu Events Propagation
+- [x] Task: JS - Ensure Context Menu Events Propagation (90bbe97)
     - [ ] Write Tests: Verify `contextmenu` event is not prevented on inputs
     - [ ] Implement: Add global event listener to allow standard behavior for editable elements
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Enable Native Context Menu' (Protocol in workflow.md)
