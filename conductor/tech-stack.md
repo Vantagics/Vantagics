@@ -16,6 +16,7 @@ This document outlines the technologies used in the development of RapidBI.
 - **Vite (Latest):** The build tool and development server for the frontend.
 - **Vitest:** Unit testing framework.
 - **React Testing Library:** For testing React components.
+- **Lucide React:** Icon library for the frontend.
 
 ## Infrastructure & Tools
 - **NPM:** Package manager for frontend dependencies.

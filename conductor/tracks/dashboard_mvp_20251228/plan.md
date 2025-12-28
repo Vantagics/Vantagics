@@ -26,8 +26,9 @@ Goal: Build the visual structure of the dashboard.
 
 ## Phase 3: Smart Insights & Data Integration
 Goal: Connect the UI to the backend and display automated insights.
+- [Note: Added Lucide React to tech stack for icons (2025-12-28)]
 
-- [ ] Task: Frontend - Smart Insight Component
+- [~] Task: Frontend - Smart Insight Component
     - [ ] Write Tests: Verify `SmartInsight` renders the insight text and an icon
     - [ ] Implement: Create `SmartInsight.tsx` following the visual richness guideline
 - [ ] Task: Frontend - Integrate Backend Data
