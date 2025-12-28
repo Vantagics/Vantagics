@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Copy, ClipboardPaste, Scissors, Maximize } from 'lucide-react';
+import { ClipboardGetText } from '../../wailsjs/runtime/runtime';
 
 interface ContextMenuProps {
     position: { x: number; y: number };
@@ -35,19 +36,28 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ position, onClose, target }) 
                 break;
             case 'paste':
                 try {
-                    const text = await navigator.clipboard.readText();
-                    // Insert text at cursor position
-                    const start = target.selectionStart || 0;
-                    const end = target.selectionEnd || 0;
-                    const value = target.value;
-                    target.value = value.substring(0, start) + text + value.substring(end);
-                    // Update cursor position
-                    target.selectionStart = target.selectionEnd = start + text.length;
-                    // Trigger change event so React state updates
-                    target.dispatchEvent(new Event('input', { bubbles: true }));
+                    // Try Wails Runtime Clipboard first
+                    let text = await ClipboardGetText();
+                    
+                    // Fallback to browser API if Wails returns empty or fails (though Wails returns Promise<string>)
+                    if (!text) {
+                         text = await navigator.clipboard.readText();
+                    }
+
+                    if (text) {
+                        // Insert text at cursor position
+                        const start = target.selectionStart || 0;
+                        const end = target.selectionEnd || 0;
+                        const value = target.value;
+                        target.value = value.substring(0, start) + text + value.substring(end);
+                        // Update cursor position
+                        target.selectionStart = target.selectionEnd = start + text.length;
+                        // Trigger change event so React state updates
+                        target.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
                 } catch (err) {
-                    console.error('Failed to read clipboard:', err);
-                    // Fallback to execCommand if available (often not for paste)
+                    console.error('Failed to paste:', err);
+                    // Final fallback
                     document.execCommand('paste');
                 }
                 break;
