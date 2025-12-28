@@ -20,6 +20,25 @@ type Config struct {
 	Language     string `json:"language"`
 }
 
+// Metric structure for dashboard
+type Metric struct {
+	Title  string `json:"title"`
+	Value  string `json:"value"`
+	Change string `json:"change"`
+}
+
+// Insight structure for dashboard
+type Insight struct {
+	Text string `json:"text"`
+	Icon string `json:"icon"`
+}
+
+// DashboardData structure
+type DashboardData struct {
+	Metrics  []Metric  `json:"metrics"`
+	Insights []Insight `json:"insights"`
+}
+
 // App struct
 type App struct {
 	ctx context.Context
