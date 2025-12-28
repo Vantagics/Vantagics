@@ -11,7 +11,7 @@ Goal: Set up the backend structure to serve data and establish the frontend scaf
     - [ ] Implement: Add `GetDashboardData` method to `App` struct
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Project Foundation & Mock Data Service' (Protocol in workflow.md)
 
-## Phase 2: Core Dashboard UI
+## Phase 2: Core Dashboard UI [checkpoint: d131031]
 Goal: Build the visual structure of the dashboard.
 - [Note: Added Vitest and React Testing Library to tech stack for frontend testing (2025-12-28)]
 - [Note: Upgraded Vite to Latest to support Vitest (2025-12-28)]
