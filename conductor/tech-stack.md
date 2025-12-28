@@ -13,7 +13,9 @@ This document outlines the technologies used in the development of RapidBI.
 - **React (18):** The primary frontend framework for building the user interface.
 - **TypeScript:** Used for type-safe frontend development.
 - **Tailwind CSS (3):** The utility-first CSS framework used for styling the application.
-- **Vite (3):** The build tool and development server for the frontend.
+- **Vite (Latest):** The build tool and development server for the frontend.
+- **Vitest:** Unit testing framework.
+- **React Testing Library:** For testing React components.
 
 ## Infrastructure & Tools
 - **NPM:** Package manager for frontend dependencies.

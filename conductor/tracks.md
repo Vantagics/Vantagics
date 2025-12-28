@@ -4,5 +4,5 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-## [ ] Track: Implement a "Smart" Dashboard MVP
+## [~] Track: Implement a "Smart" Dashboard MVP
 *Link: [./conductor/tracks/dashboard_mvp_20251228/](./conductor/tracks/dashboard_mvp_20251228/)*

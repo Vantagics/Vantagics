@@ -13,8 +13,10 @@ Goal: Set up the backend structure to serve data and establish the frontend scaf
 
 ## Phase 2: Core Dashboard UI
 Goal: Build the visual structure of the dashboard.
+- [Note: Added Vitest and React Testing Library to tech stack for frontend testing (2025-12-28)]
+- [Note: Upgraded Vite to Latest to support Vitest (2025-12-28)]
 
-- [ ] Task: Frontend - Dashboard Layout Component
+- [~] Task: Frontend - Dashboard Layout Component
     - [ ] Write Tests: Verify Layout renders children and has basic Tailwind classes
     - [ ] Implement: Create `DashboardLayout.tsx` with a responsive grid
 - [ ] Task: Frontend - Metric Card Component
