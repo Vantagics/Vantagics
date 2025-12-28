@@ -34,7 +34,7 @@ Goal: Enable the LLM to return UI widgets and action buttons.
     - [ ] Implement: Connect the frontend input to the backend LLM service and display results
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Visual Insights & Contextual Actions' (Protocol in workflow.md)
 
-## Phase 4: Configuration & Polishing
+## Phase 4: Configuration & Polishing [checkpoint: e060a2f]
 Goal: Allow user to configure API keys and refine the UX.
 
 - [x] Task: Frontend - Provider & API Key Settings (461264e)
