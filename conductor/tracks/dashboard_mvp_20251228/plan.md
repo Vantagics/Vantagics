@@ -36,7 +36,7 @@ Goal: Connect the UI to the backend and display automated insights.
     - [ ] Implement: Fetch data from Go backend and populate the dashboard components
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Smart Insights & Data Integration' (Protocol in workflow.md)
 
-## Phase 4: Final Polishing & Verification
+## Phase 4: Final Polishing & Verification [checkpoint: d4b4106]
 Goal: Ensure the MVP meets all guidelines and is ready for review.
 
 - [x] Task: UI/UX - Apply Final Styling & Animations (9fccd62)
