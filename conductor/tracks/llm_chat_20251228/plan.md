@@ -2,11 +2,12 @@
 
 ## Phase 1: Sidebar Infrastructure & UI Scaffolding
 Goal: Create the visual container for the chat and the message components.
+- [Note: Added React Markdown to tech stack for chat rendering (2025-12-28)]
 
 - [x] Task: Frontend - Chat Sidebar Component (4bb0a49)
     - [ ] Write Tests: Verify sidebar toggles visibility and renders correctly
     - [ ] Implement: Create `ChatSidebar.tsx` with toggle logic
-- [ ] Task: Frontend - Message Bubble Component
+- [~] Task: Frontend - Message Bubble Component
     - [ ] Write Tests: Verify Markdown rendering and different sender styles
     - [ ] Implement: Create `MessageBubble.tsx` with `react-markdown`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Sidebar Infrastructure & UI Scaffolding' (Protocol in workflow.md)
