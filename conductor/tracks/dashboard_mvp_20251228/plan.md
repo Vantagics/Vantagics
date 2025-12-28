@@ -16,7 +16,7 @@ Goal: Build the visual structure of the dashboard.
 - [Note: Added Vitest and React Testing Library to tech stack for frontend testing (2025-12-28)]
 - [Note: Upgraded Vite to Latest to support Vitest (2025-12-28)]
 
-- [~] Task: Frontend - Dashboard Layout Component
+- [x] Task: Frontend - Dashboard Layout Component (338c335)
     - [ ] Write Tests: Verify Layout renders children and has basic Tailwind classes
     - [ ] Implement: Create `DashboardLayout.tsx` with a responsive grid
 - [ ] Task: Frontend - Metric Card Component
