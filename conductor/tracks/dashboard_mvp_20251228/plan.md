@@ -24,7 +24,7 @@ Goal: Build the visual structure of the dashboard.
     - [ ] Implement: Create `MetricCard.tsx` with approachable styling
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Dashboard UI' (Protocol in workflow.md)
 
-## Phase 3: Smart Insights & Data Integration
+## Phase 3: Smart Insights & Data Integration [checkpoint: d715ea5]
 Goal: Connect the UI to the backend and display automated insights.
 - [Note: Added Lucide React to tech stack for icons (2025-12-28)]
 
