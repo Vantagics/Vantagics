@@ -22,7 +22,7 @@ Goal: Provide a custom menu if native menus are still blocked by Wails/WebKit on
     - [ ] Implement: Hook inputs to the custom context menu logic
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Custom Fallback Context Menu' (Protocol in workflow.md)
 
-## Phase 3: Final Verification & Cleanup
+## Phase 3: Final Verification & Cleanup [checkpoint: ed5ce4c]
 Goal: Ensure the behavior is consistent and bug-free across the app.
 
 - [x] Task: Integration - Verify all app inputs (7916937)
