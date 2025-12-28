@@ -73,8 +73,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">LLM Model Configuration</h3>
                                 <div className="grid gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Provider Type</label>
+                                        <label htmlFor="llmProvider" className="block text-sm font-medium text-slate-700 mb-1">Provider Type</label>
                                         <select 
+                                            id="llmProvider"
                                             value={config.llmProvider}
                                             onChange={(e) => setConfig({...config, llmProvider: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
@@ -86,8 +87,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     
                                     {!isAnthropic && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">API Base URL (Optional)</label>
+                                            <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">API Base URL (Optional)</label>
                                             <input 
+                                                id="baseUrl"
                                                 type="text" 
                                                 value={config.baseUrl}
                                                 onChange={(e) => setConfig({...config, baseUrl: e.target.value})}
@@ -99,8 +101,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     )}
 
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
+                                        <label htmlFor="apiKey" className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
                                         <input 
+                                            id="apiKey"
                                             type="password" 
                                             value={config.apiKey}
                                             onChange={(e) => setConfig({...config, apiKey: e.target.value})}
@@ -109,8 +112,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Model Name</label>
+                                        <label htmlFor="modelName" className="block text-sm font-medium text-slate-700 mb-1">Model Name</label>
                                         <input 
+                                            id="modelName"
                                             type="text" 
                                             value={config.modelName}
                                             onChange={(e) => setConfig({...config, modelName: e.target.value})}
@@ -119,8 +123,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
+                                        <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
                                         <input 
+                                            id="maxTokens"
                                             type="number" 
                                             value={config.maxTokens}
                                             onChange={(e) => setConfig({...config, maxTokens: parseInt(e.target.value) || 0})}
