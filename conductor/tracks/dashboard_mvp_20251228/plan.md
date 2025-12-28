@@ -19,7 +19,7 @@ Goal: Build the visual structure of the dashboard.
 - [x] Task: Frontend - Dashboard Layout Component (338c335)
     - [ ] Write Tests: Verify Layout renders children and has basic Tailwind classes
     - [ ] Implement: Create `DashboardLayout.tsx` with a responsive grid
-- [ ] Task: Frontend - Metric Card Component
+- [x] Task: Frontend - Metric Card Component (3a682c4)
     - [ ] Write Tests: Verify `MetricCard` displays title and value correctly
     - [ ] Implement: Create `MetricCard.tsx` with approachable styling
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Core Dashboard UI' (Protocol in workflow.md)
