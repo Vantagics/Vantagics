@@ -6,7 +6,7 @@ Goal: Set up the backend structure to serve data and establish the frontend scaf
 - [x] Task: Backend - Define Data Structures in Go (901d880)
     - [ ] Write Tests: Define expected JSON structure for Dashboard Data
     - [ ] Implement: Create Go structs for metrics and insights in `app.go`
-- [ ] Task: Backend - Implement Mock Data Provider
+- [x] Task: Backend - Implement Mock Data Provider (b83f22a)
     - [ ] Write Tests: Verify `GetDashboardData` returns expected mock values
     - [ ] Implement: Add `GetDashboardData` method to `App` struct
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Project Foundation & Mock Data Service' (Protocol in workflow.md)
