@@ -12,7 +12,7 @@ Goal: Create the visual container for the chat and the message components.
     - [ ] Implement: Create `MessageBubble.tsx` with `react-markdown`
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Sidebar Infrastructure & UI Scaffolding' (Protocol in workflow.md)
 
-## Phase 2: LLM Service Integration (Backend)
+## Phase 2: LLM Service Integration (Backend) [checkpoint: f60e1ac]
 Goal: Implement the communication layer with OpenAI and Anthropic.
 
 - [x] Task: Backend - LLM Client Factory (36b860d)
