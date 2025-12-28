@@ -99,12 +99,90 @@ describe('App Integration', () => {
         
         
         
-                expect(screen.getByRole('menu')).toBeInTheDocument();
+                        expect(screen.getByRole('menu')).toBeInTheDocument();
         
-                expect(screen.getByText('Paste')).toBeInTheDocument();
         
-            });
         
-        });
+                        expect(screen.getByText('Paste')).toBeInTheDocument();
+        
+        
+        
+                    });
+        
+        
+        
+                
+        
+        
+        
+                    it('shows custom context menu on right-click of chat input', async () => {
+        
+        
+        
+                        (AppBindings.GetConfig as any).mockResolvedValue({});
+        
+        
+        
+                        (AppBindings.GetDashboardData as any).mockResolvedValue({ metrics: [], insights: [] });
+        
+        
+        
+                
+        
+        
+        
+                        render(<App />);
+        
+        
+        
+                
+        
+        
+        
+                        // Toggle chat to see input
+        
+        
+        
+                        const chatToggle = screen.getByLabelText('Toggle chat');
+        
+        
+        
+                        fireEvent.click(chatToggle);
+        
+        
+        
+                
+        
+        
+        
+                        const chatInput = screen.getByPlaceholderText('Type a message...');
+        
+        
+        
+                        fireEvent.contextMenu(chatInput, { clientX: 200, clientY: 200 });
+        
+        
+        
+                
+        
+        
+        
+                        expect(screen.getByRole('menu')).toBeInTheDocument();
+        
+        
+        
+                        expect(screen.getByText('Select All')).toBeInTheDocument();
+        
+        
+        
+                    });
+        
+        
+        
+                });
+        
+        
+        
+                
         
         
