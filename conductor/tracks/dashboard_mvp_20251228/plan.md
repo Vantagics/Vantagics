@@ -3,7 +3,7 @@
 ## Phase 1: Project Foundation & Mock Data Service
 Goal: Set up the backend structure to serve data and establish the frontend scaffolding.
 
-- [ ] Task: Backend - Define Data Structures in Go
+- [x] Task: Backend - Define Data Structures in Go (901d880)
     - [ ] Write Tests: Define expected JSON structure for Dashboard Data
     - [ ] Implement: Create Go structs for metrics and insights in `app.go`
 - [ ] Task: Backend - Implement Mock Data Provider
