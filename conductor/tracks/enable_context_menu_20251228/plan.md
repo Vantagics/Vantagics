@@ -1,6 +1,6 @@
 # Track Plan: Enable Context Menu for Inputs
 
-## Phase 1: Enable Native Context Menu
+## Phase 1: Enable Native Context Menu [checkpoint: b430c6b]
 Goal: Unblock the standard system context menu for editable elements.
 
 - [x] Task: CSS - Allow Text Selection in Inputs (2b5d97d)
