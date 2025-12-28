@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import App from './App';
 import * as AppBindings from '../wailsjs/go/main/App';
 import { vi } from 'vitest';
@@ -9,6 +9,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
     GetConfig: vi.fn(),
     Greet: vi.fn(),
     SaveConfig: vi.fn(),
+    SendMessage: vi.fn(),
 }));
 
 // Mock the runtime
@@ -16,7 +17,7 @@ vi.mock('../wailsjs/runtime/runtime', () => ({
     EventsOn: vi.fn(() => () => {}),
 }));
 
-describe('App Dashboard Integration', () => {
+describe('App Integration', () => {
     it('fetches and displays dashboard data on mount', async () => {
         const mockData = {
             metrics: [
@@ -36,6 +37,30 @@ describe('App Dashboard Integration', () => {
             expect(screen.getByText('Total Sales')).toBeInTheDocument();
             expect(screen.getByText('$10,000')).toBeInTheDocument();
             expect(screen.getByText('Great progress!')).toBeInTheDocument();
+        });
+    });
+
+    it('handles chat message flow', async () => {
+        (AppBindings.SendMessage as any).mockResolvedValue("Hello! I am your AI assistant.");
+        (AppBindings.GetConfig as any).mockResolvedValue({});
+        (AppBindings.GetDashboardData as any).mockResolvedValue({ metrics: [], insights: [] });
+
+        render(<App />);
+
+        // Assuming there will be a "Chat" button
+        const chatToggle = screen.getByLabelText('Toggle chat');
+        fireEvent.click(chatToggle);
+
+        const input = screen.getByPlaceholderText('Type a message...');
+        const sendButton = screen.getByLabelText('Send message');
+
+        fireEvent.change(input, { target: { value: 'How is business?' } });
+        fireEvent.click(sendButton);
+
+        expect(screen.getByText('How is business?')).toBeInTheDocument();
+        
+        await waitFor(() => {
+            expect(screen.getByText('Hello! I am your AI assistant.')).toBeInTheDocument();
         });
     });
 });

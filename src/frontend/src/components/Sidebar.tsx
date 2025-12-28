@@ -2,9 +2,10 @@ import React from 'react';
 
 interface SidebarProps {
     onOpenSettings: () => void;
+    onToggleChat: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
     const dataSources = [
         { id: 1, name: 'Sales DB (PostgreSQL)', type: 'SQL' },
         { id: 2, name: 'User Logs (Mongo)', type: 'NoSQL' },
@@ -31,6 +32,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings }) => {
                 </ul>
             </div>
             <div className="p-4 border-t border-slate-200 flex flex-col gap-2">
+                <button 
+                    onClick={onToggleChat}
+                    aria-label="Toggle chat"
+                    className="w-full py-2 px-4 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                    <span>💬</span> Chat Analysis
+                </button>
                 <button className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">
                     + Add Source
                 </button>
