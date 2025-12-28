@@ -31,7 +31,7 @@ Goal: Connect the UI to the backend and display automated insights.
 - [x] Task: Frontend - Smart Insight Component (8831cc0)
     - [ ] Write Tests: Verify `SmartInsight` renders the insight text and an icon
     - [ ] Implement: Create `SmartInsight.tsx` following the visual richness guideline
-- [ ] Task: Frontend - Integrate Backend Data
+- [x] Task: Frontend - Integrate Backend Data (59fba1e)
     - [ ] Write Tests: Mock Wails runtime and verify data fetching logic
     - [ ] Implement: Fetch data from Go backend and populate the dashboard components
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Smart Insights & Data Integration' (Protocol in workflow.md)
