@@ -148,3 +148,14 @@ func (a *App) GetDashboardData() DashboardData {
 		},
 	}
 }
+
+// SendMessage sends a message to the LLM and returns the response
+func (a *App) SendMessage(message string) (string, error) {
+	config, err := a.GetConfig()
+	if err != nil {
+		return "", err
+	}
+
+	llm := NewLLMService(config)
+	return llm.Chat(a.ctx, message)
+}

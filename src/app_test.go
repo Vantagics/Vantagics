@@ -52,3 +52,15 @@ func TestGetDashboardData(t *testing.T) {
 		t.Error("Expected insights to be populated")
 	}
 }
+
+func TestSendMessage(t *testing.T) {
+	app := NewApp()
+	// This will fail because SendMessage is not defined or will return an error due to missing API key
+	resp, err := app.SendMessage("Hello")
+	if err != nil {
+		// If we expect it to return a prompt to set API key, that's fine
+		if resp != "Please set your API key in settings." {
+			t.Errorf("Unexpected response: %s", resp)
+		}
+	}
+}
