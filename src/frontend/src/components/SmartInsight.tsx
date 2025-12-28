@@ -18,8 +18,8 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon }) => {
     const IconComponent = iconMap[icon] || iconMap['info'];
 
     return (
-        <div className="bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200">
-            <div className="insight-icon bg-slate-50 p-2 rounded-lg shrink-0">
+        <div className="bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50">
+            <div className="insight-icon bg-gradient-to-br from-slate-50 to-slate-100 p-2 rounded-lg shrink-0 shadow-inner">
                 {IconComponent}
             </div>
             <p className="text-slate-700 text-sm leading-relaxed pt-1">
