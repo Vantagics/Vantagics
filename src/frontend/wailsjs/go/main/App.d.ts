@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function GetConfig():Promise<main.Config>;
 
+export function GetDashboardData():Promise<main.DashboardData>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
