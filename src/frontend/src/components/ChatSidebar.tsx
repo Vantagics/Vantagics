@@ -9,10 +9,18 @@ interface ChatSidebarProps {
 
 const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen = false, onClose, children }) => {
     return (
-        <div 
-            data-testid="chat-sidebar"
-            className={`fixed inset-y-0 right-0 w-96 bg-white border-l border-slate-200 shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-        >
+        <>
+            {/* Backdrop */}
+            <div 
+                className={`fixed inset-0 bg-slate-900/20 backdrop-blur-[2px] transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+                onClick={onClose}
+            />
+            
+            {/* Sidebar */}
+            <div 
+                data-testid="chat-sidebar"
+                className={`fixed inset-y-0 right-0 w-[450px] bg-white border-l border-slate-200 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+            >
             <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-slate-50/50 backdrop-blur-sm">
                 <div className="flex items-center gap-2 text-slate-700">
                     <MessageSquare className="w-5 h-5" />
@@ -29,8 +37,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen = false, onClose, chil
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-slate-50/30">
                 {children}
             </div>
-        </div>
-    );
-};
-
-export default ChatSidebar;
+                    </div>
+                </>
+            );
+        };
+        export default ChatSidebar;
