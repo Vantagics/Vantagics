@@ -28,7 +28,7 @@ Goal: Build the visual structure of the dashboard.
 Goal: Connect the UI to the backend and display automated insights.
 - [Note: Added Lucide React to tech stack for icons (2025-12-28)]
 
-- [~] Task: Frontend - Smart Insight Component
+- [x] Task: Frontend - Smart Insight Component (8831cc0)
     - [ ] Write Tests: Verify `SmartInsight` renders the insight text and an icon
     - [ ] Implement: Create `SmartInsight.tsx` following the visual richness guideline
 - [ ] Task: Frontend - Integrate Backend Data
