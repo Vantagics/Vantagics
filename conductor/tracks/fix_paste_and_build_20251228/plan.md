@@ -6,7 +6,7 @@ Goal: Ensure the custom context menu works correctly and doesn't trigger the bro
 - [x] Task: JS - Prevent Native Menu during Custom Menu interaction (b0e5e79)
     - [ ] Write Tests: Verify `contextmenu` events on custom menu items are prevented
     - [ ] Implement: Add `e.preventDefault()` and `e.stopPropagation()` to `ContextMenu` buttons
-- [ ] Task: Frontend - Reliable Paste using Wails Runtime
+- [x] Task: Frontend - Reliable Paste using Wails Runtime (f6ddc90)
     - [ ] Write Tests: Mock Wails Clipboard API and verify paste logic in `ContextMenu`
     - [ ] Implement: Update `handleAction('paste')` to use `window.runtime.ClipboardGetText()` (or similar)
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Fix Context Menu & Paste logic' (Protocol in workflow.md)
