@@ -23,7 +23,7 @@ Goal: Implement the communication layer with OpenAI and Anthropic.
     - [ ] Implement: Add `SendMessage` to `app.go`
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: LLM Service Integration (Backend)' (Protocol in workflow.md)
 
-## Phase 3: Visual Insights & Contextual Actions
+## Phase 3: Visual Insights & Contextual Actions [checkpoint: 2e073c2]
 Goal: Enable the LLM to return UI widgets and action buttons.
 
 - [x] Task: Frontend - Insight & Action Handlers (c24dbbc)
