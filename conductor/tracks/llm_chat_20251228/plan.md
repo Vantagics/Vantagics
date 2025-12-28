@@ -18,7 +18,7 @@ Goal: Implement the communication layer with OpenAI and Anthropic.
 - [x] Task: Backend - LLM Client Factory (36b860d)
     - [ ] Write Tests: Verify switching between providers and correct API calls (mocked)
     - [ ] Implement: Create LLM client logic in `llm_service.go`
-- [ ] Task: Backend - Chat Handler in App
+- [x] Task: Backend - Chat Handler in App (efbe739)
     - [ ] Write Tests: Verify `SendMessage` Wails method returns response
     - [ ] Implement: Add `SendMessage` to `app.go`
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: LLM Service Integration (Backend)' (Protocol in workflow.md)
