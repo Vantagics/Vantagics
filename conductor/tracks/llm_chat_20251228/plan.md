@@ -37,7 +37,7 @@ Goal: Enable the LLM to return UI widgets and action buttons.
 ## Phase 4: Configuration & Polishing
 Goal: Allow user to configure API keys and refine the UX.
 
-- [ ] Task: Frontend - Provider & API Key Settings
+- [x] Task: Frontend - Provider & API Key Settings (461264e)
     - [ ] Write Tests: Verify API key saving and provider selection updates state
     - [ ] Implement: Update `PreferenceModal.tsx` with LLM settings
 - [ ] Task: UI/UX - Final Polish & Transitions
