@@ -1,6 +1,6 @@
 # Track Plan: LLM-Based Chat Interface
 
-## Phase 1: Sidebar Infrastructure & UI Scaffolding
+## Phase 1: Sidebar Infrastructure & UI Scaffolding [checkpoint: af80de0]
 Goal: Create the visual container for the chat and the message components.
 - [Note: Added React Markdown to tech stack for chat rendering (2025-12-28)]
 
