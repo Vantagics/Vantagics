@@ -14,7 +14,7 @@ Goal: Unblock the standard system context menu for editable elements.
 ## Phase 2: Custom Fallback Context Menu (Optional/Contingency)
 Goal: Provide a custom menu if native menus are still blocked by Wails/WebKit on macOS.
 
-- [ ] Task: Frontend - Custom Context Menu Component
+- [x] Task: Frontend - Custom Context Menu Component (ac37274)
     - [ ] Write Tests: Verify menu renders at cursor position and has Copy/Paste/Select All
     - [ ] Implement: Create `ContextMenu.tsx` and integrate into a global provider or wrapper
 - [ ] Task: UI/UX - Integrate Custom Menu with Inputs
