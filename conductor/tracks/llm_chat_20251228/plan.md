@@ -26,10 +26,10 @@ Goal: Implement the communication layer with OpenAI and Anthropic.
 ## Phase 3: Visual Insights & Contextual Actions
 Goal: Enable the LLM to return UI widgets and action buttons.
 
-- [ ] Task: Frontend - Insight & Action Handlers
+- [x] Task: Frontend - Insight & Action Handlers (c24dbbc)
     - [ ] Write Tests: Verify components render based on specific JSON payloads in messages
     - [ ] Implement: Update `MessageBubble.tsx` to handle `visual_insight` and `actions` types
-- [ ] Task: Integration - Chat Data Analysis Flow
+- [x] Task: Integration - Chat Data Analysis Flow (7a5cf73)
     - [ ] Write Tests: Mock full end-to-end flow from input to visual result
     - [ ] Implement: Connect the frontend input to the backend LLM service and display results
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Visual Insights & Contextual Actions' (Protocol in workflow.md)
