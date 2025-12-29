@@ -11,7 +11,7 @@ Goal: Ensure the custom context menu works correctly and doesn't trigger the bro
     - [ ] Implement: Update `handleAction('paste')` to use `window.runtime.ClipboardGetText()` (or similar)
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Fix Context Menu & Paste logic' (Protocol in workflow.md)
 
-## Phase 2: Workflow Automation
+## Phase 2: Workflow Automation [checkpoint: b2e3b8e]
 Goal: Update the project workflow to include mandatory build verification.
 
 - [x] Task: Conductor - Update Workflow File (fe4d7c5)
