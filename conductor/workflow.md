@@ -140,6 +140,7 @@ Before marking any task complete, verify:
 
 - [ ] All tests pass
 - [ ] Code coverage meets requirements (>80%)
+- [ ] Application builds successfully (`npm run build` and `go build`)
 - [ ] Code follows project's code style guidelines (as defined in `code_styleguides/`)
 - [ ] All public functions/methods are documented (e.g., docstrings, JSDoc, GoDoc)
 - [ ] Type safety is enforced (e.g., type hints, TypeScript types, Go types)
@@ -161,9 +162,17 @@ Before marking any task complete, verify:
 
 ### Daily Development
 ```bash
-# Example: Commands for common daily tasks (e.g., start dev server, run tests, lint, format)
-# e.g., for a Node.js project: npm run dev, npm test, npm run lint
-# e.g., for a Go project: go run main.go, go test ./..., go fmt ./...
+# Frontend
+cd src/frontend && npm run dev
+# Backend (requires frontend build)
+cd src && go run .
+```
+
+### Build and Package
+```bash
+# Full Build (Frontend then Backend)
+cd src/frontend && npm run build
+cd src && CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o ../RapidBI.app/Contents/MacOS/RapidBI
 ```
 
 ### Before Committing
@@ -267,7 +276,8 @@ A task is complete when:
 1. All code implemented to specification
 2. Unit tests written and passing
 3. Code coverage meets project requirements
-4. Documentation complete (if applicable)
+4. Application builds successfully (Frontend + Backend)
+5. Documentation complete (if applicable)
 5. Code passes all configured linting and static analysis checks
 6. Works beautifully on mobile (if applicable)
 7. Implementation notes added to `plan.md`
