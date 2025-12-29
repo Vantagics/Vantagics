@@ -1,6 +1,6 @@
 # Track Plan: Fix Paste Functionality & Build Automation
 
-## Phase 1: Fix Context Menu & Paste logic
+## Phase 1: Fix Context Menu & Paste logic [checkpoint: 94b2249]
 Goal: Ensure the custom context menu works correctly and doesn't trigger the browser menu.
 
 - [x] Task: JS - Prevent Native Menu during Custom Menu interaction (b0e5e79)
