@@ -7,12 +7,12 @@
 - [x] Task: Unit tests for `ChatService` and `LLMService`. c451379
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Persistence & Backend Services' (Protocol in workflow.md) (6115136)
 
-## Phase 2: Configuration & Settings UI
+## Phase 2: Configuration & Settings UI [checkpoint: c605d46]
 - [x] Task: Update `PreferenceModal.tsx` to include fields for OpenAI-compatible base URL. 62e6cbf
 - [x] Task: Add validation for API keys and URLs in the Settings UI. 62e6cbf
 - [x] Task: Implement "Test Connection" button in Settings. 62e6cbf
 - [x] Task: Unit tests for updated `PreferenceModal`. 62e6cbf
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Configuration & Settings UI' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Configuration & Settings UI' (Protocol in workflow.md) (c605d46)
 
 ## Phase 3: Enhanced Chat Interface
 - [ ] Task: Implement multi-thread sidebar in `ChatArea.tsx` or a new `ChatSidebar.tsx`.
