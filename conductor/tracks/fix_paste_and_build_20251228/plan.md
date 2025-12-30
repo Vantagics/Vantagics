@@ -19,10 +19,10 @@ Goal: Update the project workflow to include mandatory build verification.
     - [ ] Implement: Add build commands to the "Standard Task Workflow" and "Quality Gates" in `workflow.md`
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Workflow Automation' (Protocol in workflow.md)
 
-## Phase 3: Final Verification
+## Phase 3: Final Verification [checkpoint: b2d64d1]
 Goal: Confirm both fixes work end-to-end.
 
 - [x] Task: Integration - Verify Paste and Build (e86ea35)
     - [x] Write Tests: regression test for input paste
     - [x] Implement: Final full build and manual paste check
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Final Verification' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Final Verification' (Protocol in workflow.md) (b2d64d1)
