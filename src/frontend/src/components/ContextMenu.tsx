@@ -49,11 +49,25 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ position, onClose, target }) 
                         const start = target.selectionStart || 0;
                         const end = target.selectionEnd || 0;
                         const value = target.value;
-                        target.value = value.substring(0, start) + text + value.substring(end);
-                        // Update cursor position
-                        target.selectionStart = target.selectionEnd = start + text.length;
+                        const newValue = value.substring(0, start) + text + value.substring(end);
+                        
+                        // Set value using native setter to trigger React's change detection
+                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                        const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+
+                        if (target instanceof HTMLInputElement && nativeInputValueSetter) {
+                            nativeInputValueSetter.call(target, newValue);
+                        } else if (target instanceof HTMLTextAreaElement && nativeTextAreaValueSetter) {
+                            nativeTextAreaValueSetter.call(target, newValue);
+                        } else {
+                            target.value = newValue;
+                        }
+
                         // Trigger change event so React state updates
                         target.dispatchEvent(new Event('input', { bubbles: true }));
+
+                        // Update cursor position
+                        target.selectionStart = target.selectionEnd = start + text.length;
                     }
                 } catch (err) {
                     console.error('Failed to paste:', err);

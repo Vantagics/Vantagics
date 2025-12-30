@@ -1,0 +1,8 @@
+{
+  "track_id": "llm_chat_persistence_20251231",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2025-12-31T04:35:00Z",
+  "updated_at": "2025-12-31T04:35:00Z",
+  "description": "Connect to a LLM with the set parameters (like url, apikey etc.), finish the chat feature."
+}

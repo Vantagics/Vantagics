@@ -26,7 +26,6 @@ export namespace main {
 	        this.language = source["language"];
 	    }
 	}
-
 	export class Insight {
 	    text: string;
 	    icon: string;
@@ -71,22 +70,25 @@ export namespace main {
 	        this.insights = this.convertValues(source["insights"], Insight);
 	    }
 	
-		private convertValues(a: any, classs: any, asMap: boolean = false): any {
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
 		    }
-		    if (a.slice) {
+		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if (asMap) {
-		        let result: any = {};
-		        Object.keys(a).forEach(key => {
-		            result[key] = this.convertValues(a[key], classs);
-		        });
-		        return result;
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
 		    }
-		    return classs.createFrom(a);
+		    return a;
 		}
 	}
+	
 
 }
 
