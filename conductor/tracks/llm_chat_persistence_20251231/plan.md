@@ -1,11 +1,11 @@
 # Plan: LLM Chat Integration
 
-## Phase 1: Persistence & Backend Services
+## Phase 1: Persistence & Backend Services [checkpoint: 6115136]
 - [x] Task: Create `ChatService` in Go to handle persistence (Load/Save history). c848a27
 - [x] Task: Implement `DeleteThread` and `ClearHistory` in `App.go`. d9af5c3
 - [x] Task: Update `LLMService` to support OpenAI-compatible base URL and Anthropic protocol. c451379
 - [x] Task: Unit tests for `ChatService` and `LLMService`. c451379
-- [ ] Task: Conductor - User Manual Verification 'Phase 1: Persistence & Backend Services' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Persistence & Backend Services' (Protocol in workflow.md) (6115136)
 
 ## Phase 2: Configuration & Settings UI
 - [ ] Task: Update `PreferenceModal.tsx` to include fields for OpenAI-compatible base URL.
