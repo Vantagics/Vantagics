@@ -41,7 +41,8 @@ type DashboardData struct {
 
 // App struct
 type App struct {
-	ctx context.Context
+	ctx         context.Context
+	chatService *ChatService
 }
 
 // NewApp creates a new App application struct
@@ -60,6 +61,8 @@ func (a *App) startup(ctx context.Context) {
 	path, _ := a.getStorageDir()
 	if path != "" {
 		_ = os.MkdirAll(path, 0755)
+		chatPath := filepath.Join(path, "chat_history.json")
+		a.chatService = NewChatService(chatPath)
 	}
 }
 
@@ -158,4 +161,36 @@ func (a *App) SendMessage(message string) (string, error) {
 
 	llm := NewLLMService(config)
 	return llm.Chat(a.ctx, message)
+}
+
+// GetChatHistory loads the chat history
+func (a *App) GetChatHistory() ([]ChatThread, error) {
+	if a.chatService == nil {
+		return nil, fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.LoadThreads()
+}
+
+// SaveChatHistory saves the chat history
+func (a *App) SaveChatHistory(threads []ChatThread) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.SaveThreads(threads)
+}
+
+// DeleteThread deletes a specific chat thread
+func (a *App) DeleteThread(threadID string) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.DeleteThread(threadID)
+}
+
+// ClearHistory clears all chat history
+func (a *App) ClearHistory() error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.ClearHistory()
 }
