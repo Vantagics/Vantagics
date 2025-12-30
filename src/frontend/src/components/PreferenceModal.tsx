@@ -149,6 +149,17 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
                                         />
                                     </div>
+
+                                    <div>
+                                        <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
+                                        <input 
+                                            id="maxTokens"
+                                            type="number" 
+                                            value={config.maxTokens}
+                                            onChange={(e) => setConfig({...config, maxTokens: parseInt(e.target.value) || 0})}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        />
+                                    </div>
                                     
                                     <div className="pt-2 flex items-center gap-4">
                                         <button 
@@ -168,19 +179,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 {testResult.success ? '✓ Connection successful!' : `✗ ${testResult.message}`}
                                             </div>
                                         )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                                    <div>
-                                        <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
-                                        <input 
-                                            id="maxTokens"
-                                            type="number" 
-                                            value={config.maxTokens}
-                                            onChange={(e) => setConfig({...config, maxTokens: parseInt(e.target.value) || 0})}
-                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        />
                                     </div>
                                 </div>
                             </div>
