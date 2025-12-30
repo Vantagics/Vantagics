@@ -15,11 +15,11 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Configuration & Settings UI' (Protocol in workflow.md) (c605d46)
 
 ## Phase 3: Enhanced Chat Interface
-- [ ] Task: Implement multi-thread sidebar in `ChatArea.tsx` or a new `ChatSidebar.tsx`.
-- [ ] Task: Add "New Chat" and "Clear Chat" functionality.
-- [ ] Task: Integrate `react-markdown` and `syntax-highlighter` for Markdown rendering.
-- [ ] Task: Add loading indicators (typing state) during API calls.
-- [ ] Task: Unit tests for `ChatArea` and Markdown rendering.
+- [x] Task: Implement multi-thread sidebar in `ChatArea.tsx` or a new `ChatSidebar.tsx`. 0db466b
+- [x] Task: Add "New Chat" and "Clear Chat" functionality. 0db466b
+- [x] Task: Integrate `react-markdown` and `syntax-highlighter` for Markdown rendering. 0db466b
+- [x] Task: Add loading indicators (typing state) during API calls. 0db466b
+- [x] Task: Unit tests for `ChatArea` and Markdown rendering. 0db466b
 - [ ] Task: Conductor - User Manual Verification 'Phase 3: Enhanced Chat Interface' (Protocol in workflow.md)
 
 ## Phase 4: Integration & Polishing
