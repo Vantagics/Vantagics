@@ -8,10 +8,10 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Persistence & Backend Services' (Protocol in workflow.md) (6115136)
 
 ## Phase 2: Configuration & Settings UI
-- [ ] Task: Update `PreferenceModal.tsx` to include fields for OpenAI-compatible base URL.
-- [ ] Task: Add validation for API keys and URLs in the Settings UI.
-- [ ] Task: Implement "Test Connection" button in Settings.
-- [ ] Task: Unit tests for updated `PreferenceModal`.
+- [x] Task: Update `PreferenceModal.tsx` to include fields for OpenAI-compatible base URL. 62e6cbf
+- [x] Task: Add validation for API keys and URLs in the Settings UI. 62e6cbf
+- [x] Task: Implement "Test Connection" button in Settings. 62e6cbf
+- [x] Task: Unit tests for updated `PreferenceModal`. 62e6cbf
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Configuration & Settings UI' (Protocol in workflow.md)
 
 ## Phase 3: Enhanced Chat Interface
