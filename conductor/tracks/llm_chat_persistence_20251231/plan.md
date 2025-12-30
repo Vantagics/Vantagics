@@ -3,8 +3,8 @@
 ## Phase 1: Persistence & Backend Services
 - [x] Task: Create `ChatService` in Go to handle persistence (Load/Save history). c848a27
 - [x] Task: Implement `DeleteThread` and `ClearHistory` in `App.go`. d9af5c3
-- [ ] Task: Update `LLMService` to support OpenAI-compatible base URL and Anthropic protocol.
-- [ ] Task: Unit tests for `ChatService` and `LLMService`.
+- [x] Task: Update `LLMService` to support OpenAI-compatible base URL and Anthropic protocol. c451379
+- [x] Task: Unit tests for `ChatService` and `LLMService`. c451379
 - [ ] Task: Conductor - User Manual Verification 'Phase 1: Persistence & Backend Services' (Protocol in workflow.md)
 
 ## Phase 2: Configuration & Settings UI
