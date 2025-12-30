@@ -139,6 +139,37 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
+// ConnectionResult represents the result of a connection test
+type ConnectionResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// TestLLMConnection tests the connection to an LLM provider
+func (a *App) TestLLMConnection(config Config) ConnectionResult {
+	llm := NewLLMService(config)
+	resp, err := llm.Chat(a.ctx, "test")
+	if err != nil {
+		return ConnectionResult{
+			Success: false,
+			Message: err.Error(),
+		}
+	}
+
+	// If it returns the "Please set your API key" message, it's a soft failure
+	if resp == "Please set your API key in settings." {
+		return ConnectionResult{
+			Success: false,
+			Message: "API key is missing",
+		}
+	}
+
+	return ConnectionResult{
+		Success: true,
+		Message: "Connection successful!",
+	}
+}
+
 // GetDashboardData returns mock data for the dashboard
 func (a *App) GetDashboardData() DashboardData {
 	return DashboardData{

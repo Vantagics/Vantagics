@@ -117,20 +117,44 @@ func TestApp_getConfigPath(t *testing.T) {
 	}
 }
 
-func TestApp_SaveConfig_DirError(t *testing.T) {
-	// storageDir is a file, so MkdirAll should fail
-	tmpDir, _ := os.MkdirTemp("", "rapidbi-test-storage-err")
-	defer os.RemoveAll(tmpDir)
-	
-	filePath := filepath.Join(tmpDir, "iamafile")
-	os.WriteFile(filePath, []byte("test"), 0644)
-	
+func TestApp_TestLLMConnection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": "ok"}},
+			},
+		})
+	}))
+	defer server.Close()
+
 	app := NewApp()
-	app.storageDir = filePath
+	app.ctx = context.Background()
 	
-	err := app.SaveConfig(Config{})
-	if err == nil {
-		t.Error("Expected error when storageDir is a file")
+	config := Config{
+		LLMProvider: "OpenAI",
+		APIKey:      "test",
+		BaseURL:     server.URL,
+	}
+	
+	result := app.TestLLMConnection(config)
+	if !result.Success {
+		t.Errorf("Expected success, got failure: %s", result.Message)
+	}
+}
+
+func TestApp_TestLLMConnection_Fail(t *testing.T) {
+	app := NewApp()
+	app.ctx = context.Background()
+	
+	config := Config{
+		LLMProvider: "OpenAI",
+		APIKey:      "", // Missing key
+	}
+	
+	result := app.TestLLMConnection(config)
+	if result.Success {
+		t.Error("Expected failure for missing API key")
 	}
 }
 

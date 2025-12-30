@@ -21,10 +21,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         localCache: true,
         language: 'English'
     });
+    const [isTesting, setIsTesting] = useState(false);
+    const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
 
     useEffect(() => {
         if (isOpen) {
             GetConfig().then(setConfig).catch(console.error);
+            setTestResult(null);
         }
     }, [isOpen]);
 
@@ -38,13 +41,28 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
+    const handleTestConnection = async () => {
+        setIsTesting(true);
+        setTestResult(null);
+        try {
+            // @ts-ignore - We will implement this in App.go
+            const result = await window.go.main.App.TestLLMConnection(config);
+            setTestResult(result);
+        } catch (err) {
+            setTestResult({success: false, message: String(err)});
+        } finally {
+            setIsTesting(false);
+        }
+    };
+
     if (!isOpen) return null;
 
     const isAnthropic = config.llmProvider === 'Anthropic';
+    const isOpenAICompatible = config.llmProvider === 'OpenAI-Compatible';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[800px] h-[600px] rounded-xl shadow-2xl flex overflow-hidden">
+            <div className="bg-white w-[800px] h-[600px] rounded-xl shadow-2xl flex overflow-hidden text-slate-900">
                 {/* Sidebar */}
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">Preferences</h2>
@@ -80,28 +98,37 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => setConfig({...config, llmProvider: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         >
-                                            <option value="OpenAI">OpenAI / Compatible (DeepSeek, Qwen, etc.)</option>
+                                            <option value="OpenAI">OpenAI</option>
                                             <option value="Anthropic">Anthropic (Claude)</option>
+                                            <option value="OpenAI-Compatible">OpenAI-Compatible (Local, DeepSeek, etc.)</option>
                                         </select>
                                     </div>
                                     
-                                    {!isAnthropic && (
+                                    {(isOpenAICompatible || config.llmProvider === 'OpenAI') && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                                            <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">API Base URL (Optional)</label>
+                                            <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">
+                                                API Base URL {config.llmProvider === 'OpenAI' ? '(Optional)' : ''}
+                                            </label>
                                             <input 
                                                 id="baseUrl"
                                                 type="text" 
                                                 value={config.baseUrl}
                                                 onChange={(e) => setConfig({...config, baseUrl: e.target.value})}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                placeholder="https://api.openai.com/v1"
+                                                placeholder={isOpenAICompatible ? "http://localhost:11434" : "https://api.openai.com/v1"}
                                             />
-                                            <p className="mt-1 text-[10px] text-slate-400 italic">Leave empty for official OpenAI API</p>
+                                            <p className="mt-1 text-[10px] text-slate-400 italic">
+                                                {isOpenAICompatible 
+                                                    ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)" 
+                                                    : "Leave empty for official OpenAI API"}
+                                            </p>
                                         </div>
                                     )}
 
                                     <div>
-                                        <label htmlFor="apiKey" className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
+                                        <label htmlFor="apiKey" className="block text-sm font-medium text-slate-700 mb-1">
+                                            API Key {isOpenAICompatible ? '(Optional)' : ''}
+                                        </label>
                                         <input 
                                             id="apiKey"
                                             type="password" 
@@ -119,9 +146,32 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             value={config.modelName}
                                             onChange={(e) => setConfig({...config, modelName: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : "gpt-4o"}
+                                            placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
                                         />
                                     </div>
+                                    
+                                    <div className="pt-2 flex items-center gap-4">
+                                        <button 
+                                            onClick={handleTestConnection}
+                                            disabled={isTesting}
+                                            className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors ${
+                                                isTesting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                            }`}
+                                        >
+                                            {isTesting ? 'Testing...' : 'Test Connection'}
+                                        </button>
+                                        
+                                        {testResult && (
+                                            <div className={`text-xs font-medium animate-in fade-in slide-in-from-left-1 ${
+                                                testResult.success ? 'text-green-600' : 'text-red-600'
+                                            }`}>
+                                                {testResult.success ? '✓ Connection successful!' : `✗ ${testResult.message}`}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                                     <div>
                                         <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
                                         <input 
