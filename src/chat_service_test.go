@@ -122,3 +122,52 @@ func TestChatService_ClearHistory(t *testing.T) {
 		t.Errorf("Expected 0 threads after clear, got %d", len(loadedThreads))
 	}
 }
+
+func TestChatService_LoadThreads_MissingFile(t *testing.T) {
+	service := NewChatService("non-existent-file.json")
+	threads, err := service.LoadThreads()
+	if err != nil {
+		t.Fatalf("LoadThreads should not fail for missing file: %v", err)
+	}
+	if len(threads) != 0 {
+		t.Errorf("Expected 0 threads for missing file, got %d", len(threads))
+	}
+}
+
+func TestChatService_LoadThreads_MalformedFile(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "rapidbi-test-malformed")
+	defer os.RemoveAll(tmpDir)
+	
+	path := filepath.Join(tmpDir, "malformed.json")
+	os.WriteFile(path, []byte("invalid json"), 0644)
+	
+	service := NewChatService(path)
+	_, err := service.LoadThreads()
+	if err == nil {
+		t.Error("Expected error for malformed JSON file")
+	}
+}
+
+func TestChatService_SaveThreads_MkdirError(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "rapidbi-test-mkdir-err")
+	defer os.RemoveAll(tmpDir)
+	
+	// Create a file where the directory should be
+	path := filepath.Join(tmpDir, "blocked-dir")
+	os.WriteFile(path, []byte("i am a file"), 0644)
+	
+	// Try to save a file inside that "file"
+	service := NewChatService(filepath.Join(path, "history.json"))
+	err := service.SaveThreads([]ChatThread{{ID: "1"}})
+	if err == nil {
+		t.Error("Expected error when MkdirAll fails")
+	}
+}
+
+func TestChatService_DeleteThread_MissingFile(t *testing.T) {
+	service := NewChatService("missing-file-for-delete.json")
+	err := service.DeleteThread("any-id")
+	if err != nil {
+		t.Errorf("DeleteThread should not fail if file is missing: %v", err)
+	}
+}

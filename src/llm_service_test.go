@@ -105,3 +105,131 @@ func TestLLMServiceChat_Anthropic(t *testing.T) {
 		t.Errorf("Expected mock response, got %s", resp)
 	}
 }
+
+func TestLLMServiceChat_OpenAICompatible(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]string{
+						"content": "Hello from mock Compatible",
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider: "OpenAI-Compatible",
+		APIKey:      "optional-key",
+		ModelName:   "local-model",
+		BaseURL:     server.URL,
+	}
+	service := NewLLMService(config)
+	
+	resp, err := service.Chat(context.Background(), "Hello")
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	
+	if resp != "Hello from mock Compatible" {
+		t.Errorf("Expected mock response, got %s", resp)
+	}
+}
+
+func TestLLMServiceChat_OpenAICompatible_BaseOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("Expected path /v1/chat/completions, got %s", r.URL.Path)
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]string{
+						"content": "Hello from base URL",
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider: "OpenAI-Compatible",
+		BaseURL:     server.URL, // No trailing path
+	}
+	service := NewLLMService(config)
+	
+	resp, err := service.Chat(context.Background(), "Hello")
+	if err != nil {
+		t.Fatalf("Chat failed: %v", err)
+	}
+	
+	if resp != "Hello from base URL" {
+		t.Errorf("Expected mock response, got %s", resp)
+	}
+}
+
+func TestLLMServiceChat_OpenAIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Bad Request"))
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider: "OpenAI",
+		APIKey:      "test-key",
+		BaseURL:     server.URL,
+	}
+	service := NewLLMService(config)
+	
+	_, err := service.Chat(context.Background(), "Hello")
+	if err == nil {
+		t.Error("Expected error for non-200 status")
+	}
+}
+
+func TestLLMServiceChat_AnthropicError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Unauthorized"))
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider: "Anthropic",
+		APIKey:      "test-key",
+		BaseURL:     server.URL,
+	}
+	service := NewLLMService(config)
+	
+	_, err := service.Chat(context.Background(), "Hello")
+	if err == nil {
+		t.Error("Expected error for non-200 status")
+	}
+}
+
+func TestLLMServiceChat_MalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{invalid json}"))
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider: "OpenAI",
+		APIKey:      "test-key",
+		BaseURL:     server.URL,
+	}
+	service := NewLLMService(config)
+	
+	_, err := service.Chat(context.Background(), "Hello")
+	if err == nil {
+		t.Error("Expected error for malformed JSON")
+	}
+}

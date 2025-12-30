@@ -43,6 +43,7 @@ type DashboardData struct {
 type App struct {
 	ctx         context.Context
 	chatService *ChatService
+	storageDir  string
 }
 
 // NewApp creates a new App application struct
@@ -67,6 +68,9 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) getStorageDir() (string, error) {
+	if a.storageDir != "" {
+		return a.storageDir, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
