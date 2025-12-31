@@ -88,7 +88,46 @@ export namespace main {
 		    return a;
 		}
 	}
-	
+
+    export class ChatMessage {
+        id: string;
+        role: string;
+        content: string;
+        timestamp: number;
+
+        constructor(source: any = {}) {
+            if ('string' === typeof source) source = JSON.parse(source);
+            this.id = source["id"];
+            this.role = source["role"];
+            this.content = source["content"];
+            this.timestamp = source["timestamp"];
+        }
+    }
+
+    export class ChatThread {
+        id: string;
+        title: string;
+        created_at: number;
+        messages: ChatMessage[];
+
+        constructor(source: any = {}) {
+            if ('string' === typeof source) source = JSON.parse(source);
+            this.id = source["id"];
+            this.title = source["title"];
+            this.created_at = source["created_at"];
+            this.messages = source["messages"] || [];
+        }
+    }
+
+    export class ConnectionResult {
+        success: boolean;
+        message: string;
+
+        constructor(source: any = {}) {
+            if ('string' === typeof source) source = JSON.parse(source);
+            this.success = source["success"];
+            this.message = source["message"];
+        }
+    }
 
 }
-
