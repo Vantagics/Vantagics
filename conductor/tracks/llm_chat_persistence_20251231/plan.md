@@ -14,13 +14,13 @@
 - [x] Task: Unit tests for updated `PreferenceModal`. 62e6cbf
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Configuration & Settings UI' (Protocol in workflow.md) (c605d46)
 
-## Phase 3: Enhanced Chat Interface
+## Phase 3: Enhanced Chat Interface [checkpoint: 24bbb0b]
 - [x] Task: Implement multi-thread sidebar in `ChatArea.tsx` or a new `ChatSidebar.tsx`. 0db466b
 - [x] Task: Add "New Chat" and "Clear Chat" functionality. 0db466b
 - [x] Task: Integrate `react-markdown` and `syntax-highlighter` for Markdown rendering. 0db466b
 - [x] Task: Add loading indicators (typing state) during API calls. 0db466b
 - [x] Task: Unit tests for `ChatArea` and Markdown rendering. 0db466b
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Enhanced Chat Interface' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Enhanced Chat Interface' (Protocol in workflow.md) (24bbb0b)
 
 ## Phase 4: Integration & Polishing
 - [ ] Task: Wire up frontend chat state with backend persistence.
