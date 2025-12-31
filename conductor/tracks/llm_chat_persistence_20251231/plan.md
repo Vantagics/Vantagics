@@ -23,7 +23,7 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Enhanced Chat Interface' (Protocol in workflow.md) (24bbb0b)
 
 ## Phase 4: Integration & Polishing
-- [ ] Task: Wire up frontend chat state with backend persistence.
+- [~] Task: Wire up frontend chat state with backend persistence.
 - [ ] Task: Ensure smooth switching between chat threads.
 - [ ] Task: Final UI/UX polish (consistent styling, transitions).
 - [ ] Task: Full build and verification (`wails build`).
