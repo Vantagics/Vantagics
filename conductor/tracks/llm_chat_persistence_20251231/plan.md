@@ -22,9 +22,9 @@
 - [x] Task: Unit tests for `ChatArea` and Markdown rendering. 0db466b
 - [x] Task: Conductor - User Manual Verification 'Phase 3: Enhanced Chat Interface' (Protocol in workflow.md) (24bbb0b)
 
-## Phase 4: Integration & Polishing
-- [~] Task: Wire up frontend chat state with backend persistence.
-- [ ] Task: Ensure smooth switching between chat threads.
-- [ ] Task: Final UI/UX polish (consistent styling, transitions).
-- [ ] Task: Full build and verification (`wails build`).
-- [ ] Task: Conductor - User Manual Verification 'Phase 4: Integration & Polishing' (Protocol in workflow.md)
+## Phase 4: Integration & Polishing [checkpoint: 755b608]
+- [x] Task: Wire up frontend chat state with backend persistence. 755b608
+- [x] Task: Ensure smooth switching between chat threads. 755b608
+- [x] Task: Final UI/UX polish (consistent styling, transitions). 755b608
+- [x] Task: Full build and verification (`wails build`). 755b608
+- [x] Task: Conductor - User Manual Verification 'Phase 4: Integration & Polishing' (Protocol in workflow.md) (755b608)
