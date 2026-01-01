@@ -15,14 +15,10 @@ This plan outlines the steps to add the Data Cache Directory setting to the syst
 
 ## Phase 2: Frontend Implementation (React)
 
-- [ ] **Task 1: Update Frontend Models.**
-    - Update `src/frontend/wailsjs/go/models.ts` to include `dataCacheDir`.
-- [ ] **Task 2: Update PreferenceModal UI.**
-    - Add a text input for "Data Cache Directory" in the "System Parameters" tab of `src/frontend/src/components/PreferenceModal.tsx`.
-    - Handle state change for this field.
-- [ ] **Task 3: Update Frontend Tests.**
-    - Update `src/frontend/src/components/PreferenceModal.test.tsx` to verify the new field exists and interacts correctly.
-- [ ] **Task: Conductor - User Manual Verification 'Frontend Implementation' (Protocol in workflow.md)**
+- [x] **Task 1: Update Frontend Models.**
+- [x] **Task 2: Update PreferenceModal UI.**
+- [x] **Task 3: Update Frontend Tests.**
+- [x] **Task: Conductor - User Manual Verification 'Frontend Implementation' (Protocol in workflow.md)** [checkpoint: f67b1b3]
 
 ## Phase 3: Integration and Verification
 
