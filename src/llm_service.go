@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -48,18 +50,26 @@ func (s *LLMService) Chat(ctx context.Context, message string) (string, error) {
 }
 
 func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, error) {
-	url := "https://api.openai.com/v1/chat/completions"
+	fullURL := "https://api.openai.com/v1/chat/completions"
 	if s.BaseURL != "" {
-		url = s.BaseURL
-		// If it's just a base URL like http://localhost:11434, append the OpenAI path
-		// We can't be sure, but a common pattern is that users provide the base
-		if !contains(url, "/v1/chat/completions") && !contains(url, "/chat/completions") {
-			if url[len(url)-1] == '/' {
-				url += "v1/chat/completions"
-			} else {
-				url += "/v1/chat/completions"
-			}
+		u, err := url.Parse(s.BaseURL)
+		if err != nil {
+			return "", fmt.Errorf("invalid base URL: %v", err)
 		}
+
+		// If path is empty or just "/", or just "/v1" or "/v1/", append the full suffix
+		path := u.Path
+		if path == "" || path == "/" || path == "/v1" || path == "/v1/" {
+			if !strings.HasSuffix(path, "/") {
+				path += "/"
+			}
+			if !strings.HasPrefix(strings.TrimPrefix(path, "/"), "v1") {
+				path += "v1/"
+			}
+			path += "chat/completions"
+		}
+		u.Path = path
+		fullURL = u.String()
 	}
 
 	body := map[string]interface{}{
@@ -70,7 +80,7 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
@@ -112,16 +122,25 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 }
 
 func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string, error) {
-	url := "https://api.anthropic.com/v1/messages"
+	fullURL := "https://api.anthropic.com/v1/messages"
 	if s.BaseURL != "" {
-		url = s.BaseURL
-		if !contains(url, "/v1/messages") && !contains(url, "/messages") {
-			if url[len(url)-1] == '/' {
-				url += "v1/messages"
-			} else {
-				url += "/v1/messages"
-			}
+		u, err := url.Parse(s.BaseURL)
+		if err != nil {
+			return "", fmt.Errorf("invalid base URL: %v", err)
 		}
+
+		path := u.Path
+		if path == "" || path == "/" || path == "/v1" || path == "/v1/" {
+			if !strings.HasSuffix(path, "/") {
+				path += "/"
+			}
+			if !strings.HasPrefix(strings.TrimPrefix(path, "/"), "v1") {
+				path += "v1/"
+			}
+			path += "messages"
+		}
+		u.Path = path
+		fullURL = u.String()
 	}
 
 	body := map[string]interface{}{
@@ -133,7 +152,7 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
@@ -174,19 +193,28 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (string, error) {
 	// For Claude Compatible, we assume the user provides the full URL or we append standard paths
 	// similar to OpenAI/Anthropic logic but respecting the BaseURL more strictly if provided.
-	url := s.BaseURL
-	if url == "" {
+	if s.BaseURL == "" {
 		return "", fmt.Errorf("Base URL is required for Claude-Compatible provider")
 	}
 
-	// Basic heuristic to append path if missing, similar to others
-	if !contains(url, "/v1/messages") && !contains(url, "/messages") {
-		if url[len(url)-1] == '/' {
-			url += "v1/messages"
-		} else {
-			url += "/v1/messages"
-		}
+	u, err := url.Parse(s.BaseURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid base URL: %v", err)
 	}
+
+	// Smart path appending: only append if no messages-related path is present
+	path := u.Path
+	if path == "" || path == "/" || path == "/v1" || path == "/v1/" {
+		if !strings.HasSuffix(path, "/") {
+			path += "/"
+		}
+		if !strings.HasPrefix(strings.TrimPrefix(path, "/"), "v1") {
+			path += "v1/"
+		}
+		path += "messages"
+	}
+	u.Path = path
+	fullURL := u.String()
 
 	body := map[string]interface{}{
 		"model":      s.ModelName,
@@ -200,7 +228,7 @@ func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (
 	}
 
 	jsonBody, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
