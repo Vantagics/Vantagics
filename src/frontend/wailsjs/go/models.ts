@@ -11,6 +11,7 @@ export namespace main {
 	    language: string;
 	    claudeHeaderStyle: string;
 	    dataCacheDir: string;
+	    pythonPath: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -28,6 +29,43 @@ export namespace main {
 	        this.language = source["language"];
 	        this.claudeHeaderStyle = source["claudeHeaderStyle"];
 	        this.dataCacheDir = source["dataCacheDir"];
+	        this.pythonPath = source["pythonPath"];
+	    }
+	}
+	export class PythonEnvironment {
+	    path: string;
+	    version: string;
+	    type: string;
+	    isRecommended: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PythonEnvironment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.type = source["type"];
+	        this.isRecommended = source["isRecommended"];
+	    }
+	}
+	export class PythonValidationResult {
+	    valid: boolean;
+	    version: string;
+	    missingPackages: string[];
+	    error: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PythonValidationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.valid = source["valid"];
+	        this.version = source["version"];
+	        this.missingPackages = source["missingPackages"];
+	        this.error = source["error"];
 	    }
 	}
 	export class Insight {

@@ -12,14 +12,18 @@ export function GetConfig():Promise<main.Config>;
 
 export function GetDashboardData():Promise<main.DashboardData>;
 
+export function GetPythonEnvironments():Promise<main.PythonEnvironment[]>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function SaveChatHistory(arg1:main.ChatThread[]):Promise<void>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
-export function SelectDirectory():Promise<string>;
+export function SelectDirectory():Promise<void>;
 
 export function SendMessage(arg1:string):Promise<string>;
 
 export function TestLLMConnection(arg1:main.Config):Promise<main.ConnectionResult>;
+
+export function ValidatePython(arg1:string):Promise<main.PythonValidationResult>;

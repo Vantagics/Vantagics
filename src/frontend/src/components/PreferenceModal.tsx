@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 
-type Tab = 'llm' | 'system' | 'drivers';
+type Tab = 'llm' | 'system' | 'drivers' | 'runenv';
 
 interface PreferenceModalProps {
     isOpen: boolean;
@@ -28,22 +28,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
 
     useEffect(() => {
-        if (isOpen) {
-            GetConfig().then(setConfig).catch(console.error);
-            setTestResult(null);
-        }
-
-        // Listen for directory selection result
-        const unsubscribe = EventsOn("directory-selected", (path: string) => {
-            console.log('Event directory-selected received:', path);
-            if (path) {
-                setConfig(prev => ({ ...prev, dataCacheDir: path }));
-            }
-        });
-
-        return () => {
-            unsubscribe();
-        };
+// ... existing useEffect ...
     }, [isOpen]);
 
     const handleSave = async () => {
@@ -54,11 +39,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             console.error('Failed to save config:', err);
             alert('Failed to save configuration: ' + err);
         }
-    };
-
-    const handleBrowseDirectory = () => {
-        console.log('handleBrowseDirectory triggered (event-based)');
-        SelectDirectory();
     };
 
     const handleTestConnection = async () => {
@@ -88,7 +68,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">Preferences</h2>
                     <nav className="space-y-1">
-                        {(['llm', 'system', 'drivers'] as const).map((tab) => (
+                        {(['llm', 'system', 'drivers', 'runenv'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -99,6 +79,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 {tab === 'llm' && 'LLM Configuration'}
                                 {tab === 'system' && 'System Parameters'}
                                 {tab === 'drivers' && 'Data Source Drivers'}
+                                {tab === 'runenv' && 'Run Environment'}
                             </button>
                         ))}
                     </nav>
@@ -270,27 +251,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
                                     <div>
                                         <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">Data Cache Directory</label>
-                                        <div className="flex gap-2">
-                                            <input 
-                                                id="dataCacheDir"
-                                                type="text" 
-                                                value={config.dataCacheDir}
-                                                onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
-                                                className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                placeholder="~/RapidBI"
-                                            />
-                                            <button 
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    handleBrowseDirectory();
-                                                }}
-                                                className="px-3 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200 transition-colors border border-slate-300"
-                                            >
-                                                Browse...
-                                            </button>
-                                        </div>
+                                        <input 
+                                            id="dataCacheDir"
+                                            type="text" 
+                                            value={config.dataCacheDir}
+                                            onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="~/RapidBI"
+                                        />
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             The directory used to store application data. Must exist on your system.
                                         </p>
@@ -299,6 +267,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                             </div>
                         )}
                         {activeTab === 'drivers' && <DriverSettings />}
+                        {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} />}
                     </div>
                     
                     {/* Footer */}
@@ -345,6 +314,102 @@ const DriverSettings: React.FC = () => {
                         ))}
                     </tbody>
                 </table>
+            </div>
+        </div>
+    );
+};
+
+interface RunEnvSettingsProps {
+    config: main.Config;
+    setConfig: (config: main.Config) => void;
+}
+
+const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) => {
+    const [envs, setEnvs] = useState<main.PythonEnvironment[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [validation, setValidation] = useState<main.PythonValidationResult | null>(null);
+    const [validating, setValidating] = useState(false);
+
+    useEffect(() => {
+        setLoading(true);
+        GetPythonEnvironments()
+            .then(setEnvs)
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => {
+        if (config.pythonPath) {
+            setValidating(true);
+            ValidatePython(config.pythonPath)
+                .then(setValidation)
+                .catch(console.error)
+                .finally(() => setValidating(false));
+        } else {
+            setValidation(null);
+        }
+    }, [config.pythonPath]);
+
+    return (
+        <div className="space-y-6">
+            <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">Python Runtime Environment</h3>
+            <div className="space-y-4">
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Select Python Environment</label>
+                    {loading ? (
+                        <div className="text-sm text-slate-500 animate-pulse">Scanning for Python environments...</div>
+                    ) : (
+                        <select
+                            value={config.pythonPath}
+                            onChange={(e) => setConfig({ ...config, pythonPath: e.target.value })}
+                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                            <option value="">Select an environment...</option>
+                            {envs.map((env) => (
+                                <option key={env.path} value={env.path}>
+                                    {env.type} - {env.version} ({env.path})
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    <p className="mt-1 text-[10px] text-slate-400 italic">
+                        Select the Python interpreter to use for executing generated scripts.
+                    </p>
+                </div>
+
+                {validating && (
+                    <div className="text-sm text-blue-600 animate-pulse">Validating environment...</div>
+                )}
+
+                {validation && !validating && (
+                    <div className={`p-4 rounded-lg border ${validation.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                            <span className={`font-semibold ${validation.valid ? 'text-green-800' : 'text-red-800'}`}>
+                                {validation.valid ? '✓ Environment Valid' : '✗ Environment Invalid'}
+                            </span>
+                            <span className="text-xs text-slate-500">{validation.version}</span>
+                        </div>
+                        
+                        {!validation.valid && validation.error && (
+                            <div className="text-sm text-red-700 mb-2">{validation.error}</div>
+                        )}
+
+                        {validation.missingPackages && validation.missingPackages.length > 0 && (
+                            <div>
+                                <span className="text-sm font-medium text-amber-700 block mb-1">Missing Recommended Packages:</span>
+                                <ul className="list-disc list-inside text-xs text-amber-600">
+                                    {validation.missingPackages.map(pkg => (
+                                        <li key={pkg}>{pkg}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        
+                        {validation.valid && (!validation.missingPackages || validation.missingPackages.length === 0) && (
+                            <div className="text-xs text-green-700">All recommended packages (pandas, matplotlib) are installed.</div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );

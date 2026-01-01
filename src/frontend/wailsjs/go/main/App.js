@@ -22,6 +22,10 @@ export function GetDashboardData() {
   return window['go']['main']['App']['GetDashboardData']();
 }
 
+export function GetPythonEnvironments() {
+  return window['go']['main']['App']['GetPythonEnvironments']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -35,7 +39,7 @@ export function SaveConfig(arg1) {
 }
 
 export function SelectDirectory() {
-  return window['go']['main']['App']['SelectDirectory']();
+  window['go']['main']['App']['SelectDirectory']();
 }
 
 export function SendMessage(arg1) {
@@ -44,4 +48,8 @@ export function SendMessage(arg1) {
 
 export function TestLLMConnection(arg1) {
   return window['go']['main']['App']['TestLLMConnection'](arg1);
+}
+
+export function ValidatePython(arg1) {
+  return window['go']['main']['App']['ValidatePython'](arg1);
 }
