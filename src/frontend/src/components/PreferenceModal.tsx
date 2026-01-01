@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GetConfig, SaveConfig, SelectDirectory } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 
 type Tab = 'llm' | 'system' | 'drivers';
@@ -31,6 +32,18 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             GetConfig().then(setConfig).catch(console.error);
             setTestResult(null);
         }
+
+        // Listen for directory selection result
+        const unsubscribe = EventsOn("directory-selected", (path: string) => {
+            console.log('Event directory-selected received:', path);
+            if (path) {
+                setConfig(prev => ({ ...prev, dataCacheDir: path }));
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
     }, [isOpen]);
 
     const handleSave = async () => {
@@ -43,15 +56,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
-    const handleBrowseDirectory = async () => {
-        try {
-            const path = await SelectDirectory();
-            if (path) {
-                setConfig({ ...config, dataCacheDir: path });
-            }
-        } catch (err) {
-            console.error('Failed to select directory:', err);
-        }
+    const handleBrowseDirectory = () => {
+        console.log('handleBrowseDirectory triggered (event-based)');
+        SelectDirectory();
     };
 
     const handleTestConnection = async () => {
@@ -273,7 +280,12 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 placeholder="~/RapidBI"
                                             />
                                             <button 
-                                                onClick={handleBrowseDirectory}
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    handleBrowseDirectory();
+                                                }}
                                                 className="px-3 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200 transition-colors border border-slate-300"
                                             >
                                                 Browse...

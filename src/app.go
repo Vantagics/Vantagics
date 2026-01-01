@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -127,7 +128,8 @@ func (a *App) GetConfig() (Config, error) {
 			LocalCache:   true,
 			Language:     "English",
 			DataCacheDir: defaultDataDir,
-		}, nil
+		},
+		nil
 	}
 
 	data, err := os.ReadFile(path)
@@ -188,11 +190,33 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
-// SelectDirectory opens a directory dialog and returns the selected path
-func (a *App) SelectDirectory() (string, error) {
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Data Cache Directory",
-	})
+// SelectDirectory triggers a decoupled directory selection and returns the result via event
+func (a *App) SelectDirectory() {
+	fmt.Println("SelectDirectory triggered (focus force)")
+	if a.ctx == nil {
+		return
+	}
+
+	go func() {
+		// Ensure the main window is definitely focused and visible
+		runtime.WindowShow(a.ctx)
+		runtime.WindowUnminimise(a.ctx)
+		
+		// Give the OS a moment to switch focus
+		time.Sleep(200 * time.Millisecond)
+		
+		result, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+			Title: "Select Folder",
+		})
+
+		if err != nil {
+			fmt.Printf("Dialog error: %v\n", err)
+			runtime.EventsEmit(a.ctx, "directory-selection-error", err.Error())
+		} else {
+			fmt.Printf("Final Dialog result: '%s'\n", result)
+			runtime.EventsEmit(a.ctx, "directory-selected", result)
+		}
+	}()
 }
 
 // ConnectionResult represents the result of a connection test
