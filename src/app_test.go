@@ -158,6 +158,33 @@ func TestApp_TestLLMConnection_Fail(t *testing.T) {
 	}
 }
 
+func TestApp_TestLLMConnection_ClaudeCompatible(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"text": "ok"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	app := NewApp()
+	app.ctx = context.Background()
+
+	config := Config{
+		LLMProvider:       "Claude-Compatible",
+		APIKey:            "test",
+		BaseURL:           server.URL,
+		ClaudeHeaderStyle: "Anthropic",
+	}
+
+	result := app.TestLLMConnection(config)
+	if !result.Success {
+		t.Errorf("Expected success for Claude-Compatible, got failure: %s", result.Message)
+	}
+}
+
 func TestApp_GetStorageDir_Default(t *testing.T) {
 	app := NewApp()
 	app.storageDir = ""
@@ -236,6 +263,41 @@ func TestApp_SendMessage_Success(t *testing.T) {
 	}
 	if resp != "App says hi" {
 		t.Errorf("Expected 'App says hi', got '%s'", resp)
+	}
+}
+
+func TestApp_SendMessage_ClaudeCompatible(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "rapidbi-test-send-claude")
+	defer os.RemoveAll(tmpDir)
+
+	app := NewApp()
+	app.ctx = context.Background()
+	app.storageDir = tmpDir
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"content": []map[string]interface{}{
+				{"text": "Claude says hi"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	config := Config{
+		LLMProvider:       "Claude-Compatible",
+		APIKey:            "test-key",
+		BaseURL:           server.URL,
+		ClaudeHeaderStyle: "Anthropic",
+	}
+	app.SaveConfig(config)
+
+	resp, err := app.SendMessage("Hello")
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+	if resp != "Claude says hi" {
+		t.Errorf("Expected 'Claude says hi', got '%s'", resp)
 	}
 }
 
