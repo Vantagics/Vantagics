@@ -19,6 +19,7 @@ type Config struct {
 	LocalCache        bool   `json:"localCache"`
 	Language          string `json:"language"`
 	ClaudeHeaderStyle string `json:"claudeHeaderStyle"`
+	DataCacheDir      string `json:"dataCacheDir"`
 }
 
 // Metric structure for dashboard
@@ -55,15 +56,33 @@ func NewApp() *App {
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	
+
 	// Start system tray (Windows/Linux only, handled by build tags)
 	runSystray(ctx)
 
-	// Ensure the storage directory exists on startup
-	path, _ := a.getStorageDir()
-	if path != "" {
-		_ = os.MkdirAll(path, 0755)
-		chatPath := filepath.Join(path, "chat_history.json")
+	// Load config to get DataCacheDir
+	config, err := a.GetConfig()
+	if err != nil {
+		fmt.Printf("Error loading config on startup: %v\n", err)
+		// Fallback to default storage dir if config fails
+		path, _ := a.getStorageDir()
+		if path != "" {
+			_ = os.MkdirAll(path, 0755)
+			chatPath := filepath.Join(path, "chat_history.json")
+			a.chatService = NewChatService(chatPath)
+		}
+		return
+	}
+
+	// Use configured DataCacheDir
+	dataDir := config.DataCacheDir
+	if dataDir == "" {
+		dataDir, _ = a.getStorageDir()
+	}
+
+	if dataDir != "" {
+		_ = os.MkdirAll(dataDir, 0755)
+		chatPath := filepath.Join(dataDir, "chat_history.json")
 		a.chatService = NewChatService(chatPath)
 	}
 }
@@ -76,7 +95,7 @@ func (a *App) getStorageDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "rapidbi"), nil
+	return filepath.Join(home, "RapidBI"), nil
 }
 
 func (a *App) getConfigPath() (string, error) {
@@ -94,14 +113,18 @@ func (a *App) GetConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	home, _ := os.UserHomeDir()
+	defaultDataDir := filepath.Join(home, "RapidBI")
+
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
 		return Config{
-			LLMProvider: "OpenAI",
-			ModelName:   "gpt-4o",
-			MaxTokens:   4096,
-			LocalCache:  true,
-			Language:    "English",
+			LLMProvider:  "OpenAI",
+			ModelName:    "gpt-4o",
+			MaxTokens:    4096,
+			LocalCache:   true,
+			Language:     "English",
+			DataCacheDir: defaultDataDir,
 		}, nil
 	}
 
@@ -112,11 +135,34 @@ func (a *App) GetConfig() (Config, error) {
 
 	var config Config
 	err = json.Unmarshal(data, &config)
-	return config, err
+	if err != nil {
+		return Config{}, err
+	}
+
+	// Ensure DataCacheDir has a default if empty in existing config
+	if config.DataCacheDir == "" {
+		config.DataCacheDir = defaultDataDir
+	}
+
+	return config, nil
 }
 
 // SaveConfig saves the config to the ~/rapidbi/config.json
 func (a *App) SaveConfig(config Config) error {
+	// Validate DataCacheDir exists if it's set
+	if config.DataCacheDir != "" {
+		info, err := os.Stat(config.DataCacheDir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("data cache directory does not exist: %s", config.DataCacheDir)
+			}
+			return err
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("data cache path is not a directory: %s", config.DataCacheDir)
+		}
+	}
+
 	dir, err := a.getStorageDir()
 	if err != nil {
 		return err
