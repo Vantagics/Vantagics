@@ -8,6 +8,8 @@ This document outlines the technologies used in the development of RapidBI.
 ## Backend
 - **Go (1.23):** The primary language for backend logic, data processing, and system integration.
 - **github.com/getlantern/systray:** Provides system tray functionality for the application.
+- **LLM Integration:** Native support for OpenAI, Anthropic, OpenAI-Compatible (Ollama, DeepSeek), and Claude-Compatible APIs.
+- **Persistence:** JSON-based local storage for configurations and chat history.
 
 ## Frontend
 - **React (18):** The primary frontend framework for building the user interface.

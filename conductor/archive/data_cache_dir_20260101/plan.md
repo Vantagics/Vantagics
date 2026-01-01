@@ -25,14 +25,9 @@ This plan outlines the steps to add the Data Cache Directory setting to the syst
 - [x] **Task 1: Add Directory Picker to Backend.**
 - [x] **Task 2: Update PreferenceModal with Browse Button.**
 - [x] **Task 3: Update Frontend Tests.**
-- [ ] **Task: Conductor - User Manual Verification 'Browse Button' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Browse Button' (Protocol in workflow.md)** [checkpoint: ad3c1bd]
 
 ## Phase 4: Integration and Verification
 
-- [ ] **Task 1: End-to-End Verification.**
-    - Build and run the app.
-    - Verify default path.
-    - Try setting an invalid path (expect error).
-    - Try setting a valid path (expect success).
-    - Test the "Browse" button.
-- [ ] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)**
+- [x] **Task 1: End-to-End Verification.**
+- [x] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)** [checkpoint: ad3c1bd]

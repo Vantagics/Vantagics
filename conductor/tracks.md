@@ -4,6 +4,13 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
+## [x] Track: 系统参数设置中，添加数据缓存目录设置。默认指定为用户目录下的RapidBI目录，修改时需要验证目录是否存在。
+*Link: [./conductor/tracks/data_cache_dir_20260101/](./conductor/tracks/data_cache_dir_20260101/)*
+
+
+
+---
+
 
 
 ---
@@ -11,10 +18,3 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 
 ---
-
-
-
----
-
-## [x] Track: LLM Chat Persistence and Enhanced Integration
-*Link: [./conductor/tracks/llm_chat_persistence_20251231/](./conductor/tracks/llm_chat_persistence_20251231/)*
