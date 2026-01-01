@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 
 type Tab = 'llm' | 'system' | 'drivers';
@@ -39,7 +39,18 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             onClose();
         } catch (err) {
             console.error('Failed to save config:', err);
-            alert('Failed to save configuration');
+            alert('Failed to save configuration: ' + err);
+        }
+    };
+
+    const handleBrowseDirectory = async () => {
+        try {
+            const path = await SelectDirectory();
+            if (path) {
+                setConfig({ ...config, dataCacheDir: path });
+            }
+        } catch (err) {
+            console.error('Failed to select directory:', err);
         }
     };
 
@@ -252,14 +263,22 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
                                     <div>
                                         <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">Data Cache Directory</label>
-                                        <input 
-                                            id="dataCacheDir"
-                                            type="text" 
-                                            value={config.dataCacheDir}
-                                            onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
-                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder="~/RapidBI"
-                                        />
+                                        <div className="flex gap-2">
+                                            <input 
+                                                id="dataCacheDir"
+                                                type="text" 
+                                                value={config.dataCacheDir}
+                                                onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
+                                                className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="~/RapidBI"
+                                            />
+                                            <button 
+                                                onClick={handleBrowseDirectory}
+                                                className="px-3 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200 transition-colors border border-slate-300"
+                                            >
+                                                Browse...
+                                            </button>
+                                        </div>
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             The directory used to store application data. Must exist on your system.
                                         </p>

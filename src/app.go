@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Config structure
@@ -184,6 +186,13 @@ func (a *App) SaveConfig(config Config) error {
 
 func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
+}
+
+// SelectDirectory opens a directory dialog and returns the selected path
+func (a *App) SelectDirectory() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Data Cache Directory",
+	})
 }
 
 // ConnectionResult represents the result of a connection test

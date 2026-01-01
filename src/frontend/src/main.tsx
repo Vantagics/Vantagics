@@ -38,6 +38,7 @@ if (!window.go) {
                 }),
                 SaveConfig: async () => {},
                 TestLLMConnection: async () => ({ success: true, message: 'Mock Success' }),
+                SelectDirectory: async () => '/mock/selected/path',
                 // Add other mocks as needed
             }
         }

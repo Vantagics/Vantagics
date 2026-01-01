@@ -18,6 +18,8 @@ export function SaveChatHistory(arg1:main.ChatThread[]):Promise<void>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
+export function SelectDirectory():Promise<string>;
+
 export function SendMessage(arg1:string):Promise<string>;
 
 export function TestLLMConnection(arg1:main.Config):Promise<main.ConnectionResult>;

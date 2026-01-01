@@ -6,6 +6,7 @@ import { vi } from 'vitest';
 vi.mock('../../wailsjs/go/main/App', () => ({
     GetConfig: vi.fn(),
     SaveConfig: vi.fn(),
+    SelectDirectory: vi.fn(),
 }));
 
 describe('PreferenceModal', () => {
@@ -130,6 +131,40 @@ describe('PreferenceModal', () => {
             expect(AppBindings.SaveConfig).toHaveBeenCalledWith(expect.objectContaining({
                 dataCacheDir: '/tmp/RapidBI'
             }));
+        });
+    });
+
+    it('allows selecting directory via Browse button', async () => {
+        const mockConfig = {
+            llmProvider: 'OpenAI',
+            apiKey: '',
+            baseUrl: '',
+            modelName: '',
+            maxTokens: 4096,
+            darkMode: false,
+            localCache: true,
+            language: 'English',
+            claudeHeaderStyle: 'Anthropic',
+            dataCacheDir: '~/RapidBI'
+        };
+
+        (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
+        (AppBindings.SelectDirectory as any).mockResolvedValue('/selected/path');
+
+        render(<PreferenceModal isOpen={true} onClose={() => {}} />);
+
+        // Switch to System Parameters tab
+        const systemTab = await screen.findByText(/System Parameters/i);
+        fireEvent.click(systemTab);
+
+        // Click Browse button
+        const browseButton = await screen.findByText(/Browse.../i);
+        fireEvent.click(browseButton);
+
+        await waitFor(() => {
+            expect(AppBindings.SelectDirectory).toHaveBeenCalled();
+            const cacheDirInput = screen.getByLabelText(/Data Cache Directory/i) as HTMLInputElement;
+            expect(cacheDirInput.value).toBe('/selected/path');
         });
     });
 });
