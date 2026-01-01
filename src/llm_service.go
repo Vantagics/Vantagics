@@ -99,6 +99,12 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("API error (404): Not Found. Please check your Base URL and path (e.g., /v1/chat/completions). Full URL used: %s", fullURL)
+		}
+		if resp.StatusCode == http.StatusBadRequest {
+			return "", fmt.Errorf("API error (400): Bad Request. This often means the model name '%s' is incorrect or doesn't exist on the provider. Original error: %s", s.ModelName, string(respBody))
+		}
 		return "", fmt.Errorf("OpenAI-compatible API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -170,6 +176,9 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("API error (404): Not Found. Please check your Base URL and path (e.g., /v1/messages). Full URL used: %s", fullURL)
+		}
 		return "", fmt.Errorf("Anthropic API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
@@ -257,6 +266,9 @@ func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusNotFound {
+			return "", fmt.Errorf("API error (404): Not Found. Please check your Base URL and path (e.g., /v1/messages). Full URL used: %s", fullURL)
+		}
 		return "", fmt.Errorf("Claude-Compatible API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
