@@ -9,6 +9,7 @@ export namespace main {
 	    darkMode: boolean;
 	    localCache: boolean;
 	    language: string;
+	    claudeHeaderStyle: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -24,6 +25,7 @@ export namespace main {
 	        this.darkMode = source["darkMode"];
 	        this.localCache = source["localCache"];
 	        this.language = source["language"];
+	        this.claudeHeaderStyle = source["claudeHeaderStyle"];
 	    }
 	}
 	export class Insight {

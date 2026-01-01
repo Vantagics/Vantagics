@@ -19,7 +19,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         maxTokens: 4096,
         darkMode: false,
         localCache: true,
-        language: 'English'
+        language: 'English',
+        claudeHeaderStyle: 'Anthropic'
     });
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
@@ -59,6 +60,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 
     const isAnthropic = config.llmProvider === 'Anthropic';
     const isOpenAICompatible = config.llmProvider === 'OpenAI-Compatible';
+    const isClaudeCompatible = config.llmProvider === 'Claude-Compatible';
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -101,10 +103,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <option value="OpenAI">OpenAI</option>
                                             <option value="Anthropic">Anthropic (Claude)</option>
                                             <option value="OpenAI-Compatible">OpenAI-Compatible (Local, DeepSeek, etc.)</option>
+                                            <option value="Claude-Compatible">Claude-Compatible (Proxies, Bedrock, etc.)</option>
                                         </select>
                                     </div>
                                     
-                                    {(isOpenAICompatible || config.llmProvider === 'OpenAI') && (
+                                    {(isOpenAICompatible || isClaudeCompatible || config.llmProvider === 'OpenAI') && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                                             <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">
                                                 API Base URL {config.llmProvider === 'OpenAI' ? '(Optional)' : ''}
@@ -115,12 +118,38 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 value={config.baseUrl}
                                                 onChange={(e) => setConfig({...config, baseUrl: e.target.value})}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                placeholder={isOpenAICompatible ? "http://localhost:11434" : "https://api.openai.com/v1"}
+                                                placeholder={
+                                                    isOpenAICompatible ? "http://localhost:11434" : 
+                                                    isClaudeCompatible ? "https://bedrock-runtime.us-east-1.amazonaws.com" :
+                                                    "https://api.openai.com/v1"
+                                                }
                                             />
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
                                                 {isOpenAICompatible 
                                                     ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)" 
-                                                    : "Leave empty for official OpenAI API"}
+                                                    : isClaudeCompatible 
+                                                        ? "Base URL for Claude proxy (e.g., AWS Bedrock, Vertex AI, One API)"
+                                                        : "Leave empty for official OpenAI API"}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {isClaudeCompatible && (
+                                        <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                                            <label htmlFor="headerStyle" className="block text-sm font-medium text-slate-700 mb-1">
+                                                Header Style
+                                            </label>
+                                            <select 
+                                                id="headerStyle"
+                                                value={config.claudeHeaderStyle || 'Anthropic'}
+                                                onChange={(e) => setConfig({...config, claudeHeaderStyle: e.target.value})}
+                                                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            >
+                                                <option value="Anthropic">Anthropic (x-api-key)</option>
+                                                <option value="OpenAI">OpenAI (Authorization: Bearer)</option>
+                                            </select>
+                                            <p className="mt-1 text-[10px] text-slate-400 italic">
+                                                Select "OpenAI" if your proxy uses Bearer tokens (e.g., some One API setups).
                                             </p>
                                         </div>
                                     )}

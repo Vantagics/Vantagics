@@ -45,4 +45,50 @@ describe('PreferenceModal', () => {
             expect(handleClose).toHaveBeenCalled();
         });
     });
+
+    it('supports Claude-Compatible provider configuration', async () => {
+        const mockConfig = {
+            llmProvider: 'OpenAI',
+            apiKey: '',
+            baseUrl: '',
+            modelName: '',
+            maxTokens: 4096,
+            claudeHeaderStyle: 'Anthropic',
+        };
+
+        (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
+
+        render(<PreferenceModal isOpen={true} onClose={() => {}} />);
+
+        await waitFor(() => {
+            screen.getByLabelText(/Provider Type/i);
+        });
+
+        const providerSelect = screen.getByLabelText(/Provider Type/i);
+        
+        // Check if option exists (this will fail if not added)
+        const claudeOption = screen.getByRole('option', { name: /Claude-Compatible/i });
+        expect(claudeOption).toBeInTheDocument();
+
+        // Select Claude-Compatible
+        fireEvent.change(providerSelect, { target: { value: 'Claude-Compatible' } });
+
+        // Check for Header Style option (this will fail if not implemented)
+        const headerStyleSelect = await screen.findByLabelText(/Header Style/i);
+        expect(headerStyleSelect).toBeInTheDocument();
+        
+        // Change header style
+        fireEvent.change(headerStyleSelect, { target: { value: 'OpenAI' } });
+        
+        // Save
+        const saveButton = screen.getByText(/Save Changes/i);
+        fireEvent.click(saveButton);
+        
+        await waitFor(() => {
+            expect(AppBindings.SaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+                llmProvider: 'Claude-Compatible',
+                claudeHeaderStyle: 'OpenAI'
+            }));
+        });
+    });
 });
