@@ -20,7 +20,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         darkMode: false,
         localCache: true,
         language: 'English',
-        claudeHeaderStyle: 'Anthropic'
+        claudeHeaderStyle: 'Anthropic',
+        dataCacheDir: ''
     });
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
@@ -248,6 +249,20 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <option>English</option>
                                             <option>简体中文</option>
                                         </select>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">Data Cache Directory</label>
+                                        <input 
+                                            id="dataCacheDir"
+                                            type="text" 
+                                            value={config.dataCacheDir}
+                                            onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            placeholder="~/RapidBI"
+                                        />
+                                        <p className="mt-1 text-[10px] text-slate-400 italic">
+                                            The directory used to store application data. Must exist on your system.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

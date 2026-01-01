@@ -10,6 +10,7 @@ export namespace main {
 	    localCache: boolean;
 	    language: string;
 	    claudeHeaderStyle: string;
+	    dataCacheDir: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -26,6 +27,7 @@ export namespace main {
 	        this.localCache = source["localCache"];
 	        this.language = source["language"];
 	        this.claudeHeaderStyle = source["claudeHeaderStyle"];
+	        this.dataCacheDir = source["dataCacheDir"];
 	    }
 	}
 	export class Insight {

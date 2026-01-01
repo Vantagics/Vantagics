@@ -91,4 +91,45 @@ describe('PreferenceModal', () => {
             }));
         });
     });
+
+    it('allows changing Data Cache Directory in System Parameters', async () => {
+        const mockConfig = {
+            llmProvider: 'OpenAI',
+            apiKey: '',
+            baseUrl: '',
+            modelName: '',
+            maxTokens: 4096,
+            darkMode: false,
+            localCache: true,
+            language: 'English',
+            claudeHeaderStyle: 'Anthropic',
+            dataCacheDir: '~/RapidBI'
+        };
+
+        (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
+        (AppBindings.SaveConfig as any).mockResolvedValue({});
+
+        render(<PreferenceModal isOpen={true} onClose={() => {}} />);
+
+        // Switch to System Parameters tab
+        const systemTab = await screen.findByText(/System Parameters/i);
+        fireEvent.click(systemTab);
+
+        // Check if field exists and has value
+        const cacheDirInput = await screen.findByLabelText(/Data Cache Directory/i) as HTMLInputElement;
+        expect(cacheDirInput.value).toBe('~/RapidBI');
+
+        // Change value
+        fireEvent.change(cacheDirInput, { target: { value: '/tmp/RapidBI' } });
+
+        // Save
+        const saveButton = screen.getByText(/Save Changes/i);
+        fireEvent.click(saveButton);
+
+        await waitFor(() => {
+            expect(AppBindings.SaveConfig).toHaveBeenCalledWith(expect.objectContaining({
+                dataCacheDir: '/tmp/RapidBI'
+            }));
+        });
+    });
 });

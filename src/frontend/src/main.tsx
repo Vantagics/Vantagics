@@ -33,7 +33,8 @@ if (!window.go) {
                     darkMode: false,
                     localCache: true,
                     language: 'English',
-                    claudeHeaderStyle: 'Anthropic'
+                    claudeHeaderStyle: 'Anthropic',
+                    dataCacheDir: '~/RapidBI'
                 }),
                 SaveConfig: async () => {},
                 TestLLMConnection: async () => ({ success: true, message: 'Mock Success' }),
