@@ -11,25 +11,27 @@ import (
 )
 
 type LLMService struct {
-	Provider  string
-	APIKey    string
-	BaseURL   string
-	ModelName string
-	MaxTokens int
+	Provider          string
+	APIKey            string
+	BaseURL           string
+	ModelName         string
+	MaxTokens         int
+	ClaudeHeaderStyle string
 }
 
 func NewLLMService(config Config) *LLMService {
 	return &LLMService{
-		Provider:  config.LLMProvider,
-		APIKey:    config.APIKey,
-		BaseURL:   config.BaseURL,
-		ModelName: config.ModelName,
-		MaxTokens: config.MaxTokens,
+		Provider:          config.LLMProvider,
+		APIKey:            config.APIKey,
+		BaseURL:           config.BaseURL,
+		ModelName:         config.ModelName,
+		MaxTokens:         config.MaxTokens,
+		ClaudeHeaderStyle: config.ClaudeHeaderStyle,
 	}
 }
 
 func (s *LLMService) Chat(ctx context.Context, message string) (string, error) {
-	if s.APIKey == "" && s.Provider != "OpenAI-Compatible" {
+	if s.APIKey == "" && s.Provider != "OpenAI-Compatible" && s.Provider != "Claude-Compatible" {
 		return "Please set your API key in settings.", nil
 	}
 
@@ -38,6 +40,8 @@ func (s *LLMService) Chat(ctx context.Context, message string) (string, error) {
 		return s.chatOpenAI(ctx, message)
 	case "Anthropic":
 		return s.chatAnthropic(ctx, message)
+	case "Claude-Compatible":
+		return s.chatClaudeCompatible(ctx, message)
 	default:
 		return "Unsupported LLM provider.", nil
 	}
@@ -165,6 +169,84 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 	}
 
 	return "", fmt.Errorf("no response from Anthropic")
+}
+
+func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (string, error) {
+	// For Claude Compatible, we assume the user provides the full URL or we append standard paths
+	// similar to OpenAI/Anthropic logic but respecting the BaseURL more strictly if provided.
+	url := s.BaseURL
+	if url == "" {
+		return "", fmt.Errorf("Base URL is required for Claude-Compatible provider")
+	}
+
+	// Basic heuristic to append path if missing, similar to others
+	if !contains(url, "/v1/messages") && !contains(url, "/messages") {
+		if url[len(url)-1] == '/' {
+			url += "v1/messages"
+		} else {
+			url += "/v1/messages"
+		}
+	}
+
+	body := map[string]interface{}{
+		"model":      s.ModelName,
+		"max_tokens": 1024,
+		"messages": []map[string]string{
+			{"role": "user", "content": message},
+		},
+	}
+	if s.MaxTokens > 0 {
+		body["max_tokens"] = s.MaxTokens
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	// Apply headers based on style preference
+	if s.ClaudeHeaderStyle == "OpenAI" {
+		if s.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+s.APIKey)
+		}
+	} else {
+		// Default to Anthropic style if not specified or explicitly "Anthropic"
+		if s.APIKey != "" {
+			req.Header.Set("x-api-key", s.APIKey)
+		}
+		req.Header.Set("anthropic-version", "2023-06-01")
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Claude-Compatible API error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Content) > 0 {
+		return result.Content[0].Text, nil
+	}
+
+	return "", fmt.Errorf("no response from Claude-Compatible API")
 }
 
 func contains(s, substr string) bool {

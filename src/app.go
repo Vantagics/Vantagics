@@ -10,14 +10,15 @@ import (
 
 // Config structure
 type Config struct {
-	LLMProvider  string `json:"llmProvider"`
-	APIKey       string `json:"apiKey"`
-	BaseURL      string `json:"baseUrl"`
-	ModelName    string `json:"modelName"`
-	MaxTokens    int    `json:"maxTokens"`
-	DarkMode     bool   `json:"darkMode"`
-	LocalCache   bool   `json:"localCache"`
-	Language     string `json:"language"`
+	LLMProvider       string `json:"llmProvider"`
+	APIKey            string `json:"apiKey"`
+	BaseURL           string `json:"baseUrl"`
+	ModelName         string `json:"modelName"`
+	MaxTokens         int    `json:"maxTokens"`
+	DarkMode          bool   `json:"darkMode"`
+	LocalCache        bool   `json:"localCache"`
+	Language          string `json:"language"`
+	ClaudeHeaderStyle string `json:"claudeHeaderStyle"`
 }
 
 // Metric structure for dashboard
