@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Config structure
@@ -23,6 +20,7 @@ type Config struct {
 	Language          string `json:"language"`
 	ClaudeHeaderStyle string `json:"claudeHeaderStyle"`
 	DataCacheDir      string `json:"dataCacheDir"`
+	PythonPath        string `json:"pythonPath"`
 }
 
 // Metric structure for dashboard
@@ -46,14 +44,17 @@ type DashboardData struct {
 
 // App struct
 type App struct {
-	ctx         context.Context
-	chatService *ChatService
-	storageDir  string
+	ctx           context.Context
+	chatService   *ChatService
+	pythonService *PythonService
+	storageDir    string
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	return &App{
+		pythonService: NewPythonService(),
+	}
 }
 
 // startup is called when the app starts.
@@ -190,35 +191,6 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
-// SelectDirectory triggers a decoupled directory selection and returns the result via event
-func (a *App) SelectDirectory() {
-	fmt.Println("SelectDirectory triggered (focus force)")
-	if a.ctx == nil {
-		return
-	}
-
-	go func() {
-		// Ensure the main window is definitely focused and visible
-		runtime.WindowShow(a.ctx)
-		runtime.WindowUnminimise(a.ctx)
-		
-		// Give the OS a moment to switch focus
-		time.Sleep(200 * time.Millisecond)
-		
-		result, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-			Title: "Select Folder",
-		})
-
-		if err != nil {
-			fmt.Printf("Dialog error: %v\n", err)
-			runtime.EventsEmit(a.ctx, "directory-selection-error", err.Error())
-		} else {
-			fmt.Printf("Final Dialog result: '%s'\n", result)
-			runtime.EventsEmit(a.ctx, "directory-selected", result)
-		}
-	}()
-}
-
 // ConnectionResult represents the result of a connection test
 type ConnectionResult struct {
 	Success bool   `json:"success"`
@@ -276,6 +248,16 @@ func (a *App) SendMessage(message string) (string, error) {
 
 	llm := NewLLMService(config)
 	return llm.Chat(a.ctx, message)
+}
+
+// GetPythonEnvironments returns detected Python environments
+func (a *App) GetPythonEnvironments() []PythonEnvironment {
+	return a.pythonService.ProbePythonEnvironments()
+}
+
+// ValidatePython checks the given Python path
+func (a *App) ValidatePython(path string) PythonValidationResult {
+	return a.pythonService.ValidatePythonEnvironment(path)
 }
 
 // GetChatHistory loads the chat history
