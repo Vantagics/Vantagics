@@ -17,7 +17,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
         <div className="w-64 bg-slate-100 border-r border-slate-200 flex flex-col h-full">
             <div 
                 className="p-4 pt-8 border-b border-slate-200 bg-slate-50"
-                style={{ WebkitAppRegion: 'drag' } as any}
+                style={{ '--wails-draggable': 'drag' } as any}
             >
                 <h2 className="text-lg font-semibold text-slate-700">Data Sources</h2>
             </div>

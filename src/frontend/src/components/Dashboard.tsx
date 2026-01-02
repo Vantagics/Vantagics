@@ -19,7 +19,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data }) => {
 
     return (
         <div className="flex-1 flex flex-col h-full overflow-hidden">
-            <header className="px-6 py-8">
+            <header className="px-6 py-8" style={{ '--wails-draggable': 'drag' } as any}>
                 <h1 className="text-2xl font-bold text-slate-800">Smart Dashboard</h1>
                 <p className="text-slate-500">Welcome back! Here's what's happening with your data.</p>
             </header>

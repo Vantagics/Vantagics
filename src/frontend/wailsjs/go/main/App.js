@@ -39,7 +39,7 @@ export function SaveConfig(arg1) {
 }
 
 export function SelectDirectory() {
-  window['go']['main']['App']['SelectDirectory']();
+  return window['go']['main']['App']['SelectDirectory']();
 }
 
 export function SendMessage(arg1) {

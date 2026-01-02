@@ -45,6 +45,18 @@ function App() {
 
     return (
         <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900 relative">
+            {/* Draggable Title Bar Area */}
+            <div 
+                className="absolute top-0 left-0 right-0 h-10 z-[100] flex"
+                style={{ '--wails-draggable': 'drag' } as any}
+            >
+                {/* Traffic Lights Area - clickable area for macOS buttons */}
+                <div className="w-24 h-full" style={{ '--wails-draggable': 'no-drag' } as any} />
+                
+                {/* Drag Area - the rest of the top bar */}
+                <div className="flex-1 h-full" />
+            </div>
+
             <Sidebar 
                 onOpenSettings={() => setIsPreferenceOpen(true)} 
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}

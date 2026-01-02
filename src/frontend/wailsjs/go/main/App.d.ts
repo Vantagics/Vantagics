@@ -6,21 +6,21 @@ export function ClearHistory():Promise<void>;
 
 export function DeleteThread(arg1:string):Promise<void>;
 
-export function GetChatHistory():Promise<main.ChatThread[]>;
+export function GetChatHistory():Promise<Array<main.ChatThread>>;
 
 export function GetConfig():Promise<main.Config>;
 
 export function GetDashboardData():Promise<main.DashboardData>;
 
-export function GetPythonEnvironments():Promise<main.PythonEnvironment[]>;
+export function GetPythonEnvironments():Promise<Array<main.PythonEnvironment>>;
 
 export function Greet(arg1:string):Promise<string>;
 
-export function SaveChatHistory(arg1:main.ChatThread[]):Promise<void>;
+export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
-export function SelectDirectory():Promise<void>;
+export function SelectDirectory():Promise<string>;
 
 export function SendMessage(arg1:string):Promise<string>;
 

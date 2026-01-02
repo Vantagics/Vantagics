@@ -43,12 +43,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     };
 
     const handleCreateThread = () => {
-        const newThread: main.ChatThread = {
-            id: Date.now().toString(),
-            title: 'New Chat',
-            created_at: Math.floor(Date.now() / 1000),
-            messages: []
-        };
+        const newThread = new main.ChatThread();
+        newThread.id = Date.now().toString();
+        newThread.title = 'New Chat';
+        newThread.created_at = Math.floor(Date.now() / 1000);
+        newThread.messages = [];
+        
         const updatedThreads = [newThread, ...threads];
         setThreads(updatedThreads);
         setActiveThreadId(newThread.id);
@@ -76,22 +76,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         let currentThread = currentThreads.find(t => t.id === activeThreadId);
 
         if (!currentThread) {
-            currentThread = {
-                id: Date.now().toString(),
-                title: input.slice(0, 30),
-                created_at: Math.floor(Date.now() / 1000),
-                messages: []
-            };
+            currentThread = new main.ChatThread();
+            currentThread.id = Date.now().toString();
+            currentThread.title = input.slice(0, 30);
+            currentThread.created_at = Math.floor(Date.now() / 1000);
+            currentThread.messages = [];
             currentThreads = [currentThread, ...currentThreads];
             setActiveThreadId(currentThread.id);
         }
 
-        const userMsg: main.ChatMessage = {
-            id: Date.now().toString(),
-            role: 'user',
-            content: input,
-            timestamp: Math.floor(Date.now() / 1000)
-        };
+        const userMsg = new main.ChatMessage();
+        userMsg.id = Date.now().toString();
+        userMsg.role = 'user';
+        userMsg.content = input;
+        userMsg.timestamp = Math.floor(Date.now() / 1000);
 
         currentThread.messages.push(userMsg);
         if (currentThread.messages.length === 1) {
@@ -104,23 +102,23 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         try {
             const response = await SendMessage(input);
-            const assistantMsg: main.ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: response,
-                timestamp: Math.floor(Date.now() / 1000)
-            };
+            const assistantMsg = new main.ChatMessage();
+            assistantMsg.id = (Date.now() + 1).toString();
+            assistantMsg.role = 'assistant';
+            assistantMsg.content = response;
+            assistantMsg.timestamp = Math.floor(Date.now() / 1000);
+
             currentThread.messages.push(assistantMsg);
             setThreads([...currentThreads]);
             await SaveChatHistory(currentThreads);
         } catch (error) {
             console.error(error);
-            currentThread.messages.push({
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: 'Sorry, I encountered an error. Please check your connection and API keys.',
-                timestamp: Math.floor(Date.now() / 1000)
-            });
+            const errorMsg = new main.ChatMessage();
+            errorMsg.id = (Date.now() + 1).toString();
+            errorMsg.role = 'assistant';
+            errorMsg.content = 'Sorry, I encountered an error. Please check your connection and API keys.';
+            errorMsg.timestamp = Math.floor(Date.now() / 1000);
+            currentThread.messages.push(errorMsg);
             setThreads([...currentThreads]);
         } finally {
             setIsLoading(false);
@@ -161,11 +159,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             >
                 {/* Thread List Sidebar */}
                 <div className={`${isSidebarCollapsed ? 'w-0' : 'w-52'} bg-slate-50 border-r border-slate-200 flex flex-col transition-all duration-300 overflow-hidden relative`}>
-                    <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+                    <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10"
+                        style={{ '--wails-draggable': 'drag' } as any}
+                    >
                         <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">History</span>
                         <button 
                             onClick={handleCreateThread}
                             className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-sm active:scale-95"
+                            style={{ '--wails-draggable': 'no-drag' } as any}
                             title="New Chat"
                         >
                             <Plus className="w-4 h-4" />
@@ -225,7 +226,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </button>
 
-                    <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10">
+                    <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10"
+                        style={{ '--wails-draggable': 'drag' } as any}
+                    >
                         <div className="flex items-center gap-3.5">
                             <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200">
                                 <MessageSquare className="w-5 h-5 text-white" />
@@ -243,6 +246,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 onClick={onClose}
                                 aria-label="Close sidebar"
                                 className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all"
+                                style={{ '--wails-draggable': 'no-drag' } as any}
                             >
                                 <X className="w-5 h-5" />
                             </button>
@@ -287,20 +291,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     <div className="p-6 border-t border-slate-100 bg-white">
-                        <div className="flex items-center gap-3 max-w-2xl mx-auto w-full">
+                        <div className="flex items-stretch gap-3 max-w-2xl mx-auto w-full">
                             <input 
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                                 placeholder="What would you like to analyze?"
-                                className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
                                 disabled={isLoading}
                             />
                             <button 
                                 onClick={handleSendMessage}
                                 disabled={isLoading || !input.trim()}
-                                className="flex-shrink-0 p-4 bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
+                                className="aspect-square bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >
                                 <Send className="w-5 h-5" />
                             </button>

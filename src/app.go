@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Config structure
@@ -248,6 +250,13 @@ func (a *App) SendMessage(message string) (string, error) {
 
 	llm := NewLLMService(config)
 	return llm.Chat(a.ctx, message)
+}
+
+// SelectDirectory opens a directory dialog
+func (a *App) SelectDirectory() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Data Cache Directory",
+	})
 }
 
 // GetPythonEnvironments returns detected Python environments
