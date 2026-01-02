@@ -22,13 +22,31 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         localCache: true,
         language: 'English',
         claudeHeaderStyle: 'Anthropic',
-        dataCacheDir: ''
+        dataCacheDir: '',
+        pythonPath: ''
     });
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
 
     useEffect(() => {
-// ... existing useEffect ...
+        if (isOpen) {
+            GetConfig().then(data => {
+                setConfig(data);
+            }).catch(console.error);
+            setTestResult(null);
+        }
+
+        // Listen for directory selection result
+        const unsubscribe = EventsOn("directory-selected", (path: string) => {
+            console.log('Event directory-selected received:', path);
+            if (path) {
+                setConfig(prev => ({ ...prev, dataCacheDir: path }));
+            }
+        });
+
+        return () => {
+            unsubscribe();
+        };
     }, [isOpen]);
 
     const handleSave = async () => {
@@ -39,6 +57,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             console.error('Failed to save config:', err);
             alert('Failed to save configuration: ' + err);
         }
+    };
+
+    const handleBrowseDirectory = () => {
+        console.log('handleBrowseDirectory triggered (event-based)');
+        SelectDirectory();
     };
 
     const handleTestConnection = async () => {
@@ -333,7 +356,9 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
     useEffect(() => {
         setLoading(true);
         GetPythonEnvironments()
-            .then(setEnvs)
+            .then(envs => {
+                setEnvs(envs);
+            })
             .catch(console.error)
             .finally(() => setLoading(false));
     }, []);
@@ -350,6 +375,9 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
         }
     }, [config.pythonPath]);
 
+    // Check if current pythonPath is in the list
+    const isKnownEnv = envs.some(e => e.path === config.pythonPath);
+
     return (
         <div className="space-y-6">
             <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">Python Runtime Environment</h3>
@@ -365,6 +393,11 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         >
                             <option value="">Select an environment...</option>
+                            {config.pythonPath && !isKnownEnv && (
+                                <option value={config.pythonPath}>
+                                    {config.pythonPath} (Saved)
+                                </option>
+                            )}
                             {envs.map((env) => (
                                 <option key={env.path} value={env.path}>
                                     {env.type} - {env.version} ({env.path})
