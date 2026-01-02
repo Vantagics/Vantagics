@@ -146,6 +146,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                     isClaudeCompatible ? "https://bedrock-runtime.us-east-1.amazonaws.com" :
                                                     "https://api.openai.com/v1"
                                                 }
+                                                autoCapitalize="none"
+                                                autoCorrect="off"
+                                                spellCheck={false}
                                             />
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
                                                 {isOpenAICompatible 
@@ -188,6 +191,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => setConfig({...config, apiKey: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "sk-ant-..." : "sk-..."}
+                                            autoCapitalize="none"
+                                            autoCorrect="off"
+                                            spellCheck={false}
                                         />
                                     </div>
                                     <div>
@@ -199,6 +205,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => setConfig({...config, modelName: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
+                                            autoCapitalize="none"
+                                            autoCorrect="off"
+                                            spellCheck={false}
                                         />
                                     </div>
 
@@ -281,6 +290,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder="~/RapidBI"
+                                            autoCapitalize="none"
+                                            autoCorrect="off"
+                                            spellCheck={false}
                                         />
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             The directory used to store application data. Must exist on your system.
@@ -383,11 +395,12 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">Python Runtime Environment</h3>
             <div className="space-y-4">
                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Select Python Environment</label>
+                    <label htmlFor="pythonPath" className="block text-sm font-medium text-slate-700 mb-1">Select Python Environment</label>
                     {loading ? (
                         <div className="text-sm text-slate-500 animate-pulse">Scanning for Python environments...</div>
                     ) : (
                         <select
+                            id="pythonPath"
                             value={config.pythonPath}
                             onChange={(e) => setConfig({ ...config, pythonPath: e.target.value })}
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"

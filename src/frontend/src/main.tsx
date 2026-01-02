@@ -34,11 +34,22 @@ if (!window.go) {
                     localCache: true,
                     language: 'English',
                     claudeHeaderStyle: 'Anthropic',
-                    dataCacheDir: '~/RapidBI'
+                    dataCacheDir: '~/RapidBI',
+                    pythonPath: ''
                 }),
                 SaveConfig: async () => {},
                 TestLLMConnection: async () => ({ success: true, message: 'Mock Success' }),
                 SelectDirectory: async () => '/mock/selected/path',
+                GetPythonEnvironments: async () => [
+                    { path: '/usr/bin/python3', version: '3.9.6', type: 'System', isRecommended: true },
+                    { path: '/opt/conda/bin/python', version: '3.10.0', type: 'Conda', isRecommended: false }
+                ],
+                ValidatePython: async () => ({
+                    valid: true,
+                    version: '3.9.6',
+                    missingPackages: [],
+                    error: ''
+                }),
                 // Add other mocks as needed
             }
         }

@@ -11,6 +11,11 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     ValidatePython: vi.fn(),
 }));
 
+// Mock window.runtime
+(window as any).runtime = {
+    EventsOnMultiple: vi.fn().mockReturnValue(() => {}),
+};
+
 describe('PreferenceModal', () => {
     it('loads and saves LLM configuration', async () => {
         const mockConfig = {
@@ -228,5 +233,47 @@ describe('PreferenceModal', () => {
                 pythonPath: '/usr/bin/python3'
             }));
         });
+    });
+
+    it('has auto-correct and capitalization disabled for technical fields', async () => {
+        const mockConfig = {
+            llmProvider: 'OpenAI',
+            apiKey: '',
+            baseUrl: '',
+            modelName: '',
+            maxTokens: 4096,
+            dataCacheDir: '',
+            pythonPath: ''
+        };
+
+        (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
+
+        render(<PreferenceModal isOpen={true} onClose={() => {}} />);
+
+        await waitFor(() => {
+            screen.getByLabelText(/Provider Type/i);
+        });
+
+        const technicalInputs = [
+            /API Base URL/i,
+            /API Key/i,
+            /Model Name/i,
+        ];
+
+        technicalInputs.forEach(label => {
+            const input = screen.getByLabelText(label) as HTMLInputElement;
+            expect(input.getAttribute('autoCapitalize')).toBe('none');
+            expect(input.getAttribute('autoCorrect')).toBe('off');
+            expect(input.getAttribute('spellCheck')).toBe('false');
+        });
+
+        // Switch to System Parameters for Data Cache Dir
+        const systemTab = screen.getByText(/System Parameters/i);
+        fireEvent.click(systemTab);
+
+        const cacheDirInput = await screen.findByLabelText(/Data Cache Directory/i) as HTMLInputElement;
+        expect(cacheDirInput.getAttribute('autoCapitalize')).toBe('none');
+        expect(cacheDirInput.getAttribute('autoCorrect')).toBe('off');
+        expect(cacheDirInput.getAttribute('spellCheck')).toBe('false');
     });
 });
