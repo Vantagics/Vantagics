@@ -287,20 +287,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     <div className="p-6 border-t border-slate-100 bg-white">
-                        <div className="relative group max-w-2xl mx-auto w-full">
+                        <div className="flex items-center gap-3 max-w-2xl mx-auto w-full">
                             <input 
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                                 placeholder="What would you like to analyze?"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-6 pr-16 py-4.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm group-hover:border-slate-300"
+                                className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-4.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
                                 disabled={isLoading}
                             />
                             <button 
                                 onClick={handleSendMessage}
                                 disabled={isLoading || !input.trim()}
-                                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95"
+                                className="flex-shrink-0 p-4 bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >
                                 <Send className="w-5 h-5" />
                             </button>
