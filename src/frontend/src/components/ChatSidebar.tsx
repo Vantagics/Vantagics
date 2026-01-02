@@ -15,6 +15,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const activeThread = threads.find(t => t.id === activeThreadId);
@@ -126,16 +127,25 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleClearHistory = async () => {
-        if (confirm('Are you sure you want to clear all chat history?')) {
-            try {
-                await ClearHistory();
-                setThreads([]);
-                setActiveThreadId(null);
-            } catch (err) {
-                console.error('Failed to clear history:', err);
-            }
+    const handleClearHistory = () => {
+        setShowClearConfirm(true);
+    };
+
+    const confirmClearHistory = async () => {
+        try {
+            await ClearHistory();
+            setThreads([]);
+            setActiveThreadId(null);
+            setShowClearConfirm(false);
+        } catch (err) {
+            console.error('Failed to clear history:', err);
+            // Optionally keep modal open or show error state
+            setShowClearConfirm(false);
         }
+    };
+
+    const cancelClearHistory = () => {
+        setShowClearConfirm(false);
     };
 
     return (
@@ -308,6 +318,32 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
                 </div>
             </div>
+
+            {/* Confirmation Modal */}
+            {showClearConfirm && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">Clear All History?</h3>
+                        <p className="text-sm text-slate-500 mb-6">
+                            This action cannot be undone. All your chat threads will be permanently deleted.
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={cancelClearHistory}
+                                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmClearHistory}
+                                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
+                            >
+                                Clear History
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 };

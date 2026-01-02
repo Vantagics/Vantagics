@@ -32,4 +32,11 @@ describe('ChatSidebar', () => {
     fireEvent.click(closeButton);
     expect(handleClose).toHaveBeenCalledTimes(1);
   });
+
+  it('shows confirmation modal when Clear History is clicked', () => {
+    render(<ChatSidebar isOpen={true} onClose={() => {}} />);
+    const clearButton = screen.getByText('CLEAR HISTORY');
+    fireEvent.click(clearButton);
+    expect(screen.getByText('Clear All History?')).toBeInTheDocument();
+  });
 });
