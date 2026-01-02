@@ -231,6 +231,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         <div className="flex items-center gap-1">
                              <button 
                                 onClick={onClose}
+                                aria-label="Close sidebar"
                                 className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all"
                             >
                                 <X className="w-5 h-5" />
@@ -283,7 +284,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                                 placeholder="What would you like to analyze?"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-6 pr-16 py-4.5 text-sm font-medium text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm group-hover:border-slate-300"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-6 pr-16 py-4.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm group-hover:border-slate-300"
                                 disabled={isLoading}
                             />
                             <button 

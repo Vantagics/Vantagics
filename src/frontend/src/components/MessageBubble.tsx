@@ -38,7 +38,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload })
                         : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                 }`}
             >
-                <div className={`prose prose-sm font-medium leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}>
+                <div className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}>
                     <ReactMarkdown>{content}</ReactMarkdown>
                 </div>
 
