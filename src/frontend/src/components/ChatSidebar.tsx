@@ -3,6 +3,7 @@ import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRigh
 import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
+import { useLanguage } from '../i18n';
 
 interface ChatSidebarProps {
     isOpen: boolean;
@@ -10,6 +11,7 @@ interface ChatSidebarProps {
 }
 
 const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
+    const { t } = useLanguage();
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
     const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
     const [input, setInput] = useState('');
@@ -168,12 +170,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10"
                         style={{ '--wails-draggable': 'drag' } as any}
                     >
-                        <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">History</span>
+                        <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
                         <button 
                             onClick={handleCreateThread}
                             className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-sm active:scale-95"
                             style={{ '--wails-draggable': 'no-drag' } as any}
-                            title="New Chat"
+                            title={t('new_chat')}
                         >
                             <Plus className="w-4 h-4" />
                         </button>
@@ -218,7 +220,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] font-bold text-slate-500 hover:text-red-600 transition-colors rounded-xl hover:bg-red-50"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
-                            CLEAR HISTORY
+                            {t('clear_history')}
                         </button>
                     </div>
                 </div>
@@ -240,10 +242,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <MessageSquare className="w-5 h-5 text-white" />
                             </div>
                             <div>
-                                <h3 className="font-bold text-slate-900 text-sm tracking-tight">AI Assistant</h3>
+                                <h3 className="font-bold text-slate-900 text-sm tracking-tight">{t('ai_assistant')}</h3>
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                                    <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">{activeThread?.title || 'Ready to help'}</p>
+                                    <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">{activeThread?.title || t('ready_to_help')}</p>
                                 </div>
                             </div>
                         </div>
@@ -271,7 +273,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3.5 shadow-sm rounded-bl-none flex items-center gap-2">
                                     <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                                    <span className="text-xs text-slate-500 font-medium">AI is thinking...</span>
+                                    <span className="text-xs text-slate-500 font-medium">{t('ai_thinking')}</span>
                                 </div>
                             </div>
                         )}
@@ -280,16 +282,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white">
                                     <MessageSquare className="w-10 h-10 text-blue-500" />
                                 </div>
-                                <h4 className="text-slate-900 font-extrabold text-xl tracking-tight mb-3">Insights at your fingertips</h4>
+                                <h4 className="text-slate-900 font-extrabold text-xl tracking-tight mb-3">{t('insights_at_fingertips')}</h4>
                                 <p className="text-sm text-slate-500 max-w-[280px] leading-relaxed font-medium">
-                                    Ask about sales trends, customer behavior, or request a complex data analysis.
+                                    {t('ask_about_sales')}
                                 </p>
                                 <button 
                                     onClick={handleCreateThread}
                                     className="mt-8 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
                                 >
                                     <Plus className="w-4 h-4" />
-                                    Start New Analysis
+                                    {t('start_new_analysis')}
                                 </button>
                             </div>
                         )}
@@ -303,7 +305,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                                placeholder="What would you like to analyze?"
+                                placeholder={t('what_to_analyze')}
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
                                 disabled={isLoading}
                             />
@@ -318,11 +320,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         <div className="flex items-center justify-center gap-4 mt-4">
                             <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
                                 <span className="w-1 h-1 bg-slate-300 rounded-full" />
-                                Data-driven reasoning
+                                {t('data_driven_reasoning')}
                             </p>
                             <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
                                 <span className="w-1 h-1 bg-slate-300 rounded-full" />
-                                Visualized summaries
+                                {t('visualized_summaries')}
                             </p>
                         </div>
                     </div>
@@ -333,22 +335,22 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             {showClearConfirm && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">Clear All History?</h3>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">{t('clear_history_confirm_title')}</h3>
                         <p className="text-sm text-slate-500 mb-6">
-                            This action cannot be undone. All your chat threads will be permanently deleted.
+                            {t('clear_history_confirm_desc')}
                         </p>
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={cancelClearHistory}
                                 className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                             >
-                                Cancel
+                                {t('cancel')}
                             </button>
                             <button
                                 onClick={confirmClearHistory}
                                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
                             >
-                                Clear History
+                                {t('clear')}
                             </button>
                         </div>
                     </div>

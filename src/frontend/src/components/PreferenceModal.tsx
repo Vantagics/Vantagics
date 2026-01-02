@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython } from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
+import { useLanguage } from '../i18n';
 
 type Tab = 'llm' | 'system' | 'drivers' | 'runenv';
 
@@ -11,6 +12,7 @@ interface PreferenceModalProps {
 }
 
 const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) => {
+    const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>('llm');
     const [config, setConfig] = useState<main.Config>({
         llmProvider: 'OpenAI',
@@ -35,23 +37,12 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             }).catch(console.error);
             setTestResult(null);
         }
-
-        // Listen for directory selection result
-        const unsubscribe = EventsOn("directory-selected", (path: string) => {
-            console.log('Event directory-selected received:', path);
-            if (path) {
-                setConfig(prev => ({ ...prev, dataCacheDir: path }));
-            }
-        });
-
-        return () => {
-            unsubscribe();
-        };
     }, [isOpen]);
 
     const handleSave = async () => {
         try {
             await SaveConfig(config);
+            EventsEmit('config-updated');
             onClose();
         } catch (err) {
             console.error('Failed to save config:', err);
@@ -59,9 +50,15 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
-    const handleBrowseDirectory = () => {
-        console.log('handleBrowseDirectory triggered (event-based)');
-        SelectDirectory();
+    const handleBrowseDirectory = async () => {
+        try {
+            const path = await SelectDirectory();
+            if (path) {
+                setConfig(prev => ({ ...prev, dataCacheDir: path }));
+            }
+        } catch (err) {
+            console.error('Failed to select directory:', err);
+        }
     };
 
     const handleTestConnection = async () => {
@@ -89,7 +86,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             <div className="bg-white w-[800px] h-[600px] rounded-xl shadow-2xl flex overflow-hidden text-slate-900">
                 {/* Sidebar */}
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
-                    <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">Preferences</h2>
+                    <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
                         {(['llm', 'system', 'drivers', 'runenv'] as const).map((tab) => (
                             <button
@@ -99,10 +96,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
                                 }`}
                             >
-                                {tab === 'llm' && 'LLM Configuration'}
-                                {tab === 'system' && 'System Parameters'}
-                                {tab === 'drivers' && 'Data Source Drivers'}
-                                {tab === 'runenv' && 'Run Environment'}
+                                {tab === 'llm' && t('llm_config')}
+                                {tab === 'system' && t('system_params')}
+                                {tab === 'drivers' && t('drivers')}
+                                {tab === 'runenv' && t('run_env')}
                             </button>
                         ))}
                     </nav>
@@ -113,10 +110,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                     <div className="flex-1 p-8 overflow-y-auto">
                         {activeTab === 'llm' && (
                             <div className="space-y-6">
-                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">LLM Model Configuration</h3>
+                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('llm_config')}</h3>
                                 <div className="grid gap-4">
                                     <div>
-                                        <label htmlFor="llmProvider" className="block text-sm font-medium text-slate-700 mb-1">Provider Type</label>
+                                        <label htmlFor="llmProvider" className="block text-sm font-medium text-slate-700 mb-1">{t('provider_type')}</label>
                                         <select 
                                             id="llmProvider"
                                             value={config.llmProvider}
@@ -182,7 +179,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 
                                     <div>
                                         <label htmlFor="apiKey" className="block text-sm font-medium text-slate-700 mb-1">
-                                            API Key {isOpenAICompatible ? '(Optional)' : ''}
+                                            {t('api_key')} {isOpenAICompatible ? '(Optional)' : ''}
                                         </label>
                                         <input 
                                             id="apiKey"
@@ -197,7 +194,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         />
                                     </div>
                                     <div>
-                                        <label htmlFor="modelName" className="block text-sm font-medium text-slate-700 mb-1">Model Name</label>
+                                        <label htmlFor="modelName" className="block text-sm font-medium text-slate-700 mb-1">{t('model_name')}</label>
                                         <input 
                                             id="modelName"
                                             type="text" 
@@ -212,7 +209,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
 
                                     <div>
-                                        <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">Max Tokens</label>
+                                        <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">{t('max_tokens')}</label>
                                         <input 
                                             id="maxTokens"
                                             type="number" 
@@ -246,11 +243,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                         )}
                         {activeTab === 'system' && (
                             <div className="space-y-6">
-                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">System Parameters</h3>
+                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('system_params')}</h3>
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <span className="block text-sm font-medium text-slate-700">Dark Mode</span>
+                                            <span className="block text-sm font-medium text-slate-700">{t('dark_mode')}</span>
                                             <span className="block text-xs text-slate-500">Enable dark appearance for the UI</span>
                                         </div>
                                         <input 
@@ -261,7 +258,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
                                     <div className="flex items-center justify-between">
                                         <div>
-                                            <span className="block text-sm font-medium text-slate-700">Local Cache</span>
+                                            <span className="block text-sm font-medium text-slate-700">{t('local_cache')}</span>
                                             <span className="block text-xs text-slate-500">Store query results locally</span>
                                         </div>
                                         <input 
@@ -271,7 +268,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Language</label>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
                                         <select 
                                             value={config.language}
                                             onChange={(e) => setConfig({...config, language: e.target.value})}
@@ -282,18 +279,27 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         </select>
                                     </div>
                                     <div>
-                                        <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">Data Cache Directory</label>
-                                        <input 
-                                            id="dataCacheDir"
-                                            type="text" 
-                                            value={config.dataCacheDir}
-                                            onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
-                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder="~/RapidBI"
-                                            autoCapitalize="none"
-                                            autoCorrect="off"
-                                            spellCheck={false}
-                                        />
+                                        <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">{t('data_cache_dir')}</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                id="dataCacheDir"
+                                                type="text"
+                                                value={config.dataCacheDir}
+                                                onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
+                                                className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="~/RapidBI"
+                                                autoCapitalize="none"
+                                                autoCorrect="off"
+                                                spellCheck={false}
+                                            />
+                                            <button
+                                                onClick={handleBrowseDirectory}
+                                                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-md transition-colors whitespace-nowrap"
+                                                type="button"
+                                            >
+                                                {t('browse')}
+                                            </button>
+                                        </div>
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             The directory used to store application data. Must exist on your system.
                                         </p>
@@ -308,10 +314,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                     {/* Footer */}
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                         <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-md">
-                            Cancel
+                            {t('cancel')}
                         </button>
                         <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm">
-                            Save Changes
+                            {t('save_changes')}
                         </button>
                     </div>
                 </div>

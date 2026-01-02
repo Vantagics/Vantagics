@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../i18n';
 
 interface SidebarProps {
     onOpenSettings: () => void;
@@ -6,6 +7,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
+    const { t } = useLanguage();
     const dataSources = [
         { id: 1, name: 'Sales DB (PostgreSQL)', type: 'SQL' },
         { id: 2, name: 'User Logs (Mongo)', type: 'NoSQL' },
@@ -19,7 +21,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
                 className="p-4 pt-8 border-b border-slate-200 bg-slate-50"
                 style={{ '--wails-draggable': 'drag' } as any}
             >
-                <h2 className="text-lg font-semibold text-slate-700">Data Sources</h2>
+                <h2 className="text-lg font-semibold text-slate-700">{t('data_sources')}</h2>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
                 <ul className="space-y-1">
@@ -37,17 +39,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat }) => {
                     aria-label="Toggle chat"
                     className="w-full py-2 px-4 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                    <span>💬</span> Chat Analysis
+                    <span>💬</span> {t('chat_analysis')}
                 </button>
                 <button className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors">
-                    + Add Source
+                    {t('add_source')}
                 </button>
                 <button 
                     onClick={onOpenSettings}
                     aria-label="Settings"
                     className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                    <span>⚙️</span> Settings
+                    <span>⚙️</span> {t('settings')}
                 </button>
             </div>
         </div>
