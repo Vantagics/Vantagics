@@ -27,8 +27,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     }, [isOpen]);
 
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [activeThread?.messages]);
+        const scrollToBottom = () => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        };
+        
+        // Use a small timeout to ensure DOM has updated
+        const timeoutId = setTimeout(scrollToBottom, 100);
+        return () => clearTimeout(timeoutId);
+    }, [activeThread?.messages, isLoading]);
 
     const loadThreads = async () => {
         try {
