@@ -16,6 +16,6 @@ This plan outlines the steps to adjust the font weight in the AI assistant's cha
 
 ## Phase 2: Final Verification
 
-- [~] **Task 1: Build and Visual Check.**
+- [x] **Task 1: Build and Visual Check.**
     - Rebuild the application and confirm the font looks "normal" (not bold) in the AI Assistant.
-- [ ] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)** [checkpoint: 3a2e4ec]

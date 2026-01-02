@@ -4,8 +4,8 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 ---
 
-## [x] Track: 系统参数设置中，添加数据缓存目录设置。默认指定为用户目录下的RapidBI目录，修改时需要验证目录是否存在。
-*Link: [./conductor/tracks/data_cache_dir_20260101/](./conductor/tracks/data_cache_dir_20260101/)*
+## [x] Track: 点击 Clear History 按钮，没有反应 (Native confirm blocked on macOS).
+*Link: [./conductor/tracks/fix_clear_history_dialog_20260101/](./conductor/tracks/fix_clear_history_dialog_20260101/)*
 
 
 

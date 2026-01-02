@@ -50,3 +50,27 @@ func TestConfig_DataCacheDir_Validation(t *testing.T) {
 		t.Errorf("Expected no error for existing DataCacheDir, got %v", err)
 	}
 }
+
+func TestConfig_PythonPath_Persistence(t *testing.T) {
+	app := NewApp()
+	tmpDir, _ := os.MkdirTemp("", "rapidbi-test-python-persist")
+	defer os.RemoveAll(tmpDir)
+	app.storageDir = tmpDir
+
+	config, _ := app.GetConfig()
+	config.PythonPath = "/usr/bin/python3"
+	
+	err := app.SaveConfig(config)
+	if err != nil {
+		t.Fatalf("SaveConfig failed: %v", err)
+	}
+
+	loadedConfig, err := app.GetConfig()
+	if err != nil {
+		t.Fatalf("GetConfig failed: %v", err)
+	}
+
+	if loadedConfig.PythonPath != "/usr/bin/python3" {
+		t.Errorf("Expected PythonPath /usr/bin/python3, got %s", loadedConfig.PythonPath)
+	}
+}

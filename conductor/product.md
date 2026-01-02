@@ -18,3 +18,4 @@ The primary focus is on **non-technical users** who need to understand their dat
 - **Smart Reports:** Automated reports that stay up-to-date with the latest data and can be easily exported to standard formats like PDF and Excel.
 - **Persistent AI Assistant:** A multi-thread chat interface that remembers conversation history, allowing users to build complex analyses over time.
 - **Broad Model Support:** Connect to industry leaders like OpenAI and Anthropic, or utilize local/open-source models via OpenAI-compatible or Claude-compatible endpoints for enhanced privacy and cost-efficiency.
+- **Custom Run Environments:** Select and validate Python environments (System, Conda, Virtualenv) to safely execute generated analysis scripts with required dependencies like Pandas and Matplotlib.
