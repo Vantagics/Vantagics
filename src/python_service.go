@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 // PythonEnvironment represents a detected Python environment
@@ -61,8 +62,34 @@ func (s *PythonService) ProbePythonEnvironments() []PythonEnvironment {
 		addEnv(path, "System")
 	}
 
-	// 2. Check Standard Conda Locations
+	// 2. Check Conda environments.txt (Highly reliable for Conda)
 	home, _ := os.UserHomeDir()
+	condaEnvsFile := filepath.Join(home, ".conda", "environments.txt")
+	if data, err := os.ReadFile(condaEnvsFile); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			envPath := strings.TrimSpace(line)
+			if envPath == "" {
+				continue
+			}
+			
+			pythonName := "python"
+			if runtime.GOOS == "windows" {
+				pythonName = "python.exe"
+			}
+
+			// Try path/python.exe (Windows) or path/bin/python (Unix)
+			fullPath := filepath.Join(envPath, "bin", pythonName)
+			if runtime.GOOS == "windows" {
+				fullPath = filepath.Join(envPath, pythonName)
+			}
+			
+			envName := filepath.Base(envPath)
+			addEnv(fullPath, "Conda ("+envName+")")
+		}
+	}
+
+	// 3. Check Standard Conda Locations (Fallback/Supplementary)
 	condaLocations := []string{
 		filepath.Join(home, "anaconda3"),
 		filepath.Join(home, "miniconda3"),
@@ -78,6 +105,7 @@ func (s *PythonService) ProbePythonEnvironments() []PythonEnvironment {
 			filepath.Join(home, "Miniconda3"),
 			`C:\ProgramData\Anaconda3`,
 			`C:\ProgramData\Miniconda3`,
+			filepath.Join(os.Getenv("APPDATA"), "Local", "Continuum", "anaconda3"),
 		)
 	}
 
@@ -109,9 +137,6 @@ func (s *PythonService) ProbePythonEnvironments() []PythonEnvironment {
 			}
 		}
 	}
-
-	// 3. Check Common Virtualenv Locations (Optional, e.g., ~/.virtualenvs)
-	// You can add more logic here if needed.
 
 	return envs
 }
@@ -158,6 +183,9 @@ func (s *PythonService) ValidatePythonEnvironment(path string) PythonValidationR
 func (s *PythonService) checkPackage(pythonPath, packageName string) bool {
 	// Run python -c "import package"
 	cmd := exec.Command(pythonPath, "-c", "import "+packageName)
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	}
 	err := cmd.Run()
 	return err == nil
 }
@@ -165,6 +193,9 @@ func (s *PythonService) checkPackage(pythonPath, packageName string) bool {
 // getPythonVersion runs python --version
 func (s *PythonService) getPythonVersion(pythonPath string) string {
 	cmd := exec.Command(pythonPath, "--version")
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		return "Unknown"
@@ -188,6 +219,9 @@ func (s *PythonService) ExecuteScript(pythonPath string, script string) (string,
 	tmpFile.Close()
 
 	cmd := exec.Command(pythonPath, tmpFile.Name())
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), err
