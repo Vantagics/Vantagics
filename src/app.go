@@ -526,7 +526,7 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *DataSourceA
 
 	// Construct prompt
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct data analysis angles or questions that would be valuable for a business user. Please answer in %s. Provide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include a brief title and a one-sentence description. End your response by telling the user (in %s) that they can reply with the number(s) to select one or multiple angles.\n\n", langPrompt, langPrompt))
+	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct data analysis angles or questions that would be valuable for a business user. Please answer in %s. Provide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include a brief, catchy title and a clear, one-sentence description of the analysis goal. End your response by telling the user (in %s) that they can select one or more analysis angles by replying with the corresponding number(s).", langPrompt, langPrompt))
 	sb.WriteString(fmt.Sprintf("Summary: %s\n\n", analysis.Summary))
 	sb.WriteString("Schema:\n")
 	for _, table := range analysis.Schema {

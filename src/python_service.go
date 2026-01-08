@@ -171,3 +171,27 @@ func (s *PythonService) getPythonVersion(pythonPath string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// ExecuteScript runs a Python script and returns the output
+func (s *PythonService) ExecuteScript(pythonPath string, script string) (string, error) {
+	// Create a temp file for the script
+	tmpFile, err := os.CreateTemp("", "rapidbi_script_*.py")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(script); err != nil {
+		tmpFile.Close()
+		return "", err
+	}
+	tmpFile.Close()
+
+	cmd := exec.Command(pythonPath, tmpFile.Name())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), err
+	}
+
+	return string(out), nil
+}
