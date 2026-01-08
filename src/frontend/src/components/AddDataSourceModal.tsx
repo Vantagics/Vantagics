@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AddDataSource, SelectExcelFile, SelectCSVFile } from '../../wailsjs/go/main/App';
+import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
 
 interface AddDataSourceModalProps {
@@ -19,7 +19,10 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         user: '',
         database: ''
     });
+    const [isStoreLocally, setIsStoreLocally] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [isTesting, setIsTesting] = useState(false);
+    const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
 
     if (!isOpen) return null;
@@ -30,7 +33,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             if (driverType === 'excel') {
                 path = await SelectExcelFile();
             } else if (driverType === 'csv') {
-                path = await SelectCSVFile();
+                path = await SelectFolder("Select CSV Directory");
             }
 
             if (path) {
@@ -48,6 +51,35 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         }
     };
 
+    const handleTestConnection = async () => {
+        if (!config.host || !config.user) {
+            setError('Please provide Host and User for connection test.');
+            return;
+        }
+        setIsTesting(true);
+        setError(null);
+        setAvailableDatabases([]);
+        try {
+            await TestMySQLConnection(config.host, config.port, config.user, config.password || '');
+            
+            // Try to fetch databases
+            try {
+                const dbs = await GetMySQLDatabases(config.host, config.port, config.user, config.password || '');
+                if (dbs && dbs.length > 0) {
+                    setAvailableDatabases(dbs);
+                }
+            } catch (e) {
+                console.warn("Could not fetch databases:", e);
+            }
+
+            alert(t('test_connection_success') || 'Connection successful!');
+        } catch (err: any) {
+            setError(t('test_connection_failed') || 'Connection failed: ' + err);
+        } finally {
+            setIsTesting(false);
+        }
+    };
+
     const handleImport = async () => {
         if (!name) {
             setError('Please enter a data source name');
@@ -61,12 +93,16 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         setIsImporting(true);
         setError(null);
         try {
-            await AddDataSource(name, driverType, config);
+            await AddDataSource(name, driverType, {
+                ...config,
+                storeLocally: isStoreLocally.toString()
+            });
             onSuccess();
             onClose();
             // Reset form
             setName('');
             setDriverType('excel');
+            setIsStoreLocally(false);
             setConfig({
                 filePath: '',
                 host: 'localhost',
@@ -90,7 +126,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
 
                 <div className="p-6 space-y-4">
                     {error && (
-                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-md">
+                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-md break-words">
                             {error}
                         </div>
                     )}
@@ -103,6 +139,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             onChange={(e) => setName(e.target.value)}
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                             placeholder="e.g. Sales 2023"
+                            spellCheck={false}
+                            autoCorrect="off"
+                            autoComplete="off"
                         />
                     </div>
 
@@ -133,7 +172,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     value={config.filePath}
                                     readOnly
                                     className="flex-1 border border-slate-300 rounded-md p-2 text-sm bg-slate-50 outline-none"
-                                    placeholder={driverType === 'excel' ? "Select excel file..." : "Select csv file..."}
+                                    placeholder={driverType === 'excel' ? "Select excel file..." : "Select csv folder..."}
                                 />
                                 <button
                                     onClick={handleBrowseFile}
@@ -152,6 +191,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     value={config.host}
                                     onChange={(e) => setConfig({ ...config, host: e.target.value })}
                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    spellCheck={false}
+                                    autoCorrect="off"
+                                    autoComplete="off"
                                 />
                             </div>
                             <div>
@@ -162,16 +204,45 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     onChange={(e) => setConfig({ ...config, port: e.target.value })}
                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                     placeholder={driverType === 'mysql' ? '3306' : driverType === 'postgresql' ? '5432' : ''}
+                                    spellCheck={false}
+                                    autoCorrect="off"
+                                    autoComplete="off"
                                 />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">{t('database')}</label>
-                                <input
-                                    type="text"
-                                    value={config.database}
-                                    onChange={(e) => setConfig({ ...config, database: e.target.value })}
-                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                />
+                                {availableDatabases.length > 0 ? (
+                                    <div className="flex gap-2">
+                                        <select
+                                            value={config.database}
+                                            onChange={(e) => setConfig({ ...config, database: e.target.value })}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="">-- Select Database --</option>
+                                            {availableDatabases.map(db => (
+                                                <option key={db} value={db}>{db}</option>
+                                            ))}
+                                        </select>
+                                        <button
+                                            onClick={() => setAvailableDatabases([])}
+                                            className="px-2 text-slate-400 hover:text-slate-600"
+                                            title="Switch to manual entry"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <input
+                                        type="text"
+                                        value={config.database}
+                                        onChange={(e) => setConfig({ ...config, database: e.target.value })}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                        placeholder={isTesting ? "Listing databases..." : ""}
+                                    />
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">{t('user')}</label>
@@ -180,7 +251,43 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     value={config.user}
                                     onChange={(e) => setConfig({ ...config, user: e.target.value })}
                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    spellCheck={false}
+                                    autoCorrect="off"
+                                    autoComplete="off"
                                 />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">{t('password') || 'Password'}</label>
+                                <input
+                                    type="password"
+                                    value={config.password || ''}
+                                    onChange={(e) => setConfig({ ...config, password: e.target.value })}
+                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    spellCheck={false}
+                                    autoCorrect="off"
+                                    autoComplete="off"
+                                />
+                            </div>
+                            <div className="col-span-2 flex items-center justify-between mt-2">
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        id="storeLocally"
+                                        checked={isStoreLocally}
+                                        onChange={(e) => setIsStoreLocally(e.target.checked)}
+                                        className="rounded border-slate-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
+                                    />
+                                    <label htmlFor="storeLocally" className="text-sm text-slate-700 select-none cursor-pointer">
+                                        {t('store_locally')}
+                                    </label>
+                                </div>
+                                <button
+                                    onClick={handleTestConnection}
+                                    disabled={isTesting}
+                                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${isTesting ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                                >
+                                    {isTesting ? 'Testing...' : (t('test_connection') || 'Test Connection')}
+                                </button>
                             </div>
                         </div>
                     )}

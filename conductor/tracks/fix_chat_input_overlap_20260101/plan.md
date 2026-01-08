@@ -17,6 +17,6 @@ This plan outlines the steps to refactor the chat input area to a flex layout, p
 
 ## Phase 2: Final Verification
 
-- [~] **Task 1: Build and Visual Check.**
+- [x] **Task 1: Build and Visual Check.**
     - Rebuild the application and confirm the side-by-side layout looks correct and functions properly.
-- [ ] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)**
+- [x] **Task: Conductor - User Manual Verification 'Final Verification' (Protocol in workflow.md)**

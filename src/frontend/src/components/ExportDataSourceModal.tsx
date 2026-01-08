@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { SelectSaveFile, ExportToCSV, ExportToSQL, ExportToMySQL, GetDataSourceTables, UpdateMySQLExportConfig, TestMySQLConnection, GetMySQLDatabases } from '../../wailsjs/go/main/App';
+import { SelectSaveFile, ExportToCSV, ExportToSQL, ExportToMySQL, GetDataSourceTables, UpdateMySQLExportConfig, TestMySQLConnection, GetMySQLDatabases, ShowMessage } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 
 interface ExportDataSourceModalProps {
@@ -126,38 +126,78 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
 
     const handleExport = async () => {
         if (selectedTables.length === 0) {
-            alert("Please select at least one table to export.");
+            ShowMessage("warning", "Export", "Please select at least one table to export.");
             return;
         }
 
         setIsExporting(true);
+        let destination = '';
+
+        // Helper for string formatting
+        const formatMsg = (key: string, ...args: string[]) => {
+            let msg = t(key);
+            args.forEach((arg, i) => {
+                msg = msg.replace(`{${i}}`, arg);
+            });
+            return msg;
+        };
+
         try {
             if (exportType === 'csv') {
                 const fileName = selectedTables.length === 1 ? `${selectedTables[0]}.csv` : `${sourceName}.csv`;
                 const path = await SelectSaveFile(fileName, "*.csv");
                 if (path) {
+                    destination = path;
                     await ExportToCSV(sourceId, selectedTables, path);
-                    alert(`Successfully exported ${selectedTables.length} table(s) to CSV!`);
+                    ShowMessage("info", "Export Success", formatMsg('export_success', sourceName, destination));
                     onClose();
+                } else {
+                    setIsExporting(false); // Cancelled
+                    return;
                 }
             } else if (exportType === 'sql') {
                 const fileName = selectedTables.length === 1 ? `${selectedTables[0]}.sql` : `${sourceName}.sql`;
                 const path = await SelectSaveFile(fileName, "*.sql");
                 if (path) {
+                    destination = path;
                     await ExportToSQL(sourceId, selectedTables, path);
-                    alert(`Successfully exported ${selectedTables.length} table(s) to SQL!`);
+                    ShowMessage("info", "Export Success", formatMsg('export_success', sourceName, destination));
                     onClose();
+                } else {
+                    setIsExporting(false); // Cancelled
+                    return;
                 }
             } else if (exportType === 'mysql') {
                 if (!isConnected) {
-                    alert("Please connect to MySQL server first.");
+                    ShowMessage("warning", "Connection", "Please connect to MySQL server first.");
                     setIsExporting(false);
                     return;
                 }
                 if (!mysqlConfig.database) {
-                    alert("Please select a database.");
+                    ShowMessage("warning", "Database", "Please select a database.");
                     setIsExporting(false);
                     return;
+                }
+
+                destination = `${mysqlConfig.host}:${mysqlConfig.port}/${mysqlConfig.database}`;
+
+                // Check if source and target are the same
+                if (dataSource && (dataSource.type === 'mysql' || dataSource.type === 'doris')) {
+                    const srcHost = (dataSource.config.host || 'localhost').trim().toLowerCase();
+                    const srcPort = (dataSource.config.port || '3306').trim();
+                    const srcDb = (dataSource.config.database || '').trim().toLowerCase();
+
+                    const dstHost = (mysqlConfig.host || 'localhost').trim().toLowerCase();
+                    const dstPort = (mysqlConfig.port || '3306').trim();
+                    const dstDb = (mysqlConfig.database || '').trim().toLowerCase();
+
+                    const normalize = (h: string) => (h === '127.0.0.1' || h === '::1') ? 'localhost' : h;
+
+                    if (normalize(srcHost) === normalize(dstHost) && srcPort === dstPort && srcDb === dstDb) {
+                        ShowMessage("error", "Export Error", t('err_same_source_target'));
+                        setIsExporting(false);
+                        return;
+                    }
                 }
 
                 await ExportToMySQL(sourceId, selectedTables, mysqlConfig.host, mysqlConfig.port, mysqlConfig.user, mysqlConfig.password, mysqlConfig.database);
@@ -170,13 +210,13 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                     // Don't fail the export if config save fails
                 }
 
-                alert(`Successfully exported ${selectedTables.length} table(s) to database '${mysqlConfig.database}'!`);
+                ShowMessage("info", "Export Success", formatMsg('export_success', sourceName, destination));
                 onClose();
             }
         } catch (err: any) {
             console.error("Export error:", err);
             const errorMessage = err?.message || err?.toString() || "Unknown error occurred";
-            alert(`Export failed:\n\n${errorMessage}\n\nPlease check the console for more details.`);
+            ShowMessage("error", "Export Failed", formatMsg('export_failed', sourceName, destination || 'unknown', errorMessage));
         } finally {
             setIsExporting(false);
         }
@@ -367,19 +407,41 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                             {mysqlStep === 'database' && isConnected && (
                                 <div>
                                     <label className="block text-xs font-medium text-slate-500 mb-1">Select Database *</label>
-                                    <select
-                                        value={mysqlConfig.database}
-                                        onChange={(e) => setMysqlConfig({...mysqlConfig, database: e.target.value})}
-                                        className="w-full border border-slate-300 rounded-md p-1.5 text-sm"
-                                    >
-                                        <option value="">-- Select Database --</option>
-                                        {availableDatabases.map(db => (
-                                            <option key={db} value={db}>{db}</option>
-                                        ))}
-                                    </select>
-                                    {availableDatabases.length === 0 && (
-                                        <p className="text-xs text-amber-600 mt-1">No databases found. You may need to create one first.</p>
-                                    )}
+                                    <div className="flex flex-col gap-2">
+                                        <select
+                                            value={availableDatabases.includes(mysqlConfig.database) ? mysqlConfig.database : ''}
+                                            onChange={(e) => {
+                                                if (e.target.value) {
+                                                    setMysqlConfig({...mysqlConfig, database: e.target.value});
+                                                }
+                                            }}
+                                            className="w-full border border-slate-300 rounded-md p-1.5 text-sm"
+                                        >
+                                            <option value="">-- Select Existing Database --</option>
+                                            {availableDatabases.map(db => (
+                                                <option key={db} value={db}>{db}</option>
+                                            ))}
+                                        </select>
+                                        
+                                        <div className="relative">
+                                            <div className="absolute inset-0 flex items-center">
+                                                <span className="w-full border-t border-slate-200" />
+                                            </div>
+                                            <div className="relative flex justify-center text-xs uppercase">
+                                                <span className="bg-slate-50 px-2 text-slate-500">Or create new</span>
+                                            </div>
+                                        </div>
+
+                                        <input
+                                            type="text"
+                                            value={mysqlConfig.database}
+                                            onChange={(e) => setMysqlConfig({...mysqlConfig, database: e.target.value})}
+                                            className="w-full border border-slate-300 rounded-md p-1.5 text-sm"
+                                            placeholder="Enter new database name"
+                                            spellCheck={false}
+                                        />
+                                    </div>
+                                    
                                     <p className="text-xs text-slate-500 mt-1">
                                         Connected to {mysqlConfig.host}:{mysqlConfig.port}
                                     </p>

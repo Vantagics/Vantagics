@@ -36,7 +36,7 @@ func TestDataSourceService_ImportExcel(t *testing.T) {
 	f.SetCellValue("Sheet1", "A3", 2)
 	f.SetCellValue("Sheet1", "B3", "Bob")
 	f.SetCellValue("Sheet1", "C3", 25)
-	
+
 	// Set active sheet of the workbook.
 	f.SetActiveSheet(index)
 	// Save spreadsheet by the given path.
@@ -90,7 +90,7 @@ func TestDataSourceService_ImportExcel(t *testing.T) {
 	if count != 2 { // 2 rows of data
 		t.Errorf("Expected 2 rows, got %d", count)
 	}
-    
+
     // Check Content
     var name string
     err = db.QueryRow("SELECT Name FROM Sheet1 WHERE ID='1'").Scan(&name)
@@ -111,7 +111,7 @@ func TestDataSourceService_ImportExcel(t *testing.T) {
 	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
 		t.Error("Database file was not deleted")
 	}
-    
+
     sources, err = service.LoadDataSources()
     if len(sources) != 0 {
         t.Errorf("Expected 0 sources, got %d", len(sources))
@@ -194,14 +194,14 @@ func TestDataSourceService_ImportExcel_MultipleSheets(t *testing.T) {
 	// 2. Create Sample Excel with 2 sheets
 	excelPath := filepath.Join(tempDir, "multisheet.xlsx")
 	f := excelize.NewFile()
-	
+
 	// Sheet 1 (default)
 	f.SetSheetName("Sheet1", "Sales")
 	f.SetCellValue("Sales", "A1", "Product")
 	f.SetCellValue("Sales", "B1", "Amount")
 	f.SetCellValue("Sales", "A2", "Apple")
 	f.SetCellValue("Sales", "B2", 100)
-	
+
 	// Sheet 2
 	f.NewSheet("Customers")
 	f.SetCellValue("Customers", "A1", "Name")
@@ -245,72 +245,133 @@ func TestDataSourceService_ImportExcel_MultipleSheets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Query Customers failed: %v", err)
 	}
-		if count != 1 {
-			t.Errorf("Expected 1 row in Customers, got %d", count)
-		}
+	if count != 1 {
+		t.Errorf("Expected 1 row in Customers, got %d", count)
 	}
-	
-	func TestDataSourceService_GetDataSourceTableCount(t *testing.T) {
-		// 1. Setup Temp Dir
-		tempDir, err := os.MkdirTemp("", "rapidbi_test_count")
-		if err != nil {
-			t.Fatalf("Failed to create temp dir: %v", err)
-		}
-		defer os.RemoveAll(tempDir)
-	
-		// 2. Create Sample Excel
-		excelPath := filepath.Join(tempDir, "count_test.xlsx")
-		f := excelize.NewFile()
-		f.SetSheetName("Sheet1", "Data")
-		f.SetCellValue("Data", "A1", "ID")
-		f.SetCellValue("Data", "A2", 1)
-		f.SetCellValue("Data", "A3", 2)
-		f.SetCellValue("Data", "A4", 3)
-		if err := f.SaveAs(excelPath); err != nil {
-			t.Fatalf("Failed to save excel: %v", err)
-		}
-	
-		// 3. Init Service
-		service := NewDataSourceService(tempDir)
-		ds, err := service.ImportExcel("Count Source", excelPath, nil)
-		if err != nil {
-			t.Fatalf("ImportExcel failed: %v", err)
-		}
-	
-		// 4. Test GetDataSourceTableCount
-		count, err := service.GetDataSourceTableCount(ds.ID, "Data")
-		if err != nil {
-			t.Fatalf("GetDataSourceTableCount failed: %v", err)
-		}
-	
-			if count != 3 {
-				t.Errorf("Expected count 3, got %d", count)
-			}
-		}
-		
-		func TestDataSourceService_AddDataSource_DuplicateName(t *testing.T) {
-			tempDir, err := os.MkdirTemp("", "rapidbi_test_dup")
-			if err != nil {
-				t.Fatalf("Failed to create temp dir: %v", err)
-			}
-			defer os.RemoveAll(tempDir)
-		
-			service := NewDataSourceService(tempDir)
-			ds1 := DataSource{ID: "1", Name: "Sales", Type: "excel"}
-			
-			// Add first source
-			if err := service.AddDataSource(ds1); err != nil {
-				t.Fatalf("Failed to add first source: %v", err)
-			}
-		
-			// Try adding second source with same name
-			ds2 := DataSource{ID: "2", Name: "sales", Type: "excel"}
-			err = service.AddDataSource(ds2)
-			if err == nil {
-				t.Error("Expected error for duplicate name, got nil")
-			} else if err.Error() != "data source with name 'sales' already exists" && err.Error() != "data source with name 'Sales' already exists" {
-				// Error message might vary slightly depending on which name is used in error construction, but logic should hold
-				// Current implementation uses ds.Name (the new one)
-			}
-		}
-		
+}
+
+func TestDataSourceService_GetDataSourceTableCount(t *testing.T) {
+	// 1. Setup Temp Dir
+	tempDir, err := os.MkdirTemp("", "rapidbi_test_count")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 2. Create Sample Excel
+	excelPath := filepath.Join(tempDir, "count_test.xlsx")
+	f := excelize.NewFile()
+	f.SetSheetName("Sheet1", "Data")
+	f.SetCellValue("Data", "A1", "ID")
+	f.SetCellValue("Data", "A2", 1)
+	f.SetCellValue("Data", "A3", 2)
+	f.SetCellValue("Data", "A4", 3)
+	if err := f.SaveAs(excelPath); err != nil {
+		t.Fatalf("Failed to save excel: %v", err)
+	}
+
+	// 3. Init Service
+	service := NewDataSourceService(tempDir)
+	ds, err := service.ImportExcel("Count Source", excelPath, nil)
+	if err != nil {
+		t.Fatalf("ImportExcel failed: %v", err)
+	}
+
+	// 4. Test GetDataSourceTableCount
+	count, err := service.GetDataSourceTableCount(ds.ID, "Data")
+	if err != nil {
+		t.Fatalf("GetDataSourceTableCount failed: %v", err)
+	}
+
+	if count != 3 {
+		t.Errorf("Expected count 3, got %d", count)
+	}
+}
+
+func TestDataSourceService_AddDataSource_DuplicateName(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "rapidbi_test_dup")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	service := NewDataSourceService(tempDir)
+	ds1 := DataSource{ID: "1", Name: "Sales", Type: "excel"}
+
+	// Add first source
+	if err := service.AddDataSource(ds1); err != nil {
+		t.Fatalf("Failed to add first source: %v", err)
+	}
+
+	// Try adding second source with same name
+	ds2 := DataSource{ID: "2", Name: "sales", Type: "excel"}
+	err = service.AddDataSource(ds2)
+	if err == nil {
+		t.Error("Expected error for duplicate name, got nil")
+	} else if err.Error() != "data source with name 'sales' already exists" && err.Error() != "data source with name 'Sales' already exists" {
+		// Error message might vary slightly depending on which name is used in error construction, but logic should hold
+		// Current implementation uses ds.Name (the new one)
+	}
+}
+
+func TestDataSourceService_ExportToCSV(t *testing.T) {
+	// Setup
+	tmpDir, err := os.MkdirTemp("", "rapidbi-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	service := NewDataSourceService(tmpDir)
+
+	// Create a dummy data source
+	dbPath := filepath.Join(tmpDir, "sources", "test-id", "data.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec("CREATE TABLE test_table (id INTEGER, name TEXT)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO test_table VALUES (1, 'Alice'), (2, 'Bob')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ds := DataSource{
+		ID:   "test-id",
+		Name: "Test Source",
+		Config: DataSourceConfig{
+			DBPath: filepath.Join("sources", "test-id", "data.db"),
+		},
+	}
+	if err := service.SaveDataSources([]DataSource{ds}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Test Export
+	outputPath := filepath.Join(tmpDir, "export", "dummy.csv")
+	err = service.ExportToCSV("test-id", []string{"test_table"}, outputPath)
+	if err != nil {
+		t.Fatalf("ExportToCSV failed: %v", err)
+	}
+
+	// Verify directory creation
+	expectedDir := filepath.Join(tmpDir, "export", "Test_Source")
+	if _, err := os.Stat(expectedDir); os.IsNotExist(err) {
+		t.Errorf("Expected directory %s to exist", expectedDir)
+	}
+
+	// Verify file creation
+	expectedFile := filepath.Join(expectedDir, "test_table.csv")
+	if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+		t.Errorf("Expected file %s to exist", expectedFile)
+	}
+}

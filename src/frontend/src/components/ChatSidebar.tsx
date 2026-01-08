@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory } from '../../wailsjs/go/main/App';
+import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRight, Settings, Upload } from 'lucide-react';
+import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
 import { useLanguage } from '../i18n';
+import DeleteConfirmationModal from './DeleteConfirmationModal';
+import ChatThreadContextMenu from './ChatThreadContextMenu';
+import MemoryViewModal from './MemoryViewModal';
 
 interface ChatSidebarProps {
     isOpen: boolean;
@@ -18,25 +22,72 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [isLoading, setIsLoading] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [dataSources, setDataSources] = useState<any[]>([]);
+    const [deleteThreadTarget, setDeleteThreadTarget] = useState<{ id: string, title: string } | null>(null);
+    const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string } | null>(null);
+    const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const blankMenuRef = useRef<HTMLDivElement>(null);
 
     const activeThread = threads.find(t => t.id === activeThreadId);
+    // Find associated data source name
+    const activeDataSource = dataSources.find(ds => ds.id === activeThread?.data_source_id);
 
     useEffect(() => {
         if (isOpen) {
             loadThreads();
+            loadDataSources();
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        // Listen for new chat creation from Sidebar
+        const unsubscribeStart = EventsOn('start-new-chat', (data: any) => {
+            handleCreateThread(data.dataSourceId, data.sessionName);
+        });
+
+        // Listen for open chat request from Sidebar context menu
+        const unsubscribeOpen = EventsOn('open-chat', (thread: main.ChatThread) => {
+            // Ensure we have the latest threads
+            loadThreads().then(() => {
+                setActiveThreadId(thread.id);
+            });
+        });
+
+        // Listen for thread updates (e.g. background analysis errors)
+        const unsubscribeUpdate = EventsOn('thread-updated', (threadId: string) => {
+            loadThreads();
+        });
+
+        return () => {
+            if (unsubscribeStart) unsubscribeStart();
+            if (unsubscribeOpen) unsubscribeOpen();
+            if (unsubscribeUpdate) unsubscribeUpdate();
+        };
+    }, [threads]);
 
     useEffect(() => {
         const scrollToBottom = () => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         };
-        
+
         // Use a small timeout to ensure DOM has updated
         const timeoutId = setTimeout(scrollToBottom, 100);
         return () => clearTimeout(timeoutId);
     }, [activeThread?.messages, isLoading]);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (blankMenuRef.current && !blankMenuRef.current.contains(event.target as Node)) {
+                setBlankAreaContextMenu(null);
+            }
+        };
+        if (blankAreaContextMenu) {
+            document.addEventListener('mousedown', handleClickOutside);
+            return () => document.removeEventListener('mousedown', handleClickOutside);
+        }
+    }, [blankAreaContextMenu]);
 
     const loadThreads = async () => {
         try {
@@ -50,30 +101,75 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleCreateThread = () => {
-        const newThread = new main.ChatThread();
-        newThread.id = Date.now().toString();
-        newThread.title = 'New Chat';
-        newThread.created_at = Math.floor(Date.now() / 1000);
-        newThread.messages = [];
-        
-        const updatedThreads = [newThread, ...threads];
-        setThreads(updatedThreads);
-        setActiveThreadId(newThread.id);
-        SaveChatHistory(updatedThreads).catch(console.error);
+    const loadDataSources = async () => {
+        try {
+            const ds = await GetDataSources();
+            setDataSources(ds || []);
+        } catch (err) {
+            console.error('Failed to load data sources:', err);
+        }
     };
 
-    const handleDeleteThread = async (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
+    const handleCreateThread = async (dataSourceId?: string, title?: string) => {
         try {
-            await DeleteThread(id);
-            const updatedThreads = threads.filter(t => t.id !== id);
+            const newThread = await CreateChatThread(dataSourceId || '', title || 'New Chat');
+            setThreads(prev => [newThread, ...prev]);
+            setActiveThreadId(newThread.id);
+        } catch (err) {
+            console.error('Failed to create thread:', err);
+        }
+    };
+
+    const handleDeleteThread = (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const thread = threads.find(t => t.id === id);
+        if (thread) {
+            setDeleteThreadTarget({ id: thread.id, title: thread.title });
+        }
+    };
+
+    const confirmDeleteThread = async () => {
+        if (!deleteThreadTarget) return;
+        try {
+            await DeleteThread(deleteThreadTarget.id);
+            const updatedThreads = threads.filter(t => t.id !== deleteThreadTarget.id);
             setThreads(updatedThreads);
-            if (activeThreadId === id) {
+            if (activeThreadId === deleteThreadTarget.id) {
                 setActiveThreadId(updatedThreads.length > 0 ? updatedThreads[0].id : null);
             }
+            setDeleteThreadTarget(null);
         } catch (err) {
             console.error('Failed to delete thread:', err);
+        }
+    };
+
+    const handleContextMenu = (e: React.MouseEvent, threadId: string) => {
+        e.preventDefault();
+        setContextMenu({ x: e.clientX, y: e.clientY, threadId });
+    };
+
+    const handleBlankAreaContextMenu = (e: React.MouseEvent) => {
+        // Only show menu if clicking directly on the container (blank area)
+        if (e.target === e.currentTarget) {
+            e.preventDefault();
+            setBlankAreaContextMenu({ x: e.clientX, y: e.clientY });
+        }
+    };
+
+    const handleImportAction = () => {
+        console.log('Import action triggered');
+        alert('Import functionality (Not implemented)');
+        setBlankAreaContextMenu(null);
+    };
+
+    const handleContextAction = (action: 'export' | 'assetize' | 'view_memory', threadId: string) => {
+        console.log(`Action ${action} on thread ${threadId}`);
+        if (action === 'view_memory') {
+            setMemoryModalTarget(threadId);
+        } else if (action === 'export') {
+            alert(`Exporting thread ${threadId} (Not implemented)`);
+        } else if (action === 'assetize') {
+            alert(`Assetizing thread ${threadId} (Not implemented)`);
         }
     };
 
@@ -83,14 +179,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         let currentThreads = [...threads];
         let currentThread = currentThreads.find(t => t.id === activeThreadId);
 
+        // If no active thread, create one first
         if (!currentThread) {
-            currentThread = new main.ChatThread();
-            currentThread.id = Date.now().toString();
-            currentThread.title = input.slice(0, 30);
-            currentThread.created_at = Math.floor(Date.now() / 1000);
-            currentThread.messages = [];
-            currentThreads = [currentThread, ...currentThreads];
-            setActiveThreadId(currentThread.id);
+            try {
+                const title = input.slice(0, 30);
+                const newThread = await CreateChatThread('', title);
+                currentThread = newThread;
+                currentThreads = [newThread, ...currentThreads];
+                setActiveThreadId(newThread.id);
+                // Update local threads immediately to show UI
+                setThreads(currentThreads);
+            } catch (err) {
+                console.error("Failed to create thread on send:", err);
+                return;
+            }
         }
 
         const userMsg = new main.ChatMessage();
@@ -99,9 +201,24 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         userMsg.content = input;
         userMsg.timestamp = Math.floor(Date.now() / 1000);
 
+        // We need to mutate the clone or the object in the list
+        // currentThread is a reference to the object in currentThreads array?
+        // Yes, find returns a reference.
+        if (!currentThread.messages) currentThread.messages = [];
         currentThread.messages.push(userMsg);
-        if (currentThread.messages.length === 1) {
-            currentThread.title = input.slice(0, 30) + (input.length > 30 ? '...' : '');
+        
+        // Check if we need to rename (first message of a generic "New Chat")
+        // Or if we just created it with the specific name, we skip.
+        // If we created it above, it has the name.
+        // If it was "New Chat" (empty messages), and we just added one.
+        if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
+             const newTitle = input.slice(0, 30) + (input.length > 30 ? '...' : '');
+             try {
+                 const uniqueTitle = await UpdateThreadTitle(currentThread.id, newTitle);
+                 currentThread.title = uniqueTitle;
+             } catch (err) {
+                 console.error("Failed to rename thread:", err);
+             }
         }
 
         setThreads([...currentThreads]);
@@ -109,7 +226,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setIsLoading(true);
 
         try {
-            const response = await SendMessage(input);
+            const response = await SendMessage(currentThread?.id || '', input);
             const assistantMsg = new main.ChatMessage();
             assistantMsg.id = (Date.now() + 1).toString();
             assistantMsg.role = 'assistant';
@@ -171,21 +288,19 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         style={{ '--wails-draggable': 'drag' } as any}
                     >
                         <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
-                        <button 
-                            onClick={handleCreateThread}
-                            className="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-sm active:scale-95"
-                            style={{ '--wails-draggable': 'no-drag' } as any}
-                            title={t('new_chat')}
-                        >
-                            <Plus className="w-4 h-4" />
-                        </button>
+                        {/* New Chat button hidden in favor of Sidebar flow */}
+                        <div className="w-4" /> 
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-hide">
+                    <div
+                        className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-hide"
+                        onContextMenu={handleBlankAreaContextMenu}
+                    >
                         {threads.map(thread => (
                             <div 
                                 key={thread.id}
                                 onClick={() => setActiveThreadId(thread.id)}
+                                onContextMenu={(e) => handleContextMenu(e, thread.id)}
                                 className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${
                                     activeThreadId === thread.id 
                                         ? 'bg-white border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100' 
@@ -245,7 +360,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <h3 className="font-bold text-slate-900 text-sm tracking-tight">{t('ai_assistant')}</h3>
                                 <div className="flex items-center gap-2 mt-1">
                                     <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                                    <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">{activeThread?.title || t('ready_to_help')}</p>
+                                    <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">
+                                        {activeThread?.title || t('ready_to_help')}
+                                    </p>
+                                    {activeDataSource && (
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full border border-slate-200">
+                                            {activeDataSource.name}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -286,13 +408,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <p className="text-sm text-slate-500 max-w-[280px] leading-relaxed font-medium">
                                     {t('ask_about_sales')}
                                 </p>
-                                <button 
-                                    onClick={handleCreateThread}
-                                    className="mt-8 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center gap-2"
-                                >
-                                    <Plus className="w-4 h-4" />
-                                    {t('start_new_analysis')}
-                                </button>
+                                {/* Start New Analysis button hidden - use Sidebar flow */}
                             </div>
                         )}
                         <div ref={messagesEndRef} />
@@ -354,6 +470,48 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+
+            <DeleteConfirmationModal
+                isOpen={!!deleteThreadTarget}
+                sourceName={deleteThreadTarget?.title || ''}
+                onClose={() => setDeleteThreadTarget(null)}
+                onConfirm={confirmDeleteThread}
+            />
+
+            <MemoryViewModal
+                isOpen={!!memoryModalTarget}
+                threadId={memoryModalTarget || ''}
+                onClose={() => setMemoryModalTarget(null)}
+            />
+
+            {contextMenu && (
+                <ChatThreadContextMenu
+                    position={{ x: contextMenu.x, y: contextMenu.y }}
+                    threadId={contextMenu.threadId}
+                    onClose={() => setContextMenu(null)}
+                    onAction={handleContextAction}
+                />
+            )}
+
+            {blankAreaContextMenu && (
+                <div
+                    ref={blankMenuRef}
+                    className="fixed bg-white border border-slate-200 rounded-lg shadow-xl z-[9999] w-40 py-1 overflow-hidden"
+                    style={{ top: blankAreaContextMenu.y, left: blankAreaContextMenu.x }}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                >
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleImportAction(); }}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                        <Upload className="w-4 h-4 text-slate-400" />
+                        Import
+                    </button>
                 </div>
             )}
         </>

@@ -45,18 +45,27 @@ type DataSourceConfig struct {
 	User              string             `json:"user,omitempty"`
 	Password          string             `json:"password,omitempty"`
 	Database          string             `json:"database,omitempty"`
+	StoreLocally      bool               `json:"store_locally"`
 	MySQLExportConfig *MySQLExportConfig `json:"mysql_export_config,omitempty"`
 }
 
 // DataSourceService handles data source operations
 type DataSourceService struct {
 	dataCacheDir string
+	Log          func(string)
 }
 
 // NewDataSourceService creates a new service instance
-func NewDataSourceService(dataCacheDir string) *DataSourceService {
+func NewDataSourceService(dataCacheDir string, logFunc func(string)) *DataSourceService {
 	return &DataSourceService{
 		dataCacheDir: dataCacheDir,
+		Log:          logFunc,
+	}
+}
+
+func (s *DataSourceService) log(msg string) {
+	if s.Log != nil {
+		s.Log(msg)
 	}
 }
 
@@ -102,6 +111,7 @@ func (s *DataSourceService) SaveDataSources(sources []DataSource) error {
 
 // AddDataSource adds a new source to the registry
 func (s *DataSourceService) AddDataSource(ds DataSource) error {
+	s.log(fmt.Sprintf("AddDataSource: %s (Type: %s)", ds.Name, ds.Type))
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return err
@@ -119,6 +129,7 @@ func (s *DataSourceService) AddDataSource(ds DataSource) error {
 
 // DeleteDataSource removes a source and its data
 func (s *DataSourceService) DeleteDataSource(id string) error {
+	s.log(fmt.Sprintf("DeleteDataSource: %s", id))
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return err
@@ -139,12 +150,14 @@ func (s *DataSourceService) DeleteDataSource(id string) error {
 		return fmt.Errorf("data source not found")
 	}
 
-	// Remove data directory
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	dirToRemove := filepath.Dir(dbPath)
+	// Remove data directory if it exists
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		dirToRemove := filepath.Dir(dbPath)
 
-	if strings.HasPrefix(dirToRemove, s.dataCacheDir) {
-		_ = os.RemoveAll(dirToRemove)
+		if strings.HasPrefix(dirToRemove, s.dataCacheDir) {
+			_ = os.RemoveAll(dirToRemove)
+		}
 	}
 
 	return s.SaveDataSources(newSources)
@@ -206,19 +219,195 @@ func (s *DataSourceService) isHeaderRow(row []string) bool {
 
 // ImportDataSource is a generic method to import data from various sources
 func (s *DataSourceService) ImportDataSource(name string, driverType string, config DataSourceConfig, headerGen func(string) (string, error)) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportDataSource: %s (Driver: %s)", name, driverType))
 	switch strings.ToLower(driverType) {
 	case "excel":
 		return s.ImportExcel(name, config.OriginalFile, headerGen)
 	case "csv":
 		return s.ImportCSV(name, config.OriginalFile, headerGen)
-	case "mysql", "postgresql", "doris":
-		// For other types, we would typically connect and import.
-		// For this implementation, we scaffold the behavior of "reading and writing to sqlite"
-		// as requested. In a real scenario, we'd use appropriate drivers.
-		return nil, fmt.Errorf("driver type %s import not yet fully implemented, but configured for caching", driverType)
+	case "mysql", "doris":
+		return s.ImportRemoteDataSource(name, driverType, config)
+	case "postgresql":
+		return nil, fmt.Errorf("postgresql driver not supported yet")
 	default:
 		return nil, fmt.Errorf("unsupported driver type: %s", driverType)
 	}
+}
+
+// ImportRemoteDataSource handles importing or linking to remote databases like MySQL
+func (s *DataSourceService) ImportRemoteDataSource(name string, driverType string, config DataSourceConfig) (*DataSource, error) {
+	// 1. Validate connection
+	if config.Port == "" {
+		config.Port = "3306"
+	}
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", config.User, config.Password, config.Host, config.Port, config.Database)
+	
+	// Assuming mysql compatible
+	remoteDB, err := sql.Open("mysql", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection: %v", err)
+	}
+	defer remoteDB.Close()
+
+	if err := remoteDB.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %v", err)
+	}
+
+	id := uuid.New().String()
+	
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      strings.ToLower(driverType),
+		CreatedAt: time.Now(),
+		Config:    config,
+	}
+
+	// 2. If StoreLocally, import data
+	if config.StoreLocally {
+		// Create local storage
+		relDBDir := filepath.Join("sources", id)
+		absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+		if err := os.MkdirAll(absDBDir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create data directory: %v", err)
+		}
+
+		dbName := "data.db"
+		relDBPath := filepath.Join(relDBDir, dbName)
+		absDBPath := filepath.Join(absDBDir, dbName)
+
+		localDB, err := sql.Open("sqlite", absDBPath)
+		if err != nil {
+			_ = os.RemoveAll(absDBDir)
+			return nil, fmt.Errorf("failed to create local database: %v", err)
+		}
+		defer localDB.Close()
+
+		// Get all tables
+		rows, err := remoteDB.Query("SHOW TABLES")
+		if err != nil {
+			_ = os.RemoveAll(absDBDir)
+			return nil, fmt.Errorf("failed to list tables: %v", err)
+		}
+		defer rows.Close()
+
+		var tables []string
+		for rows.Next() {
+			var tableName string
+			if err := rows.Scan(&tableName); err != nil {
+				continue
+			}
+			tables = append(tables, tableName)
+		}
+
+		if len(tables) == 0 {
+			_ = os.RemoveAll(absDBDir)
+			return nil, fmt.Errorf("no tables found in database")
+		}
+
+		for _, tableName := range tables {
+			if err := s.copyTable(remoteDB, localDB, tableName); err != nil {
+				// Log error but continue with other tables? Or fail? 
+				// For now, let's fail to ensure integrity
+				_ = os.RemoveAll(absDBDir)
+				return nil, fmt.Errorf("failed to copy table %s: %v", tableName, err)
+			}
+		}
+
+		ds.Config.DBPath = relDBPath
+	}
+
+	// 3. Save to Registry
+	if err := s.AddDataSource(ds); err != nil {
+		return nil, err
+	}
+
+	return &ds, nil
+}
+
+// copyTable copies a single table from remote MySQL to local SQLite
+func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableName string) error {
+	// Get data
+	rows, err := remoteDB.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+
+	// Create table in SQLite
+	// We'll treat everything as TEXT or try basic inference? 
+	// For simplicity and robustness, TEXT is safest for caching unless we strictly map types.
+	// But let's try to be a bit smarter or just use TEXT for now to avoid type mismatch issues between MySQL and SQLite.
+	createCols := []string{}
+	for _, col := range cols {
+		colName := s.sanitizeName(col)
+		createCols = append(createCols, fmt.Sprintf("`%s` TEXT", colName))
+	}
+
+	safeTableName := s.sanitizeName(tableName)
+	createSQL := fmt.Sprintf("CREATE TABLE `%s` (%s)", safeTableName, strings.Join(createCols, ", "))
+	if _, err := localDB.Exec(createSQL); err != nil {
+		return fmt.Errorf("failed to create table schema: %v", err)
+	}
+
+	// Insert data
+	placeholders := make([]string, len(cols))
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	insertSQL := fmt.Sprintf("INSERT INTO `%s` VALUES (%s)", safeTableName, strings.Join(placeholders, ","))
+	
+	tx, err := localDB.Begin()
+	if err != nil {
+		return err
+	}
+	
+	stmt, err := tx.Prepare(insertSQL)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	defer stmt.Close()
+
+	values := make([]interface{}, len(cols))
+	valuePtrs := make([]interface{}, len(cols))
+	for i := range cols {
+		valuePtrs[i] = &values[i]
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(valuePtrs...); err != nil {
+			tx.Rollback()
+			return err
+		}
+
+		// Convert to string/interface safe for SQLite
+		insertValues := make([]interface{}, len(cols))
+		for i, val := range values {
+			if val == nil {
+				insertValues[i] = nil
+			} else {
+				switch v := val.(type) {
+				case []byte:
+					insertValues[i] = string(v)
+				default:
+					insertValues[i] = v
+				}
+			}
+		}
+
+		if _, err := stmt.Exec(insertValues...); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // sanitizeName makes a string safe for use as a table or column name
@@ -672,29 +861,63 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 		return nil, fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-
-	rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var tables []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+	// If DBPath exists, use local SQLite
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err := sql.Open("sqlite", dbPath)
+		if err != nil {
 			return nil, err
 		}
-		tables = append(tables, name)
+		defer db.Close()
+
+		rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var tables []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			tables = append(tables, name)
+		}
+		return tables, nil
 	}
 
-	return tables, nil
+	// Else if remote DB
+	if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+		defer db.Close()
+
+		rows, err := db.Query("SHOW TABLES")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var tables []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			tables = append(tables, name)
+		}
+		return tables, nil
+	}
+
+	return nil, fmt.Errorf("data source has no local storage and is not a supported remote type")
 }
 
 // GetDataSourceTableData returns preview data for a table
@@ -716,15 +939,31 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		return nil, fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, err
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return nil, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported data source type for direct query")
 	}
 	defer db.Close()
 
 	if limit <= 0 {
-		limit = 100 // Safe default if something goes wrong
+		limit = 100 // Safe default
 	}
 
 	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT %d", tableName, limit)
@@ -754,7 +993,16 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		rowMap := make(map[string]interface{})
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
-			rowMap[colName] = *val
+			if val != nil {
+				// Handle []byte for MySQL text columns
+				if b, ok := (*val).([]byte); ok {
+					rowMap[colName] = string(b)
+				} else {
+					rowMap[colName] = *val
+				}
+			} else {
+				rowMap[colName] = nil
+			}
 		}
 		data = append(data, rowMap)
 	}
@@ -781,10 +1029,26 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 		return 0, fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return 0, err
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return 0, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		return 0, fmt.Errorf("unsupported data source type for count")
 	}
 	defer db.Close()
 
@@ -822,16 +1086,32 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 		return fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
+	var db *sql.DB
+	
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("data source storage not found")
 	}
 	defer db.Close()
 
 	// 2. Export each table
-	// Create directory named after data source in the target directory (outputPath is now a directory)
-	parentDir := outputPath
+	// Create directory named after data source in the target directory (parent of outputPath)
+	parentDir := filepath.Dir(outputPath)
 	dsName := s.sanitizeName(target.Name)
 	exportDir := filepath.Join(parentDir, dsName)
 
@@ -939,10 +1219,26 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 		return fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
+	var db *sql.DB
+	
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("data source storage not found")
 	}
 	defer db.Close()
 
@@ -1031,6 +1327,7 @@ func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string,
 		
 // ExportToMySQL exports one or more tables to a MySQL database
 func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlConfig DataSourceConfig) error {
+	s.log(fmt.Sprintf("ExportToMySQL: Source=%s, Tables=%v, TargetDB=%s", id, tableNames, mysqlConfig.Database))
 	if len(tableNames) == 0 {
 		return fmt.Errorf("no tables specified for export")
 	}
@@ -1053,31 +1350,99 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 		return fmt.Errorf("data source not found")
 	}
 
-	dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-	sqliteDB, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return err
-	}
-	defer sqliteDB.Close()
+	// Check if source and target are the same (only for remote sources)
+	if (target.Type == "mysql" || target.Type == "doris") {
+		srcHost := strings.TrimSpace(target.Config.Host)
+		if srcHost == "" { srcHost = "localhost" }
+		if srcHost == "127.0.0.1" || srcHost == "::1" { srcHost = "localhost" }
 
-	// 2. Connect to MySQL
+		srcPort := strings.TrimSpace(target.Config.Port)
+		if srcPort == "" { srcPort = "3306" }
+		
+		dstHost := strings.TrimSpace(mysqlConfig.Host)
+		if dstHost == "" { dstHost = "localhost" }
+		if dstHost == "127.0.0.1" || dstHost == "::1" { dstHost = "localhost" }
+
+		dstPort := strings.TrimSpace(mysqlConfig.Port)
+		if dstPort == "" { dstPort = "3306" }
+
+		srcDb := strings.TrimSpace(target.Config.Database)
+		dstDb := strings.TrimSpace(mysqlConfig.Database)
+
+		if strings.EqualFold(srcHost, dstHost) && 
+		   srcPort == dstPort && 
+		   strings.EqualFold(srcDb, dstDb) {
+			s.log("Error: Export source and target are same")
+			return fmt.Errorf("cannot export to the same database as the source")
+		}
+	}
+
+	var sourceDB *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		sourceDB, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		sourceDB, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("data source storage not found")
+	}
+	defer sourceDB.Close()
+
+	// 2. Connect to MySQL and Create Database if not exists
 	if mysqlConfig.Port == "" {
 		mysqlConfig.Port = "3306"
 	}
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", mysqlConfig.User, mysqlConfig.Password, mysqlConfig.Host, mysqlConfig.Port, mysqlConfig.Database)
+	
+	// First connect without database to create it
+	rootDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/?allowNativePasswords=true", mysqlConfig.User, mysqlConfig.Password, mysqlConfig.Host, mysqlConfig.Port)
+	rootDB, err := sql.Open("mysql", rootDSN)
+	if err != nil {
+		return fmt.Errorf("failed to connect to mysql server: %v", err)
+	}
+	defer rootDB.Close()
+
+	if err := rootDB.Ping(); err != nil {
+		return fmt.Errorf("failed to ping mysql server: %v", err)
+	}
+
+	// Create database
+	createDbSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", mysqlConfig.Database)
+	s.log(fmt.Sprintf("SQL Exec: %s", createDbSQL))
+	_, err = rootDB.Exec(createDbSQL)
+	if err != nil {
+		return fmt.Errorf("failed to create database %s: %v", mysqlConfig.Database, err)
+	}
+	rootDB.Close()
+
+	// Now connect to the specific database
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", mysqlConfig.User, mysqlConfig.Password, mysqlConfig.Host, mysqlConfig.Port, mysqlConfig.Database)
 	mysqlDB, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to connect to mysql: %v", err)
+		return fmt.Errorf("failed to connect to mysql database: %v", err)
 	}
 	defer mysqlDB.Close()
 
 	if err := mysqlDB.Ping(); err != nil {
-		return fmt.Errorf("failed to ping mysql: %v", err)
+		return fmt.Errorf("failed to ping mysql database: %v", err)
 	}
 
 	// 3. Export each table
 	for _, tableName := range tableNames {
-		if err := s.exportSingleTableToMySQL(sqliteDB, mysqlDB, tableName); err != nil {
+		s.log(fmt.Sprintf("Exporting table: %s", tableName))
+		if err := s.exportSingleTableToMySQL(sourceDB, mysqlDB, tableName); err != nil {
+			s.log(fmt.Sprintf("Export failed for table %s: %v", tableName, err))
 			return fmt.Errorf("failed to export table %s: %v", tableName, err)
 		}
 	}
@@ -1106,6 +1471,7 @@ func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *
 		createCols = append(createCols, fmt.Sprintf("`%s` TEXT", col))
 	}
 	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (%s)", tableName, strings.Join(createCols, ", "))
+	s.log(fmt.Sprintf("SQL Exec: %s", createSQL))
 	if _, err := mysqlDB.Exec(createSQL); err != nil {
 		return fmt.Errorf("failed to create table in mysql: %v", err)
 	}
@@ -1116,6 +1482,9 @@ func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *
 		placeholders[i] = "?"
 	}
 	insertSQL := fmt.Sprintf("INSERT INTO `%s` (`%s`) VALUES (%s)", tableName, strings.Join(cols, "`, `"), strings.Join(placeholders, ", "))
+	// Don't log full insert SQL with all data, just the template or first batch
+	s.log(fmt.Sprintf("SQL Prepare: %s", insertSQL))
+	
 	stmt, err := mysqlDB.Prepare(insertSQL)
 	if err != nil {
 		return fmt.Errorf("failed to prepare insert: %v", err)
@@ -1128,6 +1497,7 @@ func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *
 		valuePtrs[i] = &values[i]
 	}
 
+	rowCount := 0
 	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return err
@@ -1145,7 +1515,9 @@ func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *
 		if _, err := stmt.Exec(finalValues...); err != nil {
 			return fmt.Errorf("failed to insert row: %v", err)
 		}
+		rowCount++
 	}
+	s.log(fmt.Sprintf("Inserted %d rows into %s", rowCount, tableName))
 
 	return nil
 }
@@ -1156,7 +1528,7 @@ func (s *DataSourceService) TestMySQLConnection(host, port, user, password strin
 	if port == "" {
 		port = "3306"
 	}
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/", user, password, host, port)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?allowNativePasswords=true", user, password, host, port)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to create connection: %v", err)
@@ -1175,7 +1547,7 @@ func (s *DataSourceService) GetMySQLDatabases(host, port, user, password string)
 	if port == "" {
 		port = "3306"
 	}
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/", user, password, host, port)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?allowNativePasswords=true", user, password, host, port)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection: %v", err)

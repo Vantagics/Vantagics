@@ -6,25 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"rapidbi/agent"
+	"rapidbi/config"
+	"rapidbi/logger"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
-
-// Config structure
-type Config struct {
-	LLMProvider       string `json:"llmProvider"`
-	APIKey            string `json:"apiKey"`
-	BaseURL           string `json:"baseUrl"`
-	ModelName         string `json:"modelName"`
-	MaxTokens         int    `json:"maxTokens"`
-	DarkMode          bool   `json:"darkMode"`
-	LocalCache        bool   `json:"localCache"`
-	Language          string `json:"language"`
-	ClaudeHeaderStyle string `json:"claudeHeaderStyle"`
-	DataCacheDir      string `json:"dataCacheDir"`
-	PythonPath        string `json:"pythonPath"`
-	MaxPreviewRows    int    `json:"maxPreviewRows"`
-}
 
 // Metric structure for dashboard
 type Metric struct {
@@ -51,14 +42,54 @@ type App struct {
 	chatService       *ChatService
 	pythonService     *PythonService
 	dataSourceService *DataSourceService
+	memoryService     *agent.MemoryService
 	storageDir        string
+	logger            *logger.Logger
+	isChatGenerating  bool
+	isChatOpen        bool
+}
+
+// AgentMemoryView structure for frontend
+type AgentMemoryView struct {
+	LongTerm   []string `json:"long_term"`
+	MediumTerm []string `json:"medium_term"`
+	ShortTerm  []string `json:"short_term"`
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		pythonService: NewPythonService(),
+		pythonService:    NewPythonService(),
+		logger:           logger.NewLogger(),
+		isChatGenerating: false,
+		isChatOpen:       false,
 	}
+}
+
+// SetChatOpen updates the chat open state
+func (a *App) SetChatOpen(isOpen bool) {
+	a.isChatOpen = isOpen
+}
+
+// onBeforeClose is called when the application is about to close
+func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
+	if a.isChatGenerating || a.isChatOpen {
+		dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+			Type:          runtime.QuestionDialog,
+			Title:         "Active Chat Session",
+			Message:       "A chat session is currently open. Closing the application might lose context. Are you sure you want to exit?",
+			Buttons:       []string{"Yes", "No"},
+			DefaultButton: "No",
+			CancelButton:  "No",
+		})
+
+		if err != nil {
+			return false
+		}
+
+		return dialog == "No"
+	}
+	return false
 }
 
 // startup is called when the app starts.
@@ -69,7 +100,7 @@ func (a *App) startup(ctx context.Context) {
 	runSystray(ctx)
 
 	// Load config to get DataCacheDir
-	config, err := a.GetConfig()
+	cfg, err := a.GetConfig()
 	if err != nil {
 		fmt.Printf("Error loading config on startup: %v\n", err)
 		// Fallback to default storage dir if config fails
@@ -78,13 +109,15 @@ func (a *App) startup(ctx context.Context) {
 			_ = os.MkdirAll(path, 0755)
 			chatPath := filepath.Join(path, "chat_history.json")
 			a.chatService = NewChatService(chatPath)
-			a.dataSourceService = NewDataSourceService(path)
+			a.dataSourceService = NewDataSourceService(path, a.Log)
+			// Need a basic config for memory service if loading failed, or just skip
+			a.memoryService = agent.NewMemoryService(config.Config{DataCacheDir: path})
 		}
 		return
 	}
 
 	// Use configured DataCacheDir
-	dataDir := config.DataCacheDir
+	dataDir := cfg.DataCacheDir
 	if dataDir == "" {
 		dataDir, _ = a.getStorageDir()
 	}
@@ -93,8 +126,56 @@ func (a *App) startup(ctx context.Context) {
 		_ = os.MkdirAll(dataDir, 0755)
 		chatPath := filepath.Join(dataDir, "chat_history.json")
 		a.chatService = NewChatService(chatPath)
-		a.dataSourceService = NewDataSourceService(dataDir)
+		a.dataSourceService = NewDataSourceService(dataDir, a.Log)
+		a.memoryService = agent.NewMemoryService(cfg)
 	}
+
+	// Initialize Logging if enabled
+	if cfg.DetailedLog {
+		a.logger.Init(dataDir)
+	}
+}
+
+// GetAgentMemory retrieves the memory context for a thread
+func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
+	if a.memoryService == nil || a.chatService == nil {
+		return AgentMemoryView{}, fmt.Errorf("services not initialized")
+	}
+
+	global, sessionLong, sessionMedium := a.memoryService.GetMemories(threadID)
+	
+	// Combine Global and Session Long for the "Long Term" view
+	longTerm := append(global, sessionLong...)
+
+	// Get Short Term (Recent messages)
+	// We'll fetch the thread and take the last 10 messages as "Short Term Memory"
+	threads, _ := a.chatService.LoadThreads()
+	var short []string
+	
+	for _, t := range threads {
+		if t.ID == threadID {
+			// Take last 10 messages
+			start := 0
+			if len(t.Messages) > 10 {
+				start = len(t.Messages) - 10
+			}
+			for _, msg := range t.Messages[start:] {
+				short = append(short, fmt.Sprintf("[%s]: %s", msg.Role, msg.Content))
+			}
+			break
+		}
+	}
+
+	return AgentMemoryView{
+		LongTerm:   longTerm,
+		MediumTerm: sessionMedium,
+		ShortTerm:  short,
+	}, nil
+}
+
+// Log writes a detailed log entry if logging is enabled
+func (a *App) Log(message string) {
+	a.logger.Log(message)
 }
 
 func (a *App) getStorageDir() (string, error) {
@@ -117,10 +198,10 @@ func (a *App) getConfigPath() (string, error) {
 }
 
 // GetConfig loads the config from the ~/rapidbi/config.json
-func (a *App) GetConfig() (Config, error) {
+func (a *App) GetConfig() (config.Config, error) {
 	path, err := a.getConfigPath()
 	if err != nil {
-		return Config{}, err
+		return config.Config{}, err
 	}
 
 	home, _ := os.UserHomeDir()
@@ -128,7 +209,7 @@ func (a *App) GetConfig() (Config, error) {
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
-		return Config{
+		return config.Config{
 			LLMProvider:  "OpenAI",
 			ModelName:    "gpt-4o",
 			MaxTokens:    4096,
@@ -142,40 +223,40 @@ func (a *App) GetConfig() (Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, err
+		return config.Config{}, err
 	}
 
-	var config Config
-	err = json.Unmarshal(data, &config)
+	var cfg config.Config
+	err = json.Unmarshal(data, &cfg)
 	if err != nil {
-		return Config{}, err
+		return config.Config{}, err
 	}
 
 	// Ensure DataCacheDir has a default if empty in existing config
-	if config.DataCacheDir == "" {
-		config.DataCacheDir = defaultDataDir
+	if cfg.DataCacheDir == "" {
+		cfg.DataCacheDir = defaultDataDir
 	}
 
-	if config.MaxPreviewRows <= 0 {
-		config.MaxPreviewRows = 100
+	if cfg.MaxPreviewRows <= 0 {
+		cfg.MaxPreviewRows = 100
 	}
 
-	return config, nil
+	return cfg, nil
 }
 
 // SaveConfig saves the config to the ~/rapidbi/config.json
-func (a *App) SaveConfig(config Config) error {
+func (a *App) SaveConfig(cfg config.Config) error {
 	// Validate DataCacheDir exists if it's set
-	if config.DataCacheDir != "" {
-		info, err := os.Stat(config.DataCacheDir)
+	if cfg.DataCacheDir != "" {
+		info, err := os.Stat(cfg.DataCacheDir)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("data cache directory does not exist: %s", config.DataCacheDir)
+				return fmt.Errorf("data cache directory does not exist: %s", cfg.DataCacheDir)
 			}
 			return err
 		}
 		if !info.IsDir() {
-			return fmt.Errorf("data cache path is not a directory: %s", config.DataCacheDir)
+			return fmt.Errorf("data cache path is not a directory: %s", cfg.DataCacheDir)
 		}
 	}
 
@@ -190,9 +271,24 @@ func (a *App) SaveConfig(config Config) error {
 	}
 
 	path := filepath.Join(dir, "config.json")
-	data, err := json.MarshalIndent(config, "", "  ")
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return err
+	}
+
+	// Handle Logging State Change
+	if cfg.DetailedLog {
+		// Enable logging if not already enabled (checked inside Init usually, but here we can force re-init or check if active)
+		// Our logger handles re-init gracefully by closing old file.
+		// However, check if we need to switch on.
+		logDir := cfg.DataCacheDir
+		if logDir == "" {
+			logDir = dir // fallback to storage dir
+		}
+		a.logger.Init(logDir)
+	} else {
+		// Disable logging
+		a.logger.Close()
 	}
 
 	return os.WriteFile(path, data, 0644)
@@ -209,9 +305,9 @@ type ConnectionResult struct {
 }
 
 // TestLLMConnection tests the connection to an LLM provider
-func (a *App) TestLLMConnection(config Config) ConnectionResult {
-	llm := NewLLMService(config)
-	resp, err := llm.Chat(a.ctx, "test")
+func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
+	llm := agent.NewLLMService(cfg, a.Log)
+	resp, err := llm.Chat(a.ctx, "hi LLM, I'm just test the connection. Just answer ok to me without other infor.")
 	if err != nil {
 		return ConnectionResult{
 			Success: false,
@@ -251,14 +347,91 @@ func (a *App) GetDashboardData() DashboardData {
 }
 
 // SendMessage sends a message to the LLM and returns the response
-func (a *App) SendMessage(message string) (string, error) {
-	config, err := a.GetConfig()
+func (a *App) SendMessage(threadID string, message string) (string, error) {
+	cfg, err := a.GetConfig()
 	if err != nil {
 		return "", err
 	}
 
-	llm := NewLLMService(config)
-	return llm.Chat(a.ctx, message)
+	// Log user message if threadID provided
+	if threadID != "" && cfg.DetailedLog {
+		a.logChatToFile(threadID, "USER REQUEST", message)
+	}
+
+	a.isChatGenerating = true
+	defer func() { a.isChatGenerating = false }()
+
+	llm := agent.NewLLMService(cfg, a.Log)
+	resp, err := llm.Chat(a.ctx, message)
+
+	// Log LLM response if threadID provided
+	if threadID != "" && cfg.DetailedLog {
+		if err != nil {
+			a.logChatToFile(threadID, "SYSTEM ERROR", fmt.Sprintf("Error: %v", err))
+		} else {
+			a.logChatToFile(threadID, "LLM RESPONSE", resp)
+		}
+	}
+
+	return resp, err
+}
+
+func (a *App) logChatToFile(threadID, role, content string) {
+	// 1. Get Thread details
+	threads, err := a.chatService.LoadThreads()
+	if err != nil {
+		a.Log(fmt.Sprintf("logChatToFile: Failed to load threads: %v", err))
+		return
+	}
+
+	var thread *ChatThread
+	for i := range threads {
+		if threads[i].ID == threadID {
+			thread = &threads[i]
+			break
+		}
+	}
+	if thread == nil {
+		// Log warning to main log
+		a.Log(fmt.Sprintf("logChatToFile: Thread %s not found in history", threadID))
+		return
+	}
+
+	// 2. Get Data Source details
+	sources, _ := a.dataSourceService.LoadDataSources()
+	var dsName string = "Global"
+	for _, ds := range sources {
+		if ds.ID == thread.DataSourceID {
+			dsName = ds.Name
+			break
+		}
+	}
+
+	// 3. Construct filename
+	safeDSName := agent.SanitizeFilename(dsName)
+	safeSessionName := agent.SanitizeFilename(thread.Title)
+	filename := fmt.Sprintf("%s_%s.log", safeDSName, safeSessionName)
+	
+	// Use DataCacheDir for logs
+	cfg, _ := a.GetConfig()
+	logPath := filepath.Join(cfg.DataCacheDir, "chat_logs", filename)
+	
+	// Ensure dir exists
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		a.Log(fmt.Sprintf("logChatToFile: Failed to create log directory: %v", err))
+		return
+	}
+
+	// 4. Append log
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		a.Log(fmt.Sprintf("logChatToFile: Failed to open log file %s: %v", logPath, err))
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	fmt.Fprintf(f, "[%s] [%s]\n%s\n\n--------------------------------------------------\n\n", timestamp, role, content)
 }
 
 // SelectDirectory opens a directory dialog
@@ -330,7 +503,144 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 	if a.chatService == nil {
 		return ChatThread{}, fmt.Errorf("chat service not initialized")
 	}
-	return a.chatService.CreateThread(dataSourceID, title)
+	
+	thread, err := a.chatService.CreateThread(dataSourceID, title)
+	if err != nil {
+		return ChatThread{}, err
+	}
+
+	// If data source is selected, perform initial analysis asynchronously
+	if dataSourceID != "" {
+		go a.analyzeDataSourceAndMemorize(thread.ID, dataSourceID)
+	}
+
+	return thread, nil
+}
+
+func (a *App) analyzeDataSourceAndMemorize(threadID, dataSourceID string) {
+	if a.dataSourceService == nil || a.memoryService == nil {
+		return
+	}
+
+	a.Log(fmt.Sprintf("Starting analysis for thread %s, source %s", threadID, dataSourceID))
+
+	// 1. Get Tables
+	tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
+	if err != nil {
+		a.Log(fmt.Sprintf("Failed to get tables: %v", err))
+		return
+	}
+
+	// 2. Sample Data & Construct Prompt
+	var sb strings.Builder
+	sb.WriteString("I am starting a new analysis on this database. Please describe this database based on the following schema and sample data.\n\n")
+	
+	schemaInfo := "Tables:\n"
+
+	for _, tableName := range tables {
+		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
+		schemaInfo += fmt.Sprintf("- %s: ", tableName)
+
+		// Get 3 rows
+		data, err := a.dataSourceService.GetDataSourceTableData(dataSourceID, tableName, 3)
+		if err != nil {
+			sb.WriteString("(Failed to fetch data)\n")
+			continue
+		}
+
+		if len(data) > 0 {
+			// Extract columns from first row keys
+			var cols []string
+			for k := range data[0] {
+				cols = append(cols, k)
+			}
+			sb.WriteString(fmt.Sprintf("Columns: %s\nData:\n", strings.Join(cols, ", ")))
+			schemaInfo += strings.Join(cols, ", ") + "\n"
+
+			for _, row := range data {
+				// Simple values formatting
+				var vals []string
+				for _, col := range cols {
+					if val, ok := row[col]; ok {
+						vals = append(vals, fmt.Sprintf("%v", val))
+					} else {
+						vals = append(vals, "NULL")
+					}
+				}
+				sb.WriteString(fmt.Sprintf("[%s]\n", strings.Join(vals, ", ")))
+			}
+		} else {
+			sb.WriteString("(Empty table)\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// 3. Call LLM
+	prompt := sb.String()
+	
+	// Use SendMessage logic but manually to control logging role/visibility if needed
+	// For simplicity, reusing SendMessage but we might want to log this as 'System Analysis'
+	// Since SendMessage hardcodes 'User', let's call llm directly and use logChatToFile manually
+	
+	cfg, _ := a.GetConfig()
+	
+	if cfg.DetailedLog {
+		a.logChatToFile(threadID, "SYSTEM ANALYSIS PROMPT", prompt)
+	}
+
+	llm := agent.NewLLMService(cfg, a.Log)
+	description, err := llm.Chat(context.Background(), prompt) // Use background context for async
+	
+	if err != nil {
+		a.Log(fmt.Sprintf("LLM Analysis failed: %v", err))
+		if cfg.DetailedLog {
+			a.logChatToFile(threadID, "SYSTEM ANALYSIS ERROR", err.Error())
+		}
+		
+		// Report error in chat window
+		if a.chatService != nil {
+			a.chatService.AddMessage(threadID, ChatMessage{
+				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
+				Role:      "assistant",
+				Content:   fmt.Sprintf("⚠️ Data Source Analysis Failed:\n%v\n\n(Long-term memory could not be constructed)", err),
+				Timestamp: time.Now().Unix(),
+			})
+			runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+		}
+		return
+	}
+
+	if description == "" {
+		msg := "LLM returned empty response during analysis."
+		a.Log(msg)
+		if cfg.DetailedLog {
+			a.logChatToFile(threadID, "SYSTEM ANALYSIS ERROR", msg)
+		}
+		
+		// Report warning in chat window
+		if a.chatService != nil {
+			a.chatService.AddMessage(threadID, ChatMessage{
+				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
+				Role:      "assistant",
+				Content:   fmt.Sprintf("⚠️ Data Source Analysis Warning:\n%s", msg),
+				Timestamp: time.Now().Unix(),
+			})
+			runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+		}
+		description = "No description provided by LLM."
+	}
+
+	if cfg.DetailedLog {
+		a.logChatToFile(threadID, "SYSTEM ANALYSIS RESPONSE", description)
+	}
+
+	// 4. Save to Memory
+	// Combine Schema Info + Description
+	finalMemory := fmt.Sprintf("Data Source Schema:\n%s\n\nDatabase Description:\n%s", schemaInfo, description)
+	
+	// Save to Session Long Term Memory
+	a.memoryService.AddSessionLongTermMemory(threadID, finalMemory)
+	a.Log("Analysis and memory update complete.")
 }
 
 // UpdateThreadTitle updates the title of a chat thread
@@ -366,7 +676,7 @@ func (a *App) ImportExcelDataSource(name string, filePath string) (*DataSource, 
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage(prompt)
+		return a.SendMessage("", prompt)
 	}
 
 	return a.dataSourceService.ImportExcel(name, filePath, headerGen)
@@ -379,7 +689,7 @@ func (a *App) ImportCSVDataSource(name string, dirPath string) (*DataSource, err
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage(prompt)
+		return a.SendMessage("", prompt)
 	}
 
 	return a.dataSourceService.ImportCSV(name, dirPath, headerGen)
@@ -396,11 +706,13 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 		Host:         config["host"],
 		Port:         config["port"],
 		User:         config["user"],
+		Password:     config["password"],
 		Database:     config["database"],
+		StoreLocally: config["storeLocally"] == "true",
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage(prompt)
+		return a.SendMessage("", prompt)
 	}
 
 	return a.dataSourceService.ImportDataSource(name, driverType, dsConfig, headerGen)
@@ -442,11 +754,11 @@ func (a *App) GetDataSourceTableData(id string, tableName string) ([]map[string]
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
-	config, err := a.GetConfig()
+	cfg, err := a.GetConfig()
 	if err != nil {
 		return nil, err
 	}
-	return a.dataSourceService.GetDataSourceTableData(id, tableName, config.MaxPreviewRows)
+	return a.dataSourceService.GetDataSourceTableData(id, tableName, cfg.MaxPreviewRows)
 }
 
 // GetDataSourceTableCount returns the total number of rows in a table
@@ -464,7 +776,7 @@ func (a *App) SelectExcelFile() (string, error) {
 
 		Filters: []runtime.FileFilter{
 
-			{DisplayName: "Excel Files", Pattern: "*.xlsx;*.xls"},
+			{DisplayName: "Excel Files", Pattern: "*.xlsx;*.xls;*.xlsm"},
 
 		},
 
@@ -580,5 +892,26 @@ func (a *App) GetMySQLDatabases(host, port, user, password string) ([]string, er
 		return nil, fmt.Errorf("data source service not initialized")
 	}
 	return a.dataSourceService.GetMySQLDatabases(host, port, user, password)
+}
+
+// ShowMessage displays a message dialog
+func (a *App) ShowMessage(typeStr string, title string, message string) {
+	var dialogType runtime.DialogType
+	switch typeStr {
+	case "info":
+		dialogType = runtime.InfoDialog
+	case "warning":
+		dialogType = runtime.WarningDialog
+	case "error":
+		dialogType = runtime.ErrorDialog
+	default:
+		dialogType = runtime.InfoDialog
+	}
+
+	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:    dialogType,
+		Title:   title,
+		Message: message,
+	})
 }
 

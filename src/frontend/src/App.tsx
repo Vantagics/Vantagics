@@ -6,7 +6,7 @@ import PreferenceModal from './components/PreferenceModal';
 import ChatSidebar from './components/ChatSidebar';
 import ContextMenu from './components/ContextMenu';
 import { EventsOn } from '../wailsjs/runtime/runtime';
-import { GetDashboardData } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import './App.css';
 
@@ -15,15 +15,76 @@ function App() {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
 
+    useEffect(() => {
+        SetChatOpen(isChatOpen);
+    }, [isChatOpen]);
+
+    // Startup State
+    const [isAppReady, setIsAppReady] = useState(false);
+    const [startupStatus, setStartupStatus] = useState<"checking" | "failed">("checking");
+    const [startupMessage, setStartupMessage] = useState("Initializing...");
+
+    // Layout State
+    const [sidebarWidth, setSidebarWidth] = useState(256);
+    const [contextPanelWidth, setContextPanelWidth] = useState(384);
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+    const [isResizingContextPanel, setIsResizingContextPanel] = useState(false);
+
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: HTMLElement } | null>(null);
 
+    const checkLLM = async () => {
+        setStartupStatus("checking");
+        setStartupMessage("Checking LLM Configuration...");
+        try {
+            const config = await GetConfig();
+            
+            // Basic validation
+            if (!config.apiKey && config.llmProvider !== 'OpenAI-Compatible' && config.llmProvider !== 'Claude-Compatible') {
+                throw new Error("API Key is missing. Please configure LLM settings.");
+            }
+            
+            setStartupMessage("Testing LLM Connection...");
+            const result = await TestLLMConnection(config);
+            
+            if (result.success) {
+                setIsAppReady(true);
+                // Fetch dashboard data only after ready
+                GetDashboardData().then(setDashboardData).catch(console.error);
+            } else {
+                throw new Error(`Connection Test Failed: ${result.message}`);
+            }
+        } catch (err: any) {
+            console.error("Startup check failed:", err);
+            setStartupStatus("failed");
+            setStartupMessage(err.message || String(err));
+            setIsPreferenceOpen(true);
+        }
+    };
+
     useEffect(() => {
-        // Fetch dashboard data
-        GetDashboardData().then(setDashboardData).catch(console.error);
+        // Initial Check - only if not ready
+        if (!isAppReady) {
+            checkLLM();
+        }
+
+        // Listen for config updates to retry
+        const unsubscribeConfig = EventsOn("config-updated", () => {
+            if (!isAppReady) {
+                checkLLM();
+            }
+        });
+
+        // Listen for analysis events
+        const unsubscribeAnalysisError = EventsOn("analysis-error", (msg: string) => {
+            alert(`Analysis Error: ${msg}`);
+        });
+        const unsubscribeAnalysisWarning = EventsOn("analysis-warning", (msg: string) => {
+            alert(`Analysis Warning: ${msg}`);
+        });
 
         // Listen for menu event
-        const unsubscribe = EventsOn("open-settings", () => {
+        const unsubscribeSettings = EventsOn("open-settings", () => {
             setIsPreferenceOpen(true);
         });
 
@@ -39,9 +100,102 @@ function App() {
         window.addEventListener('contextmenu', handleContextMenu);
 
         return () => {
+            if (unsubscribeConfig) unsubscribeConfig();
+            if (unsubscribeAnalysisError) unsubscribeAnalysisError();
+            if (unsubscribeAnalysisWarning) unsubscribeAnalysisWarning();
+            if (unsubscribeSettings) unsubscribeSettings();
             window.removeEventListener('contextmenu', handleContextMenu);
         };
-    }, []);
+    }, [isAppReady]);
+
+    // Resize Handlers
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (isResizingSidebar) {
+                const newWidth = e.clientX;
+                if (newWidth > 150 && newWidth < 600) {
+                    setSidebarWidth(newWidth);
+                }
+            } else if (isResizingContextPanel) {
+                // Context Panel starts after sidebar. 
+                // We can calculate its width as (currentX - sidebarWidth)
+                // However, there might be a resizer width offset.
+                const newWidth = e.clientX - sidebarWidth;
+                if (newWidth > 200 && newWidth < 800) {
+                    setContextPanelWidth(newWidth);
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingSidebar(false);
+            setIsResizingContextPanel(false);
+            document.body.style.cursor = 'default';
+        };
+
+        if (isResizingSidebar || isResizingContextPanel) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizingSidebar, isResizingContextPanel, sidebarWidth]);
+
+    const startResizingSidebar = () => {
+        setIsResizingSidebar(true);
+        document.body.style.cursor = 'col-resize';
+    };
+
+    const startResizingContextPanel = () => {
+        setIsResizingContextPanel(true);
+        document.body.style.cursor = 'col-resize';
+    };
+
+    if (!isAppReady) {
+        return (
+            <div className="flex h-screen w-screen bg-slate-50 items-center justify-center flex-col gap-6 relative">
+                {/* Draggable Area for Startup Screen */}
+                <div 
+                    className="absolute top-0 left-0 right-0 h-10 z-[100]"
+                    style={{ '--wails-draggable': 'drag' } as any}
+                />
+
+                <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                
+                <div className="text-center max-w-md px-6">
+                    <h2 className="text-xl font-semibold text-slate-800 mb-2">System Startup</h2>
+                    <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
+                        {startupMessage}
+                    </p>
+                    
+                    {startupStatus === 'failed' && (
+                        <div className="mt-6 flex flex-col gap-3">
+                            <button 
+                                onClick={() => setIsPreferenceOpen(true)}
+                                className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
+                            >
+                                Open Settings
+                            </button>
+                            <button 
+                                onClick={checkLLM}
+                                className="px-6 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-md hover:bg-slate-50 transition-colors"
+                            >
+                                Retry Connection
+                            </button>
+                        </div>
+                    )}
+                </div>
+
+                <PreferenceModal 
+                    isOpen={isPreferenceOpen} 
+                    onClose={() => setIsPreferenceOpen(false)} 
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900 relative">
@@ -58,11 +212,28 @@ function App() {
             </div>
 
             <Sidebar 
+                width={sidebarWidth}
                 onOpenSettings={() => setIsPreferenceOpen(true)} 
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
             />
-            <Dashboard data={dashboardData} />
-            <ContextPanel />
+            
+            {/* Sidebar Resizer */}
+            <div
+                className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingSidebar ? 'bg-blue-600' : 'bg-transparent'}`}
+                onMouseDown={startResizingSidebar}
+            />
+
+            <ContextPanel width={contextPanelWidth} />
+
+            {/* Context Panel Resizer */}
+            <div
+                className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
+                onMouseDown={startResizingContextPanel}
+            />
+
+            <div className="flex-1 flex flex-col min-w-0">
+                <Dashboard data={dashboardData} />
+            </div>
             
             <ChatSidebar 
                 isOpen={isChatOpen} 

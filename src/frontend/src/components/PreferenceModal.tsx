@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
-import { main } from '../../wailsjs/go/models';
+import { main, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 
-type Tab = 'llm' | 'system' | 'drivers' | 'runenv';
+type Tab = 'llm' | 'system' | 'runenv';
 
 interface PreferenceModalProps {
     isOpen: boolean;
@@ -14,7 +14,7 @@ interface PreferenceModalProps {
 const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) => {
     const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>('llm');
-    const [config, setConfig] = useState<main.Config>({
+    const [config, setConfig] = useState<configModel.Config>({
         llmProvider: 'OpenAI',
         apiKey: '',
         baseUrl: '',
@@ -25,7 +25,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         language: 'English',
         claudeHeaderStyle: 'Anthropic',
         dataCacheDir: '',
-        pythonPath: ''
+        pythonPath: '',
+        maxPreviewRows: 100,
+        detailedLog: false
     });
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
@@ -88,7 +90,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
-                        {(['llm', 'system', 'drivers', 'runenv'] as const).map((tab) => (
+                        {(['llm', 'system', 'runenv'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -98,7 +100,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                             >
                                 {tab === 'llm' && t('llm_config')}
                                 {tab === 'system' && t('system_params')}
-                                {tab === 'drivers' && t('drivers')}
                                 {tab === 'runenv' && t('run_env')}
                             </button>
                         ))}
@@ -267,6 +268,17 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => setConfig({...config, localCache: e.target.checked})}
                                         />
                                     </div>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="block text-sm font-medium text-slate-700">{t('detailed_log')}</span>
+                                            <span className="block text-xs text-slate-500">Enable detailed logging for debugging</span>
+                                        </div>
+                                        <input 
+                                            type="checkbox" 
+                                            checked={config.detailedLog}
+                                            onChange={(e) => setConfig({...config, detailedLog: e.target.checked})}
+                                        />
+                                    </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
                                         <select 
@@ -277,6 +289,21 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <option>English</option>
                                             <option>简体中文</option>
                                         </select>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="maxPreviewRows" className="block text-sm font-medium text-slate-700 mb-1">{t('max_preview_rows')}</label>
+                                        <input 
+                                            id="maxPreviewRows"
+                                            type="number" 
+                                            value={config.maxPreviewRows}
+                                            onChange={(e) => setConfig({...config, maxPreviewRows: parseInt(e.target.value) || 100})}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            min="1"
+                                            max="10000"
+                                        />
+                                        <p className="mt-1 text-[10px] text-slate-400 italic">
+                                            Number of rows to display in the data preview window (default 100).
+                                        </p>
                                     </div>
                                     <div>
                                         <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">{t('data_cache_dir')}</label>
@@ -307,13 +334,12 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 </div>
                             </div>
                         )}
-                        {activeTab === 'drivers' && <DriverSettings />}
                         {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} />}
                     </div>
                     
                     {/* Footer */}
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-                        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-md">
+                        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md">
                             {t('cancel')}
                         </button>
                         <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm">
@@ -326,43 +352,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     );
 };
 
-const DriverSettings: React.FC = () => {
-    const drivers = [
-        { name: 'PostgreSQL', version: '14.2', installed: true },
-        { name: 'MySQL', version: '8.0', installed: true },
-        { name: 'SQLite', version: '3.39', installed: true },
-    ];
-
-    return (
-        <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">Data Source Drivers</h3>
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-50 text-slate-700 font-medium">
-                        <tr>
-                            <th className="p-3 border-b border-slate-200">Driver Name</th>
-                            <th className="p-3 border-b border-slate-200">Version</th>
-                            <th className="p-3 border-b border-slate-200">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {drivers.map((driver) => (
-                            <tr key={driver.name}>
-                                <td className="p-3 font-medium text-slate-700">{driver.name}</td>
-                                <td className="p-3 text-slate-500">{driver.version}</td>
-                                <td className="p-3 text-green-600 font-medium">Installed</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-};
-
 interface RunEnvSettingsProps {
-    config: main.Config;
-    setConfig: (config: main.Config) => void;
+    config: configModel.Config;
+    setConfig: (config: configModel.Config) => void;
 }
 
 const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) => {
