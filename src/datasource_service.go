@@ -19,11 +19,24 @@ import (
 
 // DataSource represents a registered data source
 type DataSource struct {
-	ID        string           `json:"id"`
-	Name      string           `json:"name"`
-	Type      string           `json:"type"` // excel, mysql, postgresql, etc.
-	CreatedAt time.Time        `json:"created_at"`
-	Config    DataSourceConfig `json:"config"`
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Type      string              `json:"type"` // excel, mysql, postgresql, etc.
+	CreatedAt time.Time           `json:"created_at"`
+	Config    DataSourceConfig    `json:"config"`
+	Analysis  *DataSourceAnalysis `json:"analysis,omitempty"`
+}
+
+// DataSourceAnalysis holds the AI-generated analysis of the data source
+type DataSourceAnalysis struct {
+	Summary string        `json:"summary"`
+	Schema  []TableSchema `json:"schema"`
+}
+
+// TableSchema represents the schema of a table
+type TableSchema struct {
+	TableName string   `json:"table_name"`
+	Columns   []string `json:"columns"`
 }
 
 // MySQLExportConfig holds MySQL export configuration
@@ -107,6 +120,29 @@ func (s *DataSourceService) SaveDataSources(sources []DataSource) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// UpdateAnalysis updates the analysis information for a data source
+func (s *DataSourceService) UpdateAnalysis(id string, analysis DataSourceAnalysis) error {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	for i := range sources {
+		if sources[i].ID == id {
+			sources[i].Analysis = &analysis
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("data source not found")
+	}
+
+	return s.SaveDataSources(sources)
 }
 
 // AddDataSource adds a new source to the registry

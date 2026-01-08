@@ -128,10 +128,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         </select>
                                     </div>
                                     
-                                    {(isOpenAICompatible || isClaudeCompatible || config.llmProvider === 'OpenAI') && (
+                                    {(isOpenAICompatible || isClaudeCompatible) && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                                             <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">
-                                                API Base URL {config.llmProvider === 'OpenAI' ? '(Optional)' : ''}
+                                                API Base URL
                                             </label>
                                             <input 
                                                 id="baseUrl"
@@ -141,8 +141,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 placeholder={
                                                     isOpenAICompatible ? "http://localhost:11434" : 
-                                                    isClaudeCompatible ? "https://bedrock-runtime.us-east-1.amazonaws.com" :
-                                                    "https://api.openai.com/v1"
+                                                    "https://bedrock-runtime.us-east-1.amazonaws.com"
                                                 }
                                                 autoCapitalize="none"
                                                 autoCorrect="off"
@@ -151,9 +150,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
                                                 {isOpenAICompatible 
                                                     ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)" 
-                                                    : isClaudeCompatible 
-                                                        ? "Base URL for Claude proxy (e.g., AWS Bedrock, Vertex AI, One API)"
-                                                        : "Leave empty for official OpenAI API"}
+                                                    : "Base URL for Claude proxy (e.g., AWS Bedrock, Vertex AI, One API)"}
                                             </p>
                                         </div>
                                     )}

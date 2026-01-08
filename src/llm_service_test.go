@@ -6,29 +6,32 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"rapidbi/agent"
+	"rapidbi/config"
 )
 
 func TestLLMServiceFactory(t *testing.T) {
 	// Test OpenAI config
-	openAIConfig := Config{
+	openAIConfig := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "sk-test",
 		ModelName:   "gpt-4",
 	}
 	
-	service := NewLLMService(openAIConfig)
+	service := agent.NewLLMService(openAIConfig, nil)
 	if service.Provider != "OpenAI" {
 		t.Errorf("Expected provider OpenAI, got %s", service.Provider)
 	}
 
 	// Test Anthropic config
-	anthropicConfig := Config{
+	anthropicConfig := config.Config{
 		LLMProvider: "Anthropic",
 		APIKey:      "sk-ant-test",
 		ModelName:   "claude-3",
 	}
 	
-	service = NewLLMService(anthropicConfig)
+	service = agent.NewLLMService(anthropicConfig, nil)
 	if service.Provider != "Anthropic" {
 		t.Errorf("Expected provider Anthropic, got %s", service.Provider)
 	}
@@ -53,13 +56,13 @@ func TestLLMServiceChat_OpenAI(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "sk-test",
 		ModelName:   "gpt-4",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
@@ -88,13 +91,13 @@ func TestLLMServiceChat_Anthropic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "Anthropic",
 		APIKey:      "sk-ant-test",
 		ModelName:   "claude-3",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
@@ -121,13 +124,13 @@ func TestLLMServiceChat_OpenAICompatible(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI-Compatible",
 		APIKey:      "optional-key",
 		ModelName:   "local-model",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
@@ -158,11 +161,11 @@ func TestLLMServiceChat_OpenAICompatible_BaseOnly(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI-Compatible",
 		BaseURL:     server.URL, // No trailing path
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
@@ -181,12 +184,12 @@ func TestLLMServiceChat_OpenAIError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "test-key",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	_, err := service.Chat(context.Background(), "Hello")
 	if err == nil {
@@ -201,12 +204,12 @@ func TestLLMServiceChat_AnthropicError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "Anthropic",
 		APIKey:      "test-key",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	_, err := service.Chat(context.Background(), "Hello")
 	if err == nil {
@@ -221,12 +224,12 @@ func TestLLMServiceChat_MalformedJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "test-key",
 		BaseURL:     server.URL,
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	
 	_, err := service.Chat(context.Background(), "Hello")
 	if err == nil {

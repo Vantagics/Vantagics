@@ -27,6 +27,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string } | null>(null);
     const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
+    
+    // Resizing State
+    const [sidebarWidth, setSidebarWidth] = useState(650);
+    const [historyWidth, setHistoryWidth] = useState(208);
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+    const [isResizingHistory, setIsResizingHistory] = useState(false);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const blankMenuRef = useRef<HTMLDivElement>(null);
 
@@ -40,6 +47,40 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             loadDataSources();
         }
     }, [isOpen]);
+
+    // Resizing Effect
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (isResizingSidebar) {
+                const newWidth = window.innerWidth - e.clientX;
+                if (newWidth > 400 && newWidth < window.innerWidth - 100) {
+                    setSidebarWidth(newWidth);
+                }
+            } else if (isResizingHistory) {
+                const sidebarLeft = window.innerWidth - sidebarWidth;
+                const newWidth = e.clientX - sidebarLeft;
+                if (newWidth > 150 && newWidth < sidebarWidth - 300) {
+                    setHistoryWidth(newWidth);
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingSidebar(false);
+            setIsResizingHistory(false);
+            document.body.style.cursor = 'default';
+        };
+
+        if (isResizingSidebar || isResizingHistory) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizingSidebar, isResizingHistory, sidebarWidth]);
 
     useEffect(() => {
         // Listen for new chat creation from Sidebar
@@ -60,10 +101,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             loadThreads();
         });
 
+        // Listen for loading state from backend (for async tasks like suggestions)
+        const unsubscribeLoading = EventsOn('chat-loading', (loading: boolean) => {
+            setIsLoading(loading);
+        });
+
         return () => {
             if (unsubscribeStart) unsubscribeStart();
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeUpdate) unsubscribeUpdate();
+            if (unsubscribeLoading) unsubscribeLoading();
         };
     }, [threads]);
 
@@ -201,16 +248,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         userMsg.content = input;
         userMsg.timestamp = Math.floor(Date.now() / 1000);
 
-        // We need to mutate the clone or the object in the list
-        // currentThread is a reference to the object in currentThreads array?
-        // Yes, find returns a reference.
         if (!currentThread.messages) currentThread.messages = [];
         currentThread.messages.push(userMsg);
         
-        // Check if we need to rename (first message of a generic "New Chat")
-        // Or if we just created it with the specific name, we skip.
-        // If we created it above, it has the name.
-        // If it was "New Chat" (empty messages), and we just added one.
         if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
              const newTitle = input.slice(0, 30) + (input.length > 30 ? '...' : '');
              try {
@@ -262,7 +302,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setShowClearConfirm(false);
         } catch (err) {
             console.error('Failed to clear history:', err);
-            // Optionally keep modal open or show error state
             setShowClearConfirm(false);
         }
     };
@@ -280,15 +319,24 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             
             <div 
                 data-testid="chat-sidebar"
-                className={`fixed inset-y-0 right-0 w-[650px] bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex overflow-hidden border-l border-slate-200 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+                style={{ width: sidebarWidth }}
+                className={`fixed inset-y-0 right-0 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex overflow-hidden border-l border-slate-200 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
+                {/* Sidebar Resizer (Left Edge) */}
+                <div 
+                    className="absolute left-0 top-0 bottom-0 w-1 hover:bg-blue-400 cursor-col-resize z-[60] transition-colors"
+                    onMouseDown={() => { setIsResizingSidebar(true); document.body.style.cursor = 'col-resize'; }}
+                />
+
                 {/* Thread List Sidebar */}
-                <div className={`${isSidebarCollapsed ? 'w-0' : 'w-52'} bg-slate-50 border-r border-slate-200 flex flex-col transition-all duration-300 overflow-hidden relative`}>
+                <div 
+                    style={{ width: isSidebarCollapsed ? 0 : historyWidth }}
+                    className="bg-slate-50 border-r border-slate-200 flex flex-col transition-all duration-300 overflow-hidden relative flex-shrink-0"
+                >
                     <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10"
                         style={{ '--wails-draggable': 'drag' } as any}
                     >
                         <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
-                        {/* New Chat button hidden in favor of Sidebar flow */}
                         <div className="w-4" /> 
                     </div>
                     
@@ -338,6 +386,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             {t('clear_history')}
                         </button>
                     </div>
+
+                    {/* History Resizer (Right Edge of History Panel) */}
+                    <div 
+                        className="absolute right-0 top-0 bottom-0 w-1 hover:bg-blue-400 cursor-col-resize z-20 transition-colors"
+                        onMouseDown={(e) => { e.preventDefault(); setIsResizingHistory(true); document.body.style.cursor = 'col-resize'; }}
+                    />
                 </div>
 
                 {/* Main Chat Area */}
@@ -349,7 +403,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </button>
 
-                    <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10"
+                    <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative"
                         style={{ '--wails-draggable': 'drag' } as any}
                     >
                         <div className="flex items-center gap-3.5">
@@ -381,6 +435,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <X className="w-5 h-5" />
                             </button>
                         </div>
+                        {isLoading && (
+                            <div className="absolute bottom-0 left-0 right-0 h-1 z-20 overflow-hidden">
+                                <div className="h-full w-1/3 bg-blue-500 animate-progress-indeterminate rounded-full"></div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
@@ -408,7 +467,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <p className="text-sm text-slate-500 max-w-[280px] leading-relaxed font-medium">
                                     {t('ask_about_sales')}
                                 </p>
-                                {/* Start New Analysis button hidden - use Sidebar flow */}
                             </div>
                         )}
                         <div ref={messagesEndRef} />
@@ -423,7 +481,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                                 placeholder={t('what_to_analyze')}
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
-                                disabled={isLoading}
                             />
                             <button 
                                 onClick={handleSendMessage}

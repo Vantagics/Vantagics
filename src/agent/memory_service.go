@@ -24,16 +24,16 @@ type SessionMemory struct {
 	MediumTerm []string `json:"medium_term"`
 }
 
-// AgentMemory holds the structured memory
-type AgentMemory struct {
-	Global   []string                 `json:"global"`
-	Sessions map[string]SessionMemory `json:"sessions"`
+// GlobalMemory holds the global memory
+type GlobalMemory struct {
+	Global []string `json:"global"`
 }
 
 // MemoryService manages agent memory
 type MemoryService struct {
-	configPath string
-	memory     AgentMemory
+	dataDir    string
+	globalPath string
+	globalMem  GlobalMemory
 	mu         sync.Mutex
 }
 
@@ -46,73 +46,135 @@ func NewMemoryService(cfg config.Config) *MemoryService {
 		dir = filepath.Join(home, "RapidBI")
 	}
 	
-	path := filepath.Join(dir, "agent_memory.json")
+	sessionsDir := filepath.Join(dir, "sessions")
+	_ = os.MkdirAll(sessionsDir, 0755)
+
+	path := filepath.Join(dir, "agent_memory.json") // Keep legacy name for global or migrate? Let's use it for global.
 	
 	service := &MemoryService{
-		configPath: path,
-		memory: AgentMemory{
-			Global:   []string{},
-			Sessions: make(map[string]SessionMemory),
+		dataDir:    dir,
+		globalPath: path,
+		globalMem: GlobalMemory{
+			Global: []string{},
 		},
 	}
 	
-	service.load()
+	service.loadGlobal()
 	return service
 }
 
-func (s *MemoryService) load() {
+func (s *MemoryService) loadGlobal() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := os.ReadFile(s.configPath)
+	data, err := os.ReadFile(s.globalPath)
 	if err != nil {
 		return // File might not exist yet
 	}
 
-	json.Unmarshal(data, &s.memory)
-	if s.memory.Sessions == nil {
-		s.memory.Sessions = make(map[string]SessionMemory)
+	// Try unmarshal into GlobalMemory
+	if err := json.Unmarshal(data, &s.globalMem); err != nil {
+		// Fallback: It might be the old format (AgentMemory)
+		// We can try to recover global memory from it
+		var oldMem struct {
+			Global []string `json:"global"`
+		}
+		if err2 := json.Unmarshal(data, &oldMem); err2 == nil {
+			s.globalMem.Global = oldMem.Global
+		}
 	}
 }
 
-func (s *MemoryService) save() error {
+func (s *MemoryService) saveGlobal() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := json.MarshalIndent(s.memory, "", "  ")
+	data, err := json.MarshalIndent(s.globalMem, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(s.configPath, data, 0644)
+	return os.WriteFile(s.globalPath, data, 0644)
+}
+
+func (s *MemoryService) getSessionPath(threadID string) string {
+	return filepath.Join(s.dataDir, "sessions", threadID, "memory.json")
+}
+
+func (s *MemoryService) loadSession(threadID string) (SessionMemory, error) {
+	path := s.getSessionPath(threadID)
+	mem := SessionMemory{
+		LongTerm:   []string{},
+		MediumTerm: []string{},
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return mem, nil
+		}
+		return mem, err
+	}
+
+	err = json.Unmarshal(data, &mem)
+	return mem, err
+}
+
+func (s *MemoryService) saveSession(threadID string, mem SessionMemory) error {
+	path := s.getSessionPath(threadID)
+	
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(mem, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
 }
 
 // AddGlobalMemory adds a global fact
 func (s *MemoryService) AddGlobalMemory(fact string) error {
 	s.mu.Lock()
-	s.memory.Global = append(s.memory.Global, fact)
+	s.globalMem.Global = append(s.globalMem.Global, fact)
 	s.mu.Unlock()
-	return s.save()
+	return s.saveGlobal()
 }
 
 // AddSessionLongTermMemory adds a fact to a session's long term memory
 func (s *MemoryService) AddSessionLongTermMemory(threadID string, fact string) error {
+	// Lock entire service or just file IO? 
+	// To prevent concurrent writes to same file, we should lock.
+	// Since we don't have per-session locks, we use global lock for simplicity or file locking.
+	// Using global lock for safety.
 	s.mu.Lock()
-	session := s.memory.Sessions[threadID]
-	session.LongTerm = append(session.LongTerm, fact)
-	s.memory.Sessions[threadID] = session
-	s.mu.Unlock()
-	return s.save()
+	defer s.mu.Unlock()
+
+	mem, err := s.loadSession(threadID)
+	if err != nil {
+		return err
+	}
+
+	mem.LongTerm = append(mem.LongTerm, fact)
+	return s.saveSession(threadID, mem)
 }
 
 // AddSessionMediumTermMemory adds a fact to a session's medium term memory
 func (s *MemoryService) AddSessionMediumTermMemory(threadID string, fact string) error {
 	s.mu.Lock()
-	session := s.memory.Sessions[threadID]
-	session.MediumTerm = append(session.MediumTerm, fact)
-	s.memory.Sessions[threadID] = session
-	s.mu.Unlock()
-	return s.save()
+	defer s.mu.Unlock()
+
+	mem, err := s.loadSession(threadID)
+	if err != nil {
+		return err
+	}
+
+	mem.MediumTerm = append(mem.MediumTerm, fact)
+	return s.saveSession(threadID, mem)
 }
 
 // GetMemories returns all memory context for a specific thread
@@ -121,20 +183,16 @@ func (s *MemoryService) GetMemories(threadID string) (global []string, sessionLo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
-	// Return copies
-	global = make([]string, len(s.memory.Global))
-	copy(global, s.memory.Global)
+	// Return copies of global
+	global = make([]string, len(s.globalMem.Global))
+	copy(global, s.globalMem.Global)
 	
-	if session, ok := s.memory.Sessions[threadID]; ok {
-		sessionLong = make([]string, len(session.LongTerm))
-		copy(sessionLong, session.LongTerm)
-		
-		sessionMedium = make([]string, len(session.MediumTerm))
-		copy(sessionMedium, session.MediumTerm)
-	} else {
-		sessionLong = []string{}
-		sessionMedium = []string{}
-	}
+	// Load session memory
+	mem, _ := s.loadSession(threadID)
+	
+	sessionLong = mem.LongTerm
+	sessionMedium = mem.MediumTerm
 	
 	return
 }
+

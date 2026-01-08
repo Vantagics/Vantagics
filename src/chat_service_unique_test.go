@@ -12,7 +12,7 @@ func setupTestChatService(t *testing.T) (*ChatService, string) {
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	service := NewChatService(filepath.Join(tmpDir, "chats.json"))
+	service := NewChatService(filepath.Join(tmpDir, "sessions"))
 	return service, tmpDir
 }
 

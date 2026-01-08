@@ -28,11 +28,16 @@ func (l *Logger) Init(logDir string) error {
 		l.file.Close()
 	}
 
+	actualLogDir := filepath.Join(logDir, "logs")
+	if err := os.MkdirAll(actualLogDir, 0755); err != nil {
+		return fmt.Errorf("failed to create logs directory: %v", err)
+	}
+
 	dateStr := time.Now().Format("2006-01-02")
-	pattern := filepath.Join(logDir, fmt.Sprintf("rapidbi_%s_*.log", dateStr))
+	pattern := filepath.Join(actualLogDir, fmt.Sprintf("rapidbi_%s_*.log", dateStr))
 	matches, _ := filepath.Glob(pattern)
 	runCount := len(matches) + 1
-	filename := filepath.Join(logDir, fmt.Sprintf("rapidbi_%s_%d.log", dateStr, runCount))
+	filename := filepath.Join(actualLogDir, fmt.Sprintf("rapidbi_%s_%d.log", dateStr, runCount))
 
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {

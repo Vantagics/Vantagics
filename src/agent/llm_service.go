@@ -128,7 +128,7 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 		req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -205,7 +205,7 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 	req.Header.Set("x-api-key", s.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -295,7 +295,7 @@ func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

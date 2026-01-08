@@ -107,8 +107,8 @@ func (a *App) startup(ctx context.Context) {
 		path, _ := a.getStorageDir()
 		if path != "" {
 			_ = os.MkdirAll(path, 0755)
-			chatPath := filepath.Join(path, "chat_history.json")
-			a.chatService = NewChatService(chatPath)
+			sessionsDir := filepath.Join(path, "sessions")
+			a.chatService = NewChatService(sessionsDir)
 			a.dataSourceService = NewDataSourceService(path, a.Log)
 			// Need a basic config for memory service if loading failed, or just skip
 			a.memoryService = agent.NewMemoryService(config.Config{DataCacheDir: path})
@@ -124,8 +124,8 @@ func (a *App) startup(ctx context.Context) {
 
 	if dataDir != "" {
 		_ = os.MkdirAll(dataDir, 0755)
-		chatPath := filepath.Join(dataDir, "chat_history.json")
-		a.chatService = NewChatService(chatPath)
+		sessionsDir := filepath.Join(dataDir, "sessions")
+		a.chatService = NewChatService(sessionsDir)
 		a.dataSourceService = NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 	}
@@ -346,6 +346,13 @@ func (a *App) GetDashboardData() DashboardData {
 	}
 }
 
+func (a *App) getLangPrompt(cfg config.Config) string {
+	if cfg.Language == "简体中文" {
+		return "Simplified Chinese"
+	}
+	return "English"
+}
+
 // SendMessage sends a message to the LLM and returns the response
 func (a *App) SendMessage(threadID string, message string) (string, error) {
 	cfg, err := a.GetConfig()
@@ -361,8 +368,11 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 	a.isChatGenerating = true
 	defer func() { a.isChatGenerating = false }()
 
+	langPrompt := a.getLangPrompt(cfg)
+	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
+
 	llm := agent.NewLLMService(cfg, a.Log)
-	resp, err := llm.Chat(a.ctx, message)
+	resp, err := llm.Chat(a.ctx, fullMessage)
 
 	// Log LLM response if threadID provided
 	if threadID != "" && cfg.DetailedLog {
@@ -377,44 +387,11 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 }
 
 func (a *App) logChatToFile(threadID, role, content string) {
-	// 1. Get Thread details
-	threads, err := a.chatService.LoadThreads()
-	if err != nil {
-		a.Log(fmt.Sprintf("logChatToFile: Failed to load threads: %v", err))
-		return
-	}
-
-	var thread *ChatThread
-	for i := range threads {
-		if threads[i].ID == threadID {
-			thread = &threads[i]
-			break
-		}
-	}
-	if thread == nil {
-		// Log warning to main log
-		a.Log(fmt.Sprintf("logChatToFile: Thread %s not found in history", threadID))
-		return
-	}
-
-	// 2. Get Data Source details
-	sources, _ := a.dataSourceService.LoadDataSources()
-	var dsName string = "Global"
-	for _, ds := range sources {
-		if ds.ID == thread.DataSourceID {
-			dsName = ds.Name
-			break
-		}
-	}
-
-	// 3. Construct filename
-	safeDSName := agent.SanitizeFilename(dsName)
-	safeSessionName := agent.SanitizeFilename(thread.Title)
-	filename := fmt.Sprintf("%s_%s.log", safeDSName, safeSessionName)
-	
 	// Use DataCacheDir for logs
 	cfg, _ := a.GetConfig()
-	logPath := filepath.Join(cfg.DataCacheDir, "chat_logs", filename)
+	
+	// Construct path: sessions/<threadID>/chat.log
+	logPath := filepath.Join(cfg.DataCacheDir, "sessions", threadID, "chat.log")
 	
 	// Ensure dir exists
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
@@ -422,7 +399,7 @@ func (a *App) logChatToFile(threadID, role, content string) {
 		return
 	}
 
-	// 4. Append log
+	// Append log
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		a.Log(fmt.Sprintf("logChatToFile: Failed to open log file %s: %v", logPath, err))
@@ -509,20 +486,84 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 		return ChatThread{}, err
 	}
 
-	// If data source is selected, perform initial analysis asynchronously
+	// If data source is selected, check for existing analysis and inject into memory
 	if dataSourceID != "" {
-		go a.analyzeDataSourceAndMemorize(thread.ID, dataSourceID)
+		sources, _ := a.dataSourceService.LoadDataSources()
+		var target *DataSource
+		for _, ds := range sources {
+			if ds.ID == dataSourceID {
+				target = &ds
+				break
+			}
+		}
+
+		if target != nil && target.Analysis != nil {
+			// Found existing analysis, inject into session memory
+			jsonBytes, err := json.MarshalIndent(target.Analysis, "", "  ")
+			if err == nil {
+				a.memoryService.AddSessionLongTermMemory(thread.ID, string(jsonBytes))
+			}
+			
+			// Generate suggestions based on this analysis
+			go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
+		}
 	}
 
 	return thread, nil
 }
 
-func (a *App) analyzeDataSourceAndMemorize(threadID, dataSourceID string) {
-	if a.dataSourceService == nil || a.memoryService == nil {
+func (a *App) generateAnalysisSuggestions(threadID string, analysis *DataSourceAnalysis) {
+	if a.chatService == nil {
 		return
 	}
 
-	a.Log(fmt.Sprintf("Starting analysis for thread %s, source %s", threadID, dataSourceID))
+	// Notify frontend that background task started
+	runtime.EventsEmit(a.ctx, "chat-loading", true)
+	defer runtime.EventsEmit(a.ctx, "chat-loading", false)
+
+	cfg, _ := a.GetConfig()
+	langPrompt := a.getLangPrompt(cfg)
+
+	// Construct prompt
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct data analysis angles or questions that would be valuable for a business user. Please answer in %s. Provide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include a brief title and a one-sentence description. End your response by telling the user (in %s) that they can reply with the number(s) to select one or multiple angles.\n\n", langPrompt, langPrompt))
+	sb.WriteString(fmt.Sprintf("Summary: %s\n\n", analysis.Summary))
+	sb.WriteString("Schema:\n")
+	for _, table := range analysis.Schema {
+		sb.WriteString(fmt.Sprintf("- Table: %s, Columns: %s\n", table.TableName, strings.Join(table.Columns, ", ")))
+	}
+
+	prompt := sb.String()
+	llm := agent.NewLLMService(cfg, a.Log)
+	
+	resp, err := llm.Chat(context.Background(), prompt)
+	if err != nil {
+		a.Log(fmt.Sprintf("Failed to generate suggestions: %v", err))
+		return
+	}
+
+	// Add message to chat
+	msg := ChatMessage{
+		ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
+		Role:      "assistant",
+		Content:   resp, // LLM response already contains the suggestions and instructions
+		Timestamp: time.Now().Unix(),
+	}
+
+	if err := a.chatService.AddMessage(threadID, msg); err != nil {
+		a.Log(fmt.Sprintf("Failed to add suggestion message: %v", err))
+		return
+	}
+
+	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+}
+
+func (a *App) analyzeDataSource(dataSourceID string) {
+	if a.dataSourceService == nil {
+		return
+	}
+
+	a.Log(fmt.Sprintf("Starting analysis for source %s", dataSourceID))
 
 	// 1. Get Tables
 	tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
@@ -532,30 +573,31 @@ func (a *App) analyzeDataSourceAndMemorize(threadID, dataSourceID string) {
 	}
 
 	// 2. Sample Data & Construct Prompt
+	cfg, _ := a.GetConfig()
+	langPrompt := a.getLangPrompt(cfg)
+
 	var sb strings.Builder
-	sb.WriteString("I am starting a new analysis on this database. Please describe this database based on the following schema and sample data.\n\n")
+	sb.WriteString(fmt.Sprintf("I am starting a new analysis on this database. Based on the following schema and first row of data, please provide exactly two sentences in %s: the first sentence should describe the industry background of this data, and the second sentence should provide a concise overview of the data source content.\n\n", langPrompt))
 	
-	schemaInfo := "Tables:\n"
+	var tableSchemas []TableSchema
 
 	for _, tableName := range tables {
 		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
-		schemaInfo += fmt.Sprintf("- %s: ", tableName)
-
-		// Get 3 rows
-		data, err := a.dataSourceService.GetDataSourceTableData(dataSourceID, tableName, 3)
+		
+		// Get 1 row
+		data, err := a.dataSourceService.GetDataSourceTableData(dataSourceID, tableName, 1)
 		if err != nil {
 			sb.WriteString("(Failed to fetch data)\n")
 			continue
 		}
 
+		var cols []string
 		if len(data) > 0 {
 			// Extract columns from first row keys
-			var cols []string
 			for k := range data[0] {
 				cols = append(cols, k)
 			}
 			sb.WriteString(fmt.Sprintf("Columns: %s\nData:\n", strings.Join(cols, ", ")))
-			schemaInfo += strings.Join(cols, ", ") + "\n"
 
 			for _, row := range data {
 				// Simple values formatting
@@ -573,74 +615,52 @@ func (a *App) analyzeDataSourceAndMemorize(threadID, dataSourceID string) {
 			sb.WriteString("(Empty table)\n")
 		}
 		sb.WriteString("\n")
+
+		// Add to schema list
+		if len(cols) > 0 {
+			tableSchemas = append(tableSchemas, TableSchema{
+				TableName: tableName,
+				Columns:   cols,
+			})
+		}
 	}
 
 	// 3. Call LLM
 	prompt := sb.String()
 	
-	// Use SendMessage logic but manually to control logging role/visibility if needed
-	// For simplicity, reusing SendMessage but we might want to log this as 'System Analysis'
-	// Since SendMessage hardcodes 'User', let's call llm directly and use logChatToFile manually
-	
-	cfg, _ := a.GetConfig()
-	
+	// Log prompt to system log if detailed logging is on (or creates a special log file?)
+	// Since we don't have a threadID, logChatToFile needs a path.
+	// We can log to "system_analysis.log" or similar? 
+	// Or just skip file logging for background tasks and use main log.
 	if cfg.DetailedLog {
-		a.logChatToFile(threadID, "SYSTEM ANALYSIS PROMPT", prompt)
+		a.Log("Sending Analysis Prompt to LLM...")
 	}
 
 	llm := agent.NewLLMService(cfg, a.Log)
-	description, err := llm.Chat(context.Background(), prompt) // Use background context for async
+	description, err := llm.Chat(context.Background(), prompt) 
 	
 	if err != nil {
 		a.Log(fmt.Sprintf("LLM Analysis failed: %v", err))
-		if cfg.DetailedLog {
-			a.logChatToFile(threadID, "SYSTEM ANALYSIS ERROR", err.Error())
-		}
-		
-		// Report error in chat window
-		if a.chatService != nil {
-			a.chatService.AddMessage(threadID, ChatMessage{
-				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
-				Role:      "assistant",
-				Content:   fmt.Sprintf("⚠️ Data Source Analysis Failed:\n%v\n\n(Long-term memory could not be constructed)", err),
-				Timestamp: time.Now().Unix(),
-			})
-			runtime.EventsEmit(a.ctx, "thread-updated", threadID)
-		}
 		return
 	}
 
 	if description == "" {
-		msg := "LLM returned empty response during analysis."
-		a.Log(msg)
-		if cfg.DetailedLog {
-			a.logChatToFile(threadID, "SYSTEM ANALYSIS ERROR", msg)
-		}
-		
-		// Report warning in chat window
-		if a.chatService != nil {
-			a.chatService.AddMessage(threadID, ChatMessage{
-				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
-				Role:      "assistant",
-				Content:   fmt.Sprintf("⚠️ Data Source Analysis Warning:\n%s", msg),
-				Timestamp: time.Now().Unix(),
-			})
-			runtime.EventsEmit(a.ctx, "thread-updated", threadID)
-		}
+		a.Log("LLM returned empty response during analysis.")
 		description = "No description provided by LLM."
 	}
 
-	if cfg.DetailedLog {
-		a.logChatToFile(threadID, "SYSTEM ANALYSIS RESPONSE", description)
+	// 4. Save Analysis to DataSource
+	analysis := DataSourceAnalysis{
+		Summary: description,
+		Schema:  tableSchemas,
 	}
 
-	// 4. Save to Memory
-	// Combine Schema Info + Description
-	finalMemory := fmt.Sprintf("Data Source Schema:\n%s\n\nDatabase Description:\n%s", schemaInfo, description)
-	
-	// Save to Session Long Term Memory
-	a.memoryService.AddSessionLongTermMemory(threadID, finalMemory)
-	a.Log("Analysis and memory update complete.")
+	if err := a.dataSourceService.UpdateAnalysis(dataSourceID, analysis); err != nil {
+		a.Log(fmt.Sprintf("Failed to update data source analysis: %v", err))
+		return
+	}
+
+	a.Log("Data Source Analysis complete and saved.")
 }
 
 // UpdateThreadTitle updates the title of a chat thread
@@ -679,7 +699,11 @@ func (a *App) ImportExcelDataSource(name string, filePath string) (*DataSource, 
 		return a.SendMessage("", prompt)
 	}
 
-	return a.dataSourceService.ImportExcel(name, filePath, headerGen)
+	ds, err := a.dataSourceService.ImportExcel(name, filePath, headerGen)
+	if err == nil && ds != nil {
+		go a.analyzeDataSource(ds.ID)
+	}
+	return ds, err
 }
 
 // ImportCSVDataSource imports a CSV directory as a data source
@@ -692,7 +716,11 @@ func (a *App) ImportCSVDataSource(name string, dirPath string) (*DataSource, err
 		return a.SendMessage("", prompt)
 	}
 
-	return a.dataSourceService.ImportCSV(name, dirPath, headerGen)
+	ds, err := a.dataSourceService.ImportCSV(name, dirPath, headerGen)
+	if err == nil && ds != nil {
+		go a.analyzeDataSource(ds.ID)
+	}
+	return ds, err
 }
 
 // AddDataSource adds a new data source with generic configuration
@@ -715,7 +743,11 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 		return a.SendMessage("", prompt)
 	}
 
-	return a.dataSourceService.ImportDataSource(name, driverType, dsConfig, headerGen)
+	ds, err := a.dataSourceService.ImportDataSource(name, driverType, dsConfig, headerGen)
+	if err == nil && ds != nil {
+		go a.analyzeDataSource(ds.ID)
+	}
+	return ds, err
 }
 
 // DeleteDataSource deletes a data source

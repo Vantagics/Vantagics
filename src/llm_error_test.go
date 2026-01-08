@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"rapidbi/agent"
+	"rapidbi/config"
 )
 
 func TestLLMServiceChat_404Error(t *testing.T) {
@@ -26,12 +29,12 @@ func TestLLMServiceChat_404Error(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			config := Config{
+			cfg := config.Config{
 				LLMProvider: tt.provider,
 				APIKey:      "test",
 				BaseURL:     server.URL,
 			}
-			service := NewLLMService(config)
+			service := agent.NewLLMService(cfg, nil)
 			_, err := service.Chat(context.Background(), "test")
 			if err == nil {
 				t.Fatal("Expected error for 404 status")
@@ -55,13 +58,13 @@ func TestLLMServiceChat_400Error(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI-Compatible",
 		APIKey:      "test",
 		BaseURL:     server.URL,
 		ModelName:   "non-existent-model",
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 	_, err := service.Chat(context.Background(), "test")
 	if err == nil {
 		t.Fatal("Expected error for 400 status")

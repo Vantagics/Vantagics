@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"rapidbi/agent"
+	"rapidbi/config"
 )
 
 func TestLLMServiceChat_ClaudeCompatible_AnthropicStyle(t *testing.T) {
@@ -33,14 +36,14 @@ func TestLLMServiceChat_ClaudeCompatible_AnthropicStyle(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider:       "Claude-Compatible",
 		APIKey:            "sk-ant-test",
 		ModelName:         "claude-3-custom",
 		BaseURL:           server.URL,
 		ClaudeHeaderStyle: "Anthropic", // New field
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
@@ -79,14 +82,14 @@ func TestLLMServiceChat_ClaudeCompatible_OpenAIStyle(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider:       "Claude-Compatible",
 		APIKey:            "sk-test-key",
 		ModelName:         "claude-3-custom",
 		BaseURL:           server.URL,
 		ClaudeHeaderStyle: "OpenAI", // New field
 	}
-	service := NewLLMService(config)
+	service := agent.NewLLMService(cfg, nil)
 
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {

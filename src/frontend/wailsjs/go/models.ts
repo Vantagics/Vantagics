@@ -189,6 +189,52 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TableSchema {
+	    table_name: string;
+	    columns: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TableSchema(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table_name = source["table_name"];
+	        this.columns = source["columns"];
+	    }
+	}
+	export class DataSourceAnalysis {
+	    summary: string;
+	    schema: TableSchema[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceAnalysis(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = source["summary"];
+	        this.schema = this.convertValues(source["schema"], TableSchema);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class MySQLExportConfig {
 	    host?: string;
 	    port?: string;
@@ -264,6 +310,7 @@ export namespace main {
 	    // Go type: time
 	    created_at: any;
 	    config: DataSourceConfig;
+	    analysis?: DataSourceAnalysis;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSource(source);
@@ -276,6 +323,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.config = this.convertValues(source["config"], DataSourceConfig);
+	        this.analysis = this.convertValues(source["analysis"], DataSourceAnalysis);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -296,6 +344,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	
 	
 	

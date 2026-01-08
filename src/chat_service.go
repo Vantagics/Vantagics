@@ -30,15 +30,21 @@ type ChatThread struct {
 
 // ChatService handles the persistence of chat history
 type ChatService struct {
-	storagePath string
+	sessionsDir string
 	mu          sync.Mutex
 }
 
 // NewChatService creates a new instance of ChatService
-func NewChatService(storagePath string) *ChatService {
+func NewChatService(sessionsDir string) *ChatService {
+	_ = os.MkdirAll(sessionsDir, 0755)
 	return &ChatService{
-		storagePath: storagePath,
+		sessionsDir: sessionsDir,
 	}
+}
+
+// getThreadPath returns the path to the history file for a given thread
+func (s *ChatService) getThreadPath(threadID string) string {
+	return filepath.Join(s.sessionsDir, threadID, "history.json")
 }
 
 // LoadThreads loads all chat threads from storage
@@ -46,22 +52,40 @@ func (s *ChatService) LoadThreads() ([]ChatThread, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, err := os.Stat(s.storagePath); os.IsNotExist(err) {
-		return []ChatThread{}, nil
-	}
-
-	data, err := os.ReadFile(s.storagePath)
+	entries, err := os.ReadDir(s.sessionsDir)
 	if err != nil {
-		return nil, err
+		return []ChatThread{}, nil
 	}
 
 	var threads []ChatThread
-	if len(data) == 0 {
-		return []ChatThread{}, nil
+	for _, entry := range entries {
+		if entry.IsDir() {
+			threadID := entry.Name()
+			path := s.getThreadPath(threadID)
+			
+			if _, err := os.Stat(path); err == nil {
+				data, err := os.ReadFile(path)
+				if err == nil {
+					var t ChatThread
+					if err := json.Unmarshal(data, &t); err == nil {
+						threads = append(threads, t)
+					}
+				}
+			}
+		}
 	}
 
-	if err := json.Unmarshal(data, &threads); err != nil {
-		return nil, err
+	// Sort by CreatedAt descending (newest first)
+	// Or preserve order if important? Usually UI sorts.
+	// Let's sort to be consistent with previous behavior (append prepend).
+	// Previous behavior was prepend new threads.
+	// We can sort by CreatedAt desc here.
+	for i := 0; i < len(threads); i++ {
+		for j := i + 1; j < len(threads); j++ {
+			if threads[i].CreatedAt < threads[j].CreatedAt {
+				threads[i], threads[j] = threads[j], threads[i]
+			}
+		}
 	}
 
 	return threads, nil
@@ -103,18 +127,29 @@ func (s *ChatService) SaveThreads(threads []ChatThread) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	data, err := json.MarshalIndent(threads, "", "  ")
-	if err != nil {
-		return err
+	for _, t := range threads {
+		if err := s.saveThreadInternal(t); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	// Ensure directory exists
-	dir := filepath.Dir(s.storagePath)
+// saveThreadInternal saves a single thread (assumes lock held)
+func (s *ChatService) saveThreadInternal(t ChatThread) error {
+	path := s.getThreadPath(t.ID)
+	dir := filepath.Dir(path)
+	
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile(s.storagePath, data, 0644)
+	data, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
 }
 
 // AddMessage adds a message to a specific thread
@@ -122,29 +157,40 @@ func (s *ChatService) AddMessage(threadID string, msg ChatMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	threads, err := s.loadThreadsInternal()
+	// Load specific thread
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 
-	found := false
-	for i := range threads {
-		if threads[i].ID == threadID {
-			threads[i].Messages = append(threads[i].Messages, msg)
-			found = true
-			break
-		}
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
 	}
 
-	if !found {
-		return fmt.Errorf("thread not found")
-	}
-
-	return s.saveThreadsInternal(threads)
+	t.Messages = append(t.Messages, msg)
+	return s.saveThreadInternal(t)
 }
 
 // generateUniqueTitle ensures a title is unique within a data source
-func (s *ChatService) generateUniqueTitle(threads []ChatThread, dataSourceID, title, excludeThreadID string) string {
+func (s *ChatService) generateUniqueTitle(dataSourceID, title, excludeThreadID string) (string, error) {
+	// We need to check against ALL threads to ensure uniqueness
+	// This calls LoadThreads which acquires lock, so we must be careful if we already hold lock?
+	// generateUniqueTitle is internal helper, usually we hold lock.
+	// But LoadThreads acquires lock. Deadlock hazard.
+	// Let's make LoadThreadsInternal or just duplicate logic.
+	
+	// Since we are refactoring, let's just ReadDir here manually or assume LoadThreads is safe if we don't hold lock 
+	// before calling generateUniqueTitle.
+	// However, usually generateUniqueTitle is called inside CreateThread which holds lock.
+	// So we need `loadThreadsInternal`.
+	
+	threads, err := s.loadThreadsInternal()
+	if err != nil {
+		return "", err
+	}
+
 	existingTitles := make(map[string]bool)
 	for _, t := range threads {
 		if t.DataSourceID == dataSourceID && t.ID != excludeThreadID {
@@ -158,7 +204,34 @@ func (s *ChatService) generateUniqueTitle(threads []ChatThread, dataSourceID, ti
 		newTitle = fmt.Sprintf("%s (%d)", title, counter)
 		counter++
 	}
-	return newTitle
+	return newTitle, nil
+}
+
+// loadThreadsInternal loads threads without locking
+func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
+	entries, err := os.ReadDir(s.sessionsDir)
+	if err != nil {
+		return []ChatThread{}, nil
+	}
+
+	var threads []ChatThread
+	for _, entry := range entries {
+		if entry.IsDir() {
+			threadID := entry.Name()
+			path := s.getThreadPath(threadID)
+			
+			if _, err := os.Stat(path); err == nil {
+				data, err := os.ReadFile(path)
+				if err == nil {
+					var t ChatThread
+					if err := json.Unmarshal(data, &t); err == nil {
+						threads = append(threads, t)
+					}
+				}
+			}
+		}
+	}
+	return threads, nil
 }
 
 // CreateThread creates a new chat thread with a unique title
@@ -166,24 +239,20 @@ func (s *ChatService) CreateThread(dataSourceID, title string) (ChatThread, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	threads, err := s.loadThreadsInternal()
+	uniqueTitle, err := s.generateUniqueTitle(dataSourceID, title, "")
 	if err != nil {
 		return ChatThread{}, err
 	}
 
-	uniqueTitle := s.generateUniqueTitle(threads, dataSourceID, title, "")
-
 	newThread := ChatThread{
-		ID:           strconv.FormatInt(time.Now().UnixNano(), 10), // Simple ID generation
+		ID:           strconv.FormatInt(time.Now().UnixNano(), 10),
 		Title:        uniqueTitle,
 		DataSourceID: dataSourceID,
 		CreatedAt:    time.Now().Unix(),
 		Messages:     []ChatMessage{},
 	}
 
-	threads = append([]ChatThread{newThread}, threads...) // Prepend
-
-	if err := s.saveThreadsInternal(threads); err != nil {
+	if err := s.saveThreadInternal(newThread); err != nil {
 		return ChatThread{}, err
 	}
 
@@ -195,112 +264,37 @@ func (s *ChatService) UpdateThreadTitle(threadID, newTitle string) (string, erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	threads, err := s.loadThreadsInternal()
+	// Load specific thread to get DataSourceID
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return "", err
+	}
+
+	uniqueTitle, err := s.generateUniqueTitle(t.DataSourceID, newTitle, threadID)
 	if err != nil {
 		return "", err
 	}
 
-	var targetThread *ChatThread
-	for i := range threads {
-		if threads[i].ID == threadID {
-			targetThread = &threads[i]
-			break
-		}
-	}
-
-	if targetThread == nil {
-		return "", fmt.Errorf("thread not found")
-	}
-
-	uniqueTitle := s.generateUniqueTitle(threads, targetThread.DataSourceID, newTitle, threadID)
-	targetThread.Title = uniqueTitle
-
-	if err := s.saveThreadsInternal(threads); err != nil {
+	t.Title = uniqueTitle
+	if err := s.saveThreadInternal(t); err != nil {
 		return "", err
 	}
 
 	return uniqueTitle, nil
 }
 
-// loadThreadsInternal loads threads without locking (assumes lock held)
-func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
-	if _, err := os.Stat(s.storagePath); os.IsNotExist(err) {
-		return []ChatThread{}, nil
-	}
-
-	data, err := os.ReadFile(s.storagePath)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(data) == 0 {
-		return []ChatThread{}, nil
-	}
-
-	var threads []ChatThread
-	if err := json.Unmarshal(data, &threads); err != nil {
-		return nil, err
-	}
-
-	return threads, nil
-}
-
-// saveThreadsInternal saves threads without locking (assumes lock held)
-func (s *ChatService) saveThreadsInternal(threads []ChatThread) error {
-	data, err := json.MarshalIndent(threads, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	dir := filepath.Dir(s.storagePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	return os.WriteFile(s.storagePath, data, 0644)
-}
-
 // DeleteThread deletes a thread by ID
 func (s *ChatService) DeleteThread(threadID string) error {
-	// Note: We need to load, filter, and save. 
-	// To avoid deadlock, we shouldn't call LoadThreads/SaveThreads directly if they also lock.
-	// But here they do lock. So we will implement logic carefully or use internal methods.
-	// Since Load/Save lock the whole operation, we can't wrap them in another lock easily without re-entrant lock or splitting logic.
-	// For simplicity in this MVP, we'll acquire lock here and duplicate the file IO or use un-exported methods.
-	// BETTER APPROACH: Let's reuse Load/Save but we have to be careful about race conditions if another caller calls in between.
-	// However, ChatService is likely a singleton used by App. 
-	// Let's implement atomic-like operation by holding lock across the read-modify-write.
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Read (internal implementation to verify lock safety)
-	var threads []ChatThread
-	if _, err := os.Stat(s.storagePath); !os.IsNotExist(err) {
-		data, err := os.ReadFile(s.storagePath)
-		if err == nil && len(data) > 0 {
-			_ = json.Unmarshal(data, &threads)
-		}
-	}
-
-	// Filter
-	newThreads := []ChatThread{}
-	for _, t := range threads {
-		if t.ID != threadID {
-			newThreads = append(newThreads, t)
-		}
-	}
-
-	// Write
-	data, err := json.MarshalIndent(newThreads, "", "  ")
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(s.storagePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(s.storagePath, data, 0644)
+	dir := filepath.Join(s.sessionsDir, threadID)
+	return os.RemoveAll(dir)
 }
 
 // ClearHistory deletes all chat history
@@ -308,16 +302,6 @@ func (s *ChatService) ClearHistory() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	empty := []ChatThread{}
-	data, err := json.MarshalIndent(empty, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	dir := filepath.Dir(s.storagePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	return os.WriteFile(s.storagePath, data, 0644)
+	return os.RemoveAll(s.sessionsDir)
 }
+
