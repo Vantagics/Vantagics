@@ -19,18 +19,40 @@ type EinoService struct {
 
 // NewEinoService creates a new EinoService
 func NewEinoService(cfg config.Config) (*EinoService, error) {
-	// Initialize OpenAI Chat Model
-	// Note: Eino's OpenAI component configuration might differ slightly from our internal config
-	// We need to map our config to Eino's expectations.
-	
-	chatModel, err := openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
-		APIKey:  cfg.APIKey,
-		BaseURL: cfg.BaseURL, // Might need adjustment if empty
-		Model:   cfg.ModelName,
-		Timeout: 0, // Default
-	})
+	var chatModel model.ChatModel
+	var err error
+
+	switch cfg.LLMProvider {
+	case "Anthropic":
+		chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
+			APIKey:  cfg.APIKey,
+			BaseURL: cfg.BaseURL,
+			Model:   cfg.ModelName,
+		})
+	default:
+		// Default to OpenAI (includes "OpenAI", "OpenAI-Compatible", "Claude-Compatible" if using OAI format)
+		// Note: "Claude-Compatible" in this project usually means "Use OpenAI client but point to Claude proxy"
+		// or "Use Anthropic client". 
+		// If LLMService treats Claude-Compatible as Anthropic-format, we should use AnthropicChatModel.
+		// Checking llm_service.go: Claude-Compatible uses /v1/messages. So it is Anthropic format.
+		if cfg.LLMProvider == "Claude-Compatible" {
+			chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
+				APIKey:  cfg.APIKey,
+				BaseURL: cfg.BaseURL,
+				Model:   cfg.ModelName,
+			})
+		} else {
+			chatModel, err = openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
+				APIKey:  cfg.APIKey,
+				BaseURL: cfg.BaseURL, // Might need adjustment if empty
+				Model:   cfg.ModelName,
+				Timeout: 0, // Default
+			})
+		}
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to create eino openai model: %v", err)
+		return nil, fmt.Errorf("failed to create eino chat model: %v", err)
 	}
 
 	return &EinoService{
