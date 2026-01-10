@@ -220,8 +220,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleSendMessage = async () => {
-        if (!input.trim() || isLoading) return;
+    const handleSendMessage = async (text?: string) => {
+        const msgText = text || input;
+        if (!msgText.trim() || isLoading) return;
 
         let currentThreads = [...threads];
         let currentThread = currentThreads.find(t => t.id === activeThreadId);
@@ -229,7 +230,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // If no active thread, create one first
         if (!currentThread) {
             try {
-                const title = input.slice(0, 30);
+                const title = msgText.slice(0, 30);
                 const newThread = await CreateChatThread('', title);
                 currentThread = newThread;
                 currentThreads = [newThread, ...currentThreads];
@@ -245,14 +246,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         const userMsg = new main.ChatMessage();
         userMsg.id = Date.now().toString();
         userMsg.role = 'user';
-        userMsg.content = input;
+        userMsg.content = msgText;
         userMsg.timestamp = Math.floor(Date.now() / 1000);
 
         if (!currentThread.messages) currentThread.messages = [];
         currentThread.messages.push(userMsg);
         
         if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
-             const newTitle = input.slice(0, 30) + (input.length > 30 ? '...' : '');
+             const newTitle = msgText.slice(0, 30) + (msgText.length > 30 ? '...' : '');
              try {
                  const uniqueTitle = await UpdateThreadTitle(currentThread.id, newTitle);
                  currentThread.title = uniqueTitle;
@@ -266,7 +267,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setIsLoading(true);
 
         try {
-            const response = await SendMessage(currentThread?.id || '', input);
+            const response = await SendMessage(currentThread?.id || '', msgText);
             const assistantMsg = new main.ChatMessage();
             assistantMsg.id = (Date.now() + 1).toString();
             assistantMsg.role = 'assistant';
@@ -448,6 +449,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 key={msg.id || index} 
                                 role={msg.role as 'user' | 'assistant'} 
                                 content={msg.content} 
+                                onActionClick={(action) => handleSendMessage(action.value || action.label)}
                             />
                         ))}
                         {isLoading && (
@@ -483,7 +485,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
                             />
                             <button 
-                                onClick={handleSendMessage}
+                                onClick={() => handleSendMessage()}
                                 disabled={isLoading || !input.trim()}
                                 className="aspect-square bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >

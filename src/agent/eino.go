@@ -180,7 +180,7 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: "You are RapidBI's advanced data analysis agent. Help the user explore their data. Use tools to access data schema and samples, and execute Python code for analysis. \n\nGuidelines:\n1. Format tables as Markdown tables.\n2. When performing visualization, always save the plot as 'chart.png' in the current directory using `plt.savefig('chart.png')`.\n3. Provide concise natural language summaries alongside your data and charts." + contextPrompt,
+		Content: "You are RapidBI's advanced data analysis agent. Help the user explore their data. Use tools to access data schema and samples, and execute Python code for analysis. \n\nGuidelines:\n1. Format tables as Markdown tables.\n2. When performing visualization, always save the plot as 'chart.png' in the current directory using `plt.savefig('chart.png')`.\n3. To create interactive charts, output a JSON block with the language tag 'json:echarts'. The JSON must be a valid ECharts option object. Example:\n```json:echarts\n{\n  \"title\": { \"text\": \"Sales\" },\n  \"xAxis\": { \"data\": [\"A\", \"B\"] },\n  \"yAxis\": {},\n  \"series\": [{ \"type\": \"bar\", \"data\": [10, 20] }]\n}\n```\n4. Provide concise natural language summaries alongside your data and charts." + contextPrompt,
 	}
 	input := append([]*schema.Message{sysMsg}, history...)
 

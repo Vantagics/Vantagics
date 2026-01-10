@@ -1,17 +1,27 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
 import MessageBubble from './MessageBubble';
 
+// Mock child components
+vi.mock('./Chart', () => ({
+    default: ({ options }: any) => <div data-testid="mock-chart">{options.title.text}</div>
+}));
+vi.mock('./DataTable', () => ({
+    default: ({ data }: any) => <div data-testid="mock-table">{Object.keys(data[0]).join(',')}</div>
+}));
+
 describe('MessageBubble', () => {
-  it('renders user message on the right', () => {
+  it('renders user message correctly', () => {
     const { container } = render(<MessageBubble role="user" content="Hello" />);
-    // Check if the container (or child) has 'justify-end' class
-    expect(container.firstChild).toHaveClass('justify-end');
+    // Check flex-row-reverse for user (which implies right alignment in our css)
+    expect(container.firstChild).toHaveClass('flex-row-reverse');
   });
 
-  it('renders assistant message on the left', () => {
+  it('renders assistant message correctly', () => {
     const { container } = render(<MessageBubble role="assistant" content="Hi there" />);
-    expect(container.firstChild).toHaveClass('justify-start');
+    // Check flex-row for assistant (left alignment)
+    expect(container.firstChild).toHaveClass('flex-row');
   });
 
   it('renders Markdown content correctly', () => {
@@ -30,12 +40,32 @@ describe('MessageBubble', () => {
     expect(screen.getByText('$50k')).toBeInTheDocument();
   });
 
-  it('renders action buttons when payload is present', () => {
+  it('renders action buttons when payload is present and handles click', () => {
     const payload = JSON.stringify({
         type: 'actions',
-        actions: [{ label: 'Export PDF', id: 'export_pdf' }]
+        actions: [{ label: 'Export PDF', id: 'export_pdf', value: 'Exporting...' }]
     });
-    render(<MessageBubble role="assistant" content="Actions available:" payload={payload} />);
-    expect(screen.getByText('Export PDF')).toBeInTheDocument();
+    const mockOnClick = vi.fn();
+    render(<MessageBubble role="assistant" content="Actions available:" payload={payload} onActionClick={mockOnClick} />);
+    
+    const button = screen.getByText('Export PDF');
+    expect(button).toBeInTheDocument();
+    
+    fireEvent.click(button);
+    expect(mockOnClick).toHaveBeenCalledWith(expect.objectContaining({ label: 'Export PDF' }));
+  });
+
+  it('renders ECharts chart when json:echarts code block is present', () => {
+    const content = "```json:echarts\n{\"title\": {\"text\": \"Test Chart\"}}\n```";
+    render(<MessageBubble role="assistant" content={content} />);
+    expect(screen.getByTestId('mock-chart')).toBeInTheDocument();
+    expect(screen.getByText('Test Chart')).toBeInTheDocument();
+  });
+
+  it('renders DataTable when json:table code block is present', () => {
+    const content = "```json:table\n[{\"col1\": \"val1\", \"col2\": \"val2\"}]\n```";
+    render(<MessageBubble role="assistant" content={content} />);
+    expect(screen.getByTestId('mock-table')).toBeInTheDocument();
+    expect(screen.getByText('col1,col2')).toBeInTheDocument();
   });
 });

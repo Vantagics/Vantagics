@@ -1,15 +1,18 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import MetricCard from './MetricCard';
+import Chart from './Chart';
+import DataTable from './DataTable';
 import { User, Bot } from 'lucide-react';
 
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
     payload?: string;
+    onActionClick?: (action: any) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick }) => {
     const isUser = role === 'user';
     let parsedPayload: any = null;
 
@@ -32,14 +35,48 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload })
             </div>
 
             <div 
-                className={`max-w-[75%] rounded-2xl px-5 py-3.5 shadow-sm ${
+                className={`max-w-[85%] rounded-2xl px-5 py-3.5 shadow-sm ${
                     isUser 
                         ? 'bg-blue-600 text-white rounded-tr-none' 
                         : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                 }`}
             >
                 <div className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}>
-                    <ReactMarkdown>{content}</ReactMarkdown>
+                    <ReactMarkdown
+                        components={{
+                            code(props) {
+                                const {children, className, node, ...rest} = props;
+                                const match = /language-(\w+)/.exec(className || '');
+                                // Handle specific custom languages (formats: language-json:echarts or just json:echarts if passed directly)
+                                // ReactMarkdown usually prefixes with language-
+                                
+                                const isECharts = className?.includes('json:echarts');
+                                const isTable = className?.includes('json:table');
+
+                                if (isECharts) {
+                                    try {
+                                        const data = JSON.parse(String(children).replace(/\n$/, ''));
+                                        return <Chart options={data} />;
+                                    } catch (e) {
+                                        console.error("Failed to parse ECharts JSON", e);
+                                    }
+                                }
+
+                                if (isTable) {
+                                    try {
+                                        const data = JSON.parse(String(children).replace(/\n$/, ''));
+                                        return <DataTable data={data} />;
+                                    } catch (e) {
+                                        console.error("Failed to parse Table JSON", e);
+                                    }
+                                }
+                                
+                                return <code {...rest} className={className}>{children}</code>;
+                            }
+                        }}
+                    >
+                        {content}
+                    </ReactMarkdown>
                 </div>
 
                 {parsedPayload && parsedPayload.type === 'visual_insight' && (
@@ -51,12 +88,25 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload })
                         />
                     </div>
                 )}
+                
+                {parsedPayload && parsedPayload.type === 'echarts' && (
+                     <div className="mt-4 pt-4 border-t border-slate-100">
+                        <Chart options={parsedPayload.data} />
+                    </div>
+                )}
+                
+                {parsedPayload && parsedPayload.type === 'table' && (
+                     <div className="mt-4 pt-4 border-t border-slate-100">
+                        <DataTable data={parsedPayload.data} />
+                    </div>
+                )}
 
                 {parsedPayload && parsedPayload.type === 'actions' && (
                     <div className="mt-4 flex flex-wrap gap-2">
                         {parsedPayload.actions.map((action: any) => (
                             <button 
                                 key={action.id}
+                                onClick={() => onActionClick && onActionClick(action)}
                                 className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${
                                     isUser
                                         ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
