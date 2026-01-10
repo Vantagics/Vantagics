@@ -6,7 +6,7 @@ This plan outlines the implementation of an Eino-powered BI agent capable of gui
 - [x] Task: Refactor `EinoService` in `src/agent/eino.go` to support Anthropic/Claude-compatible models and tool calling. [ca0f826]
 - [x] Task: Implement a stateful Eino graph (using `compose.Graph`) that incorporates conversational memory. [f334bd4]
 - [x] Task: Create a base `ChatService` integration to route specific "Analysis" messages to the Eino agent. [5f447ad]
-- [ ] Task: Write unit tests for the Eino graph construction and memory persistence.
+- [x] Task: Write unit tests for the Eino graph construction and memory persistence. [d439317]
 - [ ] Task: Conductor - User Manual Verification 'Eino Core & Infrastructure' (Protocol in workflow.md)
 
 ## Phase 2: Data-Driven Tools (Python execution)
