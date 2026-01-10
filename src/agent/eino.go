@@ -85,3 +85,30 @@ func (s *EinoService) RunAgent(ctx context.Context, input string) (string, error
 
 	return resp.Content, nil
 }
+
+// RunAnalysis executes the agent with full history
+func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message) (*schema.Message, error) {
+	// Create a chain: Model only (since we preprocess history)
+	// Ideally we would have a PromptTemplate node here if we were using templates,
+	// but since we have raw messages, we can just pass them.
+	chain := compose.NewChain[[]*schema.Message, *schema.Message]()
+
+	// Call Chat Model
+	chain.AppendChatModel(s.ChatModel)
+
+	// Compile
+	runnable, err := chain.Compile(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile graph: %v", err)
+	}
+
+	// Preprocess: Inject System Prompt
+	sysMsg := &schema.Message{
+		Role:    schema.System,
+		Content: "You are RapidBI's advanced data analysis agent. Help the user explore their data. Use tools if available.",
+	}
+	input := append([]*schema.Message{sysMsg}, history...)
+
+	// Invoke
+	return runnable.Invoke(ctx, input)
+}
