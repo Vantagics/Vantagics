@@ -117,3 +117,23 @@ func TestRunAnalysis(t *testing.T) {
 		t.Errorf("First message should be System, got %s", mockModel.LastInput[0].Role)
 	}
 }
+
+func TestRunAnalysis_EmptyHistory(t *testing.T) {
+	mockModel := &MockChatModel{}
+	service := &EinoService{
+		ChatModel: mockModel,
+	}
+
+	ctx := context.Background()
+	var history []*schema.Message
+
+	_, err := service.RunAnalysis(ctx, history)
+	if err != nil {
+		t.Fatalf("RunAnalysis failed: %v", err)
+	}
+
+	// Should have 1 message (System)
+	if len(mockModel.LastInput) != 1 {
+		t.Fatalf("Expected 1 message (System), got %d", len(mockModel.LastInput))
+	}
+}
