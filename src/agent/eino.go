@@ -98,7 +98,7 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 	dsTool := NewDataSourceContextTool(s.dsService)
 	tools := []tool.BaseTool{pyTool, dsTool}
 
-	// 2. Create ToolsNode
+	// 2. Create ToolsNode (Standard Eino ToolsNode takes *Message and returns *Message)
 	toolsNode, err := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{
 		Tools: tools,
 	})
@@ -120,14 +120,44 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 		return nil, fmt.Errorf("failed to bind tools: %v", err)
 	}
 
-	// 4. Build Graph
-	g := compose.NewGraph[[]*schema.Message, *schema.Message]()
+	// 4. Build Graph using Lambda nodes to manage state ([]*schema.Message)
+	g := compose.NewGraph[[]*schema.Message, []*schema.Message]()
 
-	err = g.AddChatModelNode("model", s.ChatModel)
+	// Define Model Node Wrapper
+	modelLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
+		// Call model with full history
+		resp, err := s.ChatModel.Generate(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		// Append response to history
+		return append(input, resp), nil
+	})
+
+	// Define Tool Node Wrapper
+	toolsLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
+		// Get the last message (which should be Assistant with ToolCalls)
+		if len(input) == 0 {
+			return nil, fmt.Errorf("tool node received empty history")
+		}
+		lastMsg := input[len(input)-1]
+
+		// Execute tools
+		toolResultMsg, err := toolsNode.Invoke(ctx, lastMsg)
+		if err != nil {
+			return nil, err
+		}
+
+		// Append tool result to history
+		return append(input, toolResultMsg...), nil
+	})
+
+	err = g.AddLambdaNode("model", modelLambda)
 	if err != nil {
 		return nil, err
 	}
-	err = g.AddToolsNode("tools", toolsNode)
+
+	err = g.AddLambdaNode("tools", toolsLambda)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +168,9 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 	}
 
 	// Branch: loop back to tools or end
-	err = g.AddBranch("model", compose.NewGraphBranch(func(ctx context.Context, msg *schema.Message) (string, error) {
-		if len(msg.ToolCalls) > 0 {
+	err = g.AddBranch("model", compose.NewGraphBranch(func(ctx context.Context, history []*schema.Message) (string, error) {
+		lastMsg := history[len(history)-1]
+		if len(lastMsg.ToolCalls) > 0 {
 			return "tools", nil
 		}
 		return compose.END, nil
@@ -184,5 +215,14 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 	}
 	input := append([]*schema.Message{sysMsg}, history...)
 
-	return runnable.Invoke(ctx, input)
+	finalHistory, err := runnable.Invoke(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the last message
+	if len(finalHistory) > 0 {
+		return finalHistory[len(finalHistory)-1], nil
+	}
+	return nil, fmt.Errorf("agent returned empty history")
 }

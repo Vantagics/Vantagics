@@ -53,16 +53,53 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 			continue
 		}
 
-		role := "user"
-		if msg.Role == schema.Assistant {
-			role = "assistant"
+		if msg.Role == schema.User {
+			messages = append(messages, map[string]interface{}{
+				"role":    "user",
+				"content": msg.Content,
+			})
+		} else if msg.Role == schema.Assistant {
+			content := []map[string]interface{}{}
+			if msg.Content != "" {
+				content = append(content, map[string]interface{}{
+					"type": "text",
+					"text": msg.Content,
+				})
+			}
+			// Handle Tool Calls in Assistant Message
+			for _, tc := range msg.ToolCalls {
+				// Parse arguments if they are string
+				var args map[string]interface{}
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+					// Fallback if not JSON or empty
+					args = map[string]interface{}{}
+				}
+				content = append(content, map[string]interface{}{
+					"type":  "tool_use",
+					"id":    tc.ID,
+					"name":  tc.Function.Name,
+					"input": args,
+				})
+			}
+			messages = append(messages, map[string]interface{}{
+				"role":    "assistant",
+				"content": content,
+			})
+		} else if msg.Role == schema.Tool {
+			// Tool Result
+			// Anthropic expects tool results in a 'user' message block with type 'tool_result'
+			content := []map[string]interface{}{
+				{
+					"type":        "tool_result",
+					"tool_use_id": msg.ToolCallID, // Eino schema field for ID
+					"content":     msg.Content,
+				},
+			}
+			messages = append(messages, map[string]interface{}{
+				"role":    "user",
+				"content": content,
+			})
 		}
-		// TODO: Handle Tool messages (role "tool" in Eino? schema usually uses specialized roles or types)
-		// For now, simple text content
-		messages = append(messages, map[string]interface{}{
-			"role":    role,
-			"content": msg.Content,
-		})
 	}
 
 	if systemPrompt != "" {
@@ -117,12 +154,18 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 		return nil, fmt.Errorf("Anthropic API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
+	// Definition for response parsing
+	type contentBlock struct {
+		Type  string          `json:"type"`
+		Text  string          `json:"text,omitempty"`
+		ID    string          `json:"id,omitempty"`
+		Name  string          `json:"name,omitempty"`
+		Input json.RawMessage `json:"input,omitempty"`
+	}
+
 	var result struct {
-		Content []struct {
-			Text string `json:"text"`
-			Type string `json:"type"`
-		} `json:"content"`
-		Role string `json:"role"`
+		Content []contentBlock `json:"content"`
+		Role    string         `json:"role"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -131,13 +174,22 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 
 	// Convert back to schema.Message
 	responseMsg := &schema.Message{
-		Role:    schema.Assistant, // Result role should be assistant
+		Role:    schema.Assistant,
 		Content: "",
 	}
 
 	for _, block := range result.Content {
 		if block.Type == "text" {
 			responseMsg.Content += block.Text
+		} else if block.Type == "tool_use" {
+			// Append to ToolCalls
+			responseMsg.ToolCalls = append(responseMsg.ToolCalls, schema.ToolCall{
+				ID: block.ID,
+				Function: schema.FunctionCall{
+					Name:      block.Name,
+					Arguments: string(block.Input),
+				},
+			})
 		}
 	}
 
