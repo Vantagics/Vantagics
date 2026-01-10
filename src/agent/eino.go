@@ -92,7 +92,7 @@ func (s *EinoService) RunAgent(ctx context.Context, input string) (string, error
 }
 
 // RunAnalysis executes the agent with full history and tool support
-func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message) (*schema.Message, error) {
+func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message, dataSourceID string) (*schema.Message, error) {
 	// 1. Initialize Tools
 	pyTool := NewPythonExecutorTool(s.cfg)
 	dsTool := NewDataSourceContextTool(s.dsService)
@@ -159,9 +159,28 @@ func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message
 		return nil, fmt.Errorf("failed to compile graph: %v", err)
 	}
 
+	// 6. Build Context Prompt
+	var contextPrompt string
+	if dataSourceID != "" && s.dsService != nil {
+		sources, _ := s.dsService.LoadDataSources()
+		for _, ds := range sources {
+			if ds.ID == dataSourceID {
+				contextPrompt = fmt.Sprintf("\n\nCurrent Data Source Context (ID: %s, Name: %s):\n", ds.ID, ds.Name)
+				if ds.Analysis != nil {
+					contextPrompt += fmt.Sprintf("Summary: %s\n", ds.Analysis.Summary)
+					contextPrompt += "Schema Overview:\n"
+					for _, t := range ds.Analysis.Schema {
+						contextPrompt += fmt.Sprintf("- Table: %s, Columns: %v\n", t.TableName, t.Columns)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: "You are RapidBI's advanced data analysis agent. Help the user explore their data. Use tools to access data schema and samples, and execute Python code for analysis. \n\nGuidelines:\n1. Format tables as Markdown tables.\n2. When performing visualization, always save the plot as 'chart.png' in the current directory using `plt.savefig('chart.png')`.\n3. Provide concise natural language summaries alongside your data and charts.",
+		Content: "You are RapidBI's advanced data analysis agent. Help the user explore their data. Use tools to access data schema and samples, and execute Python code for analysis. \n\nGuidelines:\n1. Format tables as Markdown tables.\n2. When performing visualization, always save the plot as 'chart.png' in the current directory using `plt.savefig('chart.png')`.\n3. Provide concise natural language summaries alongside your data and charts." + contextPrompt,
 	}
 	input := append([]*schema.Message{sysMsg}, history...)
 

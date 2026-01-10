@@ -379,11 +379,13 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 
 	// Check if we should use Eino (if thread has DataSourceID)
 	var useEino bool
+	var dataSourceID string
 	if threadID != "" && a.einoService != nil {
 		threads, _ := a.chatService.LoadThreads()
 		for _, t := range threads {
 			if t.ID == threadID && t.DataSourceID != "" {
 				useEino = true
+				dataSourceID = t.DataSourceID
 				break
 			}
 		}
@@ -412,7 +414,7 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 		// Add current message (Eino expects the new user message in the input list for the chain we built)
 		history = append(history, &schema.Message{Role: schema.User, Content: message})
 
-		respMsg, err := a.einoService.RunAnalysis(a.ctx, history)
+		respMsg, err := a.einoService.RunAnalysis(a.ctx, history, dataSourceID)
 		var resp string
 		if err != nil {
 			resp = fmt.Sprintf("Error: %v", err)
@@ -559,12 +561,6 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 		}
 
 		if target != nil && target.Analysis != nil {
-			// Found existing analysis, inject into session memory
-			jsonBytes, err := json.MarshalIndent(target.Analysis, "", "  ")
-			if err == nil {
-				a.memoryService.AddSessionLongTermMemory(thread.ID, string(jsonBytes))
-			}
-			
 			// Generate suggestions based on this analysis
 			go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
 		}

@@ -98,7 +98,7 @@ func TestRunAnalysis(t *testing.T) {
 		{Role: schema.User, Content: "Hello"},
 	}
 
-	resp, err := service.RunAnalysis(ctx, history)
+	resp, err := service.RunAnalysis(ctx, history, "")
 	if err != nil {
 		t.Fatalf("RunAnalysis failed: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRunAnalysis_EmptyHistory(t *testing.T) {
 	ctx := context.Background()
 	var history []*schema.Message
 
-	_, err := service.RunAnalysis(ctx, history)
+	_, err := service.RunAnalysis(ctx, history, "")
 	if err != nil {
 		t.Fatalf("RunAnalysis failed: %v", err)
 	}
