@@ -45,7 +45,7 @@ func TestDataSourceService_ImportExcel(t *testing.T) {
 	}
 
 	// 3. Init Service
-	service := NewDataSourceService(tempDir)
+	service := NewDataSourceService(tempDir, nil)
 
 	// 4. Test Import
 	ds, err := service.ImportExcel("Test Source", excelPath, nil)
@@ -100,6 +100,7 @@ func TestDataSourceService_ImportExcel(t *testing.T) {
     if name != "Alice" {
         t.Errorf("Expected Alice, got %s", name)
     }
+    db.Close()
 
 	// 7. Test Delete
 	err = service.DeleteDataSource(ds.ID)
@@ -138,7 +139,7 @@ func TestDataSourceService_ImportExcel_NoHeader(t *testing.T) {
 	}
 
 	// 3. Init Service
-	service := NewDataSourceService(tempDir)
+	service := NewDataSourceService(tempDir, nil)
 
 	// 4. Test Import
 	ds, err := service.ImportExcel("No Header Source", excelPath, nil)
@@ -214,7 +215,7 @@ func TestDataSourceService_ImportExcel_MultipleSheets(t *testing.T) {
 	}
 
 	// 3. Init Service
-	service := NewDataSourceService(tempDir)
+	service := NewDataSourceService(tempDir, nil)
 
 	// 4. Test Import
 	ds, err := service.ImportExcel("Multi Sheet Source", excelPath, nil)
@@ -271,7 +272,7 @@ func TestDataSourceService_GetDataSourceTableCount(t *testing.T) {
 	}
 
 	// 3. Init Service
-	service := NewDataSourceService(tempDir)
+	service := NewDataSourceService(tempDir, nil)
 	ds, err := service.ImportExcel("Count Source", excelPath, nil)
 	if err != nil {
 		t.Fatalf("ImportExcel failed: %v", err)
@@ -295,7 +296,7 @@ func TestDataSourceService_AddDataSource_DuplicateName(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	service := NewDataSourceService(tempDir)
+	service := NewDataSourceService(tempDir, nil)
 	ds1 := DataSource{ID: "1", Name: "Sales", Type: "excel"}
 
 	// Add first source
@@ -322,7 +323,7 @@ func TestDataSourceService_ExportToCSV(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	service := NewDataSourceService(tmpDir)
+	service := NewDataSourceService(tmpDir, nil)
 
 	// Create a dummy data source
 	dbPath := filepath.Join(tmpDir, "sources", "test-id", "data.db")

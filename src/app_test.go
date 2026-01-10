@@ -7,7 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"rapidbi/agent"
+	"rapidbi/config"
 )
 
 func TestDashboardDataSerialization(t *testing.T) {
@@ -75,7 +79,7 @@ func TestSendMessage(t *testing.T) {
 	// For now, let's just use a config that we know has no API key.
 	
 	// Actually, let's just test that it returns the expected message when API key is empty
-	llm := NewLLMService(Config{LLMProvider: "OpenAI", APIKey: ""})
+	llm := agent.NewLLMService(config.Config{LLMProvider: "OpenAI", APIKey: ""}, nil)
 	resp, err := llm.Chat(app.ctx, "Hello")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
@@ -88,11 +92,11 @@ func TestSendMessage(t *testing.T) {
 
 func TestApp_GetConfig_Default(t *testing.T) {
 	app := NewApp()
-	config, err := app.GetConfig()
+	cfg, err := app.GetConfig()
 	if err != nil {
 		t.Fatalf("GetConfig failed: %v", err)
 	}
-	if config.LLMProvider == "" {
+	if cfg.LLMProvider == "" {
 		t.Error("Expected default LLMProvider to be set")
 	}
 }
@@ -112,7 +116,7 @@ func TestApp_getConfigPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getConfigPath failed: %v", err)
 	}
-	if !contains(path, "config.json") {
+	if !strings.Contains(path, "config.json") {
 		t.Errorf("Expected path to contain config.json, got %s", path)
 	}
 }
@@ -131,13 +135,13 @@ func TestApp_TestLLMConnection(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "test",
 		BaseURL:     server.URL,
 	}
 	
-	result := app.TestLLMConnection(config)
+	result := app.TestLLMConnection(cfg)
 	if !result.Success {
 		t.Errorf("Expected success, got failure: %s", result.Message)
 	}
@@ -147,12 +151,12 @@ func TestApp_TestLLMConnection_Fail(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 	
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "", // Missing key
 	}
 	
-	result := app.TestLLMConnection(config)
+	result := app.TestLLMConnection(cfg)
 	if result.Success {
 		t.Error("Expected failure for missing API key")
 	}
@@ -172,14 +176,14 @@ func TestApp_TestLLMConnection_ClaudeCompatible(t *testing.T) {
 	app := NewApp()
 	app.ctx = context.Background()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider:       "Claude-Compatible",
 		APIKey:            "test",
 		BaseURL:           server.URL,
 		ClaudeHeaderStyle: "Anthropic",
 	}
 
-	result := app.TestLLMConnection(config)
+	result := app.TestLLMConnection(cfg)
 	if !result.Success {
 		t.Errorf("Expected success for Claude-Compatible, got failure: %s", result.Message)
 	}
@@ -208,13 +212,13 @@ func TestApp_SaveAndLoadConfig(t *testing.T) {
 	app := NewApp()
 	app.storageDir = tmpDir
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "TestProvider",
 		APIKey:      "test-key",
 		DarkMode:    true,
 	}
 
-	err = app.SaveConfig(config)
+	err = app.SaveConfig(cfg)
 	if err != nil {
 		t.Fatalf("SaveConfig failed: %v", err)
 	}
@@ -224,10 +228,10 @@ func TestApp_SaveAndLoadConfig(t *testing.T) {
 		t.Fatalf("GetConfig failed: %v", err)
 	}
 
-	if loadedConfig.LLMProvider != config.LLMProvider {
-		t.Errorf("Expected provider %s, got %s", config.LLMProvider, loadedConfig.LLMProvider)
+	if loadedConfig.LLMProvider != cfg.LLMProvider {
+		t.Errorf("Expected provider %s, got %s", cfg.LLMProvider, loadedConfig.LLMProvider)
 	}
-	if loadedConfig.DarkMode != config.DarkMode {
+	if loadedConfig.DarkMode != cfg.DarkMode {
 		t.Error("DarkMode mismatch")
 	}
 }
@@ -250,14 +254,14 @@ func TestApp_SendMessage_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider: "OpenAI",
 		APIKey:      "test-key",
 		BaseURL:     server.URL,
 	}
-	app.SaveConfig(config)
+	app.SaveConfig(cfg)
 
-	resp, err := app.SendMessage("Hello")
+	resp, err := app.SendMessage("", "Hello")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -284,15 +288,15 @@ func TestApp_SendMessage_ClaudeCompatible(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := Config{
+	cfg := config.Config{
 		LLMProvider:       "Claude-Compatible",
 		APIKey:            "test-key",
 		BaseURL:           server.URL,
 		ClaudeHeaderStyle: "Anthropic",
 	}
-	app.SaveConfig(config)
+	app.SaveConfig(cfg)
 
-	resp, err := app.SendMessage("Hello")
+	resp, err := app.SendMessage("", "Hello")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -302,7 +306,7 @@ func TestApp_SendMessage_ClaudeCompatible(t *testing.T) {
 }
 
 func TestLLMServiceChat_UnsupportedProvider(t *testing.T) {
-	service := NewLLMService(Config{LLMProvider: "Unknown", APIKey: "dummy"})
+	service := agent.NewLLMService(config.Config{LLMProvider: "Unknown", APIKey: "dummy"}, nil)
 	resp, err := service.Chat(context.Background(), "Hello")
 	if err != nil {
 		t.Fatalf("Chat failed: %v", err)
@@ -390,7 +394,7 @@ func TestApp_SaveConfig_WriteError(t *testing.T) {
 	// Create a directory where the config file should be to cause write error
 	os.MkdirAll(filepath.Join(tmpDir, "config.json"), 0755)
 	
-	err := app.SaveConfig(Config{})
+	err := app.SaveConfig(config.Config{})
 	if err == nil {
 		t.Error("Expected error when writing to a directory path")
 	}

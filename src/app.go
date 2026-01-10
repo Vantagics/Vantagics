@@ -14,6 +14,7 @@ import (
 	"rapidbi/config"
 	"rapidbi/logger"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -43,6 +44,7 @@ type App struct {
 	pythonService     *PythonService
 	dataSourceService *DataSourceService
 	memoryService     *agent.MemoryService
+	einoService       *agent.EinoService
 	storageDir        string
 	logger            *logger.Logger
 	isChatGenerating  bool
@@ -128,6 +130,13 @@ func (a *App) startup(ctx context.Context) {
 		a.chatService = NewChatService(sessionsDir)
 		a.dataSourceService = NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
+		
+		es, err := agent.NewEinoService(cfg)
+		if err != nil {
+			a.Log(fmt.Sprintf("Failed to initialize EinoService: %v", err))
+		} else {
+			a.einoService = es
+		}
 	}
 
 	// Initialize Logging if enabled
@@ -367,6 +376,58 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 
 	a.isChatGenerating = true
 	defer func() { a.isChatGenerating = false }()
+
+	// Check if we should use Eino (if thread has DataSourceID)
+	var useEino bool
+	if threadID != "" && a.einoService != nil {
+		threads, _ := a.chatService.LoadThreads()
+		for _, t := range threads {
+			if t.ID == threadID && t.DataSourceID != "" {
+				useEino = true
+				break
+			}
+		}
+	}
+
+	if useEino {
+		// Load history
+		var history []*schema.Message
+		threads, _ := a.chatService.LoadThreads()
+		for _, t := range threads {
+			if t.ID == threadID {
+				for _, m := range t.Messages {
+					role := schema.User
+					if m.Role == "assistant" {
+						role = schema.Assistant
+					}
+					history = append(history, &schema.Message{
+						Role:    role,
+						Content: m.Content,
+					})
+				}
+				break
+			}
+		}
+
+		// Add current message (Eino expects the new user message in the input list for the chain we built)
+		history = append(history, &schema.Message{Role: schema.User, Content: message})
+
+		respMsg, err := a.einoService.RunAnalysis(a.ctx, history)
+		var resp string
+		if err != nil {
+			resp = fmt.Sprintf("Error: %v", err)
+			if cfg.DetailedLog {
+				a.logChatToFile(threadID, "SYSTEM ERROR", resp)
+			}
+			return "", err
+		}
+		resp = respMsg.Content
+
+		if cfg.DetailedLog {
+			a.logChatToFile(threadID, "LLM RESPONSE", resp)
+		}
+		return resp, nil
+	}
 
 	langPrompt := a.getLangPrompt(cfg)
 	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
