@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRight, Settings, Upload } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle } from '../../wailsjs/go/main/App';
+import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, AssetizeSession } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
@@ -106,11 +106,25 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setIsLoading(loading);
         });
 
+        // Listen for insight analysis request from Dashboard
+        const unsubscribeAnalyze = EventsOn('analyze-insight', (text: string) => {
+            // Open sidebar if closed (managed by parent, but we can't control parent state easily here without prop)
+            // But we can just send message. The parent App handles opening via prop? 
+            // Wait, isOpen is a prop. We cannot change it here.
+            // But we can emit an event to App?
+            // Actually, clicking insight usually implies user wants to chat.
+            // We can assume App will listen to this too or we emit "open-chat-sidebar".
+            
+            // For now, let's just trigger send message.
+            handleSendMessage(text);
+        });
+
         return () => {
             if (unsubscribeStart) unsubscribeStart();
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeUpdate) unsubscribeUpdate();
             if (unsubscribeLoading) unsubscribeLoading();
+            if (unsubscribeAnalyze) unsubscribeAnalyze();
         };
     }, [threads]);
 
@@ -209,14 +223,22 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setBlankAreaContextMenu(null);
     };
 
-    const handleContextAction = (action: 'export' | 'assetize' | 'view_memory', threadId: string) => {
+    const handleContextAction = async (action: 'export' | 'assetize' | 'view_memory', threadId: string) => {
         console.log(`Action ${action} on thread ${threadId}`);
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
         } else if (action === 'export') {
-            alert(`Exporting thread ${threadId} (Not implemented)`);
+            try {
+                await ExportSessionHTML(threadId);
+            } catch (e) {
+                console.error("Export failed:", e);
+            }
         } else if (action === 'assetize') {
-            alert(`Assetizing thread ${threadId} (Not implemented)`);
+            try {
+                await AssetizeSession(threadId);
+            } catch (e) {
+                console.error("Assetize failed:", e);
+            }
         }
     };
 

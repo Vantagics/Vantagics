@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource } from '../../wailsjs/go/main/App';
+import { GetDataSources, DeleteDataSource, ReplayAnalysis } from '../../wailsjs/go/main/App';
 import { EventsEmit, EventsOn } from '../../wailsjs/runtime/runtime';
 import AddDataSourceModal from './AddDataSourceModal';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
@@ -163,6 +163,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
                     className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${selectedId ? 'bg-blue-100 hover:bg-blue-200 text-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                 >
                     <span>💬</span> {t('chat_analysis')}
+                </button>
+                <button 
+                    onClick={() => ReplayAnalysis().catch(err => alert(err))}
+                    aria-label="Replay Analysis"
+                    className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                    <span>▶️</span> Replay Analysis
                 </button>
                 <button 
                     onClick={onOpenSettings}

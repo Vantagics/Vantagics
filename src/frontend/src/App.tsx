@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';
 import ChatSidebar from './components/ChatSidebar';
 import ContextMenu from './components/ContextMenu';
+import MessageModal from './components/MessageModal';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
@@ -14,6 +16,13 @@ function App() {
     const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
+    const [activeChart, setActiveChart] = useState<{ type: 'echarts' | 'image', data: string } | null>(null);
+    const [messageModal, setMessageModal] = useState<{ isOpen: boolean, type: 'info' | 'warning' | 'error', title: string, message: string }>({
+        isOpen: false,
+        type: 'info',
+        title: '',
+        message: ''
+    });
 
     useEffect(() => {
         SetChatOpen(isChatOpen);
@@ -88,6 +97,30 @@ function App() {
             setIsPreferenceOpen(true);
         });
 
+        // Listen for dashboard chart updates
+        const unsubscribeDashboardUpdate = EventsOn("dashboard-update", (payload: any) => {
+            console.log("Dashboard Update Received:", payload);
+            setActiveChart(payload);
+        });
+
+        const unsubscribeDashboardDataUpdate = EventsOn("dashboard-data-update", (data: main.DashboardData) => {
+            console.log("Dashboard Data Update:", data);
+            setDashboardData(data);
+        });
+
+        const unsubscribeAnalyzeInsight = EventsOn("analyze-insight", () => {
+            setIsChatOpen(true);
+        });
+
+        const unsubscribeMessageModal = EventsOn("show-message-modal", (payload: any) => {
+            setMessageModal({
+                isOpen: true,
+                type: payload.type,
+                title: payload.title,
+                message: payload.message
+            });
+        });
+
         // Global Context Menu Listener
         const handleContextMenu = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
@@ -104,6 +137,10 @@ function App() {
             if (unsubscribeAnalysisError) unsubscribeAnalysisError();
             if (unsubscribeAnalysisWarning) unsubscribeAnalysisWarning();
             if (unsubscribeSettings) unsubscribeSettings();
+            if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
+            if (unsubscribeDashboardDataUpdate) unsubscribeDashboardDataUpdate();
+            if (unsubscribeAnalyzeInsight) unsubscribeAnalyzeInsight();
+            if (unsubscribeMessageModal) unsubscribeMessageModal();
             window.removeEventListener('contextmenu', handleContextMenu);
         };
     }, [isAppReady]);
@@ -232,7 +269,7 @@ function App() {
             />
 
             <div className="flex-1 flex flex-col min-w-0">
-                <Dashboard data={dashboardData} />
+                <Dashboard data={dashboardData} activeChart={activeChart} />
             </div>
             
             <ChatSidebar 
@@ -245,12 +282,30 @@ function App() {
                 onClose={() => setIsPreferenceOpen(false)} 
             />
 
+            <MessageModal
+                isOpen={messageModal.isOpen}
+                type={messageModal.type}
+                title={messageModal.title}
+                message={messageModal.message}
+                onClose={() => setMessageModal(prev => ({ ...prev, isOpen: false }))}
+            />
+
             {contextMenu && (
                 <ContextMenu 
                     position={{ x: contextMenu.x, y: contextMenu.y }}
                     target={contextMenu.target}
                     onClose={() => setContextMenu(null)}
                 />
+            )}
+
+            {!isChatOpen && (
+                <button
+                    onClick={() => setIsChatOpen(true)}
+                    className="fixed right-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-r-0 rounded-l-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:-translate-x-1 group"
+                    title="Open Chat"
+                >
+                    <ChevronLeft className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                </button>
             )}
         </div>
     );
