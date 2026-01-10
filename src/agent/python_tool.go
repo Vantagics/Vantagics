@@ -76,7 +76,7 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 	}
 
 	if err != nil {
-		return output, fmt.Errorf("python execution error: %v", err)
+		return output, fmt.Errorf("python execution error: %v\nOutput:\n%s", err, output)
 	}
 
 	return output, nil
