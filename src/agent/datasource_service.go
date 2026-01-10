@@ -1053,6 +1053,58 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 	return count, nil
 }
 
+// GetDataSourceTableColumns returns the column names for a table
+func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName string) ([]string, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+
+	if target == nil {
+		return nil, fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return nil, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported data source type for columns")
+	}
+	defer db.Close()
+
+	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return rows.Columns()
+}
+
 // ExportToCSV exports one or more tables to CSV file(s)
 func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPath string) error {
 	if len(tableNames) == 0 {

@@ -58,7 +58,15 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 	for _, tableName := range tables {
 		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
 		
-		// Get sample data (5 rows)
+		// 1. Get Columns
+		cols, err := t.dsService.GetDataSourceTableColumns(in.DataSourceID, tableName)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("- Error fetching columns: %v\n", err))
+		} else {
+			sb.WriteString(fmt.Sprintf("- Columns: %s\n", strings.Join(cols, ", ")))
+		}
+
+		// 2. Get sample data (5 rows)
 		data, err := t.dsService.GetDataSourceTableData(in.DataSourceID, tableName, 5)
 		if err != nil {
 			sb.WriteString(fmt.Sprintf("- Error fetching sample: %v\n", err))
@@ -66,13 +74,6 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 		}
 
 		if len(data) > 0 {
-			// Extract columns
-			var cols []string
-			for k := range data[0] {
-				cols = append(cols, k)
-			}
-			sb.WriteString(fmt.Sprintf("- Columns: %s\n", strings.Join(cols, ", ")))
-			
 			// Add sample rows as JSON
 			sampleJSON, _ := json.Marshal(data)
 			sb.WriteString(fmt.Sprintf("- Sample Data: %s\n", string(sampleJSON)))

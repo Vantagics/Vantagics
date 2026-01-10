@@ -289,6 +289,51 @@ func TestDataSourceService_GetDataSourceTableCount(t *testing.T) {
 	}
 }
 
+func TestDataSourceService_GetDataSourceTableColumns(t *testing.T) {
+	// 1. Setup Temp Dir
+	tempDir, err := os.MkdirTemp("", "rapidbi_test_cols")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 2. Create Sample Excel
+	excelPath := filepath.Join(tempDir, "cols_test.xlsx")
+	f := excelize.NewFile()
+	f.SetSheetName("Sheet1", "Data")
+	f.SetCellValue("Data", "A1", "ID")
+	f.SetCellValue("Data", "B1", "Name")
+	f.SetCellValue("Data", "C1", "Value")
+	f.SetCellValue("Data", "A2", 1)
+	if err := f.SaveAs(excelPath); err != nil {
+		t.Fatalf("Failed to save excel: %v", err)
+	}
+
+	// 3. Init Service
+	service := NewDataSourceService(tempDir, nil)
+	ds, err := service.ImportExcel("Cols Source", excelPath, nil)
+	if err != nil {
+		t.Fatalf("ImportExcel failed: %v", err)
+	}
+
+	// 4. Test GetDataSourceTableColumns
+	cols, err := service.GetDataSourceTableColumns(ds.ID, "Data")
+	if err != nil {
+		t.Fatalf("GetDataSourceTableColumns failed: %v", err)
+	}
+
+	expected := []string{"ID", "Name", "Value"}
+	if len(cols) != len(expected) {
+		t.Fatalf("Expected %d columns, got %d", len(expected), len(cols))
+	}
+
+	for i, col := range cols {
+		if col != expected[i] {
+			t.Errorf("Expected column %d to be '%s', got '%s'", i, expected[i], col)
+		}
+	}
+}
+
 func TestDataSourceService_AddDataSource_DuplicateName(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "rapidbi_test_dup")
 	if err != nil {
