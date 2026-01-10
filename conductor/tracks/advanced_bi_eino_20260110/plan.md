@@ -10,10 +10,10 @@ This plan outlines the implementation of an Eino-powered BI agent capable of gui
 - [~] Task: Conductor - User Manual Verification 'Eino Core & Infrastructure' (Protocol in workflow.md)
 
 ## Phase 2: Data-Driven Tools (Python execution)
-- [x] Task: Implement `PythonExecutorTool` as an Eino-compatible component that uses `PythonService` to run generated code. [5f447ad]
-- [x] Task: Implement `DataSourceContextTool` to provide the agent with schema details and data samples. [5f447ad]
-- [x] Task: Develop a multi-modal response parser in Go to identify and structure text, charts (images), and table data from tool outputs. [5f447ad]
-- [x] Task: Write tests for Python tool execution and output parsing. [5f447ad]
+- [x] Task: Implement `PythonExecutorTool` as an Eino-compatible component that uses `PythonService` to run generated code. [7720307]
+- [x] Task: Implement `DataSourceContextTool` to provide the agent with schema details and data samples. [7720307]
+- [x] Task: Develop a multi-modal response parser in Go to identify and structure text, charts (images), and table data from tool outputs. [7720307]
+- [x] Task: Write tests for Python tool execution and output parsing. [7720307]
 - [ ] Task: Conductor - User Manual Verification 'Data-Driven Tools' (Protocol in workflow.md)
 
 ## Phase 3: Frontend UI & UX Enhancements
