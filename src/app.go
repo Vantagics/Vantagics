@@ -41,8 +41,8 @@ type DashboardData struct {
 type App struct {
 	ctx               context.Context
 	chatService       *ChatService
-	pythonService     *PythonService
-	dataSourceService *DataSourceService
+	pythonService     *agent.PythonService
+	dataSourceService *agent.DataSourceService
 	memoryService     *agent.MemoryService
 	einoService       *agent.EinoService
 	storageDir        string
@@ -61,7 +61,7 @@ type AgentMemoryView struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		pythonService:    NewPythonService(),
+		pythonService:    agent.NewPythonService(),
 		logger:           logger.NewLogger(),
 		isChatGenerating: false,
 		isChatOpen:       false,
@@ -111,7 +111,7 @@ func (a *App) startup(ctx context.Context) {
 			_ = os.MkdirAll(path, 0755)
 			sessionsDir := filepath.Join(path, "sessions")
 			a.chatService = NewChatService(sessionsDir)
-			a.dataSourceService = NewDataSourceService(path, a.Log)
+			a.dataSourceService = agent.NewDataSourceService(path, a.Log)
 			// Need a basic config for memory service if loading failed, or just skip
 			a.memoryService = agent.NewMemoryService(config.Config{DataCacheDir: path})
 		}
@@ -128,10 +128,10 @@ func (a *App) startup(ctx context.Context) {
 		_ = os.MkdirAll(dataDir, 0755)
 		sessionsDir := filepath.Join(dataDir, "sessions")
 		a.chatService = NewChatService(sessionsDir)
-		a.dataSourceService = NewDataSourceService(dataDir, a.Log)
+		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 		
-		es, err := agent.NewEinoService(cfg)
+		es, err := agent.NewEinoService(cfg, a.dataSourceService)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to initialize EinoService: %v", err))
 		} else {
@@ -487,12 +487,12 @@ func (a *App) SelectFolder(title string) (string, error) {
 }
 
 // GetPythonEnvironments returns detected Python environments
-func (a *App) GetPythonEnvironments() []PythonEnvironment {
+func (a *App) GetPythonEnvironments() []agent.PythonEnvironment {
 	return a.pythonService.ProbePythonEnvironments()
 }
 
 // ValidatePython checks the given Python path
-func (a *App) ValidatePython(path string) PythonValidationResult {
+func (a *App) ValidatePython(path string) agent.PythonValidationResult {
 	return a.pythonService.ValidatePythonEnvironment(path)
 }
 
@@ -550,7 +550,7 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 	// If data source is selected, check for existing analysis and inject into memory
 	if dataSourceID != "" {
 		sources, _ := a.dataSourceService.LoadDataSources()
-		var target *DataSource
+		var target *agent.DataSource
 		for _, ds := range sources {
 			if ds.ID == dataSourceID {
 				target = &ds
@@ -573,7 +573,7 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 	return thread, nil
 }
 
-func (a *App) generateAnalysisSuggestions(threadID string, analysis *DataSourceAnalysis) {
+func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataSourceAnalysis) {
 	if a.chatService == nil {
 		return
 	}
@@ -640,7 +640,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("I am starting a new analysis on this database. Based on the following schema and first row of data, please provide exactly two sentences in %s: the first sentence should describe the industry background of this data, and the second sentence should provide a concise overview of the data source content.\n\n", langPrompt))
 	
-	var tableSchemas []TableSchema
+	var tableSchemas []agent.TableSchema
 
 	for _, tableName := range tables {
 		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
@@ -679,7 +679,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 
 		// Add to schema list
 		if len(cols) > 0 {
-			tableSchemas = append(tableSchemas, TableSchema{
+			tableSchemas = append(tableSchemas, agent.TableSchema{
 				TableName: tableName,
 				Columns:   cols,
 			})
@@ -711,7 +711,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 	}
 
 	// 4. Save Analysis to DataSource
-	analysis := DataSourceAnalysis{
+	analysis := agent.DataSourceAnalysis{
 		Summary: description,
 		Schema:  tableSchemas,
 	}
@@ -743,7 +743,7 @@ func (a *App) ClearHistory() error {
 // --- Data Source Management ---
 
 // GetDataSources returns the list of registered data sources
-func (a *App) GetDataSources() ([]DataSource, error) {
+func (a *App) GetDataSources() ([]agent.DataSource, error) {
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
@@ -751,7 +751,7 @@ func (a *App) GetDataSources() ([]DataSource, error) {
 }
 
 // ImportExcelDataSource imports an Excel file as a data source
-func (a *App) ImportExcelDataSource(name string, filePath string) (*DataSource, error) {
+func (a *App) ImportExcelDataSource(name string, filePath string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
@@ -768,7 +768,7 @@ func (a *App) ImportExcelDataSource(name string, filePath string) (*DataSource, 
 }
 
 // ImportCSVDataSource imports a CSV directory as a data source
-func (a *App) ImportCSVDataSource(name string, dirPath string) (*DataSource, error) {
+func (a *App) ImportCSVDataSource(name string, dirPath string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
@@ -785,12 +785,12 @@ func (a *App) ImportCSVDataSource(name string, dirPath string) (*DataSource, err
 }
 
 // AddDataSource adds a new data source with generic configuration
-func (a *App) AddDataSource(name string, driverType string, config map[string]string) (*DataSource, error) {
+func (a *App) AddDataSource(name string, driverType string, config map[string]string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
 
-	dsConfig := DataSourceConfig{
+	dsConfig := agent.DataSourceConfig{
 		OriginalFile: config["filePath"],
 		Host:         config["host"],
 		Port:         config["port"],
@@ -824,7 +824,7 @@ func (a *App) UpdateMySQLExportConfig(id string, host, port, user, password, dat
 	if a.dataSourceService == nil {
 		return fmt.Errorf("data source service not initialized")
 	}
-	config := MySQLExportConfig{
+	config := agent.MySQLExportConfig{
 		Host:     host,
 		Port:     port,
 		User:     user,
@@ -953,7 +953,7 @@ func (a *App) ExportToMySQL(id string, tableNames []string, host, port, user, pa
 
 	}
 
-	config := DataSourceConfig{
+	config := agent.DataSourceConfig{
 
 		Host:     host,
 

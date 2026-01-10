@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"os"
@@ -15,6 +15,11 @@ type PythonEnvironment struct {
 	Version     string `json:"version"`
 	Type        string `json:"type"` // "System", "Conda", "VirtualEnv"
 	IsRecommended bool `json:"isRecommended"`
+}
+
+// PythonExecutor defines the interface for running python scripts
+type PythonExecutor interface {
+	ExecuteScript(pythonPath string, script string) (string, error)
 }
 
 // PythonService handles Python environment detection and validation

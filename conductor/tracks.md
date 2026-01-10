@@ -54,8 +54,32 @@ This file tracks all major tracks for the project. Each track has its own detail
 
 
 
----
 
 
 
----
+
+
+
+
+
+
+
+
+
+## [~] Track: Advanced BI Analysis with Eino
+
+
+
+
+
+
+
+*Link: [./conductor/tracks/advanced_bi_eino_20260110/](./conductor/tracks/advanced_bi_eino_20260110/)*
+
+
+
+
+
+
+
+

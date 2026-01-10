@@ -19,10 +19,8 @@ func TestNewEinoService_Anthropic(t *testing.T) {
 	}
 
 	// Attempt to create EinoService
-	// Expectation: This might fail or default to OpenAI (which is wrong for Anthropic provider)
-	// currently EinoService hardcodes openai.NewChatModel
-	
-	_, err := NewEinoService(cfg)
+	_, err := NewEinoService(cfg, nil)
+
 	if err != nil {
 		t.Fatalf("NewEinoService failed: %v", err)
 	}
