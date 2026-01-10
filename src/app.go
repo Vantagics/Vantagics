@@ -550,6 +550,7 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 	}
 
 	// If data source is selected, check for existing analysis and inject into memory
+	/*
 	if dataSourceID != "" {
 		sources, _ := a.dataSourceService.LoadDataSources()
 		var target *agent.DataSource
@@ -565,6 +566,7 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 			go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
 		}
 	}
+	*/
 
 	return thread, nil
 }
