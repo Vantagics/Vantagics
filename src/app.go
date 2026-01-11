@@ -97,6 +97,16 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 	return false
 }
 
+// shutdown is called when the application is closing to clean up resources
+func (a *App) shutdown(ctx context.Context) {
+	// Close EinoService (which closes Python pool)
+	if a.einoService != nil {
+		a.einoService.Close()
+	}
+	// Close logger
+	a.logger.Close()
+}
+
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
@@ -502,7 +512,12 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 		// Add current message (Eino expects the new user message in the input list for the chain we built)
 		history = append(history, &schema.Message{Role: schema.User, Content: message})
 
-		respMsg, err := a.einoService.RunAnalysis(a.ctx, history, dataSourceID, threadID)
+		// Create progress callback to emit events to frontend
+		progressCallback := func(update agent.ProgressUpdate) {
+			runtime.EventsEmit(a.ctx, "analysis-progress", update)
+		}
+
+		respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, progressCallback)
 		var resp string
 		if err != nil {
 			resp = fmt.Sprintf("Error: %v", err)
@@ -549,6 +564,29 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 			} else {
 				a.Log(fmt.Sprintf("Failed to unmarshal dashboard data: %v", err))
 			}
+		}
+
+		// 4. Table Data (JSON array from SQL results or analysis)
+		reTable := regexp.MustCompile("(?s)```[ \t]*json:table\\s*(\\[.*?\\])\\s*```")
+		matchTable := reTable.FindStringSubmatch(resp)
+		if len(matchTable) > 1 {
+			var tableData []map[string]interface{}
+			if err := json.Unmarshal([]byte(matchTable[1]), &tableData); err == nil {
+				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+					"type": "table",
+					"data": tableData,
+				})
+			}
+		}
+
+		// 5. CSV Download Link (data URL)
+		reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
+		matchCSV := reCSV.FindStringSubmatch(resp)
+		if len(matchCSV) > 1 {
+			runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+				"type": "csv",
+				"data": matchCSV[1],
+			})
 		}
 		a.Log(fmt.Sprintf("[TIMING] Post-processing response took: %v", time.Since(startPost)))
 		a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Eino) took: %v", time.Since(startTotal)))
@@ -713,7 +751,7 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 
 	// Construct prompt
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct data analysis angles or questions that would be valuable for a business user. Please answer in %s. Provide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include a brief, catchy title and a clear, one-sentence description of the analysis goal. End your response by telling the user (in %s) that they can select one or more analysis angles by replying with the corresponding number(s).", langPrompt, langPrompt))
+	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct business analysis questions that would provide valuable insights for decision-making. Please answer in %s.\n\nIMPORTANT GUIDELINES:\n- Focus on BUSINESS VALUE and INSIGHTS, not technical implementation\n- Use simple, non-technical language that any business user can understand\n- Frame suggestions as business questions or outcomes (e.g., \"Understand customer purchasing patterns\" instead of \"Run RFM analysis\")\n- DO NOT mention SQL, Python, data processing, or any technical terms\n- Focus on what insights can be discovered, not how to discover them\n\nProvide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include:\n- A clear, business-focused title\n- A one-sentence description of what business insights this would reveal\n\nEnd your response by telling the user (in %s) that they can select one or more analysis questions by replying with the corresponding number(s).", langPrompt, langPrompt))
 	sb.WriteString(fmt.Sprintf("Summary: %s\n\n", analysis.Summary))
 	sb.WriteString("Schema:\n")
 	for _, table := range analysis.Schema {

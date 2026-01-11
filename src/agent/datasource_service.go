@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,10 +18,24 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// SchemaCache holds cached schema information for a data source
+type SchemaCache struct {
+	Tables    []string                         // List of table names
+	Columns   map[string][]string              // tableName -> column names
+	Samples   map[string][]map[string]interface{} // tableName -> sample rows (3 rows)
+	CachedAt  time.Time
+}
+
+const schemaCacheTTL = 5 * time.Minute // Cache expires after 5 minutes
+
 // DataSourceService handles data source operations
 type DataSourceService struct {
 	dataCacheDir string
 	Log          func(string)
+
+	// Schema cache for performance
+	schemaCache  map[string]*SchemaCache
+	cacheMu      sync.RWMutex
 }
 
 // NewDataSourceService creates a new service instance
@@ -28,6 +43,7 @@ func NewDataSourceService(dataCacheDir string, logFunc func(string)) *DataSource
 	return &DataSourceService{
 		dataCacheDir: dataCacheDir,
 		Log:          logFunc,
+		schemaCache:  make(map[string]*SchemaCache),
 	}
 }
 
@@ -35,6 +51,49 @@ func (s *DataSourceService) log(msg string) {
 	if s.Log != nil {
 		s.Log(msg)
 	}
+}
+
+// getSchemaFromCache returns cached schema if valid, nil otherwise
+func (s *DataSourceService) getSchemaFromCache(dataSourceID string) *SchemaCache {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+
+	cache, exists := s.schemaCache[dataSourceID]
+	if !exists {
+		return nil
+	}
+
+	// Check if cache has expired
+	if time.Since(cache.CachedAt) > schemaCacheTTL {
+		return nil
+	}
+
+	return cache
+}
+
+// updateSchemaCache updates or creates cache for a data source
+func (s *DataSourceService) updateSchemaCache(dataSourceID string, cache *SchemaCache) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	cache.CachedAt = time.Now()
+	s.schemaCache[dataSourceID] = cache
+}
+
+// InvalidateCache clears cache for a specific data source
+func (s *DataSourceService) InvalidateCache(dataSourceID string) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	delete(s.schemaCache, dataSourceID)
+}
+
+// InvalidateAllCache clears all cached schema data
+func (s *DataSourceService) InvalidateAllCache() {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	s.schemaCache = make(map[string]*SchemaCache)
 }
 
 // getMetadataPath returns the path to datasources.json
@@ -121,6 +180,10 @@ func (s *DataSourceService) AddDataSource(ds DataSource) error {
 // DeleteDataSource removes a source and its data
 func (s *DataSourceService) DeleteDataSource(id string) error {
 	s.log(fmt.Sprintf("DeleteDataSource: %s", id))
+
+	// Invalidate cache first
+	s.InvalidateCache(id)
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return err
@@ -835,6 +898,13 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 
 // GetDataSourceTables returns all table names for a data source
 func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
+	// Check cache first
+	if cache := s.getSchemaFromCache(id); cache != nil && len(cache.Tables) > 0 {
+		s.log(fmt.Sprintf("[CACHE HIT] GetDataSourceTables for %s", id))
+		return cache.Tables, nil
+	}
+	s.log(fmt.Sprintf("[CACHE MISS] GetDataSourceTables for %s", id))
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return nil, err
@@ -852,6 +922,8 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 		return nil, fmt.Errorf("data source not found")
 	}
 
+	var tables []string
+
 	// If DBPath exists, use local SQLite
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
@@ -867,7 +939,6 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 		}
 		defer rows.Close()
 
-		var tables []string
 		for rows.Next() {
 			var name string
 			if err := rows.Scan(&name); err != nil {
@@ -875,11 +946,8 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 			}
 			tables = append(tables, name)
 		}
-		return tables, nil
-	}
-
-	// Else if remote DB
-	if target.Type == "mysql" || target.Type == "doris" {
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		// Remote DB
 		cfg := target.Config
 		if cfg.Port == "" {
 			cfg.Port = "3306"
@@ -897,7 +965,6 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 		}
 		defer rows.Close()
 
-		var tables []string
 		for rows.Next() {
 			var name string
 			if err := rows.Scan(&name); err != nil {
@@ -905,14 +972,45 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 			}
 			tables = append(tables, name)
 		}
-		return tables, nil
+	} else {
+		return nil, fmt.Errorf("data source has no local storage and is not a supported remote type")
 	}
 
-	return nil, fmt.Errorf("data source has no local storage and is not a supported remote type")
+	// Update cache with tables (initialize cache if needed)
+	cache := s.getSchemaFromCache(id)
+	if cache == nil {
+		cache = &SchemaCache{
+			Columns: make(map[string][]string),
+			Samples: make(map[string][]map[string]interface{}),
+		}
+	}
+	cache.Tables = tables
+	s.updateSchemaCache(id, cache)
+
+	return tables, nil
 }
 
 // GetDataSourceTableData returns preview data for a table
 func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, limit int) ([]map[string]interface{}, error) {
+	// Only cache small sample requests (≤10 rows) to avoid memory bloat
+	const sampleCacheLimit = 10
+	useCache := limit > 0 && limit <= sampleCacheLimit
+
+	// Check cache first for sample data
+	if useCache {
+		if cache := s.getSchemaFromCache(id); cache != nil {
+			if samples, exists := cache.Samples[tableName]; exists && len(samples) > 0 {
+				s.log(fmt.Sprintf("[CACHE HIT] GetDataSourceTableData for %s.%s (limit=%d)", id, tableName, limit))
+				// Return min(cached, requested) rows
+				if len(samples) >= limit {
+					return samples[:limit], nil
+				}
+				return samples, nil
+			}
+		}
+	}
+	s.log(fmt.Sprintf("[CACHE MISS] GetDataSourceTableData for %s.%s (limit=%d)", id, tableName, limit))
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return nil, err
@@ -998,6 +1096,22 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		data = append(data, rowMap)
 	}
 
+	// Update cache with sample data (only for small limits)
+	if useCache && len(data) > 0 {
+		cache := s.getSchemaFromCache(id)
+		if cache == nil {
+			cache = &SchemaCache{
+				Columns: make(map[string][]string),
+				Samples: make(map[string][]map[string]interface{}),
+			}
+		}
+		if cache.Samples == nil {
+			cache.Samples = make(map[string][]map[string]interface{})
+		}
+		cache.Samples[tableName] = data
+		s.updateSchemaCache(id, cache)
+	}
+
 	return data, nil
 }
 
@@ -1055,6 +1169,15 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 
 // GetDataSourceTableColumns returns the column names for a table
 func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName string) ([]string, error) {
+	// Check cache first
+	if cache := s.getSchemaFromCache(id); cache != nil {
+		if cols, exists := cache.Columns[tableName]; exists && len(cols) > 0 {
+			s.log(fmt.Sprintf("[CACHE HIT] GetDataSourceTableColumns for %s.%s", id, tableName))
+			return cols, nil
+		}
+	}
+	s.log(fmt.Sprintf("[CACHE MISS] GetDataSourceTableColumns for %s.%s", id, tableName))
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return nil, err
@@ -1102,7 +1225,26 @@ func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName strin
 	}
 	defer rows.Close()
 
-	return rows.Columns()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache with columns
+	cache := s.getSchemaFromCache(id)
+	if cache == nil {
+		cache = &SchemaCache{
+			Columns: make(map[string][]string),
+			Samples: make(map[string][]map[string]interface{}),
+		}
+	}
+	if cache.Columns == nil {
+		cache.Columns = make(map[string][]string)
+	}
+	cache.Columns[tableName] = cols
+	s.updateSchemaCache(id, cache)
+
+	return cols, nil
 }
 
 // ExportToCSV exports one or more tables to CSV file(s)
@@ -1620,4 +1762,83 @@ func (s *DataSourceService) GetMySQLDatabases(host, port, user, password string)
 	}
 
 	return databases, nil
+}
+
+// ExecuteSQL runs a SQL query against a data source and returns results
+func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]interface{}, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+
+	if target == nil {
+		return nil, fmt.Errorf("data source not found: %s", id)
+	}
+
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return nil, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported data source type for direct query")
+	}
+	defer db.Close()
+
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %v", err)
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+
+	var result []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(cols))
+		ptrs := make([]interface{}, len(cols))
+		for i := range values {
+			ptrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(ptrs...); err != nil {
+			continue
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range cols {
+			if b, ok := values[i].([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = values[i]
+			}
+		}
+		result = append(result, row)
+	}
+
+	return result, nil
 }

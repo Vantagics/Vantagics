@@ -9,6 +9,17 @@ import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
 
+// Progress update type from backend
+interface ProgressUpdate {
+    stage: string;
+    progress: number;
+    message: string;
+    step: number;
+    total: number;
+    tool_name?: string;
+    tool_output?: string;
+}
+
 interface ChatSidebarProps {
     isOpen: boolean;
     onClose: () => void;
@@ -27,6 +38,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string } | null>(null);
     const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
+    const [progress, setProgress] = useState<ProgressUpdate | null>(null);
     
     // Resizing State
     const [sidebarWidth, setSidebarWidth] = useState(650);
@@ -114,6 +126,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setIsLoading(loading);
         });
 
+        // Listen for analysis progress updates
+        const unsubscribeProgress = EventsOn('analysis-progress', (update: ProgressUpdate) => {
+            setProgress(update);
+            // Clear progress when complete
+            if (update.stage === 'complete') {
+                setTimeout(() => setProgress(null), 1000);
+            }
+        });
+
         // Listen for insight analysis request from Dashboard
         const unsubscribeAnalyze = EventsOn('analyze-insight', (text: string) => {
             // Open sidebar if closed (managed by parent, but we can't control parent state easily here without prop)
@@ -132,6 +153,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeUpdate) unsubscribeUpdate();
             if (unsubscribeLoading) unsubscribeLoading();
+            if (unsubscribeProgress) unsubscribeProgress();
             if (unsubscribeAnalyze) unsubscribeAnalyze();
         };
     }, [threads]);
@@ -389,6 +411,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             });
         } finally {
             setIsLoading(false);
+            setProgress(null);
         }
     };
 
@@ -538,8 +561,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </button>
                         </div>
                         {isLoading && (
-                            <div className="absolute bottom-0 left-0 right-0 h-1 z-20 overflow-hidden">
-                                <div className="h-full w-1/3 bg-blue-500 animate-progress-indeterminate rounded-full"></div>
+                            <div className="absolute bottom-0 left-0 right-0 h-1 z-20 overflow-hidden bg-slate-100">
+                                {progress ? (
+                                    <div
+                                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300 ease-out rounded-full"
+                                        style={{ width: `${progress.progress}%` }}
+                                    />
+                                ) : (
+                                    <div className="h-full w-1/3 bg-blue-500 animate-progress-indeterminate rounded-full"></div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -555,9 +585,38 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         ))}
                         {isLoading && (
                             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3.5 shadow-sm rounded-bl-none flex items-center gap-2">
-                                    <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                                    <span className="text-xs text-slate-500 font-medium">{t('ai_thinking')}</span>
+                                <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3.5 shadow-sm rounded-bl-none max-w-[90%]">
+                                    <div className="flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                                        <span className="text-xs text-slate-500 font-medium">
+                                            {progress?.message || t('ai_thinking')}
+                                        </span>
+                                    </div>
+                                    {progress && (
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300"
+                                                    style={{ width: `${progress.progress}%` }}
+                                                />
+                                            </div>
+                                            <span className="text-[10px] text-slate-400 font-medium min-w-[40px] text-right">
+                                                {progress.step}/{progress.total}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {progress?.tool_output && (
+                                        <div className="mt-3 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                                                    {progress.tool_name || 'Tool'} Output
+                                                </span>
+                                            </div>
+                                            <pre className="text-[10px] text-slate-600 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono">
+                                                {progress.tool_output}
+                                            </pre>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

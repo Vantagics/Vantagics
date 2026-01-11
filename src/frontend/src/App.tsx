@@ -16,7 +16,7 @@ function App() {
     const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
-    const [activeChart, setActiveChart] = useState<{ type: 'echarts' | 'image', data: string } | null>(null);
+    const [activeChart, setActiveChart] = useState<{ type: 'echarts' | 'image' | 'table' | 'csv', data: any } | null>(null);
     const [messageModal, setMessageModal] = useState<{ isOpen: boolean, type: 'info' | 'warning' | 'error', title: string, message: string }>({
         isOpen: false,
         type: 'info',

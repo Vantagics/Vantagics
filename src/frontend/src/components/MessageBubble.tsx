@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import MetricCard from './MetricCard';
 import Chart from './Chart';
 import DataTable from './DataTable';
-import { User, Bot } from 'lucide-react';
+import { User, Bot, ZoomIn } from 'lucide-react';
 
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
@@ -14,6 +14,7 @@ interface MessageBubbleProps {
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick }) => {
     const isUser = role === 'user';
+    const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     let parsedPayload: any = null;
 
     if (payload) {
@@ -65,7 +66,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const cleanedContent = content.replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '').trim();
 
     return (
-        <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+        <>
+            <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
             <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${
                 isUser 
                     ? 'bg-slate-200 text-slate-600' 
@@ -84,6 +86,26 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 <div className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}>
                     <ReactMarkdown
                         components={{
+                            img(props) {
+                                const {src, alt, ...rest} = props;
+                                return (
+                                    <div className="relative group my-4">
+                                        <img
+                                            src={src}
+                                            alt={alt || 'Chart'}
+                                            {...rest}
+                                            className="rounded-lg shadow-md max-w-full cursor-pointer hover:shadow-xl transition-shadow"
+                                            onClick={() => setEnlargedImage(src || null)}
+                                        />
+                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="bg-black/60 text-white px-2 py-1 rounded text-xs flex items-center gap-1">
+                                                <ZoomIn className="w-3 h-3" />
+                                                Click to enlarge
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            },
                             code(props) {
                                 const {children, className, node, ...rest} = props;
                                 const match = /language-(\w+)/.exec(className || '');
@@ -160,6 +182,36 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 )}
             </div>
         </div>
+
+        {/* Image Enlargement Modal */}
+        {enlargedImage && (
+            <div
+                className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
+                onClick={() => setEnlargedImage(null)}
+            >
+                <div className="absolute top-4 right-4 z-[210]">
+                    <button
+                        onClick={() => setEnlargedImage(null)}
+                        className="p-2 bg-white/10 hover:bg-red-500/80 rounded-full text-white transition-colors"
+                    >
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div
+                    className="relative z-[205] max-w-[95vw] max-h-[95vh] bg-white rounded-xl p-4 shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <img
+                        src={enlargedImage}
+                        alt="Enlarged chart"
+                        className="max-w-full max-h-[90vh] object-contain rounded-lg"
+                    />
+                </div>
+            </div>
+        )}
+    </>
     );
 };
 

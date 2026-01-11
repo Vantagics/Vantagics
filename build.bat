@@ -22,6 +22,7 @@ if /i "%COMMAND%"=="clean" goto :clean
 if /i "%COMMAND%"=="install-deps" goto :install_deps
 if /i "%COMMAND%"=="build" goto :build
 if /i "%COMMAND%"=="debug" goto :build_debug
+if /i "%COMMAND%"=="quick" goto :quick_build
 
 echo Unknown command: %COMMAND%
 goto :show_help
@@ -30,14 +31,16 @@ goto :show_help
 echo Usage: build.bat [command]
 echo.
 echo Commands:
-echo   build         Build the application (default)
+echo   build         Build the application (default) - Full Wails build
+echo   quick         Quick build (backend only) - Fast iteration for Go code
 echo   debug         Build the application with debug symbols
 echo   clean         Remove build artifacts
 echo   install-deps  Install Go and NPM dependencies
 echo   help          Show this help message
 echo.
 echo Example:
-echo   build.bat
+echo   build.bat           (Full build with Wails)
+echo   build.bat quick     (Quick backend-only build)
 echo   build.bat debug
 echo   build.bat clean
 pause
@@ -47,6 +50,7 @@ exit /b 0
 echo Cleaning build artifacts...
 if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 if exist "%SRC_DIR%\frontend\dist" rmdir /s /q "%SRC_DIR%\frontend\dist"
+if exist "rapidbi.exe" del /q "rapidbi.exe"
 echo Done.
 pause
 exit /b 0
@@ -175,5 +179,34 @@ if errorlevel 1 (
 echo.
 echo %APP_NAME% debug build finished successfully!
 echo Output directory: %BUILD_DIR%
+pause
+exit /b 0
+
+:quick_build
+echo Performing quick build (backend only)...
+echo Note: This builds only the Go backend without frontend changes.
+echo.
+
+where go >nul 2>nul
+if errorlevel 1 (
+    echo Error: Go is not installed. Please install Go from https://golang.org/
+    pause
+    exit /b 1
+)
+
+echo Building %APP_NAME% backend...
+cd /d "%SRC_DIR%"
+go build -o ..\rapidbi.exe
+if errorlevel 1 (
+    echo Quick build failed!
+    pause
+    exit /b 1
+)
+
+echo.
+echo %APP_NAME% quick build finished successfully!
+echo Output: rapidbi.exe (in root directory)
+echo.
+echo TIP: Use 'build.bat build' for a full build including frontend changes.
 pause
 exit /b 0

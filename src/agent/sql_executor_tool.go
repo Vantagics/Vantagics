@@ -50,15 +50,17 @@ func (t *SQLExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 // convertMySQLToSQLite converts common MySQL syntax to SQLite
 func (t *SQLExecutorTool) convertMySQLToSQLite(query string) string {
 	// Convert YEAR(column) -> strftime('%Y', column)
-	yearRegex := regexp.MustCompile(`(?i)YEAR\s*\(\s*([^)]+)\s*\)`)
+	// Use word boundary to avoid matching JULIANDAY, etc.
+	yearRegex := regexp.MustCompile(`(?i)\bYEAR\s*\(\s*([^)]+)\s*\)`)
 	query = yearRegex.ReplaceAllString(query, "strftime('%Y', $1)")
 
 	// Convert MONTH(column) -> strftime('%m', column)
-	monthRegex := regexp.MustCompile(`(?i)MONTH\s*\(\s*([^)]+)\s*\)`)
+	monthRegex := regexp.MustCompile(`(?i)\bMONTH\s*\(\s*([^)]+)\s*\)`)
 	query = monthRegex.ReplaceAllString(query, "strftime('%m', $1)")
 
 	// Convert DAY(column) -> strftime('%d', column)
-	dayRegex := regexp.MustCompile(`(?i)DAY\s*\(\s*([^)]+)\s*\)`)
+	// Use word boundary to avoid matching JULIANDAY
+	dayRegex := regexp.MustCompile(`(?i)\bDAY\s*\(\s*([^)]+)\s*\)`)
 	query = dayRegex.ReplaceAllString(query, "strftime('%d', $1)")
 
 	// Convert DATE_FORMAT(column, '%Y-%m') -> strftime('%Y-%m', column)
@@ -106,7 +108,8 @@ func (t *SQLExecutorTool) convertMySQLToSQLite(query string) string {
 
 	// Convert CONCAT(a, b, c) -> (a || b || c)
 	// Simple version for basic concatenation
-	concatRegex := regexp.MustCompile(`(?i)CONCAT\s*\(([^)]+)\)`)
+	// Use word boundary to avoid matching GROUP_CONCAT
+	concatRegex := regexp.MustCompile(`(?i)\bCONCAT\s*\(([^)]+)\)`)
 	matches := concatRegex.FindAllStringSubmatch(query, -1)
 	for _, match := range matches {
 		if len(match) > 1 {
@@ -287,23 +290,31 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 	}
 
 	// 5. Add LIMIT to prevent huge result sets if not already present
+	// First, strip trailing semicolons to avoid "ORDER BY x; LIMIT 1000" syntax error
+	processedQuery = strings.TrimRight(processedQuery, "; \t\n\r")
+
 	queryWithLimit := processedQuery
 	upperProcessed := strings.ToUpper(processedQuery)
 	if !strings.Contains(upperProcessed, "LIMIT") {
 		queryWithLimit = fmt.Sprintf("%s LIMIT 1000", processedQuery)
 	}
 
-	// 6. Execute Query
+	// Execute Query
 	rows, err := db.Query(queryWithLimit)
 	if err != nil {
 		// Enhanced error message with the actual query that was executed
 		errorMsg := fmt.Sprintf("query execution failed: %v\nOriginal query: %s\nProcessed query: %s", err, in.Query, queryWithLimit)
 
 		// If it's a "no such column" error, try to provide helpful info about available columns
-		if strings.Contains(err.Error(), "no such column") && len(fromMatches) > 1 {
-			tableName := fromMatches[1]
-			if columns, colErr := t.getTableColumns(db, dbType, tableName); colErr == nil && len(columns) > 0 {
-				errorMsg += fmt.Sprintf("\n\nAvailable columns in table '%s': %s", tableName, strings.Join(columns, ", "))
+		if strings.Contains(err.Error(), "no such column") {
+			if len(fromMatches) > 1 {
+				tableName := fromMatches[1]
+				if columns, colErr := t.getTableColumns(db, dbType, tableName); colErr == nil && len(columns) > 0 {
+					errorMsg += fmt.Sprintf("\n\n❌ Column not found in table '%s'.\n✅ Available columns: %s", tableName, strings.Join(columns, ", "))
+					errorMsg += "\n\n💡 Please rewrite your query using only the available columns listed above."
+				}
+			} else {
+				errorMsg += "\n\n💡 The column name in your query doesn't exist. Please check the table schema using get_data_source_context tool first."
 			}
 		}
 
