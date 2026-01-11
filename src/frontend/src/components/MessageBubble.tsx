@@ -24,6 +24,46 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         }
     }
 
+    // Auto-extract numbered list actions
+    const extractedActions: any[] = [];
+    if (!isUser) {
+        const lines = content.split('\n');
+        for (const line of lines) {
+            // Match lines starting with "1. ", "2. ", etc.
+            const match = line.match(/^(\d+)\.\s+(.*)$/);
+            if (match) {
+                const rawLabel = match[2].trim();
+                // Avoid extracting very long text or non-titles
+                if (rawLabel.length > 0 && rawLabel.length < 100) {
+                    extractedActions.push({
+                        id: `auto_${match[1]}`,
+                        label: rawLabel,
+                        // Value should be clean text for the LLM input (no markdown)
+                        value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
+                    });
+                }
+            }
+        }
+    }
+
+    const allActions = [
+        ...(parsedPayload && parsedPayload.type === 'actions' ? parsedPayload.actions : []),
+        ...extractedActions
+    ];
+
+    const renderButtonLabel = (label: string) => {
+        // Split by bold markers **text**
+        const parts = label.split(/(\*\*.*?\*\*)/g);
+        return parts.map((part, i) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={i} className="font-black underline-offset-2">{part.slice(2, -2)}</strong>;
+            }
+            return part;
+        });
+    };
+
+    const cleanedContent = content.replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '').trim();
+
     return (
         <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
             <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${
@@ -75,7 +115,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             }
                         }}
                     >
-                        {content}
+                        {cleanedContent}
                     </ReactMarkdown>
                 </div>
 
@@ -101,19 +141,19 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     </div>
                 )}
 
-                {parsedPayload && parsedPayload.type === 'actions' && (
+                {allActions.length > 0 && (
                     <div className="mt-4 flex flex-wrap gap-2">
-                        {parsedPayload.actions.map((action: any) => (
+                        {allActions.map((action: any) => (
                             <button 
                                 key={action.id}
                                 onClick={() => onActionClick && onActionClick(action)}
-                                className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${
                                     isUser
                                         ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
                                         : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
-                                }`}
+                                } shadow-sm hover:shadow-md active:scale-95`}
                             >
-                                {action.label}
+                                {renderButtonLabel(action.label)}
                             </button>
                         ))}
                     </div>

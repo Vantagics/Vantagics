@@ -4,6 +4,8 @@ import MetricCard from './MetricCard';
 import SmartInsight from './SmartInsight';
 import Chart from './Chart';
 import ImageModal from './ImageModal';
+import ChartModal from './ChartModal';
+import ConfirmationModal from './ConfirmationModal';
 import { main } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
@@ -16,6 +18,8 @@ interface DashboardProps {
 const Dashboard: React.FC<DashboardProps> = ({ data, activeChart }) => {
     const { t } = useLanguage();
     const [imageModalOpen, setImageModalOpen] = useState(false);
+    const [chartModalOpen, setChartModalOpen] = useState(false);
+    const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean, insight: any | null }>({ isOpen: false, insight: null });
 
     if (!data) {
         return (
@@ -47,8 +51,15 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart }) => {
             try {
                 const options = JSON.parse(activeChart.data);
                 return (
-                    <div className="mb-8">
+                    <div 
+                        className="mb-8 cursor-zoom-in group relative"
+                        onDoubleClick={() => setChartModalOpen(true)}
+                        title="Double click to expand"
+                    >
                         <Chart options={options} height="400px" />
+                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            <span className="bg-slate-800/80 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-sm">Double click to expand</span>
+                        </div>
                     </div>
                 );
             } catch (e) {
@@ -59,8 +70,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart }) => {
         return null;
     };
 
-    const handleInsightClick = (text: string) => {
-        EventsEmit("analyze-insight", text);
+    const handleInsightClick = (insight: any) => {
+        if (insight.data_source_id) {
+            setConfirmModal({ isOpen: true, insight: insight });
+        } else {
+            EventsEmit("analyze-insight", insight.text);
+        }
+    };
+
+    const confirmAnalysis = () => {
+        const insight = confirmModal.insight;
+        if (insight && insight.data_source_id) {
+             EventsEmit('start-new-chat', {
+                dataSourceId: insight.data_source_id,
+                sessionName: `${t('analysis_session_prefix')}${insight.source_name || insight.text}`
+            });
+        }
     };
 
     return (
@@ -82,6 +107,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart }) => {
                     isOpen={imageModalOpen}
                     imageUrl={activeChart?.type === 'image' ? activeChart.data : ''}
                     onClose={() => setImageModalOpen(false)}
+                />
+
+                {activeChart?.type === 'echarts' && (
+                    <ChartModal
+                        isOpen={chartModalOpen}
+                        options={JSON.parse(activeChart.data)}
+                        onClose={() => setChartModalOpen(false)}
+                    />
+                )}
+
+                <ConfirmationModal
+                    isOpen={confirmModal.isOpen}
+                    title={t('start_analysis_title')}
+                    message={confirmModal.insight ? t('start_analysis_confirm').replace('{0}', confirmModal.insight.text.split(':')[0]) : ''}
+                    onClose={() => setConfirmModal({ isOpen: false, insight: null })}
+                    onConfirm={confirmAnalysis}
                 />
 
                 <section className="mb-8">
@@ -106,7 +147,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart }) => {
                                 key={index}
                                 text={insight.text}
                                 icon={insight.icon}
-                                onClick={() => handleInsightClick(insight.text)}
+                                onClick={() => handleInsightClick(insight)}
                             />
                         ))}
                     </div>

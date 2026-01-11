@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
 import { SelectSaveFile, ExportToCSV, ExportToSQL, ExportToMySQL, GetDataSourceTables, UpdateMySQLExportConfig, TestMySQLConnection, GetMySQLDatabases, ShowMessage } from '../../wailsjs/go/main/App';
-import { main } from '../../wailsjs/go/models';
+import { main, agent } from '../../wailsjs/go/models';
 
 interface ExportDataSourceModalProps {
     isOpen: boolean;
     sourceId: string;
     sourceName: string;
     onClose: () => void;
-    dataSource?: main.DataSource;
+    dataSource?: agent.DataSource;
 }
 
 const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, sourceId, sourceName, onClose, dataSource }) => {

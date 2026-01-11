@@ -6,6 +6,10 @@ export function AddDataSource(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDataSource'](arg1, arg2, arg3);
 }
 
+export function AssetizeSession(arg1) {
+  return window['go']['main']['App']['AssetizeSession'](arg1);
+}
+
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
@@ -24,6 +28,10 @@ export function DeleteDataSource(arg1) {
 
 export function DeleteThread(arg1) {
   return window['go']['main']['App']['DeleteThread'](arg1);
+}
+
+export function ExportSessionHTML(arg1) {
+  return window['go']['main']['App']['ExportSessionHTML'](arg1);
 }
 
 export function ExportToCSV(arg1, arg2, arg3) {
@@ -96,6 +104,10 @@ export function ImportExcelDataSource(arg1, arg2) {
 
 export function Log(arg1) {
   return window['go']['main']['App']['Log'](arg1);
+}
+
+export function ReplayAnalysis() {
+  return window['go']['main']['App']['ReplayAnalysis']();
 }
 
 export function SaveChatHistory(arg1) {

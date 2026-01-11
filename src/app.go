@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -27,8 +28,10 @@ type Metric struct {
 
 // Insight structure for dashboard
 type Insight struct {
-	Text string `json:"text"`
-	Icon string `json:"icon"`
+	Text         string `json:"text"`
+	Icon         string `json:"icon"`
+	DataSourceID string `json:"data_source_id,omitempty"`
+	SourceName   string `json:"source_name,omitempty"`
 }
 
 // DashboardData structure
@@ -131,7 +134,7 @@ func (a *App) startup(ctx context.Context) {
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 		
-		es, err := agent.NewEinoService(cfg, a.dataSourceService)
+		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.Log)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to initialize EinoService: %v", err))
 		} else {
@@ -338,20 +341,100 @@ func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
 	}
 }
 
-// GetDashboardData returns mock data for the dashboard
+func (a *App) getDashboardTranslations(lang string) map[string]string {
+	if lang == "简体中文" {
+		return map[string]string{
+			"Data Sources":  "数据源",
+			"Total":         "总计",
+			"Files":         "文件",
+			"Local":         "本地",
+			"Databases":     "数据库",
+			"Connected":     "已连接",
+			"Tables":        "数据表",
+			"Analyzed":      "已分析",
+			"ConnectPrompt": "连接数据源以开始使用。",
+			"Analyze":       "分析",
+		}
+	}
+	return map[string]string{
+		"Data Sources":  "Data Sources",
+		"Total":         "Total",
+		"Files":         "Files",
+		"Local":         "Local",
+		"Databases":     "Databases",
+		"Connected":     "Connected",
+		"Tables":        "Tables",
+		"Analyzed":      "Analyzed",
+		"ConnectPrompt": "Connect a data source to get started.",
+		"Analyze":       "Analyze",
+	}
+}
+
+// GetDashboardData returns summary statistics and insights about data sources
 func (a *App) GetDashboardData() DashboardData {
+	if a.dataSourceService == nil {
+		return DashboardData{}
+	}
+
+	cfg, _ := a.GetConfig()
+	tr := a.getDashboardTranslations(cfg.Language)
+
+	sources, _ := a.dataSourceService.LoadDataSources()
+
+	var excelCount, dbCount int
+	var totalTables int
+
+	for _, ds := range sources {
+		if ds.Type == "excel" || ds.Type == "csv" {
+			excelCount++
+		} else {
+			dbCount++
+		}
+
+		if ds.Analysis != nil {
+			totalTables += len(ds.Analysis.Schema)
+		}
+	}
+
+	metrics := []Metric{
+		{Title: tr["Data Sources"], Value: fmt.Sprintf("%d", len(sources)), Change: tr["Total"]},
+		{Title: tr["Files"], Value: fmt.Sprintf("%d", excelCount), Change: tr["Local"]},
+		{Title: tr["Databases"], Value: fmt.Sprintf("%d", dbCount), Change: tr["Connected"]},
+		{Title: tr["Tables"], Value: fmt.Sprintf("%d", totalTables), Change: tr["Analyzed"]},
+	}
+
+	var insights []Insight
+	for _, ds := range sources {
+		desc := ds.Name
+		if ds.Analysis != nil && ds.Analysis.Summary != "" {
+			desc = ds.Analysis.Summary
+			if len(desc) > 80 {
+				desc = desc[:77] + "..."
+			}
+		}
+
+		icon := "info"
+		if ds.Type == "excel" {
+			icon = "file-text"
+		} else if ds.Type == "mysql" {
+			icon = "database"
+		}
+
+		insights = append(insights, Insight{
+			Text:         fmt.Sprintf("%s %s (%s)", tr["Analyze"], ds.Name, ds.Type),
+			Icon:         icon,
+			DataSourceID: ds.ID,
+			SourceName:   ds.Name,
+		})
+	}
+
+	if len(insights) == 0 {
+		insights = append(insights, Insight{Text: tr["ConnectPrompt"], Icon: "info"})
+	}
+
 	return DashboardData{
-		Metrics: []Metric{
-			{Title: "Total Sales", Value: "$45,231", Change: "+12.5%"},
-			{Title: "Active Users", Value: "2,845", Change: "+8.2%"},
-			{Title: "Conversion Rate", Value: "3.4%", Change: "-1.2%"},
-			{Title: "Avg. Session", Value: "4m 32s", Change: "+2.1%"},
-		},
-		Insights: []Insight{
-			{Text: "Sales are trending up this week! Consider increasing your ad spend.", Icon: "trending-up"},
-			{Text: "You have a high user retention rate. Keep up the good work!", Icon: "user-check"},
-			{Text: "Conversion rate dropped slightly. Check your checkout flow.", Icon: "alert-circle"},
-		},
+		Metrics:  metrics,
+		Insights: insights,
 	}
 }
 
@@ -364,6 +447,7 @@ func (a *App) getLangPrompt(cfg config.Config) string {
 
 // SendMessage sends a message to the LLM and returns the response
 func (a *App) SendMessage(threadID string, message string) (string, error) {
+	startTotal := time.Now()
 	cfg, err := a.GetConfig()
 	if err != nil {
 		return "", err
@@ -381,6 +465,7 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 	var useEino bool
 	var dataSourceID string
 	if threadID != "" && a.einoService != nil {
+		startCheck := time.Now()
 		threads, _ := a.chatService.LoadThreads()
 		for _, t := range threads {
 			if t.ID == threadID && t.DataSourceID != "" {
@@ -389,10 +474,12 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 				break
 			}
 		}
+		a.Log(fmt.Sprintf("[TIMING] Checking Eino eligibility took: %v", time.Since(startCheck)))
 	}
 
 	if useEino {
 		// Load history
+		startHist := time.Now()
 		var history []*schema.Message
 		threads, _ := a.chatService.LoadThreads()
 		for _, t := range threads {
@@ -410,11 +497,12 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 				break
 			}
 		}
+		a.Log(fmt.Sprintf("[TIMING] Loading history took: %v", time.Since(startHist)))
 
 		// Add current message (Eino expects the new user message in the input list for the chain we built)
 		history = append(history, &schema.Message{Role: schema.User, Content: message})
 
-		respMsg, err := a.einoService.RunAnalysis(a.ctx, history, dataSourceID)
+		respMsg, err := a.einoService.RunAnalysis(a.ctx, history, dataSourceID, threadID)
 		var resp string
 		if err != nil {
 			resp = fmt.Sprintf("Error: %v", err)
@@ -428,6 +516,43 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 		if cfg.DetailedLog {
 			a.logChatToFile(threadID, "LLM RESPONSE", resp)
 		}
+
+		startPost := time.Now()
+		// Detect and emit chart updates
+		// 1. ECharts JSON
+		reECharts := regexp.MustCompile("(?s)```[ \t]*json:echarts\\s*({.*?})\\s*```")
+		matchECharts := reECharts.FindStringSubmatch(resp)
+		if len(matchECharts) > 1 {
+			runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+				"type": "echarts",
+				"data": matchECharts[1],
+			})
+		}
+
+		// 2. Markdown Image (Base64)
+		reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
+		matchImage := reImage.FindStringSubmatch(resp)
+		if len(matchImage) > 1 {
+			runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+				"type": "image",
+				"data": matchImage[1],
+			})
+		}
+
+		// 3. Dashboard Data Update (Metrics & Insights)
+		reDashboard := regexp.MustCompile("(?s)```[ \t]*json:dashboard\\s*({.*?})\\s*```")
+		matchDashboard := reDashboard.FindStringSubmatch(resp)
+		if len(matchDashboard) > 1 {
+			var data DashboardData
+			if err := json.Unmarshal([]byte(matchDashboard[1]), &data); err == nil {
+				runtime.EventsEmit(a.ctx, "dashboard-data-update", data)
+			} else {
+				a.Log(fmt.Sprintf("Failed to unmarshal dashboard data: %v", err))
+			}
+		}
+		a.Log(fmt.Sprintf("[TIMING] Post-processing response took: %v", time.Since(startPost)))
+		a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Eino) took: %v", time.Since(startTotal)))
+
 		return resp, nil
 	}
 
@@ -435,7 +560,9 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
 
 	llm := agent.NewLLMService(cfg, a.Log)
+	startChat := time.Now()
 	resp, err := llm.Chat(a.ctx, fullMessage)
+	a.Log(fmt.Sprintf("[TIMING] LLM Chat (Standard) took: %v", time.Since(startChat)))
 
 	// Log LLM response if threadID provided
 	if threadID != "" && cfg.DetailedLog {
@@ -446,6 +573,7 @@ func (a *App) SendMessage(threadID string, message string) (string, error) {
 		}
 	}
 
+	a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Standard) took: %v", time.Since(startTotal)))
 	return resp, err
 }
 
@@ -618,6 +746,7 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 }
 
 func (a *App) analyzeDataSource(dataSourceID string) {
+	startTotal := time.Now()
 	if a.dataSourceService == nil {
 		return
 	}
@@ -625,13 +754,16 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 	a.Log(fmt.Sprintf("Starting analysis for source %s", dataSourceID))
 
 	// 1. Get Tables
+	startTables := time.Now()
 	tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
 	if err != nil {
 		a.Log(fmt.Sprintf("Failed to get tables: %v", err))
 		return
 	}
+	a.Log(fmt.Sprintf("[TIMING] Getting tables took: %v", time.Since(startTables)))
 
 	// 2. Sample Data & Construct Prompt
+	startSample := time.Now()
 	cfg, _ := a.GetConfig()
 	langPrompt := a.getLangPrompt(cfg)
 
@@ -683,6 +815,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 			})
 		}
 	}
+	a.Log(fmt.Sprintf("[TIMING] Data sampling and prompt construction took: %v", time.Since(startSample)))
 
 	// 3. Call LLM
 	prompt := sb.String()
@@ -696,7 +829,9 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 	}
 
 	llm := agent.NewLLMService(cfg, a.Log)
+	startLLM := time.Now()
 	description, err := llm.Chat(context.Background(), prompt) 
+	a.Log(fmt.Sprintf("[TIMING] Background LLM Analysis took: %v", time.Since(startLLM)))
 	
 	if err != nil {
 		a.Log(fmt.Sprintf("LLM Analysis failed: %v", err))
@@ -709,6 +844,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 	}
 
 	// 4. Save Analysis to DataSource
+	startSave := time.Now()
 	analysis := agent.DataSourceAnalysis{
 		Summary: description,
 		Schema:  tableSchemas,
@@ -718,6 +854,8 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 		a.Log(fmt.Sprintf("Failed to update data source analysis: %v", err))
 		return
 	}
+	a.Log(fmt.Sprintf("[TIMING] Saving analysis result took: %v", time.Since(startSave)))
+	a.Log(fmt.Sprintf("[TIMING] Total Background Analysis took: %v", time.Since(startTotal)))
 
 	a.Log("Data Source Analysis complete and saved.")
 }
@@ -985,24 +1123,12 @@ func (a *App) GetMySQLDatabases(host, port, user, password string) ([]string, er
 	return a.dataSourceService.GetMySQLDatabases(host, port, user, password)
 }
 
-// ShowMessage displays a message dialog
+// ShowMessage displays a message dialog (non-modal via frontend)
 func (a *App) ShowMessage(typeStr string, title string, message string) {
-	var dialogType runtime.DialogType
-	switch typeStr {
-	case "info":
-		dialogType = runtime.InfoDialog
-	case "warning":
-		dialogType = runtime.WarningDialog
-	case "error":
-		dialogType = runtime.ErrorDialog
-	default:
-		dialogType = runtime.InfoDialog
-	}
-
-	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    dialogType,
-		Title:   title,
-		Message: message,
+	runtime.EventsEmit(a.ctx, "show-message-modal", map[string]string{
+		"type":    typeStr,
+		"title":   title,
+		"message": message,
 	})
 }
 

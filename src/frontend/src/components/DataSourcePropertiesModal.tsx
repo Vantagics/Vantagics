@@ -1,11 +1,11 @@
 import React from 'react';
 import { useLanguage } from '../i18n';
-import { main } from '../../wailsjs/go/models';
+import { main, agent } from '../../wailsjs/go/models';
 import { X } from 'lucide-react';
 
 interface DataSourcePropertiesModalProps {
     isOpen: boolean;
-    dataSource: main.DataSource | null;
+    dataSource: agent.DataSource | null;
     onClose: () => void;
 }
 

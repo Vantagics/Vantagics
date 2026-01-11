@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
-import { main, config as configModel } from '../../wailsjs/go/models';
+import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 
 type Tab = 'llm' | 'system' | 'runenv';
@@ -355,9 +355,9 @@ interface RunEnvSettingsProps {
 }
 
 const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) => {
-    const [envs, setEnvs] = useState<main.PythonEnvironment[]>([]);
+    const [envs, setEnvs] = useState<agent.PythonEnvironment[]>([]);
     const [loading, setLoading] = useState(false);
-    const [validation, setValidation] = useState<main.PythonValidationResult | null>(null);
+    const [validation, setValidation] = useState<agent.PythonValidationResult | null>(null);
     const [validating, setValidating] = useState(false);
 
     useEffect(() => {

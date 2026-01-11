@@ -84,8 +84,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     useEffect(() => {
         // Listen for new chat creation from Sidebar
-        const unsubscribeStart = EventsOn('start-new-chat', (data: any) => {
-            handleCreateThread(data.dataSourceId, data.sessionName);
+        const unsubscribeStart = EventsOn('start-new-chat', async (data: any) => {
+            const thread = await handleCreateThread(data.dataSourceId, data.sessionName);
+            if (thread) {
+                // Small delay to ensure state updates (activeThreadId) have propagated
+                setTimeout(() => {
+                    // Auto-send suggestion prompt
+                    const prompt = t('analyze_suggestions_prompt') || "Give me some analysis suggestions for this data source.";
+                    handleSendMessage(prompt, thread.id, thread);
+                }, 100);
+            }
         });
 
         // Listen for open chat request from Sidebar context menu
@@ -176,8 +184,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             const newThread = await CreateChatThread(dataSourceId || '', title || 'New Chat');
             setThreads(prev => [newThread, ...prev]);
             setActiveThreadId(newThread.id);
+            return newThread;
         } catch (err) {
             console.error('Failed to create thread:', err);
+            return null;
         }
     };
 
@@ -242,28 +252,46 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleSendMessage = async (text?: string) => {
+    const handleSendMessage = async (text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread) => {
         const msgText = text || input;
-        if (!msgText.trim() || isLoading) return;
+        // If explicitThread is passed (auto-start), ignore isLoading check to ensure it fires.
+        if (!msgText.trim() || (isLoading && !explicitThread)) return;
 
         let currentThreads = [...threads];
-        let currentThread = currentThreads.find(t => t.id === activeThreadId);
+        let currentThread = explicitThread;
+        
+        if (currentThread) {
+             const threadId = currentThread.id;
+             const idx = currentThreads.findIndex(t => t.id === threadId);
+             if (idx === -1) {
+                 currentThreads = [currentThread, ...currentThreads];
+             } else {
+                 currentThreads[idx] = currentThread;
+             }
+        } else {
+             const targetId = explicitThreadId || activeThreadId;
+             currentThread = currentThreads.find(t => t.id === targetId);
+        }
 
-        // If no active thread, create one first
-        if (!currentThread) {
+        // If no active thread, create one first (only if explicitThreadId is not set)
+        if (!currentThread && !explicitThreadId) {
             try {
                 const title = msgText.slice(0, 30);
                 const newThread = await CreateChatThread('', title);
                 currentThread = newThread;
                 currentThreads = [newThread, ...currentThreads];
+                setThreads(prev => [newThread, ...prev]);
                 setActiveThreadId(newThread.id);
-                // Update local threads immediately to show UI
-                setThreads(currentThreads);
             } catch (err) {
                 console.error("Failed to create thread on send:", err);
                 return;
             }
+        } else if (!currentThread && explicitThreadId) {
+             console.error("Target thread not found:", explicitThreadId);
+             return;
         }
+
+        if (!currentThread) return;
 
         const userMsg = new main.ChatMessage();
         userMsg.id = Date.now().toString();
@@ -272,7 +300,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         userMsg.timestamp = Math.floor(Date.now() / 1000);
 
         if (!currentThread.messages) currentThread.messages = [];
-        currentThread.messages.push(userMsg);
+        // Use immutable update for messages to ensure React detects change
+        currentThread.messages = [...currentThread.messages, userMsg];
         
         if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
              const newTitle = msgText.slice(0, 30) + (msgText.length > 30 ? '...' : '');
@@ -284,30 +313,80 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
              }
         }
 
-        setThreads([...currentThreads]);
+        // Optimistic update using functional state
+        setThreads(prevThreads => {
+            const index = prevThreads.findIndex(t => t.id === currentThread!.id);
+            const updatedThreads = [...prevThreads];
+            const threadClone = main.ChatThread.createFrom({ ...currentThread!, messages: [...currentThread!.messages] });
+            
+            if (index !== -1) {
+                updatedThreads[index] = threadClone;
+            } else {
+                updatedThreads.unshift(threadClone);
+            }
+            
+            // Save immediately to persist user message
+            SaveChatHistory(updatedThreads).catch(err => console.error("Failed to save user message:", err));
+            
+            return updatedThreads;
+        });
+        
         setInput('');
         setIsLoading(true);
 
         try {
-            const response = await SendMessage(currentThread?.id || '', msgText);
+            const response = await SendMessage(currentThread.id, msgText);
             const assistantMsg = new main.ChatMessage();
             assistantMsg.id = (Date.now() + 1).toString();
             assistantMsg.role = 'assistant';
             assistantMsg.content = response;
             assistantMsg.timestamp = Math.floor(Date.now() / 1000);
 
-            currentThread.messages.push(assistantMsg);
-            setThreads([...currentThreads]);
-            await SaveChatHistory(currentThreads);
+            // Update with response
+            setThreads(prevThreads => {
+                const index = prevThreads.findIndex(t => t.id === currentThread!.id);
+                if (index !== -1) {
+                    const newThreads = [...prevThreads];
+                    const updatedThread = main.ChatThread.createFrom({ 
+                        ...newThreads[index], 
+                        messages: [...newThreads[index].messages, assistantMsg] 
+                    });
+                    newThreads[index] = updatedThread;
+                    
+                    // Persist updated history
+                    SaveChatHistory(newThreads).catch(err => console.error("Failed to save assistant response:", err));
+                    
+                    return newThreads;
+                }
+                return prevThreads;
+            });
+
         } catch (error) {
             console.error(error);
             const errorMsg = new main.ChatMessage();
             errorMsg.id = (Date.now() + 1).toString();
             errorMsg.role = 'assistant';
-            errorMsg.content = 'Sorry, I encountered an error. Please check your connection and API keys.';
+            
+            let errorText = 'Sorry, I encountered an error. Please check your connection and API keys.';
+            if (typeof error === 'string') {
+                errorText = `Error: ${error}`;
+            } else if (error instanceof Error) {
+                errorText = `Error: ${error.message}`;
+            }
+            errorMsg.content = errorText;
+            
             errorMsg.timestamp = Math.floor(Date.now() / 1000);
-            currentThread.messages.push(errorMsg);
-            setThreads([...currentThreads]);
+            currentThread.messages = [...currentThread.messages, errorMsg];
+            
+            setThreads(prevThreads => {
+                const index = prevThreads.findIndex(t => t.id === currentThread!.id);
+                if (index !== -1) {
+                    const newThreads = [...prevThreads];
+                    newThreads[index] = currentThread!;
+                    return newThreads;
+                }
+                return prevThreads;
+            });
         } finally {
             setIsLoading(false);
         }
@@ -335,8 +414,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     return (
         <>
-            <div 
-                className={`fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+            <div
+                className={`fixed inset-0 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
                 onClick={onClose}
             />
             

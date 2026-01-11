@@ -7,12 +7,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 )
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 type AnthropicChatModel struct {
 	config *AnthropicConfig
@@ -149,12 +158,28 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 	}
 	defer resp.Body.Close()
 
+	respBody, _ := io.ReadAll(resp.Body)
+
+	// Debug logging
+	if logPath, ok := ctx.Value("debug_log_path").(string); ok && logPath != "" {
+		f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err == nil {
+			defer f.Close()
+			f.WriteString(fmt.Sprintf("\n--- Request [%s] ---\n", time.Now().Format(time.RFC3339)))
+			f.Write(jsonBody)
+			f.WriteString("\n--- Response ---\n")
+			f.WriteString(fmt.Sprintf("Status: %d\n", resp.StatusCode))
+			f.WriteString(fmt.Sprintf("Body Length: %d bytes\n", len(respBody)))
+			// Write full response for debugging tool calls
+			f.Write(respBody)
+			f.WriteString("\n")
+		}
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("Anthropic API error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
-	// Definition for response parsing
 	type contentBlock struct {
 		Type  string          `json:"type"`
 		Text  string          `json:"text,omitempty"`
@@ -168,7 +193,7 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 		Role    string         `json:"role"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %v", err)
 	}
 
@@ -183,11 +208,51 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 			responseMsg.Content += block.Text
 		} else if block.Type == "tool_use" {
 			// Append to ToolCalls
+			// Convert Input (json.RawMessage) to proper JSON string
+			var inputStr string
+			if len(block.Input) > 0 {
+				// Check if Input is valid JSON first
+				var inputObj map[string]interface{}
+				if err := json.Unmarshal(block.Input, &inputObj); err == nil {
+					// Re-marshal to ensure valid JSON string
+					if inputBytes, err := json.Marshal(inputObj); err == nil {
+						inputStr = string(inputBytes)
+					} else {
+						// Marshal failed - log to debug file if available
+						if logPath, ok := ctx.Value("debug_log_path").(string); ok && logPath != "" {
+							f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+							if f != nil {
+								f.WriteString(fmt.Sprintf("\n[WARNING] Failed to re-marshal tool input: %v\n", err))
+								f.WriteString(fmt.Sprintf("Raw Input: %s\n", string(block.Input)))
+								f.Close()
+							}
+						}
+						inputStr = string(block.Input)
+					}
+				} else {
+					// Unmarshal failed - this is the problem
+					if logPath, ok := ctx.Value("debug_log_path").(string); ok && logPath != "" {
+						f, _ := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+						if f != nil {
+							f.WriteString(fmt.Sprintf("\n[ERROR] Failed to unmarshal tool input: %v\n", err))
+							f.WriteString(fmt.Sprintf("Tool: %s, ID: %s\n", block.Name, block.ID))
+							f.WriteString(fmt.Sprintf("Raw Input Length: %d bytes\n", len(block.Input)))
+							f.WriteString(fmt.Sprintf("Raw Input (first 1000 chars): %s\n", string(block.Input[:min(1000, len(block.Input))])))
+							f.Close()
+						}
+					}
+					// Try to use it as-is
+					inputStr = string(block.Input)
+				}
+			} else {
+				inputStr = "{}"
+			}
+
 			responseMsg.ToolCalls = append(responseMsg.ToolCalls, schema.ToolCall{
 				ID: block.ID,
 				Function: schema.FunctionCall{
 					Name:      block.Name,
-					Arguments: string(block.Input),
+					Arguments: inputStr,
 				},
 			})
 		}

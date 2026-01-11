@@ -227,6 +227,10 @@ func (s *PythonService) ExecuteScript(pythonPath string, script string) (string,
 	if runtime.GOOS == "windows" {
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	}
+
+	// Set UTF-8 encoding for Python output to handle Unicode characters
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), err

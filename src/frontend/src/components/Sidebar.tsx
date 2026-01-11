@@ -166,10 +166,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
                 </button>
                 <button 
                     onClick={() => ReplayAnalysis().catch(err => alert(err))}
-                    aria-label="Replay Analysis"
+                    aria-label={t('replay_analysis')}
                     className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                    <span>▶️</span> Replay Analysis
+                    <span>▶️</span> {t('replay_analysis')}
                 </button>
                 <button 
                     onClick={onOpenSettings}
@@ -230,6 +230,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
                     onProperties={() => {
                         const source = sources.find(s => s.id === contextMenu.sourceId);
                         if (source) setPropertiesTarget(source);
+                    }}
+                    onStartAnalysis={() => {
+                        const source = sources.find(s => s.id === contextMenu.sourceId);
+                        if (source) {
+                            setSelectedId(source.id);
+                            setIsNewChatModalOpen(true);
+                        }
                     }}
                 />
             )}

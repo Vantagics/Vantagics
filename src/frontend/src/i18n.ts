@@ -78,6 +78,12 @@ export const translations: Record<Language, Record<string, string>> = {
         'long_term_memory': 'Long Term',
         'test_connection_success': 'Connection successful!',
         'test_connection_failed': 'Connection failed',
+        'confirm': 'Confirm',
+        'start_analysis_confirm': 'Do you want to start analysis for "{0}"?',
+        'start_analysis_title': 'Start Analysis',
+        'analyze_suggestions_prompt': 'Give me some analysis suggestions for this data source.',
+        'analysis_session_prefix': 'Analysis: ',
+        'replay_analysis': 'Replay Analysis',
     },
     '简体中文': {
         'data_sources': '数据源',
@@ -152,6 +158,12 @@ export const translations: Record<Language, Record<string, string>> = {
         'long_term_memory': '长期记忆',
         'test_connection_success': '连接成功！',
         'test_connection_failed': '连接失败',
+        'confirm': '确定',
+        'start_analysis_confirm': '您确定要对 "{0}" 启动分析吗？',
+        'start_analysis_title': '启动分析',
+        'analyze_suggestions_prompt': '请给出一些本数据源的分析建议。',
+        'analysis_session_prefix': '分析：',
+        'replay_analysis': '分析重放',
     }
 };
 

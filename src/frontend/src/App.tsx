@@ -112,6 +112,10 @@ function App() {
             setIsChatOpen(true);
         });
 
+        const unsubscribeStartNewChat = EventsOn("start-new-chat", () => {
+            setIsChatOpen(true);
+        });
+
         const unsubscribeMessageModal = EventsOn("show-message-modal", (payload: any) => {
             setMessageModal({
                 isOpen: true,
@@ -140,6 +144,7 @@ function App() {
             if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
             if (unsubscribeDashboardDataUpdate) unsubscribeDashboardDataUpdate();
             if (unsubscribeAnalyzeInsight) unsubscribeAnalyzeInsight();
+            if (unsubscribeStartNewChat) unsubscribeStartNewChat();
             if (unsubscribeMessageModal) unsubscribeMessageModal();
             window.removeEventListener('contextmenu', handleContextMenu);
         };

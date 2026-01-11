@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info } from 'lucide-react';
+import { MessageSquare, Download, Info, Play } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
     position: { x: number; y: number };
@@ -10,9 +11,11 @@ interface SourceContextMenuProps {
     onSelectThread: (thread: main.ChatThread) => void;
     onExport: () => void;
     onProperties: () => void;
+    onStartAnalysis: () => void;
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, onClose, onSelectThread, onExport, onProperties }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, onClose, onSelectThread, onExport, onProperties, onStartAnalysis }) => {
+    const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -45,6 +48,19 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 e.stopPropagation();
             }}
         >
+            <button 
+                onClick={() => {
+                    onStartAnalysis();
+                    onClose();
+                }}
+                className="w-full text-left px-4 py-2 text-sm text-blue-600 font-medium hover:bg-blue-50 flex items-center gap-2"
+            >
+                <Play className="w-4 h-4 text-blue-500" />
+                {t('start_new_analysis')}
+            </button>
+
+            <div className="h-px bg-slate-100 my-1" />
+
             <button 
                 onClick={() => {
                     onProperties();

@@ -4,6 +4,7 @@ import { TrendingUp, UserCheck, AlertCircle, Star, Info } from 'lucide-react';
 interface SmartInsightProps {
     text: string;
     icon: string;
+    onClick?: () => void;
 }
 
 const iconMap: Record<string, React.ReactNode> = {
@@ -14,11 +15,14 @@ const iconMap: Record<string, React.ReactNode> = {
     'info': <Info className="w-5 h-5 text-slate-500" />,
 };
 
-const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon }) => {
+const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick }) => {
     const IconComponent = iconMap[icon] || iconMap['info'];
 
     return (
-        <div className="bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50">
+        <div 
+            onClick={onClick}
+            className={`bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
+        >
             <div className="insight-icon bg-gradient-to-br from-slate-50 to-slate-100 p-2 rounded-lg shrink-0 shadow-inner">
                 {IconComponent}
             </div>
