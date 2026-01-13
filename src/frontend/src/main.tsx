@@ -2,6 +2,7 @@ import React from 'react'
 import {createRoot} from 'react-dom/client'
 import './style.css'
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const container = document.getElementById('root')
 
@@ -67,8 +68,22 @@ window.addEventListener('contextmenu', (e) => {
     // but the user only asked to enable it for inputs.
 });
 
+// Global error handler for unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Prevent the default browser behavior (logging to console)
+    event.preventDefault();
+});
+
+// Global error handler for JavaScript errors
+window.addEventListener('error', (event) => {
+    console.error('Global error:', event.error);
+});
+
 root.render(
     <React.StrictMode>
-        <App/>
+        <ErrorBoundary>
+            <App/>
+        </ErrorBoundary>
     </React.StrictMode>
 )

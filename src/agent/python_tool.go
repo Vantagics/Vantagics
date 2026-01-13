@@ -15,9 +15,12 @@ import (
 )
 
 type PythonExecutorTool struct {
-	pythonService PythonExecutor
-	cfg           config.Config
-	pool          *PythonPool
+	pythonService   PythonExecutor
+	cfg             config.Config
+	pool            *PythonPool
+	errorKnowledge  *ErrorKnowledge
+	sessionDir      string // Directory to save session files
+	onFileSaved     func(fileName, fileType string, fileSize int64) // Callback when file is saved
 }
 
 func NewPythonExecutorTool(cfg config.Config) *PythonExecutorTool {
@@ -34,6 +37,21 @@ func NewPythonExecutorToolWithPool(cfg config.Config, pool *PythonPool) *PythonE
 		cfg:           cfg,
 		pool:          pool,
 	}
+}
+
+// SetErrorKnowledge injects the error knowledge system
+func (t *PythonExecutorTool) SetErrorKnowledge(ek *ErrorKnowledge) {
+	t.errorKnowledge = ek
+}
+
+// SetSessionDirectory sets the directory where session files should be saved
+func (t *PythonExecutorTool) SetSessionDirectory(dir string) {
+	t.sessionDir = dir
+}
+
+// SetFileSavedCallback sets the callback for when files are saved
+func (t *PythonExecutorTool) SetFileSavedCallback(callback func(fileName, fileType string, fileSize int64)) {
+	t.onFileSaved = callback
 }
 
 type pythonInput struct {
@@ -87,30 +105,22 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 
 	var in pythonInput
 	if err := json.Unmarshal([]byte(input), &in); err != nil {
-		// Enhanced error reporting for debugging
-		// Write full input to temp file for inspection
-		tmpFile, tmpErr := os.CreateTemp("", "rapidbi_python_input_*.json")
-		if tmpErr == nil {
-			tmpFile.WriteString(input)
-			tmpFile.Close()
-			return "", fmt.Errorf("invalid input: %v. Full input saved to: %s", err, tmpFile.Name())
-		}
-
+		// Return error as content so LLM can handle it
 		truncated := input
 		if len(input) > 500 {
 			truncated = input[:500] + "... (truncated)"
 		}
-		return "", fmt.Errorf("invalid input: %v. Input received (first 500 chars): %s", err, truncated)
+		return fmt.Sprintf("❌ Error: Invalid input format: %v\n\nInput received (first 500 chars):\n%s\n\n💡 Please provide valid JSON with a 'code' field containing Python code.", err, truncated), nil
 	}
 
 	if t.cfg.PythonPath == "" {
-		return "", fmt.Errorf("python path is not configured. Please set it in Settings -> Python Environment")
+		return "❌ Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil
 	}
 
 	// Create temp working directory
 	workDir, err := os.MkdirTemp("", "rapidbi_py_*")
 	if err != nil {
-		return "", fmt.Errorf("failed to create work dir: %v", err)
+		return fmt.Sprintf("❌ Error: Failed to create work dir: %v", err), nil
 	}
 	defer os.RemoveAll(workDir)
 
@@ -129,6 +139,9 @@ import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+# Configure Chinese font support
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial Unicode MS']
+plt.rcParams['axes.unicode_minus'] = False  # Fix minus sign display
 import pandas as pd
 import numpy as np
 os.chdir(r'%s')
@@ -170,6 +183,7 @@ except Exception as e:
 `, workDir, encodedCode)
 
 	var output string
+	executionContext := fmt.Sprintf("Executing Python code: %s", truncateString(in.Code, 200))
 
 	// Use pool if available for faster execution
 	if t.pool != nil {
@@ -206,13 +220,87 @@ except Exception as e:
 		output += "   3. Verify the SQL query returned expected columns\n"
 	}
 
+	// If there's an error, check error knowledge for similar issues
+	if err != nil && t.errorKnowledge != nil {
+		// Extract error type from output
+		errorType := "python"
+		errorMsg := output
+		if len(errorMsg) > 500 {
+			errorMsg = errorMsg[:500]
+		}
+
+		// Query for similar errors
+		hints := t.errorKnowledge.FormatHintsForLLM(errorType, errorMsg)
+		if hints != "" {
+			output += hints
+		}
+
+		// Record the error
+		t.errorKnowledge.RecordError(errorType, errorMsg, executionContext, "Execution failed", false)
+	}
+
+	// Helper function to save file to session directory
+	saveToSession := func(srcPath, fileName, fileType string) (string, error) {
+		if t.sessionDir == "" {
+			return "", nil // No session directory configured, skip
+		}
+
+		// Ensure session files directory exists
+		filesDir := filepath.Join(t.sessionDir, "files")
+		if err := os.MkdirAll(filesDir, 0755); err != nil {
+			return "", err
+		}
+
+		// Read file
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			return "", err
+		}
+
+		// Generate unique filename if needed
+		destPath := filepath.Join(filesDir, fileName)
+		counter := 1
+		for {
+			if _, err := os.Stat(destPath); os.IsNotExist(err) {
+				break
+			}
+			// File exists, add counter
+			ext := filepath.Ext(fileName)
+			nameWithoutExt := strings.TrimSuffix(fileName, ext)
+			destPath = filepath.Join(filesDir, fmt.Sprintf("%s_%d%s", nameWithoutExt, counter, ext))
+			counter++
+		}
+
+		// Write file to session directory
+		if err := os.WriteFile(destPath, data, 0644); err != nil {
+			return "", err
+		}
+
+		// Notify callback
+		if t.onFileSaved != nil {
+			fileInfo, _ := os.Stat(destPath)
+			finalName := filepath.Base(destPath)
+			t.onFileSaved(finalName, fileType, fileInfo.Size())
+		}
+
+		return filepath.Base(destPath), nil
+	}
+
 	// Check for chart.png
 	chartPath := filepath.Join(workDir, "chart.png")
 	if _, statErr := os.Stat(chartPath); statErr == nil {
 		chartData, readErr := os.ReadFile(chartPath)
 		if readErr == nil {
+			// Save to session directory if configured
+			savedName, saveErr := saveToSession(chartPath, "chart.png", "image")
+			if saveErr == nil && savedName != "" {
+				// Reference the saved file
+				output += fmt.Sprintf("\n\n📊 **Chart saved:** `files/%s`\n", savedName)
+			}
+
+			// Always include base64 for inline display
 			encoded := base64.StdEncoding.EncodeToString(chartData)
-			output += fmt.Sprintf("\n\n![Chart](data:image/png;base64,%s)", encoded)
+			output += fmt.Sprintf("![Chart](data:image/png;base64,%s)", encoded)
 		}
 	}
 
@@ -223,28 +311,42 @@ except Exception as e:
 		for _, csvPath := range csvFiles {
 			csvData, readErr := os.ReadFile(csvPath)
 			if readErr == nil {
+				fileName := filepath.Base(csvPath)
+
+				// Save to session directory if configured
+				savedName, saveErr := saveToSession(csvPath, fileName, "csv")
+				if saveErr == nil && savedName != "" {
+					output += fmt.Sprintf("- 📁 **%s** (saved to session)\n", savedName)
+				}
+
 				// Convert CSV to base64 for download
 				encoded := base64.StdEncoding.EncodeToString(csvData)
-				fileName := filepath.Base(csvPath)
 				// Create a markdown link with data URI for download
-				output += fmt.Sprintf("- [📥 Download %s](data:text/csv;base64,%s)\n", fileName, encoded)
+				output += fmt.Sprintf("  [📥 Download](data:text/csv;base64,%s)\n", encoded)
 
 				// Also show a preview of first few lines if CSV is not too large
 				if len(csvData) < 5000 {
 					lines := strings.Split(string(csvData), "\n")
 					if len(lines) > 10 {
 						preview := strings.Join(lines[:10], "\n")
-						output += fmt.Sprintf("\nPreview (first 10 rows):\n```csv\n%s\n...\n```\n", preview)
+						output += fmt.Sprintf("\n  Preview (first 10 rows):\n```csv\n%s\n...\n```\n", preview)
 					} else {
-						output += fmt.Sprintf("\nContent:\n```csv\n%s\n```\n", string(csvData))
+						output += fmt.Sprintf("\n  Content:\n```csv\n%s\n```\n", string(csvData))
 					}
 				}
 			}
 		}
 	}
 
+	// If execution succeeded, record it as a successful attempt (useful for learning patterns)
+	if err == nil && t.errorKnowledge != nil {
+		// We could record successful patterns here, but for now just log
+		// This would be useful for building a knowledge base of working code patterns
+	}
+
 	if err != nil {
-		return output, fmt.Errorf("python execution error: %v\nOutput:\n%s", err, output)
+		// Return error as content so LLM can retry
+		return fmt.Sprintf("❌ Python execution failed: %v\n\n%s\n\n💡 Please fix the code and try again.", err, output), nil
 	}
 
 	return output, nil

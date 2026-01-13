@@ -11,12 +11,59 @@ import (
 	"time"
 )
 
+// ChartItem represents a single chart/visualization item
+type ChartItem struct {
+	Type string `json:"type"` // "echarts", "image", "table", "csv"
+	Data string `json:"data"` // JSON string or base64/data URL
+}
+
+// ChartData represents chart/visualization data associated with a message (supports multiple charts)
+type ChartData struct {
+	Charts []ChartItem `json:"charts"` // Array of chart items
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both new (Charts array) and old (flat Type/Data) formats
+func (c *ChartData) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as new format
+	type Alias ChartData
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err == nil && len(c.Charts) > 0 {
+		return nil
+	}
+
+	// Try to unmarshal as old format (flat)
+	var old struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(data, &old); err == nil && old.Type != "" {
+		c.Charts = []ChartItem{{Type: old.Type, Data: old.Data}}
+		return nil
+	}
+	
+	return nil
+}
+
 // ChatMessage represents a single message in a chat thread
 type ChatMessage struct {
-	ID        string `json:"id"`
-	Role      string `json:"role"` // "user" or "assistant"
-	Content   string `json:"content"`
-	Timestamp int64  `json:"timestamp"`
+	ID        string     `json:"id"`
+	Role      string     `json:"role"` // "user" or "assistant"
+	Content   string     `json:"content"`
+	Timestamp int64      `json:"timestamp"`
+	ChartData *ChartData `json:"chart_data,omitempty"` // Associated chart/visualization data (can contain multiple charts)
+}
+
+// SessionFile represents a file generated during the session
+type SessionFile struct {
+	Name      string `json:"name"`       // File name (e.g., "chart.png", "result.csv")
+	Path      string `json:"path"`       // Relative path within session directory
+	Type      string `json:"type"`       // "image", "csv", "data", etc.
+	Size      int64  `json:"size"`       // File size in bytes
+	CreatedAt int64  `json:"created_at"` // Unix timestamp
 }
 
 // ChatThread represents a conversation thread
@@ -26,6 +73,7 @@ type ChatThread struct {
 	DataSourceID string        `json:"data_source_id"` // Associated Data Source ID
 	CreatedAt    int64         `json:"created_at"`
 	Messages     []ChatMessage `json:"messages"`
+	Files        []SessionFile `json:"files,omitempty"` // Generated files during session
 }
 
 // ChatService handles the persistence of chat history
@@ -304,4 +352,56 @@ func (s *ChatService) ClearHistory() error {
 
 	return os.RemoveAll(s.sessionsDir)
 }
+
+// GetSessionDirectory returns the directory path for a specific session
+func (s *ChatService) GetSessionDirectory(threadID string) string {
+	return filepath.Join(s.sessionsDir, threadID)
+}
+
+// GetSessionFilesDirectory returns the files directory path for a specific session
+func (s *ChatService) GetSessionFilesDirectory(threadID string) string {
+	return filepath.Join(s.sessionsDir, threadID, "files")
+}
+
+// AddSessionFile registers a file generated during the session
+func (s *ChatService) AddSessionFile(threadID string, file SessionFile) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Load specific thread
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+
+	// Add file to the list
+	t.Files = append(t.Files, file)
+	return s.saveThreadInternal(t)
+}
+
+// GetSessionFiles returns all files for a specific session
+func (s *ChatService) GetSessionFiles(threadID string) ([]SessionFile, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
+	}
+
+	return t.Files, nil
+}
+
 

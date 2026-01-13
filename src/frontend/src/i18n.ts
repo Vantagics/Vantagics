@@ -84,6 +84,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'analyze_suggestions_prompt': 'Give me some analysis suggestions for this data source.',
         'analysis_session_prefix': 'Analysis: ',
         'replay_analysis': 'Replay Analysis',
+        'data_summary': 'Data Summary',
+        'table_schema': 'Table Schema',
     },
     '简体中文': {
         'data_sources': '数据源',
@@ -164,6 +166,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'analyze_suggestions_prompt': '请给出一些本数据源的分析建议。',
         'analysis_session_prefix': '分析：',
         'replay_analysis': '分析重放',
+        'data_summary': '数据摘要',
+        'table_schema': '表结构',
     }
 };
 

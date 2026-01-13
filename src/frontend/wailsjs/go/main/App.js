@@ -10,6 +10,10 @@ export function AssetizeSession(arg1) {
   return window['go']['main']['App']['AssetizeSession'](arg1);
 }
 
+export function CancelAnalysis() {
+  return window['go']['main']['App']['CancelAnalysis']();
+}
+
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
@@ -26,8 +30,20 @@ export function DeleteDataSource(arg1) {
   return window['go']['main']['App']['DeleteDataSource'](arg1);
 }
 
+export function DeleteSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['DeleteSessionFile'](arg1, arg2);
+}
+
 export function DeleteThread(arg1) {
   return window['go']['main']['App']['DeleteThread'](arg1);
+}
+
+export function DisableSkill(arg1) {
+  return window['go']['main']['App']['DisableSkill'](arg1);
+}
+
+export function EnableSkill(arg1) {
+  return window['go']['main']['App']['EnableSkill'](arg1);
 }
 
 export function ExportSessionHTML(arg1) {
@@ -44,6 +60,14 @@ export function ExportToMySQL(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
 
 export function ExportToSQL(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToSQL'](arg1, arg2, arg3);
+}
+
+export function ExtractMetricsFromAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2);
+}
+
+export function GetActiveThreadID() {
+  return window['go']['main']['App']['GetActiveThreadID']();
 }
 
 export function GetAgentMemory(arg1) {
@@ -82,12 +106,40 @@ export function GetDataSources() {
   return window['go']['main']['App']['GetDataSources']();
 }
 
+export function GetEnabledSkills() {
+  return window['go']['main']['App']['GetEnabledSkills']();
+}
+
+export function GetErrorKnowledgeSummary() {
+  return window['go']['main']['App']['GetErrorKnowledgeSummary']();
+}
+
 export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetMySQLDatabases'](arg1, arg2, arg3, arg4);
 }
 
 export function GetPythonEnvironments() {
   return window['go']['main']['App']['GetPythonEnvironments']();
+}
+
+export function GetSessionFilePath(arg1, arg2) {
+  return window['go']['main']['App']['GetSessionFilePath'](arg1, arg2);
+}
+
+export function GetSessionFiles(arg1) {
+  return window['go']['main']['App']['GetSessionFiles'](arg1);
+}
+
+export function GetSessionRecordings() {
+  return window['go']['main']['App']['GetSessionRecordings']();
+}
+
+export function GetSkillCategories() {
+  return window['go']['main']['App']['GetSkillCategories']();
+}
+
+export function GetSkills() {
+  return window['go']['main']['App']['GetSkills']();
 }
 
 export function Greet(arg1) {
@@ -102,12 +154,36 @@ export function ImportExcelDataSource(arg1, arg2) {
   return window['go']['main']['App']['ImportExcelDataSource'](arg1, arg2);
 }
 
+export function IsCancelRequested() {
+  return window['go']['main']['App']['IsCancelRequested']();
+}
+
+export function LoadMetricsJson(arg1) {
+  return window['go']['main']['App']['LoadMetricsJson'](arg1);
+}
+
 export function Log(arg1) {
   return window['go']['main']['App']['Log'](arg1);
 }
 
+export function OpenSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['OpenSessionFile'](arg1, arg2);
+}
+
+export function OpenSessionResultsDirectory(arg1) {
+  return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
+}
+
+export function ReloadSkills() {
+  return window['go']['main']['App']['ReloadSkills']();
+}
+
 export function ReplayAnalysis() {
   return window['go']['main']['App']['ReplayAnalysis']();
+}
+
+export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ReplayAnalysisRecording'](arg1, arg2, arg3, arg4);
 }
 
 export function SaveChatHistory(arg1) {
@@ -116,6 +192,14 @@ export function SaveChatHistory(arg1) {
 
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SaveMetricsJson(arg1, arg2) {
+  return window['go']['main']['App']['SaveMetricsJson'](arg1, arg2);
+}
+
+export function SaveSessionRecording(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveSessionRecording'](arg1, arg2, arg3);
 }
 
 export function SelectCSVFile() {
@@ -138,8 +222,8 @@ export function SelectSaveFile(arg1, arg2) {
   return window['go']['main']['App']['SelectSaveFile'](arg1, arg2);
 }
 
-export function SendMessage(arg1, arg2) {
-  return window['go']['main']['App']['SendMessage'](arg1, arg2);
+export function SendMessage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3);
 }
 
 export function SetChatOpen(arg1) {

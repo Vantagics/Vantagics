@@ -14,10 +14,11 @@ import { main } from '../../wailsjs/go/models';
 interface SidebarProps {
     onOpenSettings: () => void;
     onToggleChat: () => void;
+    onToggleSkills: () => void;
     width: number;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggleSkills, width }) => {
     const { t } = useLanguage();
     const [sources, setSources] = useState<any[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -27,6 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
     const [exportTarget, setExportTarget] = useState<any | null>(null);
     const [propertiesTarget, setPropertiesTarget] = useState<any | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string } | null>(null);
+    const [isReplayLoading, setIsReplayLoading] = useState(false);
 
     const fetchSources = async () => {
         try {
@@ -108,14 +110,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
         >
             <div 
                 className="p-4 pt-8 border-b border-slate-200 bg-slate-50 flex items-center justify-between"
-                style={{ '--wails-draggable': 'drag' } as any}
             >
                 <h2 className="text-lg font-semibold text-slate-700">{t('data_sources')}</h2>
                 <button 
                     onClick={() => setIsAddModalOpen(true)}
                     className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
                     title={t('add_source')}
-                    style={{ '--wails-draggable': 'no-drag' } as any}
                 >
                     <Plus className="w-5 h-5" />
                 </button>
@@ -157,21 +157,60 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width }
                 )}
             </div>
             <div className="p-4 border-t border-slate-200 flex flex-col gap-2">
-                <button 
+                <button
                     onClick={handleStartChatAnalysis}
                     aria-label="Toggle chat"
                     className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${selectedId ? 'bg-blue-100 hover:bg-blue-200 text-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                 >
                     <span>💬</span> {t('chat_analysis')}
                 </button>
-                <button 
-                    onClick={() => ReplayAnalysis().catch(err => alert(err))}
-                    aria-label={t('replay_analysis')}
+                <button
+                    onClick={onToggleSkills}
+                    aria-label="Skills"
                     className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
                 >
-                    <span>▶️</span> {t('replay_analysis')}
+                    <span>⚡</span> {t('skills') || 'Skills'}
                 </button>
-                <button 
+                <button
+                    onClick={async () => {
+                        if (isReplayLoading) return;
+                        
+                        setIsReplayLoading(true);
+                        try {
+                            await ReplayAnalysis();
+                        } catch (err) {
+                            console.error('Replay analysis error:', err);
+                            if (err && typeof err === 'object' && 'message' in err) {
+                                alert(`分析重放失败: ${err.message}`);
+                            } else if (typeof err === 'string') {
+                                alert(`分析重放失败: ${err}`);
+                            } else {
+                                alert('分析重放失败: 未知错误');
+                            }
+                        } finally {
+                            setIsReplayLoading(false);
+                        }
+                    }}
+                    disabled={isReplayLoading}
+                    aria-label={t('replay_analysis')}
+                    className={`w-full py-2 px-4 border border-slate-300 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        isReplayLoading 
+                            ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                            : 'bg-white hover:bg-slate-50 text-slate-700'
+                    }`}
+                >
+                    {isReplayLoading ? (
+                        <>
+                            <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin"></div>
+                            <span>处理中...</span>
+                        </>
+                    ) : (
+                        <>
+                            <span>▶️</span> {t('replay_analysis')}
+                        </>
+                    )}
+                </button>
+                <button
                     onClick={onOpenSettings}
                     aria-label="Settings"
                     className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"

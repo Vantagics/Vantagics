@@ -35,17 +35,17 @@ type MemoryManager struct {
 
 // NewMemoryManager creates a new memory manager
 func NewMemoryManager(maxTokens int, chatModel model.ChatModel) *MemoryManager {
-	// Cap maxTokens at 100k to leave room for system prompt + response
-	// Claude models have 200k context but we need to be conservative
-	if maxTokens > 100000 {
-		maxTokens = 100000
+	// Cap maxTokens at 60k to leave plenty of room for system prompt + response + tool outputs
+	// Most models have 128k+ context but tool outputs can be huge
+	if maxTokens > 60000 {
+		maxTokens = 60000
 	}
 
 	return &MemoryManager{
 		config: MemoryConfig{
 			MaxTokens:           maxTokens,
-			ShortTermMessages:   3,  // Keep last 3 messages only (reduced from 6)
-			TokenReservePercent: 30, // Reserve 30% for response + system (increased from 25%)
+			ShortTermMessages:   2,  // Keep last 2 messages only (very aggressive)
+			TokenReservePercent: 40, // Reserve 40% for response + system + tools
 			EstimatedTokenRatio: 3,  // ~3 chars per token (conservative)
 		},
 		chatModel: chatModel,
@@ -106,15 +106,27 @@ func (m *MemoryManager) ManageMemory(ctx context.Context, messages []*schema.Mes
 		return messages, nil
 	}
 
-	// First, truncate any extremely large tool messages (max 1500 chars per tool message)
-	messages = m.TruncateToolMessages(messages, 1500)
+	// Calculate target tokens (very conservative - 40% of max)
+	targetTokens := m.config.MaxTokens * 40 / 100
 
-	// Calculate available tokens (reserve some for response)
-	availableTokens := m.config.MaxTokens * (100 - m.config.TokenReservePercent) / 100
+	// First pass: aggressive truncation of tool messages (max 500 chars each)
+	messages = m.TruncateToolMessages(messages, 500)
 	currentTokens := m.EstimateTokens(messages)
 
+	// If still too large, more aggressive truncation (200 chars)
+	if currentTokens > targetTokens {
+		messages = m.TruncateToolMessages(messages, 200)
+		currentTokens = m.EstimateTokens(messages)
+	}
+
+	// If STILL too large, strip tool messages entirely from older messages
+	if currentTokens > targetTokens {
+		messages = m.stripOldToolMessages(messages)
+		currentTokens = m.EstimateTokens(messages)
+	}
+
 	// If within limit, return as-is
-	if currentTokens <= availableTokens {
+	if currentTokens <= targetTokens {
 		return messages, nil
 	}
 
@@ -127,7 +139,7 @@ func (m *MemoryManager) ManageMemory(ctx context.Context, messages []*schema.Mes
 	}
 
 	// Apply hierarchical memory management
-	optimizedMsgs, err := m.applyHierarchicalMemory(ctx, conversationMsgs, availableTokens)
+	optimizedMsgs, err := m.applyHierarchicalMemory(ctx, conversationMsgs, targetTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -137,18 +149,125 @@ func (m *MemoryManager) ManageMemory(ctx context.Context, messages []*schema.Mes
 		optimizedMsgs = append([]*schema.Message{systemMsg}, optimizedMsgs...)
 	}
 
+	// Final safety check - if still too large, keep only last 2 user/assistant pairs
+	finalTokens := m.EstimateTokens(optimizedMsgs)
+	if finalTokens > targetTokens {
+		optimizedMsgs = m.keepOnlyRecent(optimizedMsgs, 4) // Keep last 4 messages max
+	}
+
 	return optimizedMsgs, nil
 }
 
+// stripOldToolMessages removes tool messages from history except the most recent ones
+// CRITICAL: Maintains message sequence integrity - assistant+tool pairs are atomic
+func (m *MemoryManager) stripOldToolMessages(messages []*schema.Message) []*schema.Message {
+	if len(messages) <= 6 {
+		return messages
+	}
+
+	// Keep last 6 messages intact, remove assistant+tool pairs from older ones
+	result := make([]*schema.Message, 0, len(messages))
+	cutoff := len(messages) - 6
+
+	// Track indices to skip (tool messages whose assistant was removed)
+	skipIndices := make(map[int]bool)
+
+	// First pass: identify assistant messages with tool_calls that should be removed
+	for i := 0; i < cutoff; i++ {
+		msg := messages[i]
+		if msg.Role == schema.Assistant && len(msg.ToolCalls) > 0 {
+			// Mark this assistant and its subsequent tool messages for removal
+			skipIndices[i] = true
+			// Find and mark corresponding tool result messages
+			for j := i + 1; j < len(messages); j++ {
+				if messages[j].Role == schema.Tool {
+					// Check if this tool message belongs to this assistant
+					skipIndices[j] = true
+				} else if messages[j].Role == schema.Assistant {
+					// Stop at next assistant message
+					break
+				}
+			}
+		}
+	}
+
+	// Second pass: build result, skipping marked messages
+	for i, msg := range messages {
+		if skipIndices[i] {
+			// Skip this message entirely to maintain sequence integrity
+			continue
+		}
+		result = append(result, msg)
+	}
+
+	return result
+}
+
+// keepOnlyRecent keeps only the most recent messages
+// CRITICAL: Ensures message sequence integrity for tool calls
+func (m *MemoryManager) keepOnlyRecent(messages []*schema.Message, maxCount int) []*schema.Message {
+	// Always keep system message if present
+	var systemMsg *schema.Message
+	conversation := messages
+
+	if len(messages) > 0 && messages[0].Role == schema.System {
+		systemMsg = messages[0]
+		conversation = messages[1:]
+	}
+
+	// Keep only last maxCount messages from conversation
+	if len(conversation) > maxCount {
+		startIdx := len(conversation) - maxCount
+
+		// CRITICAL: Ensure we don't start in the middle of an assistant+tool sequence
+		// If the first message we're keeping is a Tool message, we need to include
+		// the preceding Assistant message with tool_calls
+		for startIdx > 0 && conversation[startIdx].Role == schema.Tool {
+			startIdx--
+			// Also need to find the assistant message that made this tool call
+			for startIdx > 0 && conversation[startIdx].Role != schema.Assistant {
+				startIdx--
+			}
+		}
+
+		conversation = conversation[startIdx:]
+	}
+
+	if systemMsg != nil {
+		return append([]*schema.Message{systemMsg}, conversation...)
+	}
+	return conversation
+}
+
+// ensureSafeSplitPoint adjusts the split point to avoid breaking assistant+tool sequences
+// Returns a safe split point that doesn't separate tool calls from their results
+func (m *MemoryManager) ensureSafeSplitPoint(messages []*schema.Message, proposedSplit int) int {
+	if proposedSplit <= 0 || proposedSplit >= len(messages) {
+		return proposedSplit
+	}
+
+	// If the message at split point is a Tool message, we need to move the split
+	// to after all tool results for the current tool call sequence
+	splitIdx := proposedSplit
+	for splitIdx < len(messages) && messages[splitIdx].Role == schema.Tool {
+		splitIdx++
+	}
+
+	return splitIdx
+}
+
 // applyHierarchicalMemory implements the three-tier memory strategy
+// CRITICAL: Maintains message sequence integrity for tool calls
 func (m *MemoryManager) applyHierarchicalMemory(ctx context.Context, messages []*schema.Message, availableTokens int) ([]*schema.Message, error) {
 	if len(messages) <= m.config.ShortTermMessages {
 		// All messages fit in short-term, no compression needed
 		return messages, nil
 	}
 
-	// Split messages into tiers
-	splitPoint := len(messages) - m.config.ShortTermMessages
+	// Split messages into tiers - ensure split doesn't break tool sequences
+	proposedSplit := len(messages) - m.config.ShortTermMessages
+	splitPoint := m.ensureSafeSplitPoint(messages, proposedSplit)
+
 	olderMessages := messages[:splitPoint]
 	recentMessages := messages[splitPoint:]
 
@@ -264,6 +383,7 @@ func (m *MemoryManager) extractKeyInformation(messages []*schema.Message, target
 }
 
 // compressRecent aggressively compresses even recent messages when needed
+// CRITICAL: Maintains message sequence integrity for tool calls
 func (m *MemoryManager) compressRecent(ctx context.Context, messages []*schema.Message, targetTokens int) ([]*schema.Message, error) {
 	// Keep only the last 2-3 messages if possible
 	minMessages := 3
@@ -274,8 +394,13 @@ func (m *MemoryManager) compressRecent(ctx context.Context, messages []*schema.M
 
 	// Keep last few messages, compress the rest
 	keepCount := minMessages
-	toCompress := messages[:len(messages)-keepCount]
-	toKeep := messages[len(messages)-keepCount:]
+	proposedSplit := len(messages) - keepCount
+
+	// Ensure split point doesn't break tool sequences
+	splitPoint := m.ensureSafeSplitPoint(messages, proposedSplit)
+
+	toCompress := messages[:splitPoint]
+	toKeep := messages[splitPoint:]
 
 	budgetForCompressed := targetTokens - m.EstimateTokens(toKeep)
 	if budgetForCompressed <= 0 {

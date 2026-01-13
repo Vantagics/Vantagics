@@ -8,6 +8,8 @@ export function AddDataSource(arg1:string,arg2:string,arg3:Record<string, string
 
 export function AssetizeSession(arg1:string):Promise<void>;
 
+export function CancelAnalysis():Promise<void>;
+
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
 
 export function ClearHistory():Promise<void>;
@@ -16,7 +18,13 @@ export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThrea
 
 export function DeleteDataSource(arg1:string):Promise<void>;
 
+export function DeleteSessionFile(arg1:string,arg2:string):Promise<void>;
+
 export function DeleteThread(arg1:string):Promise<void>;
+
+export function DisableSkill(arg1:string):Promise<void>;
+
+export function EnableSkill(arg1:string):Promise<void>;
 
 export function ExportSessionHTML(arg1:string):Promise<void>;
 
@@ -25,6 +33,10 @@ export function ExportToCSV(arg1:string,arg2:Array<string>,arg3:string):Promise<
 export function ExportToMySQL(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;
 
 export function ExportToSQL(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
+
+export function ExtractMetricsFromAnalysis(arg1:string,arg2:string):Promise<void>;
+
+export function GetActiveThreadID():Promise<string>;
 
 export function GetAgentMemory(arg1:string):Promise<main.AgentMemoryView>;
 
@@ -44,9 +56,23 @@ export function GetDataSourceTables(arg1:string):Promise<Array<string>>;
 
 export function GetDataSources():Promise<Array<agent.DataSource>>;
 
+export function GetEnabledSkills():Promise<Array<main.SkillInfo>>;
+
+export function GetErrorKnowledgeSummary():Promise<main.ErrorKnowledgeSummary>;
+
 export function GetMySQLDatabases(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<string>>;
 
 export function GetPythonEnvironments():Promise<Array<agent.PythonEnvironment>>;
+
+export function GetSessionFilePath(arg1:string,arg2:string):Promise<string>;
+
+export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
+
+export function GetSessionRecordings():Promise<Array<agent.AnalysisRecording>>;
+
+export function GetSkillCategories():Promise<Array<string>>;
+
+export function GetSkills():Promise<Array<main.SkillInfo>>;
 
 export function Greet(arg1:string):Promise<string>;
 
@@ -54,13 +80,29 @@ export function ImportCSVDataSource(arg1:string,arg2:string):Promise<agent.DataS
 
 export function ImportExcelDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
 
+export function IsCancelRequested():Promise<boolean>;
+
+export function LoadMetricsJson(arg1:string):Promise<string>;
+
 export function Log(arg1:string):Promise<void>;
 
+export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
+
+export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
+
+export function ReloadSkills():Promise<void>;
+
 export function ReplayAnalysis():Promise<void>;
+
+export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<agent.ReplayResult>;
 
 export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
 
 export function SaveConfig(arg1:config.Config):Promise<void>;
+
+export function SaveMetricsJson(arg1:string,arg2:string):Promise<void>;
+
+export function SaveSessionRecording(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SelectCSVFile():Promise<string>;
 
@@ -72,7 +114,7 @@ export function SelectFolder(arg1:string):Promise<string>;
 
 export function SelectSaveFile(arg1:string,arg2:string):Promise<string>;
 
-export function SendMessage(arg1:string,arg2:string):Promise<string>;
+export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 

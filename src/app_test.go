@@ -261,7 +261,7 @@ func TestApp_SendMessage_Success(t *testing.T) {
 	}
 	app.SaveConfig(cfg)
 
-	resp, err := app.SendMessage("", "Hello")
+	resp, err := app.SendMessage("", "Hello", "")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestApp_SendMessage_ClaudeCompatible(t *testing.T) {
 	}
 	app.SaveConfig(cfg)
 
-	resp, err := app.SendMessage("", "Hello")
+	resp, err := app.SendMessage("", "Hello", "")
 	if err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}

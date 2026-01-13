@@ -176,13 +176,18 @@ func (a *App) ReplayAnalysis() error {
 		Filters: []runtime.FileFilter{{DisplayName: "RapidBI Replay Asset", Pattern: "*.rbi"}},
 	})
 
-	if err != nil || loadPath == "" {
+	if err != nil {
+		return fmt.Errorf("failed to open file dialog: %v", err)
+	}
+	
+	if loadPath == "" {
+		// User cancelled the dialog, this is not an error
 		return nil
 	}
 
 	data, err := os.ReadFile(loadPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read file: %v", err)
 	}
 
 	type ReplayAsset struct {
@@ -195,28 +200,36 @@ func (a *App) ReplayAnalysis() error {
 
 	var asset ReplayAsset
 	if err := json.Unmarshal(data, &asset); err != nil {
-		return fmt.Errorf("invalid asset file: %v", err)
+		return fmt.Errorf("invalid asset file format: %v", err)
+	}
+
+	// Validate data source exists
+	if asset.DataSourceID == "" {
+		return fmt.Errorf("asset file missing data source ID")
 	}
 
 	// Create new thread
 	newThread, err := a.CreateChatThread(asset.DataSourceID, "Replay: "+filepath.Base(loadPath))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create chat thread: %v", err)
 	}
+
+	// Show start message
+	a.ShowMessage("info", "Replay Started", "Analysis replay has started. Please check the chat window.")
 
 	// Trigger Replay in background
 	go func() {
-		// Notify frontend to switch to this thread?
+		defer func() {
+			if r := recover(); r != nil {
+				a.ShowMessage("error", "Replay Error", fmt.Sprintf("Analysis replay failed: %v", r))
+			}
+		}()
+
+		// Notify frontend to switch to this thread
 		runtime.EventsEmit(a.ctx, "start-new-chat", map[string]string{
 			"dataSourceId": asset.DataSourceID,
 			"sessionName":  newThread.Title, 
-			// We ideally want to switch to the *ID* we just created, but frontend 'start-new-chat' listener calls CreateChatThread.
-			// This logic is a bit disconnected.
-			// Better: emit 'open-chat' with the thread object.
 		})
-		
-		// Wait for UI? No, backend can run.
-		// Actually, we should feed messages one by one.
 		
 		for _, step := range asset.Steps {
 			if step.Role == "user" {
@@ -231,7 +244,11 @@ func (a *App) ReplayAnalysis() error {
 				runtime.EventsEmit(a.ctx, "thread-updated", newThread.ID)
 
 				// Generate response
-				resp, _ := a.SendMessage(newThread.ID, step.Content)
+				resp, err := a.SendMessage(newThread.ID, step.Content, "")
+				if err != nil {
+					a.ShowMessage("warning", "Replay Warning", fmt.Sprintf("Failed to generate response for step: %v", err))
+					continue
+				}
 				
 				// Add assistant message
 				asstMsg := ChatMessage{

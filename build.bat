@@ -43,7 +43,6 @@ echo   build.bat           (Full build with Wails)
 echo   build.bat quick     (Quick backend-only build)
 echo   build.bat debug
 echo   build.bat clean
-pause
 exit /b 0
 
 :clean
@@ -52,7 +51,6 @@ if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 if exist "%SRC_DIR%\frontend\dist" rmdir /s /q "%SRC_DIR%\frontend\dist"
 if exist "rapidbi.exe" del /q "rapidbi.exe"
 echo Done.
-pause
 exit /b 0
 
 :install_deps
@@ -101,7 +99,6 @@ if errorlevel 1 (
 )
 
 echo Dependencies installed successfully.
-pause
 exit /b 0
 
 :build
@@ -140,7 +137,6 @@ if errorlevel 1 (
 echo.
 echo %APP_NAME% build finished successfully!
 echo Output directory: %BUILD_DIR%
-pause
 exit /b 0
 
 :build_debug
@@ -179,7 +175,6 @@ if errorlevel 1 (
 echo.
 echo %APP_NAME% debug build finished successfully!
 echo Output directory: %BUILD_DIR%
-pause
 exit /b 0
 
 :quick_build
@@ -208,5 +203,4 @@ echo %APP_NAME% quick build finished successfully!
 echo Output: rapidbi.exe (in root directory)
 echo.
 echo TIP: Use 'build.bat build' for a full build including frontend changes.
-pause
 exit /b 0

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -19,4 +20,12 @@ func SanitizeFilename(name string) string {
 		return safe[:50]
 	}
 	return safe
+}
+
+// truncateString truncates a string to maxLen characters
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + fmt.Sprintf("... [%d chars truncated]", len(s)-maxLen)
 }

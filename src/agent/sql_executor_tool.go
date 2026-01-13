@@ -14,13 +14,33 @@ import (
 )
 
 type SQLExecutorTool struct {
-	dsService *DataSourceService
+	dsService      *DataSourceService
+	sqlPlanner     *SQLPlanner
+	logger         func(string)
+	maxRetries     int
+	errorKnowledge *ErrorKnowledge
 }
 
 func NewSQLExecutorTool(dsService *DataSourceService) *SQLExecutorTool {
 	return &SQLExecutorTool{
-		dsService: dsService,
+		dsService:  dsService,
+		maxRetries: 2, // Default: try original + 2 correction attempts
 	}
+}
+
+// NewSQLExecutorToolWithPlanner creates a tool with self-correction capability
+func NewSQLExecutorToolWithPlanner(dsService *DataSourceService, sqlPlanner *SQLPlanner, logger func(string)) *SQLExecutorTool {
+	return &SQLExecutorTool{
+		dsService:  dsService,
+		sqlPlanner: sqlPlanner,
+		logger:     logger,
+		maxRetries: 2,
+	}
+}
+
+// SetErrorKnowledge injects the error knowledge system
+func (t *SQLExecutorTool) SetErrorKnowledge(ek *ErrorKnowledge) {
+	t.errorKnowledge = ek
 }
 
 type sqlExecutorInput struct {
@@ -206,58 +226,47 @@ func (t *SQLExecutorTool) getTableColumns(db *sql.DB, dbType string, tableName s
 	}
 }
 
-func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error) {
-	var in sqlExecutorInput
-	if err := json.Unmarshal([]byte(input), &in); err != nil {
-		return "", fmt.Errorf("invalid input: %v", err)
-	}
-
+// executeQueryInternal executes a SQL query and returns results or error details
+func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID, query string) (string, string, error) {
 	// Validate query is a safe read-only statement
-	// Remove comments and extra whitespace for validation
-	cleanQuery := strings.TrimSpace(in.Query)
-	// Remove SQL comments (-- and /* */)
+	cleanQuery := strings.TrimSpace(query)
 	cleanQuery = regexp.MustCompile(`--[^\n]*`).ReplaceAllString(cleanQuery, "")
 	cleanQuery = regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(cleanQuery, "")
 	cleanQuery = strings.TrimSpace(cleanQuery)
 
 	upperQuery := strings.ToUpper(cleanQuery)
-
-	// Allow SELECT and WITH (for CTEs)
 	if !strings.HasPrefix(upperQuery, "SELECT") && !strings.HasPrefix(upperQuery, "WITH") {
-		return "", fmt.Errorf("only SELECT queries are allowed for safety. Use SELECT to retrieve data.\nReceived query: %s", in.Query)
+		return "", "", fmt.Errorf("only SELECT queries are allowed for safety")
 	}
 
-	// 1. Get Data Source
+	// Get Data Source
 	sources, err := t.dsService.LoadDataSources()
 	if err != nil {
-		return "", fmt.Errorf("failed to load data sources: %v", err)
+		return "", "", fmt.Errorf("failed to load data sources: %v", err)
 	}
 
 	var target *DataSource
 	for _, ds := range sources {
-		if ds.ID == in.DataSourceID {
+		if ds.ID == dataSourceID {
 			target = &ds
 			break
 		}
 	}
-
 	if target == nil {
-		return "", fmt.Errorf("data source not found: %s", in.DataSourceID)
+		return "", "", fmt.Errorf("data source not found: %s", dataSourceID)
 	}
 
-	// 2. Connect to Database
+	// Connect to Database
 	var db *sql.DB
 	var dbType string
 	if target.Config.DBPath != "" {
-		// Local SQLite
 		dbType = "sqlite"
 		dbPath := filepath.Join(t.dsService.dataCacheDir, target.Config.DBPath)
 		db, err = sql.Open("sqlite", dbPath)
 		if err != nil {
-			return "", fmt.Errorf("failed to open database: %v", err)
+			return "", dbType, fmt.Errorf("failed to open database: %v", err)
 		}
 	} else if target.Type == "mysql" || target.Type == "doris" {
-		// Remote MySQL/Doris
 		dbType = target.Type
 		cfg := target.Config
 		if cfg.Port == "" {
@@ -267,21 +276,20 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
-			return "", fmt.Errorf("failed to connect to database: %v", err)
+			return "", dbType, fmt.Errorf("failed to connect to database: %v", err)
 		}
 	} else {
-		return "", fmt.Errorf("unsupported data source type: %s", target.Type)
+		return "", "", fmt.Errorf("unsupported data source type: %s", target.Type)
 	}
 	defer db.Close()
 
-	// 3. Apply SQL dialect conversion if needed
-	processedQuery := in.Query
+	// Apply SQL dialect conversion if needed
+	processedQuery := query
 	if dbType == "sqlite" {
 		processedQuery = t.convertMySQLToSQLite(processedQuery)
 	}
 
-	// 4. Extract table name from query for column case fixing (simple extraction)
-	// This handles: SELECT ... FROM tablename ...
+	// Extract table name for column case fixing
 	fromRegex := regexp.MustCompile(`(?i)FROM\s+` + "`?" + `([a-zA-Z0-9_]+)` + "`?")
 	fromMatches := fromRegex.FindStringSubmatch(processedQuery)
 	if len(fromMatches) > 1 && dbType == "sqlite" {
@@ -289,10 +297,8 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 		processedQuery = t.fixColumnCaseSensitivity(processedQuery, db, tableName)
 	}
 
-	// 5. Add LIMIT to prevent huge result sets if not already present
-	// First, strip trailing semicolons to avoid "ORDER BY x; LIMIT 1000" syntax error
+	// Add LIMIT if not present
 	processedQuery = strings.TrimRight(processedQuery, "; \t\n\r")
-
 	queryWithLimit := processedQuery
 	upperProcessed := strings.ToUpper(processedQuery)
 	if !strings.Contains(upperProcessed, "LIMIT") {
@@ -302,33 +308,17 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 	// Execute Query
 	rows, err := db.Query(queryWithLimit)
 	if err != nil {
-		// Enhanced error message with the actual query that was executed
-		errorMsg := fmt.Sprintf("query execution failed: %v\nOriginal query: %s\nProcessed query: %s", err, in.Query, queryWithLimit)
-
-		// If it's a "no such column" error, try to provide helpful info about available columns
-		if strings.Contains(err.Error(), "no such column") {
-			if len(fromMatches) > 1 {
-				tableName := fromMatches[1]
-				if columns, colErr := t.getTableColumns(db, dbType, tableName); colErr == nil && len(columns) > 0 {
-					errorMsg += fmt.Sprintf("\n\n❌ Column not found in table '%s'.\n✅ Available columns: %s", tableName, strings.Join(columns, ", "))
-					errorMsg += "\n\n💡 Please rewrite your query using only the available columns listed above."
-				}
-			} else {
-				errorMsg += "\n\n💡 The column name in your query doesn't exist. Please check the table schema using get_data_source_context tool first."
-			}
-		}
-
-		return "", fmt.Errorf("%s", errorMsg)
+		return "", dbType, err
 	}
 	defer rows.Close()
 
-	// 7. Get Column Names
+	// Get Column Names
 	cols, err := rows.Columns()
 	if err != nil {
-		return "", fmt.Errorf("failed to get columns: %v", err)
+		return "", dbType, fmt.Errorf("failed to get columns: %v", err)
 	}
 
-	// 8. Read Results
+	// Read Results
 	var results []map[string]interface{}
 	for rows.Next() {
 		columns := make([]interface{}, len(cols))
@@ -338,14 +328,13 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 		}
 
 		if err := rows.Scan(columnPointers...); err != nil {
-			return "", fmt.Errorf("failed to scan row: %v", err)
+			return "", dbType, fmt.Errorf("failed to scan row: %v", err)
 		}
 
 		rowMap := make(map[string]interface{})
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
 			if val != nil && *val != nil {
-				// Handle []byte for text columns
 				if b, ok := (*val).([]byte); ok {
 					rowMap[colName] = string(b)
 				} else {
@@ -359,28 +348,166 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 	}
 
 	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("error iterating rows: %v", err)
+		return "", dbType, fmt.Errorf("error iterating rows: %v", err)
 	}
 
-	// 9. Format Response
+	// Format Response
 	if len(results) == 0 {
-		return "Query executed successfully. No rows returned.", nil
+		return "✅ Query executed successfully. No rows returned.", dbType, nil
 	}
 
-	// Return as JSON
 	jsonData, err := json.MarshalIndent(results, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal results: %v", err)
+		return "", dbType, fmt.Errorf("failed to marshal results: %v", err)
 	}
 
-	response := fmt.Sprintf("Query executed successfully. Returned %d rows.\n\n%s",
+	response := fmt.Sprintf("✅ Query executed successfully. Returned %d rows.\n\n%s",
 		len(results), string(jsonData))
 
-	// Truncate if too large (keep first 50KB)
 	maxSize := 50000
 	if len(response) > maxSize {
 		response = response[:maxSize] + "\n\n[Output truncated - result set too large. Consider using WHERE clause or LIMIT to reduce result size]"
 	}
 
-	return response, nil
+	return response, dbType, nil
+}
+
+// buildErrorMessage creates a detailed error message with hints
+func (t *SQLExecutorTool) buildErrorMessage(err error, query, dbType string) string {
+	var errorMsg strings.Builder
+	errorMsg.WriteString(fmt.Sprintf("❌ SQL Error: %v\n\n", err))
+
+	errStr := err.Error()
+	if strings.Contains(errStr, "no such column") || strings.Contains(errStr, "Unknown column") {
+		hasSubquery := strings.Contains(strings.ToUpper(query), "FROM (") || strings.Contains(strings.ToUpper(query), "FROM(")
+
+		if hasSubquery {
+			errorMsg.WriteString("⚠️ SUBQUERY COLUMN SCOPE ERROR!\n\n")
+			errorMsg.WriteString("Your query has a subquery, but the outer SELECT references a column not in the subquery result.\n\n")
+			errorMsg.WriteString("🔧 FIX: Make sure ALL columns used in the outer query are included in the subquery's SELECT.\n\n")
+		} else {
+			errorMsg.WriteString("💡 FIX: The column name might be misspelled or doesn't exist. Check schema and retry.\n")
+		}
+		errorMsg.WriteString("🔄 Please rewrite the query with the correct column references and try again.")
+	} else if strings.Contains(errStr, "syntax error") {
+		errorMsg.WriteString("💡 FIX: Check SQL syntax. If using SQLite, remember:\n")
+		errorMsg.WriteString("   - Use strftime('%Y', col) instead of YEAR(col)\n")
+		errorMsg.WriteString("   - Use col1 || col2 instead of CONCAT(col1, col2)\n")
+		errorMsg.WriteString("   - Use COALESCE instead of IFNULL\n")
+	} else {
+		errorMsg.WriteString(fmt.Sprintf("Original query:\n%s\n", query))
+	}
+
+	return errorMsg.String()
+}
+
+func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error) {
+	var in sqlExecutorInput
+	if err := json.Unmarshal([]byte(input), &in); err != nil {
+		return fmt.Sprintf("❌ Error: Invalid input format: %v\n\n💡 Please provide valid JSON with 'data_source_id' and 'query' fields.", err), nil
+	}
+
+	currentQuery := in.Query
+	var lastError error
+	var dbType string
+	var executionContext string
+
+	// Try execution with self-correction loop
+	for attempt := 0; attempt <= t.maxRetries; attempt++ {
+		result, detectedDbType, err := t.executeQueryInternal(ctx, in.DataSourceID, currentQuery)
+		if detectedDbType != "" {
+			dbType = detectedDbType
+		}
+
+		if err == nil {
+			// Success!
+			// If this was a retry (attempt > 0), record the successful solution
+			if attempt > 0 && t.errorKnowledge != nil && lastError != nil {
+				solution := fmt.Sprintf("Corrected SQL:\n%s", currentQuery)
+				t.errorKnowledge.RecordError("sql", lastError.Error(), executionContext, solution, true)
+				if t.logger != nil {
+					t.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Recorded successful SQL correction"))
+				}
+			}
+
+			if attempt > 0 && t.logger != nil {
+				t.logger(fmt.Sprintf("[SQL-SELF-CORRECT] Query succeeded after %d correction(s)", attempt))
+			}
+			return result, nil
+		}
+
+		lastError = err
+		executionContext = fmt.Sprintf("Executing SQL query (attempt %d/%d): %s", attempt+1, t.maxRetries+1, truncateString(currentQuery, 200))
+
+		// Check error knowledge for hints BEFORE attempting correction
+		if t.errorKnowledge != nil {
+			hints := t.errorKnowledge.FormatHintsForLLM("sql", err.Error())
+			if hints != "" && t.logger != nil {
+				t.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Found similar past errors:%s", hints))
+			}
+		}
+
+		// Check if we have a planner for self-correction
+		if t.sqlPlanner == nil || attempt >= t.maxRetries {
+			// No planner or max retries reached
+			// Record the failed attempt if this is the last try
+			if attempt >= t.maxRetries && t.errorKnowledge != nil {
+				t.errorKnowledge.RecordError("sql", err.Error(), executionContext, "Max retries reached, no solution found", false)
+			}
+			break
+		}
+
+		// Attempt self-correction
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[SQL-SELF-CORRECT] Attempt %d failed: %v. Trying to correct...", attempt+1, err))
+		}
+
+		// Get schema for correction
+		schema, schemaErr := t.sqlPlanner.GetEnhancedSchema(ctx, in.DataSourceID)
+		if schemaErr != nil {
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[SQL-SELF-CORRECT] Failed to get schema for correction: %v", schemaErr))
+			}
+			break
+		}
+
+		// Try to correct the SQL
+		correctedSQL, corrErr := t.sqlPlanner.ValidateAndCorrectSQL(ctx, currentQuery, err.Error(), schema)
+		if corrErr != nil {
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[SQL-SELF-CORRECT] Correction failed: %v", corrErr))
+			}
+			break
+		}
+
+		// Check if the corrected SQL is different
+		if strings.TrimSpace(correctedSQL) == strings.TrimSpace(currentQuery) {
+			if t.logger != nil {
+				t.logger("[SQL-SELF-CORRECT] Corrected SQL is identical to original, stopping retry")
+			}
+			break
+		}
+
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[SQL-SELF-CORRECT] Corrected SQL:\n%s", correctedSQL))
+		}
+
+		currentQuery = correctedSQL
+	}
+
+	// All retries exhausted, record the final failure
+	if t.errorKnowledge != nil && lastError != nil {
+		t.errorKnowledge.RecordError("sql", lastError.Error(), executionContext, "Failed after all retry attempts", false)
+	}
+
+	// Build error message with hints from error knowledge
+	errorMsg := t.buildErrorMessage(lastError, in.Query, dbType)
+	if t.errorKnowledge != nil {
+		hints := t.errorKnowledge.FormatHintsForLLM("sql", lastError.Error())
+		if hints != "" {
+			errorMsg += hints
+		}
+	}
+
+	return errorMsg, nil
 }

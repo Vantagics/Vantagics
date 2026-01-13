@@ -5,9 +5,10 @@ import { Table, Database, FileText, ChevronRight, List, Trash2 } from 'lucide-re
 
 interface ContextPanelProps {
     width: number;
+    onContextPanelClick?: () => void;
 }
 
-const ContextPanel: React.FC<ContextPanelProps> = ({ width }) => {
+const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick }) => {
     const [selectedSource, setSelectedSource] = useState<any>(null);
     const [tables, setTables] = useState<string[]>([]);
     const [tableCounts, setTableCounts] = useState<Record<string, number>>({});
@@ -115,14 +116,33 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width }) => {
         }
     };
 
+    const handleContextPanelClick = (e: React.MouseEvent) => {
+        // 只有当点击的是非交互元素时才隐藏聊天
+        const target = e.target as HTMLElement;
+        const isInteractiveElement = target.tagName === 'BUTTON' || 
+                                   target.tagName === 'A' || 
+                                   target.tagName === 'INPUT' || 
+                                   target.tagName === 'SELECT' || 
+                                   target.tagName === 'TEXTAREA' ||
+                                   target.closest('button') ||
+                                   target.closest('a') ||
+                                   target.closest('[role="button"]') ||
+                                   target.closest('.cursor-pointer') ||
+                                   target.closest('table');
+        
+        if (!isInteractiveElement && onContextPanelClick) {
+            onContextPanelClick();
+        }
+    };
+
     return (
         <div 
             className="bg-white border-r border-slate-200 flex flex-col h-full shadow-sm flex-shrink-0"
             style={{ width: width }}
+            onClick={handleContextPanelClick}
         >
             <div 
                 className="p-4 pt-8 border-b border-slate-200 bg-slate-50 flex justify-between items-center"
-                style={{ '--wails-draggable': 'drag' } as any}
             >
                 <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
                     <Database className="w-4 h-4 text-blue-500" />

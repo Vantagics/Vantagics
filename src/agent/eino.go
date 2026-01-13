@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,12 +21,44 @@ import (
 
 // EinoService manages Eino-based agents
 type EinoService struct {
-	ChatModel     model.ChatModel
-	dsService     *DataSourceService
-	cfg           config.Config
-	Logger        func(string)
-	memoryManager *MemoryManager
-	pythonPool    *PythonPool
+	ChatModel       model.ChatModel
+	dsService       *DataSourceService
+	cfg             config.Config
+	Logger          func(string)
+	memoryManager   *MemoryManager
+	pythonPool      *PythonPool
+	errorKnowledge  *ErrorKnowledge
+	skillManager    *templates.SkillManager
+}
+
+// TrajectoryStep represents a single step in agent execution
+type TrajectoryStep struct {
+	StepNumber  int                      `json:"step_number"`
+	Timestamp   int64                    `json:"timestamp"`
+	Type        string                   `json:"type"` // "model_call" | "tool_call"
+	ModelInput  []map[string]interface{} `json:"model_input,omitempty"`
+	ModelOutput map[string]interface{}   `json:"model_output,omitempty"`
+	ToolName    string                   `json:"tool_name,omitempty"`
+	ToolInput   string                   `json:"tool_input,omitempty"`
+	ToolOutput  string                   `json:"tool_output,omitempty"`
+	ToolCallID  string                   `json:"tool_call_id,omitempty"`
+	Error       string                   `json:"error,omitempty"`
+}
+
+// AgentTrajectory represents complete execution path for training
+type AgentTrajectory struct {
+	ThreadID       string           `json:"thread_id"`
+	UserRequest    string           `json:"user_request"`
+	DataSourceID   string           `json:"data_source_id,omitempty"`
+	StartTime      int64            `json:"start_time"`
+	EndTime        int64            `json:"end_time"`
+	TotalDuration  int64            `json:"total_duration_ms"`
+	Steps          []TrajectoryStep `json:"steps"`
+	FinalResponse  string           `json:"final_response"`
+	Success        bool             `json:"success"`
+	ErrorMessage   string           `json:"error_message,omitempty"`
+	IterationCount int              `json:"iteration_count"`
+	ToolCallCount  int              `json:"tool_call_count"`
 }
 
 // NewEinoService creates a new EinoService
@@ -83,13 +118,30 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, logger func
 		}
 	}
 
+	// Initialize error knowledge system
+	errorKnowledge := NewErrorKnowledge(dsService.dataCacheDir, logger)
+	if logger != nil {
+		logger("[INFO] Error knowledge system initialized")
+	}
+
+	// Initialize Skills Manager
+	skillsDir := filepath.Join(dsService.dataCacheDir, "..", "skills") // Skills in RapidBI/skills
+	skillManager := templates.NewSkillManager(skillsDir, logger)
+	if err := skillManager.LoadSkills(); err != nil {
+		if logger != nil {
+			logger(fmt.Sprintf("[WARNING] Failed to load skills: %v", err))
+		}
+	}
+
 	return &EinoService{
-		ChatModel:     chatModel,
-		dsService:     dsService,
-		cfg:           cfg,
-		Logger:        logger,
-		memoryManager: memManager,
-		pythonPool:    pyPool,
+		ChatModel:      chatModel,
+		dsService:      dsService,
+		cfg:            cfg,
+		Logger:         logger,
+		memoryManager:  memManager,
+		pythonPool:     pyPool,
+		errorKnowledge: errorKnowledge,
+		skillManager:   skillManager,
 	}, nil
 }
 
@@ -130,17 +182,53 @@ func (s *EinoService) Close() {
 	}
 }
 
+// GetErrorKnowledge returns the error knowledge instance
+func (s *EinoService) GetErrorKnowledge() *ErrorKnowledge {
+	return s.errorKnowledge
+}
+
+// GetSkillManager returns the skill manager instance
+func (s *EinoService) GetSkillManager() *templates.SkillManager {
+	return s.skillManager
+}
+
 // RunAnalysis executes the agent with full history and tool support
 func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message, dataSourceID, threadID string) (*schema.Message, error) {
-	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, nil)
+	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, "", nil, nil, nil)
 }
 
 // RunAnalysisWithProgress executes the agent with progress callbacks
-func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*schema.Message, dataSourceID, threadID string, onProgress ProgressCallback) (*schema.Message, error) {
+func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*schema.Message, dataSourceID, threadID, sessionDir string, onProgress ProgressCallback, onFileSaved func(fileName, fileType string, fileSize int64), cancelCheck func() bool) (*schema.Message, error) {
 	startTotal := time.Now()
 	if s.Logger != nil {
 		s.Logger(fmt.Sprintf("[TIMING] Start RunAnalysis for thread: %s", threadID))
 	}
+
+	// Initialize trajectory tracking for training
+	trajectory := &AgentTrajectory{
+		ThreadID:     threadID,
+		DataSourceID: dataSourceID,
+		StartTime:    time.Now().UnixMilli(),
+		Steps:        []TrajectoryStep{},
+		Success:      false,
+	}
+
+	// Extract user request from last message
+	if len(history) > 0 {
+		for i := len(history) - 1; i >= 0; i-- {
+			if history[i].Role == schema.User {
+				trajectory.UserRequest = history[i].Content
+				break
+			}
+		}
+	}
+
+	// Save trajectory on completion (success or error)
+	defer func() {
+		if sessionDir != "" {
+			s.saveTrajectory(sessionDir, trajectory)
+		}
+	}()
 
 	// Helper to emit progress
 	emitProgress := func(stage string, progress int, message string, step, total int) {
@@ -222,8 +310,31 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	} else {
 		pyTool = NewPythonExecutorTool(s.cfg)
 	}
+	// Inject error knowledge into Python tool
+	pyTool.SetErrorKnowledge(s.errorKnowledge)
+	// Set session directory for file storage
+	if sessionDir != "" {
+		pyTool.SetSessionDirectory(sessionDir)
+		if onFileSaved != nil {
+			pyTool.SetFileSavedCallback(onFileSaved)
+		}
+		if s.Logger != nil {
+			s.Logger(fmt.Sprintf("[SESSION] Files will be saved to: %s", sessionDir))
+		}
+	}
+
 	dsTool := NewDataSourceContextTool(s.dsService)
-	sqlTool := NewSQLExecutorTool(s.dsService)
+
+	// Create SQL planner for self-correction capability
+	sqlPlanner := NewSQLPlanner(s.ChatModel, s.dsService, s.Logger)
+	sqlTool := NewSQLExecutorToolWithPlanner(s.dsService, sqlPlanner, s.Logger)
+	// Inject error knowledge into SQL tool
+	sqlTool.SetErrorKnowledge(s.errorKnowledge)
+
+	// Remove PythonPlanner to reduce overhead - LLM can generate Python directly
+	// pythonPlanner := NewPythonPlanner(s.ChatModel, s.Logger)
+	// pythonPlannerTool := NewPythonPlannerTool(pythonPlanner)
+
 	tools := []tool.BaseTool{pyTool, dsTool, sqlTool}
 
 	// 2. Create ToolsNode (Standard Eino ToolsNode takes *Message and returns *Message)
@@ -264,24 +375,103 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	// Track iteration count for progress
 	iterationCount := 0
 
+	// Extract original user goal for attention refresh
+	var originalUserGoal string
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == schema.User {
+			originalUserGoal = history[i].Content
+			if len(originalUserGoal) > 200 {
+				originalUserGoal = originalUserGoal[:200] + "..."
+			}
+			break
+		}
+	}
+
 	// Define Model Node Wrapper
 	modelLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
 		iterationCount++
 		startModel := time.Now()
 
+		// Check for cancellation
+		if cancelCheck != nil && cancelCheck() {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[CANCEL] Analysis cancelled at step %d", iterationCount))
+			}
+			return nil, fmt.Errorf("analysis cancelled by user")
+		}
+
+		// ⚡ EARLY WARNINGS: Encourage completion before hitting limits
+		if iterationCount == 10 {
+			warningMsg := &schema.Message{
+				Role:    schema.User,
+				Content: "⚡ 10 steps used. Finish QUICKLY - use 1-2 more tools MAX.",
+			}
+			input = append(input, warningMsg)
+			if s.Logger != nil {
+				s.Logger("[WARNING] Step 10 warning injected")
+			}
+		} else if iterationCount == 15 {
+			finalMsg := &schema.Message{
+				Role:    schema.User,
+				Content: "🛑 STOP NOW. Present what you have.",
+			}
+			input = append(input, finalMsg)
+			if s.Logger != nil {
+				s.Logger("[FINAL-WARNING] Step 15 final warning injected")
+			}
+		}
+
 		// Emit progress based on iteration
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
 		emitProgress(StageAnalysis, progress, fmt.Sprintf("AI processing (step %d)...", iterationCount), 3, 6)
 
-		// Call model with full history
-		resp, err := s.ChatModel.Generate(ctx, input)
+		// CRITICAL: Apply memory management before each model call to prevent context overflow
+		managedInput, err := s.memoryManager.ManageMemory(ctx, input)
 		if err != nil {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[WARNING] Memory management failed in graph: %v", err))
+			}
+			managedInput = input
+		}
+
+		// Log token reduction if significant
+		if s.Logger != nil && len(input) != len(managedInput) {
+			originalTokens := s.memoryManager.EstimateTokens(input)
+			managedTokens := s.memoryManager.EstimateTokens(managedInput)
+			s.Logger(fmt.Sprintf("[MEMORY-GRAPH] Reduced from %d to %d messages (%d -> %d est. tokens)",
+				len(input), len(managedInput), originalTokens, managedTokens))
+		}
+
+		// Call model with managed history
+		resp, err := s.ChatModel.Generate(ctx, managedInput)
+		if err != nil {
+			// Record error in trajectory
+			step := TrajectoryStep{
+				StepNumber: len(trajectory.Steps) + 1,
+				Timestamp:  time.Now().UnixMilli(),
+				Type:       "model_call",
+				ModelInput: messagesToMap(managedInput),
+				Error:      err.Error(),
+			}
+			trajectory.Steps = append(trajectory.Steps, step)
 			return nil, err
 		}
+
+		// Record successful model call in trajectory
+		step := TrajectoryStep{
+			StepNumber:  len(trajectory.Steps) + 1,
+			Timestamp:   time.Now().UnixMilli(),
+			Type:        "model_call",
+			ModelInput:  messagesToMap(managedInput),
+			ModelOutput: messageToMap(resp),
+		}
+		trajectory.Steps = append(trajectory.Steps, step)
+		trajectory.IterationCount = iterationCount
+
 		if s.Logger != nil {
 			s.Logger(fmt.Sprintf("[TIMING] Model Generation step took: %v", time.Since(startModel)))
 		}
-		// Append response to history
+		// Append response to history (use original input to preserve full context for tools)
 		return append(input, resp), nil
 	})
 
@@ -303,10 +493,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 				emitProgress(StageSchema, 25, "Loading database schema...", 2, 6)
 				msg = "Fetching schema"
 			case "execute_sql":
-				emitProgress(StageQuery, 40, "Executing SQL query...", 3, 6)
+				emitProgress(StageQuery, 40, "Executing SQL query...", 4, 6)
 				msg = "Executing query"
 			case "python_executor":
-				emitProgress(StageAnalysis, 60, "Running Python analysis...", 4, 6)
+				emitProgress(StageAnalysis, 60, "Running Python analysis...", 5, 6)
 				msg = "Analyzing data"
 			default:
 				msg = fmt.Sprintf("Running %s", toolName)
@@ -318,11 +508,95 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// Execute tools
 		toolResultMsg, err := toolsNode.Invoke(ctx, lastMsg)
+
+		// Record tool calls in trajectory
+		for _, tc := range lastMsg.ToolCalls {
+			step := TrajectoryStep{
+				StepNumber: len(trajectory.Steps) + 1,
+				Timestamp:  time.Now().UnixMilli(),
+				Type:       "tool_call",
+				ToolName:   tc.Function.Name,
+				ToolInput:  tc.Function.Arguments,
+				ToolCallID: tc.ID,
+			}
+
+			if err != nil {
+				step.Error = err.Error()
+			} else if len(toolResultMsg) > 0 {
+				// Find matching tool result for this call
+				for _, resultMsg := range toolResultMsg {
+					if resultMsg.ToolCallID == tc.ID {
+						step.ToolOutput = truncateString(resultMsg.Content, 1000)
+						break
+					}
+				}
+			}
+
+			trajectory.Steps = append(trajectory.Steps, step)
+			trajectory.ToolCallCount++
+		}
+
 		if err != nil {
-			return nil, err
+			// Instead of failing the graph, return error as tool result so LLM can retry
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[TOOL ERROR] %v - returning as message for LLM to handle", err))
+			}
+			// Create error messages for each tool call with helpful guidance
+			var errorMsgs []*schema.Message
+			errStr := err.Error()
+			for _, tc := range lastMsg.ToolCalls {
+				var helpMsg string
+				toolName := tc.Function.Name
+
+				if toolName == "execute_sql" {
+					if strings.Contains(errStr, "no such column") || strings.Contains(errStr, "Unknown column") {
+						helpMsg = fmt.Sprintf("❌ SQL Column Error: %v\n\n", err)
+						helpMsg += "🔧 REQUIRED ACTION:\n"
+						helpMsg += "1. Call get_data_source_context to see actual column names\n"
+						helpMsg += "2. If using subquery, ensure ALL columns needed by outer query are in subquery's SELECT\n"
+						helpMsg += "3. Rewrite and execute the corrected query"
+					} else if strings.Contains(errStr, "syntax error") {
+						helpMsg = fmt.Sprintf("❌ SQL Syntax Error: %v\n\n", err)
+						helpMsg += "🔧 For SQLite, use: strftime('%Y',col) not YEAR(), col1||col2 not CONCAT()"
+					} else {
+						helpMsg = fmt.Sprintf("❌ SQL Error: %v\n\n🔧 Please fix and retry.", err)
+					}
+				} else if toolName == "python_executor" {
+					helpMsg = fmt.Sprintf("❌ Python Error: %v\n\n🔧 Please fix the code and retry.", err)
+				} else {
+					helpMsg = fmt.Sprintf("❌ Tool Error: %v\n\n🔧 Please fix and retry.", err)
+				}
+
+				errorMsgs = append(errorMsgs, &schema.Message{
+					Role:       schema.Tool,
+					Content:    helpMsg,
+					ToolCallID: tc.ID,
+				})
+			}
+			if len(errorMsgs) == 0 {
+				// Fallback if no tool calls found
+				errorMsgs = append(errorMsgs, &schema.Message{
+					Role:    schema.Tool,
+					Content: fmt.Sprintf("Error: %v\n\n🔴 Please fix the issue and try again.", err),
+				})
+			}
+			return append(input, errorMsgs...), nil
 		}
 		if s.Logger != nil {
 			s.Logger(fmt.Sprintf("[TIMING] Tools Execution step took: %v", time.Since(startExec)))
+		}
+
+		// CRITICAL: Truncate tool output to prevent context overflow
+		// Tool outputs (especially SQL results) can be huge
+		const maxToolOutputChars = 2000
+		for i, msg := range toolResultMsg {
+			if msg.Role == schema.Tool && len(msg.Content) > maxToolOutputChars {
+				toolResultMsg[i] = &schema.Message{
+					Role:       msg.Role,
+					Content:    msg.Content[:maxToolOutputChars] + fmt.Sprintf("\n\n[... Output truncated - %d chars omitted for context limit]", len(msg.Content)-maxToolOutputChars),
+					ToolCallID: msg.ToolCallID,
+				}
+			}
 		}
 
 		// Stream tool output to frontend
@@ -337,8 +611,8 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 					// Truncate output for streaming preview (keep full in final response)
 					preview := msg.Content
-					if len(preview) > 500 {
-						preview = preview[:500] + "... (more)"
+					if len(preview) > 200 {
+						preview = preview[:200] + "..."
 					}
 
 					onProgress(ProgressUpdate{
@@ -390,8 +664,8 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		return nil, err
 	}
 
-	// 5. Compile and Run with increased max steps
-	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(50))
+	// 5. Compile and Run with reduced max steps for better efficiency
+	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(30))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %v", err)
 	}
@@ -401,7 +675,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	emitProgress(StageInitializing, 15, "Preparing context...", 1, 6)
 
-	// 6. Build Context Prompt (with length control)
+	// 6. Build Context Prompt (minimal - only table names, let tool provide details)
 	startContext := time.Now()
 	var contextPrompt string
 	var dbType string = "sqlite"
@@ -416,44 +690,26 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 					dbType = ds.Type
 				}
 
-				contextPrompt = fmt.Sprintf("\n\nCurrent Data Source Context (ID: %s, Name: %s, Type: %s):\n", ds.ID, ds.Name, dbType)
-				if ds.Analysis != nil {
+				contextPrompt = fmt.Sprintf("\n\nData: %s (ID: %s, Type: %s)\n", ds.Name, ds.ID, strings.ToUpper(dbType))
+				if ds.Analysis != nil && ds.Analysis.Summary != "" {
 					contextPrompt += fmt.Sprintf("Summary: %s\n", ds.Analysis.Summary)
-					contextPrompt += "Schema Overview:\n"
+				}
+
+				// Only send table names, not full schema
+				if ds.Analysis != nil && len(ds.Analysis.Schema) > 0 {
+					var tableNames []string
 					for _, t := range ds.Analysis.Schema {
-						contextPrompt += fmt.Sprintf("- Table: %s, Columns: %v\n", t.TableName, t.Columns)
+						tableNames = append(tableNames, t.TableName)
 					}
+					contextPrompt += fmt.Sprintf("Tables: %s\n", strings.Join(tableNames, ", "))
+					contextPrompt += "⚠️ Call get_data_source_context for columns.\n"
 				}
 
-				// Add SQL dialect hints based on database type
-				contextPrompt += fmt.Sprintf("\n⚠️ SQL Dialect: %s\n", strings.ToUpper(dbType))
+				// SQL dialect
 				if dbType == "sqlite" {
-					contextPrompt += `IMPORTANT - SQLite Syntax Rules:
-• Date: strftime('%Y', col), strftime('%m', col), strftime('%d', col)
-• Date format: strftime('%Y-%m', col) for YYYY-MM
-• Concat: col1 || ' ' || col2 (NOT CONCAT())
-• INSTR(str, substr) - only 2 params!
-• COALESCE() instead of IFNULL()
-• SUBSTR(str, start, len)
-• Current: date('now'), datetime('now')
-• NO YEAR(), MONTH(), DAY() functions!
-`
+					contextPrompt += `Dialect: SQLite (use strftime, ||, no YEAR/MONTH)`
 				} else if dbType == "mysql" || dbType == "doris" {
-					contextPrompt += `IMPORTANT - MySQL/Doris Syntax Rules:
-• Date: YEAR(col), MONTH(col), DAY(col)
-• Date format: DATE_FORMAT(col, '%Y-%m')
-• Concat: CONCAT(col1, ' ', col2)
-• IFNULL(a, b) or COALESCE(a, b)
-• SUBSTRING(str, start, len)
-• Current: NOW(), CURDATE()
-• GROUP_CONCAT() for string aggregation
-`
-				}
-
-				// Truncate context if too long (reserve ~2000 tokens = 8000 chars)
-				maxContextChars := 8000
-				if len(contextPrompt) > maxContextChars {
-					contextPrompt = s.memoryManager.TruncateDataContext(contextPrompt, maxContextChars)
+					contextPrompt += `Dialect: MySQL (use YEAR/MONTH, CONCAT)`
 				}
 				break
 			}
@@ -465,7 +721,25 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: "You are RapidBI's data analysis agent. Use tools to access schema and execute queries.\n\nTools:\n1. get_data_source_context - Get schema + 3 sample rows\n2. execute_sql - Execute SELECT queries (max 1000 rows)\n3. python_executor - Execute Python (max 80 lines)\n\n⚠️ CRITICAL: Python limited to 80 lines/call. Code >80 lines WILL FAIL.\n\n🔴 MANDATORY: ALWAYS call get_data_source_context FIRST before any execute_sql.\nNEVER assume column names exist. If you get \"no such column\" error, you MUST:\n1. Call get_data_source_context to see actual schema\n2. Rewrite query using ONLY the columns shown\n3. Do NOT retry with the same wrong column names\n\n🔴 FOR RFM/CLUSTERING - DO EXACTLY THIS:\nStep 1: get_data_source_context\nStep 2: execute_sql to get data\nStep 3: python_executor with ONLY this code (copy exactly):\n```python\nimport json\nimport pandas as pd\ndata = json.loads('''PASTE_SQL_RESULT_HERE''')\ndf = pd.DataFrame(data)\nref_date = df['OrderDate'].max()\nrfm = df.groupby('CustomerID').agg({\n    'OrderDate': lambda x: (ref_date - x.max()).days,\n    'OrderID': 'count',\n    'TotalAmount': 'sum'\n}).rename(columns={'OrderDate':'R','OrderID':'F','TotalAmount':'M'})\nprint(rfm.describe())\nprint(f'\\nTotal: {len(rfm)} customers')\n```\nSTOP. Wait for result.\n\nStep 4 (segmentation) - Use duplicates='drop' for qcut:\n```python\nrfm['R_Score'] = pd.qcut(rfm['R'], q=5, labels=[5,4,3,2,1], duplicates='drop')\nrfm['F_Score'] = pd.qcut(rfm['F'], q=5, labels=[1,2,3,4,5], duplicates='drop')\nrfm['M_Score'] = pd.qcut(rfm['M'], q=5, labels=[1,2,3,4,5], duplicates='drop')\n```\nStep 5: Visualize (50 lines)\nStep 6: Summary (30 lines)\n\nWorkflow:\n1. get_data_source_context for schema\n2. execute_sql to query\n3. python_executor - load data:\n   ```python\n   import json, pandas as pd\n   data = json.loads('''<SQL>''')\n   df = pd.DataFrame(data)\n   ```\n\nViz: plt.savefig('chart.png') or ```json:echarts {...}```\n\nRules:\n- Max 80 lines/call\n- ONE step at a time for RFM\n- Use duplicates='drop' with qcut\n- Short names" + contextPrompt,
+		Content: `You are RapidBI's data analysis expert. Be FAST and DIRECT.
+
+🎯 GOAL: Complete in ≤10 tool calls total.
+
+📋 WORKFLOW (EXECUTE IMMEDIATELY):
+1. get_data_source_context → Get columns
+2. execute_sql → Query data
+3. python_executor (if needed) → Analyze/visualize
+4. STOP → Present results
+
+🔴 CRITICAL:
+- EXECUTE tools immediately (not explain first)
+- ONE SQL query if possible (use JOINs, not multiple queries)
+- Present results IMMEDIATELY after data ready
+- NO explanatory text before tool calls
+
+📊 OUTPUT: Use ` + "```json:echarts{...}```" + ` or ` + "```json:table[...]```" + `
+
+⚠️ You have LIMITED steps - be efficient!` + contextPrompt,
 	}
 
 	// 7. Apply memory management to history
@@ -492,6 +766,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	startInvoke := time.Now()
 	finalHistory, err := runnable.Invoke(ctx, input)
 	if err != nil {
+		// Mark trajectory as failed
+		trajectory.Success = false
+		trajectory.ErrorMessage = err.Error()
 		return nil, err
 	}
 	if s.Logger != nil {
@@ -501,9 +778,96 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	emitProgress(StageComplete, 100, "Analysis complete", 6, 6)
 
-	// Return the last message
+	// Return the last message and mark trajectory as successful
 	if len(finalHistory) > 0 {
-		return finalHistory[len(finalHistory)-1], nil
+		lastMsg := finalHistory[len(finalHistory)-1]
+		trajectory.Success = true
+		trajectory.FinalResponse = truncateString(lastMsg.Content, 2000)
+		return lastMsg, nil
 	}
+
+	// No response - mark as failed
+	trajectory.Success = false
+	trajectory.ErrorMessage = "agent returned empty history"
 	return nil, fmt.Errorf("agent returned empty history")
+}
+
+// saveTrajectory saves the trajectory to session directory for training use
+func (s *EinoService) saveTrajectory(sessionDir string, trajectory *AgentTrajectory) {
+	if sessionDir == "" || trajectory == nil {
+		return
+	}
+
+	// Finalize trajectory
+	trajectory.EndTime = time.Now().UnixMilli()
+	trajectory.TotalDuration = trajectory.EndTime - trajectory.StartTime
+
+	// Create trajectory directory
+	trajectoryDir := filepath.Join(sessionDir, "trajectory")
+	if err := os.MkdirAll(trajectoryDir, 0755); err != nil {
+		if s.Logger != nil {
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to create directory: %v", err))
+		}
+		return
+	}
+
+	// Generate filename based on timestamp
+	filename := fmt.Sprintf("%d.json", trajectory.StartTime)
+	filePath := filepath.Join(trajectoryDir, filename)
+
+	// Marshal to JSON with indentation for readability
+	data, err := json.MarshalIndent(trajectory, "", "  ")
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to marshal: %v", err))
+		}
+		return
+	}
+
+	// Write to file
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		if s.Logger != nil {
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to write file: %v", err))
+		}
+		return
+	}
+
+	if s.Logger != nil {
+		s.Logger(fmt.Sprintf("[TRAJECTORY] Saved to: %s (%d steps, %d tool calls, %dms)",
+			filePath, len(trajectory.Steps), trajectory.ToolCallCount, trajectory.TotalDuration))
+	}
+}
+
+// messagesToMap converts messages to simplified map representation for trajectory
+func messagesToMap(msgs []*schema.Message) []map[string]interface{} {
+	var result []map[string]interface{}
+	for _, msg := range msgs {
+		result = append(result, messageToMap(msg))
+	}
+	return result
+}
+
+// messageToMap converts a single message to map with truncated content
+func messageToMap(msg *schema.Message) map[string]interface{} {
+	m := map[string]interface{}{
+		"role": string(msg.Role),
+	}
+
+	// Truncate long content to avoid huge trajectory files
+	if len(msg.Content) > 500 {
+		m["content"] = msg.Content[:500] + "... [truncated]"
+	} else {
+		m["content"] = msg.Content
+	}
+
+	// Add tool calls if present
+	if len(msg.ToolCalls) > 0 {
+		var calls []string
+		for _, tc := range msg.ToolCalls {
+			calls = append(calls, tc.Function.Name)
+		}
+		m["tool_calls"] = calls
+	}
+
+	return m
 }

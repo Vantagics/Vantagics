@@ -1,5 +1,127 @@
 export namespace agent {
 	
+	export class ConversationTurn {
+	    role: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationTurn(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	    }
+	}
+	export class AnalysisStep {
+	    step_id: number;
+	    // Go type: time
+	    timestamp: any;
+	    tool_name: string;
+	    description: string;
+	    input: string;
+	    output: string;
+	    chart_type: string;
+	    chart_data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.step_id = source["step_id"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.tool_name = source["tool_name"];
+	        this.description = source["description"];
+	        this.input = source["input"];
+	        this.output = source["output"];
+	        this.chart_type = source["chart_type"];
+	        this.chart_data = source["chart_data"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ReplayTableSchema {
+	    table_name: string;
+	    columns: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplayTableSchema(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table_name = source["table_name"];
+	        this.columns = source["columns"];
+	    }
+	}
+	export class AnalysisRecording {
+	    recording_id: string;
+	    title: string;
+	    description: string;
+	    // Go type: time
+	    created_at: any;
+	    source_id: string;
+	    source_name: string;
+	    source_schema: ReplayTableSchema[];
+	    steps: AnalysisStep[];
+	    llm_conversation: ConversationTurn[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisRecording(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.recording_id = source["recording_id"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.source_id = source["source_id"];
+	        this.source_name = source["source_name"];
+	        this.source_schema = this.convertValues(source["source_schema"], ReplayTableSchema);
+	        this.steps = this.convertValues(source["steps"], AnalysisStep);
+	        this.llm_conversation = this.convertValues(source["llm_conversation"], ConversationTurn);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
 	export class TableSchema {
 	    table_name: string;
 	    columns: string[];
@@ -157,6 +279,20 @@ export namespace agent {
 	}
 	
 	
+	export class FieldMapping {
+	    old_field: string;
+	    new_field: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FieldMapping(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.old_field = source["old_field"];
+	        this.new_field = source["new_field"];
+	    }
+	}
 	
 	export class PythonEnvironment {
 	    path: string;
@@ -194,6 +330,109 @@ export namespace agent {
 	        this.error = source["error"];
 	    }
 	}
+	export class TableMapping {
+	    source_table: string;
+	    target_table: string;
+	    mappings: FieldMapping[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TableMapping(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source_table = source["source_table"];
+	        this.target_table = source["target_table"];
+	        this.mappings = this.convertValues(source["mappings"], FieldMapping);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class StepResult {
+	    step_id: number;
+	    success: boolean;
+	    output: string;
+	    error_message: string;
+	    chart_data: string;
+	    modified: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StepResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.step_id = source["step_id"];
+	        this.success = source["success"];
+	        this.output = source["output"];
+	        this.error_message = source["error_message"];
+	        this.chart_data = source["chart_data"];
+	        this.modified = source["modified"];
+	    }
+	}
+	export class ReplayResult {
+	    success: boolean;
+	    steps_executed: number;
+	    steps_failed: number;
+	    step_results: StepResult[];
+	    field_mappings: TableMapping[];
+	    generated_files: string[];
+	    error_message: string;
+	    charts: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReplayResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.steps_executed = source["steps_executed"];
+	        this.steps_failed = source["steps_failed"];
+	        this.step_results = this.convertValues(source["step_results"], StepResult);
+	        this.field_mappings = this.convertValues(source["field_mappings"], TableMapping);
+	        this.generated_files = source["generated_files"];
+	        this.error_message = source["error_message"];
+	        this.charts = source["charts"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
 
 }
 
@@ -256,11 +495,57 @@ export namespace main {
 	        this.short_term = source["short_term"];
 	    }
 	}
+	export class ChartItem {
+	    type: string;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChartItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.data = source["data"];
+	    }
+	}
+	export class ChartData {
+	    charts: ChartItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChartData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.charts = this.convertValues(source["charts"], ChartItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class ChatMessage {
 	    id: string;
 	    role: string;
 	    content: string;
 	    timestamp: number;
+	    chart_data?: ChartData;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -272,6 +557,45 @@ export namespace main {
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.timestamp = source["timestamp"];
+	        this.chart_data = this.convertValues(source["chart_data"], ChartData);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SessionFile {
+	    name: string;
+	    path: string;
+	    type: string;
+	    size: number;
+	    created_at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.type = source["type"];
+	        this.size = source["size"];
+	        this.created_at = source["created_at"];
 	    }
 	}
 	export class ChatThread {
@@ -280,6 +604,7 @@ export namespace main {
 	    data_source_id: string;
 	    created_at: number;
 	    messages: ChatMessage[];
+	    files?: SessionFile[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatThread(source);
@@ -292,6 +617,7 @@ export namespace main {
 	        this.data_source_id = source["data_source_id"];
 	        this.created_at = source["created_at"];
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
+	        this.files = this.convertValues(source["files"], SessionFile);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -392,7 +718,104 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ErrorRecord {
+	    timestamp: string;
+	    error_type: string;
+	    error_message: string;
+	    context: string;
+	    solution: string;
+	    successful: boolean;
 	
+	    static createFrom(source: any = {}) {
+	        return new ErrorRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = source["timestamp"];
+	        this.error_type = source["error_type"];
+	        this.error_message = source["error_message"];
+	        this.context = source["context"];
+	        this.solution = source["solution"];
+	        this.successful = source["successful"];
+	    }
+	}
+	export class ErrorKnowledgeSummary {
+	    total_records: number;
+	    successful_count: number;
+	    success_rate: number;
+	    by_type: Record<string, number>;
+	    recent_errors: ErrorRecord[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ErrorKnowledgeSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_records = source["total_records"];
+	        this.successful_count = source["successful_count"];
+	        this.success_rate = source["success_rate"];
+	        this.by_type = source["by_type"];
+	        this.recent_errors = this.convertValues(source["recent_errors"], ErrorRecord);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
+	export class SkillInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    version: string;
+	    author: string;
+	    category: string;
+	    keywords: string[];
+	    required_columns: string[];
+	    tools: string[];
+	    enabled: boolean;
+	    icon: string;
+	    tags: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.version = source["version"];
+	        this.author = source["author"];
+	        this.category = source["category"];
+	        this.keywords = source["keywords"];
+	        this.required_columns = source["required_columns"];
+	        this.tools = source["tools"];
+	        this.enabled = source["enabled"];
+	        this.icon = source["icon"];
+	        this.tags = source["tags"];
+	    }
+	}
 
 }
 

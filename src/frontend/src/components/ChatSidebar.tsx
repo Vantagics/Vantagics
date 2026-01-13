@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRight, Settings, Upload } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, AssetizeSession } from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { X, MessageSquare, Plus, Trash2, Send, Loader2, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle } from 'lucide-react';
+import { GetChatHistory, SaveChatHistory, SendMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, AssetizeSession, OpenSessionResultsDirectory, CancelAnalysis, GetConfig } from '../../wailsjs/go/main/App';
+import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
 import { useLanguage } from '../i18n';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
+import CancelConfirmationModal from './CancelConfirmationModal';
 
 // Progress update type from backend
 interface ProgressUpdate {
@@ -39,7 +40,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string } | null>(null);
     const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
     const [progress, setProgress] = useState<ProgressUpdate | null>(null);
-    
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
     // Resizing State
     const [sidebarWidth, setSidebarWidth] = useState(650);
     const [historyWidth, setHistoryWidth] = useState(208);
@@ -59,6 +61,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             loadDataSources();
         }
     }, [isOpen]);
+
+    // Emit session-switched event when active thread changes
+    useEffect(() => {
+        if (activeThreadId) {
+            EventsEmit('session-switched', activeThreadId);
+        }
+    }, [activeThreadId]);
 
     // Resizing Effect
     useEffect(() => {
@@ -94,20 +103,101 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         };
     }, [isResizingSidebar, isResizingHistory, sidebarWidth]);
 
+    // Track pending chat creation to prevent duplicates
+    const pendingChatRef = useRef<string | null>(null);
+    const lastMessageRef = useRef<string | null>(null); // 新增：跟踪最后发送的消息
+    const pendingActionRef = useRef<string | null>(null); // 新增：跟踪正在处理的操作
+
+    // Store function refs to use in event handlers without causing re-registration
+    // These will be updated after the functions are defined
+    const handleCreateThreadRef = useRef<((dataSourceId?: string, title?: string) => Promise<main.ChatThread | null>) | null>(null);
+    const handleSendMessageRef = useRef<((text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread) => Promise<void>) | null>(null);
+
+    // Listen for new chat creation - separate useEffect with empty deps to prevent duplicate listeners
     useEffect(() => {
-        // Listen for new chat creation from Sidebar
         const unsubscribeStart = EventsOn('start-new-chat', async (data: any) => {
-            const thread = await handleCreateThread(data.dataSourceId, data.sessionName);
-            if (thread) {
-                // Small delay to ensure state updates (activeThreadId) have propagated
+            console.log('[ChatSidebar] start-new-chat event received:', data);
+            
+            // Use sessionName as a key to prevent duplicate processing
+            const chatKey = `${data.dataSourceId}-${data.sessionName}`;
+            if (pendingChatRef.current === chatKey) {
+                console.log('[ChatSidebar] Ignoring duplicate start-new-chat event:', chatKey);
+                return;
+            }
+            pendingChatRef.current = chatKey;
+
+            try {
+                const thread = handleCreateThreadRef.current ? await handleCreateThreadRef.current(data.dataSourceId, data.sessionName) : null;
+                if (thread) {
+                    console.log('[ChatSidebar] Thread created, preparing to send initial message:', thread.id);
+                    
+                    // Small delay to ensure state updates (activeThreadId) have propagated
+                    setTimeout(async () => {
+                        // Get current language from config to ensure consistency
+                        let prompt = "Give me some analysis suggestions for this data source.";
+                        try {
+                            const config = await GetConfig();
+                            if (config.language === '简体中文') {
+                                prompt = "请给出一些本数据源的分析建议。";
+                            }
+                        } catch (e) {
+                            console.error("Failed to get config for language:", e);
+                        }
+                        
+                        // 防止重复发送相同消息 - 使用更强的检查
+                        const messageKey = `${thread.id}-${prompt}`;
+                        const currentTime = Date.now();
+                        
+                        // 检查是否在短时间内发送了相同的消息
+                        if (lastMessageRef.current === messageKey) {
+                            console.log('[ChatSidebar] Ignoring duplicate message send (exact match):', messageKey);
+                            return;
+                        }
+                        
+                        // 额外检查：检查线程中是否已经存在相同的消息
+                        const existingMessages = thread.messages || [];
+                        const hasDuplicateMessage = existingMessages.some(msg => 
+                            msg.role === 'user' && 
+                            msg.content === prompt &&
+                            (currentTime - (msg.timestamp * 1000)) < 10000 // 10秒内的重复消息
+                        );
+                        
+                        if (hasDuplicateMessage) {
+                            console.log('[ChatSidebar] Ignoring duplicate message send (found in thread):', prompt);
+                            return;
+                        }
+                        
+                        lastMessageRef.current = messageKey;
+                        console.log('[ChatSidebar] Sending initial message:', prompt);
+                        
+                        if (handleSendMessageRef.current) {
+                            handleSendMessageRef.current(prompt, thread.id, thread);
+                        }
+                        
+                        // 清除消息标记
+                        setTimeout(() => {
+                            if (lastMessageRef.current === messageKey) {
+                                lastMessageRef.current = null;
+                            }
+                        }, 5000); // 增加到5秒
+                    }, 100);
+                }
+            } finally {
+                // Clear the pending flag after a delay to allow the operation to complete
                 setTimeout(() => {
-                    // Auto-send suggestion prompt
-                    const prompt = t('analyze_suggestions_prompt') || "Give me some analysis suggestions for this data source.";
-                    handleSendMessage(prompt, thread.id, thread);
-                }, 100);
+                    if (pendingChatRef.current === chatKey) {
+                        pendingChatRef.current = null;
+                    }
+                }, 1000); // 增加到1秒
             }
         });
 
+        return () => {
+            if (unsubscribeStart) unsubscribeStart();
+        };
+    }, []); // Empty deps - only register once
+
+    useEffect(() => {
         // Listen for open chat request from Sidebar context menu
         const unsubscribeOpen = EventsOn('open-chat', (thread: main.ChatThread) => {
             // Ensure we have the latest threads
@@ -135,26 +225,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
         });
 
-        // Listen for insight analysis request from Dashboard
-        const unsubscribeAnalyze = EventsOn('analyze-insight', (text: string) => {
-            // Open sidebar if closed (managed by parent, but we can't control parent state easily here without prop)
-            // But we can just send message. The parent App handles opening via prop? 
-            // Wait, isOpen is a prop. We cannot change it here.
-            // But we can emit an event to App?
-            // Actually, clicking insight usually implies user wants to chat.
-            // We can assume App will listen to this too or we emit "open-chat-sidebar".
-            
-            // For now, let's just trigger send message.
-            handleSendMessage(text);
+        // Listen for send message request (triggered after sidebar is open)
+        const unsubscribeSendMessage = EventsOn('chat-send-message', (text: string) => {
+            // Only handle if sidebar is open and initialized
+            if (isOpen) {
+                handleSendMessage(text);
+            }
         });
 
         return () => {
-            if (unsubscribeStart) unsubscribeStart();
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeUpdate) unsubscribeUpdate();
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeProgress) unsubscribeProgress();
-            if (unsubscribeAnalyze) unsubscribeAnalyze();
+            if (unsubscribeSendMessage) unsubscribeSendMessage();
         };
     }, [threads]);
 
@@ -207,8 +291,27 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setThreads(prev => [newThread, ...prev]);
             setActiveThreadId(newThread.id);
             return newThread;
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to create thread:', err);
+
+            // Check if error is about active session conflict
+            const errorMsg = err?.message || String(err);
+            if (errorMsg.includes('分析会话进行中') || errorMsg.includes('active analysis')) {
+                // Show user-friendly error message via MessageModal
+                EventsEmit('show-message-modal', {
+                    type: 'warning',
+                    title: t('session_conflict_title') || '会话冲突',
+                    message: errorMsg
+                });
+            } else {
+                // Generic error
+                EventsEmit('show-message-modal', {
+                    type: 'error',
+                    title: t('create_session_failed') || '创建会话失败',
+                    message: errorMsg
+                });
+            }
+
             return null;
         }
     };
@@ -255,7 +358,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setBlankAreaContextMenu(null);
     };
 
-    const handleContextAction = async (action: 'export' | 'assetize' | 'view_memory', threadId: string) => {
+    const handleContextAction = async (action: 'export' | 'assetize' | 'view_memory' | 'view_results_directory', threadId: string) => {
         console.log(`Action ${action} on thread ${threadId}`);
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
@@ -271,6 +374,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             } catch (e) {
                 console.error("Assetize failed:", e);
             }
+        } else if (action === 'view_results_directory') {
+            try {
+                await OpenSessionResultsDirectory(threadId);
+            } catch (e) {
+                console.error("Open results directory failed:", e);
+                // Show error message to user
+                EventsEmit('show-message-modal', {
+                    type: 'error',
+                    title: '打开目录失败',
+                    message: String(e)
+                });
+            }
         }
     };
 
@@ -279,20 +394,38 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // If explicitThread is passed (auto-start), ignore isLoading check to ensure it fires.
         if (!msgText.trim() || (isLoading && !explicitThread)) return;
 
+        // 防止重复的操作请求（特别是按钮点击）
+        const actionKey = `${activeThreadId || explicitThreadId}-${msgText}`;
+        const currentTime = Date.now();
+        
+        if (pendingActionRef.current === actionKey) {
+            console.log('[ChatSidebar] Ignoring duplicate action (pending):', msgText.substring(0, 50));
+            return;
+        }
+        pendingActionRef.current = actionKey;
+
+        // 设置清除标记的定时器
+        const clearActionFlag = () => {
+            if (pendingActionRef.current === actionKey) {
+                pendingActionRef.current = null;
+            }
+        };
+        const timeoutId = setTimeout(clearActionFlag, 2000); // 增加到2秒
+
         let currentThreads = [...threads];
         let currentThread = explicitThread;
-        
+
         if (currentThread) {
-             const threadId = currentThread.id;
-             const idx = currentThreads.findIndex(t => t.id === threadId);
-             if (idx === -1) {
-                 currentThreads = [currentThread, ...currentThreads];
-             } else {
-                 currentThreads[idx] = currentThread;
-             }
+            const threadId = currentThread.id;
+            const idx = currentThreads.findIndex(t => t.id === threadId);
+            if (idx === -1) {
+                currentThreads = [currentThread, ...currentThreads];
+            } else {
+                currentThreads[idx] = currentThread;
+            }
         } else {
-             const targetId = explicitThreadId || activeThreadId;
-             currentThread = currentThreads.find(t => t.id === targetId);
+            const targetId = explicitThreadId || activeThreadId;
+            currentThread = currentThreads.find(t => t.id === targetId);
         }
 
         // If no active thread, create one first (only if explicitThreadId is not set)
@@ -309,11 +442,33 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 return;
             }
         } else if (!currentThread && explicitThreadId) {
-             console.error("Target thread not found:", explicitThreadId);
-             return;
+            console.error("Target thread not found:", explicitThreadId);
+            return;
         }
 
         if (!currentThread) return;
+
+        // Store thread ID to avoid TypeScript errors after awaits
+        const currentThreadId = currentThread.id;
+
+        // 检查是否已经存在相同内容的消息（防止重复发送）
+        const existingMessages = currentThread.messages || [];
+        const recentMessages = existingMessages.slice(-5); // 检查最近5条消息（增加检查范围）
+        const isDuplicate = recentMessages.some(msg => 
+            msg.role === 'user' && 
+            msg.content === msgText && 
+            (currentTime - (msg.timestamp * 1000)) < 10000 // 增加到10秒内的重复消息
+        );
+        
+        if (isDuplicate) {
+            console.log('[ChatSidebar] Ignoring duplicate message (found in recent messages):', msgText.substring(0, 50));
+            // 清除操作标记
+            if (pendingActionRef.current === actionKey) {
+                pendingActionRef.current = null;
+            }
+            clearTimeout(timeoutId);
+            return;
+        }
 
         const userMsg = new main.ChatMessage();
         userMsg.id = Date.now().toString();
@@ -324,71 +479,103 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         if (!currentThread.messages) currentThread.messages = [];
         // Use immutable update for messages to ensure React detects change
         currentThread.messages = [...currentThread.messages, userMsg];
-        
+
         if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
-             const newTitle = msgText.slice(0, 30) + (msgText.length > 30 ? '...' : '');
-             try {
-                 const uniqueTitle = await UpdateThreadTitle(currentThread.id, newTitle);
-                 currentThread.title = uniqueTitle;
-             } catch (err) {
-                 console.error("Failed to rename thread:", err);
-             }
+            const newTitle = msgText.slice(0, 30) + (msgText.length > 30 ? '...' : '');
+            try {
+                const uniqueTitle = await UpdateThreadTitle(currentThreadId, newTitle);
+                currentThread.title = uniqueTitle;
+            } catch (err) {
+                console.error("Failed to rename thread:", err);
+            }
         }
 
-        // Optimistic update using functional state
-        setThreads(prevThreads => {
-            const index = prevThreads.findIndex(t => t.id === currentThread!.id);
-            const updatedThreads = [...prevThreads];
-            const threadClone = main.ChatThread.createFrom({ ...currentThread!, messages: [...currentThread!.messages] });
-            
-            if (index !== -1) {
-                updatedThreads[index] = threadClone;
-            } else {
-                updatedThreads.unshift(threadClone);
-            }
-            
-            // Save immediately to persist user message
-            SaveChatHistory(updatedThreads).catch(err => console.error("Failed to save user message:", err));
-            
-            return updatedThreads;
-        });
-        
+        // Optimistic update using functional state logic
+        // We must calculate the new state synchronously to ensure SaveChatHistory gets the correct data
+        const threadIndex = currentThreads.findIndex(t => t.id === currentThreadId);
+        const updatedThreads = [...currentThreads];
+
+        // Clone the thread with the new user message
+        const threadClone = main.ChatThread.createFrom({ ...currentThread!, messages: [...currentThread!.messages] });
+
+        if (threadIndex !== -1) {
+            updatedThreads[threadIndex] = threadClone;
+        } else {
+            updatedThreads.unshift(threadClone);
+        }
+
+        // Update UI immediately
+        setThreads(updatedThreads);
+
         setInput('');
         setIsLoading(true);
 
         try {
-            const response = await SendMessage(currentThread.id, msgText);
+            // Await save before sending message to prevent race condition
+            // Now passing the explicitly calculated updatedThreads
+            await SaveChatHistory(updatedThreads);
+
+            const response = await SendMessage(currentThreadId, msgText, userMsg.id);
+
+            // CRITICAL: Reload threads from backend to get chart_data attached by backend
+            // The backend's attachChartToUserMessage modifies the user message after SendMessage
+            // If we don't reload, we'll overwrite that modification when saving the assistant response
+            const reloadedThreads = await GetChatHistory();
+
             const assistantMsg = new main.ChatMessage();
             assistantMsg.id = (Date.now() + 1).toString();
             assistantMsg.role = 'assistant';
             assistantMsg.content = response;
             assistantMsg.timestamp = Math.floor(Date.now() / 1000);
 
-            // Update with response
-            setThreads(prevThreads => {
-                const index = prevThreads.findIndex(t => t.id === currentThread!.id);
-                if (index !== -1) {
+            // Find the reloaded thread (includes backend modifications like chart_data)
+            const reloadedThread = reloadedThreads.find(t => t.id === currentThreadId);
+
+            if (reloadedThread) {
+                // Add assistant message to reloaded thread (which has chart_data from backend)
+                reloadedThread.messages = [...reloadedThread.messages, assistantMsg];
+
+                // Update state with reloaded thread
+                setThreads(prevThreads => {
+                    const index = prevThreads.findIndex(t => t.id === currentThreadId);
                     const newThreads = [...prevThreads];
-                    const updatedThread = main.ChatThread.createFrom({ 
-                        ...newThreads[index], 
-                        messages: [...newThreads[index].messages, assistantMsg] 
-                    });
-                    newThreads[index] = updatedThread;
-                    
-                    // Persist updated history
-                    SaveChatHistory(newThreads).catch(err => console.error("Failed to save assistant response:", err));
-                    
+                    if (index !== -1) {
+                        newThreads[index] = reloadedThread;
+                    } else {
+                        newThreads.unshift(reloadedThread);
+                    }
                     return newThreads;
-                }
-                return prevThreads;
-            });
+                });
+
+                // Save with backend modifications preserved
+                const threadsToSaveWithResponse = reloadedThreads.map(t =>
+                    t.id === reloadedThread.id ? reloadedThread : t
+                );
+                await SaveChatHistory(threadsToSaveWithResponse);
+            } else {
+                // Fallback to old behavior if thread not found (shouldn't happen)
+                setThreads(prevThreads => {
+                    const index = prevThreads.findIndex(t => t.id === currentThreadId);
+                    if (index !== -1) {
+                        const newThreads = [...prevThreads];
+                        const updatedThread = main.ChatThread.createFrom({
+                            ...newThreads[index],
+                            messages: [...newThreads[index].messages, assistantMsg]
+                        });
+                        newThreads[index] = updatedThread;
+                        SaveChatHistory(newThreads).catch(err => console.error("Failed to save assistant response:", err));
+                        return newThreads;
+                    }
+                    return prevThreads;
+                });
+            }
 
         } catch (error) {
             console.error(error);
             const errorMsg = new main.ChatMessage();
             errorMsg.id = (Date.now() + 1).toString();
             errorMsg.role = 'assistant';
-            
+
             let errorText = 'Sorry, I encountered an error. Please check your connection and API keys.';
             if (typeof error === 'string') {
                 errorText = `Error: ${error}`;
@@ -396,10 +583,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 errorText = `Error: ${error.message}`;
             }
             errorMsg.content = errorText;
-            
+
             errorMsg.timestamp = Math.floor(Date.now() / 1000);
             currentThread.messages = [...currentThread.messages, errorMsg];
-            
+
             setThreads(prevThreads => {
                 const index = prevThreads.findIndex(t => t.id === currentThread!.id);
                 if (index !== -1) {
@@ -410,10 +597,40 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 return prevThreads;
             });
         } finally {
+            clearTimeout(timeoutId); // 清除定时器
             setIsLoading(false);
             setProgress(null);
+            // 清除操作标记
+            if (pendingActionRef.current === actionKey) {
+                pendingActionRef.current = null;
+            }
         }
     };
+
+    // Update refs on every render to ensure they always have the latest function references
+    // This is critical for the start-new-chat event listener which has empty dependencies
+    handleCreateThreadRef.current = handleCreateThread;
+    handleSendMessageRef.current = handleSendMessage;
+
+    const handleUserMessageClick = (message: main.ChatMessage) => {
+        // Debug logging
+        console.log("[ChatSidebar] User message clicked:", message.id);
+        console.log("[ChatSidebar] Message content:", message.content?.substring(0, 100));
+        console.log("[ChatSidebar] Has chart_data:", !!message.chart_data);
+        console.log("[ChatSidebar] chart_data object:", message.chart_data);
+        if (message.chart_data) {
+            console.log("[ChatSidebar] chart_data.charts:", message.chart_data.charts);
+            console.log("[ChatSidebar] Number of charts:", message.chart_data.charts?.length || 0);
+        }
+
+        // Emit event with message data for dashboard update
+        EventsEmit('user-message-clicked', {
+            messageId: message.id,
+            content: message.content,
+            chartData: message.chart_data
+        });
+    };
+
 
     const handleClearHistory = () => {
         setShowClearConfirm(true);
@@ -435,63 +652,88 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setShowClearConfirm(false);
     };
 
+    const handleCancelAnalysis = () => {
+        setShowCancelConfirm(true);
+    };
+
+    const confirmCancelAnalysis = async () => {
+        try {
+            await CancelAnalysis();
+            setShowCancelConfirm(false);
+            setIsLoading(false);
+            setProgress(null);
+        } catch (err) {
+            console.error('Failed to cancel analysis:', err);
+            setShowCancelConfirm(false);
+        }
+    };
+
+    const cancelCancelAnalysis = () => {
+        setShowCancelConfirm(false);
+    };
+
     return (
         <>
+
+
             <div
-                className={`fixed inset-0 bg-slate-900/20 backdrop-blur-[1px] transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-                onClick={onClose}
-            />
-            
-            <div 
                 data-testid="chat-sidebar"
                 style={{ width: sidebarWidth }}
                 className={`fixed inset-y-0 right-0 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex overflow-hidden border-l border-slate-200 ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
             >
                 {/* Sidebar Resizer (Left Edge) */}
-                <div 
+                <div
                     className="absolute left-0 top-0 bottom-0 w-1 hover:bg-blue-400 cursor-col-resize z-[60] transition-colors"
                     onMouseDown={() => { setIsResizingSidebar(true); document.body.style.cursor = 'col-resize'; }}
                 />
 
                 {/* Thread List Sidebar */}
-                <div 
+                <div
                     style={{ width: isSidebarCollapsed ? 0 : historyWidth }}
                     className="bg-slate-50 border-r border-slate-200 flex flex-col transition-all duration-300 overflow-hidden relative flex-shrink-0"
                 >
                     <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10"
-                        style={{ '--wails-draggable': 'drag' } as any}
                     >
                         <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
-                        <div className="w-4" /> 
+                        <div className="w-4" />
                     </div>
-                    
+
                     <div
                         className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-hide"
                         onContextMenu={handleBlankAreaContextMenu}
                     >
-                        {threads.map(thread => (
-                            <div 
-                                key={thread.id}
-                                onClick={() => setActiveThreadId(thread.id)}
-                                onContextMenu={(e) => handleContextMenu(e, thread.id)}
-                                className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${
-                                    activeThreadId === thread.id 
-                                        ? 'bg-white border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100' 
+                        {threads.map(thread => {
+                            const threadDataSource = dataSources.find(ds => ds.id === thread.data_source_id);
+                            return (
+                                <div
+                                    key={thread.id}
+                                    onClick={() => setActiveThreadId(thread.id)}
+                                    onContextMenu={(e) => handleContextMenu(e, thread.id)}
+                                    className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${activeThreadId === thread.id
+                                        ? 'bg-white border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100'
                                         : 'text-slate-600 hover:bg-white hover:border-slate-200 border-transparent'
-                                }`}
-                            >
-                                <div className="flex items-center gap-2.5 truncate pr-1">
-                                    <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeThreadId === thread.id ? 'text-blue-500' : 'text-slate-400'}`} />
-                                    <span className="truncate leading-tight">{thread.title}</span>
-                                </div>
-                                <button 
-                                    onClick={(e) => handleDeleteThread(thread.id, e)}
-                                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all rounded-lg hover:bg-red-50 text-slate-400"
+                                        }`}
                                 >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        ))}
+                                    <div className="flex items-center gap-2.5 truncate pr-1">
+                                        <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeThreadId === thread.id ? 'text-blue-500' : 'text-slate-400'}`} />
+                                        <span className="truncate leading-tight">
+                                            {thread.title}
+                                            {threadDataSource && (
+                                                <span className="text-slate-400 font-normal ml-1">
+                                                    ({threadDataSource.name})
+                                                </span>
+                                            )}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={(e) => handleDeleteThread(thread.id, e)}
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all rounded-lg hover:bg-red-50 text-slate-400"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            );
+                        })}
                         {threads.length === 0 && (
                             <div className="text-center py-12 px-4">
                                 <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -503,7 +745,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     <div className="p-3 border-t border-slate-200 bg-white/50">
-                        <button 
+                        <button
                             onClick={handleClearHistory}
                             className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] font-bold text-slate-500 hover:text-red-600 transition-colors rounded-xl hover:bg-red-50"
                         >
@@ -513,7 +755,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     {/* History Resizer (Right Edge of History Panel) */}
-                    <div 
+                    <div
                         className="absolute right-0 top-0 bottom-0 w-1 hover:bg-blue-400 cursor-col-resize z-20 transition-colors"
                         onMouseDown={(e) => { e.preventDefault(); setIsResizingHistory(true); document.body.style.cursor = 'col-resize'; }}
                     />
@@ -521,7 +763,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                 {/* Main Chat Area */}
                 <div className="flex-1 flex flex-col min-w-0 bg-white relative">
-                    <button 
+                    <button
                         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                         className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 rounded-full p-1.5 shadow-lg hover:bg-slate-50 text-slate-400 hover:text-blue-500 transition-all hover:scale-110 ${isSidebarCollapsed ? 'translate-x-3' : ''}`}
                     >
@@ -529,7 +771,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </button>
 
                     <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative"
-                        style={{ '--wails-draggable': 'drag' } as any}
                     >
                         <div className="flex items-center gap-3.5">
                             <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200">
@@ -551,14 +792,39 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
-                             <button 
-                                onClick={onClose}
-                                aria-label="Close sidebar"
-                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all"
-                                style={{ '--wails-draggable': 'no-drag' } as any}
+                            <button
+                                onClick={(e) => {
+                                    console.log('Skills button clicked');
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    EventsEmit('open-skills');
+                                }}
+                                aria-label="Open Skills"
+                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
+                                title="Skills Plugin"
                             >
-                                <X className="w-5 h-5" />
+                                <Zap className="w-5 h-5 pointer-events-none" />
                             </button>
+                            <div
+                                onClick={(e) => {
+                                    console.log('Close div clicked');
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onClose();
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        onClose();
+                                    }
+                                }}
+                                aria-label="Close sidebar"
+                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                            >
+                                <X className="w-5 h-5 pointer-events-none" />
+                            </div>
                         </div>
                         {isLoading && (
                             <div className="absolute bottom-0 left-0 right-0 h-1 z-20 overflow-hidden bg-slate-100">
@@ -575,22 +841,50 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                        {activeThread?.messages.map((msg, index) => (
-                            <MessageBubble 
-                                key={msg.id || index} 
-                                role={msg.role as 'user' | 'assistant'} 
-                                content={msg.content} 
-                                onActionClick={(action) => handleSendMessage(action.value || action.label)}
-                            />
-                        ))}
+                        {activeThread?.messages.map((msg, index) => {
+                            // 找到对应的用户消息ID（用于assistant消息关联建议）
+                            let userMessageId = null;
+                            if (msg.role === 'assistant' && index > 0) {
+                                // 查找前一条用户消息
+                                for (let i = index - 1; i >= 0; i--) {
+                                    if (activeThread.messages[i].role === 'user') {
+                                        userMessageId = activeThread.messages[i].id;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            return (
+                                <MessageBubble
+                                    key={msg.id || index}
+                                    role={msg.role as 'user' | 'assistant'}
+                                    content={msg.content}
+                                    messageId={msg.id}
+                                    userMessageId={userMessageId || undefined}
+                                    onActionClick={(action) => handleSendMessage(action.value || action.label)}
+                                    onClick={msg.role === 'user' ? () => handleUserMessageClick(msg) : undefined}
+                                    hasChart={msg.role === 'user' && !!msg.chart_data}
+                                />
+                            );
+                        })}
                         {isLoading && (
                             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3.5 shadow-sm rounded-bl-none max-w-[90%]">
-                                    <div className="flex items-center gap-2">
-                                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                                        <span className="text-xs text-slate-500 font-medium">
-                                            {progress?.message || t('ai_thinking')}
-                                        </span>
+                                    <div className="flex items-center gap-2 justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                                            <span className="text-xs text-slate-500 font-medium">
+                                                {progress?.message || t('ai_thinking')}
+                                            </span>
+                                        </div>
+                                        <button
+                                            onClick={handleCancelAnalysis}
+                                            className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+                                            title="取消分析"
+                                        >
+                                            <XCircle className="w-3.5 h-3.5" />
+                                            <span>取消</span>
+                                        </button>
                                     </div>
                                     {progress && (
                                         <div className="mt-2 flex items-center gap-2">
@@ -636,7 +930,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                     <div className="p-6 border-t border-slate-100 bg-white">
                         <div className="flex items-stretch gap-3 max-w-2xl mx-auto w-full">
-                            <input 
+                            <input
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
@@ -644,7 +938,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 placeholder={t('what_to_analyze')}
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300"
                             />
-                            <button 
+                            <button
                                 onClick={() => handleSendMessage()}
                                 disabled={isLoading || !input.trim()}
                                 className="aspect-square bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
@@ -733,6 +1027,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     </button>
                 </div>
             )}
+
+            <CancelConfirmationModal
+                isOpen={showCancelConfirm}
+                onClose={cancelCancelAnalysis}
+                onConfirm={confirmCancelAnalysis}
+            />
         </>
     );
 };

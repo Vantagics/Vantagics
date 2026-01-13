@@ -65,6 +65,9 @@ func main() {
 				Message: "Modern Business Intelligence",
 			},
 		},
+		Debug: options.Debug{
+			OpenInspectorOnStartup: true, // Auto-open DevTools for debugging
+		},
 	})
 
 	if err != nil {
