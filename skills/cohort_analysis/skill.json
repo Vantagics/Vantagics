@@ -1,0 +1,38 @@
+{
+  "id": "cohort_analysis",
+  "name": "同期群分析",
+  "description": "分析不同时间段用户的留存和行为模式，识别用户生命周期价值",
+  "version": "1.0.0",
+  "author": "RapidBI System",
+  "category": "user_analytics",
+  "keywords": [
+    "cohort",
+    "cohort analysis",
+    "同期群",
+    "留存分析",
+    "retention",
+    "用户留存"
+  ],
+  "required_columns": [
+    "user_id",
+    "date",
+    "event"
+  ],
+  "tools": [
+    "sql",
+    "python"
+  ],
+  "language": "python",
+  "code_template": "cohort_analysis.py",
+  "parameters": {
+    "cohort_period": "month",
+    "retention_periods": "12"
+  },
+  "enabled": true,
+  "icon": "users",
+  "tags": [
+    "retention",
+    "user_behavior",
+    "lifecycle"
+  ]
+}
