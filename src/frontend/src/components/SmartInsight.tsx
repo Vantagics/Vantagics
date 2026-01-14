@@ -18,9 +18,17 @@ const iconMap: Record<string, React.ReactNode> = {
 const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick }) => {
     const IconComponent = iconMap[icon] || iconMap['info'];
 
+    const handleClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation(); // 阻止事件冒泡，防止触发Dashboard的点击处理
+        if (onClick) {
+            onClick();
+        }
+    };
+
     return (
         <div 
-            onClick={onClick}
+            onClick={handleClick}
             className={`bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
         >
             <div className="insight-icon bg-gradient-to-br from-slate-50 to-slate-100 p-2 rounded-lg shrink-0 shadow-inner">

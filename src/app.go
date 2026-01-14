@@ -68,6 +68,14 @@ type AgentMemoryView struct {
 	ShortTerm  []string `json:"short_term"`
 }
 
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
@@ -83,23 +91,74 @@ func (a *App) SetChatOpen(isOpen bool) {
 	a.isChatOpen = isOpen
 }
 
+// OpenDevTools opens the developer tools/console
+func (a *App) OpenDevTools() {
+	// Wails v2 doesn't have direct API to open DevTools
+	// Show instructions to the user
+	cfg, _ := a.GetConfig()
+	
+	var title, message string
+	if cfg.Language == "简体中文" {
+		title = "打开开发者工具"
+		message = "请使用以下方法打开开发者工具：\n\n" +
+			"方法1：按 F12 键\n" +
+			"方法2：按 Ctrl+Shift+I\n" +
+			"方法3：按 Ctrl+Shift+J\n" +
+			"方法4：在空白区域右键点击，选择\"检查\"\n\n" +
+			"如果以上方法都不行，请在开发模式下运行：\n" +
+			"wails dev"
+	} else {
+		title = "Open Developer Tools"
+		message = "Please use one of the following methods to open DevTools:\n\n" +
+			"Method 1: Press F12\n" +
+			"Method 2: Press Ctrl+Shift+I\n" +
+			"Method 3: Press Ctrl+Shift+J\n" +
+			"Method 4: Right-click in empty area and select 'Inspect'\n\n" +
+			"If none of these work, run in development mode:\n" +
+			"wails dev"
+	}
+	
+	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:    runtime.InfoDialog,
+		Title:   title,
+		Message: message,
+	})
+}
+
 // onBeforeClose is called when the application is about to close
 func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
-	if a.isChatGenerating || a.isChatOpen {
+	// Only prevent close if there's an active analysis running
+	if a.isChatGenerating {
+		// Get current language configuration
+		cfg, _ := a.GetConfig()
+		
+		var title, message, yesButton, noButton string
+		if cfg.Language == "简体中文" {
+			title = "确认退出"
+			message = "当前有正在进行的分析任务，确定要退出吗？\n\n退出将中断分析过程。"
+			yesButton = "是"
+			noButton = "否"
+		} else {
+			title = "Confirm Exit"
+			message = "There is an analysis task in progress. Are you sure you want to exit?\n\nExiting will interrupt the analysis."
+			yesButton = "Yes"
+			noButton = "No"
+		}
+		
 		dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
-			Title:         "Active Chat Session",
-			Message:       "A chat session is currently open. Closing the application might lose context. Are you sure you want to exit?",
-			Buttons:       []string{"Yes", "No"},
-			DefaultButton: "No",
-			CancelButton:  "No",
+			Title:         title,
+			Message:       message,
+			Buttons:       []string{yesButton, noButton},
+			DefaultButton: noButton,
+			CancelButton:  noButton,
 		})
 
 		if err != nil {
 			return false
 		}
 
-		return dialog == "No"
+		return dialog == noButton
 	}
 	return false
 }
@@ -151,11 +210,13 @@ func (a *App) startup(ctx context.Context) {
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 		
+		a.Log(fmt.Sprintf("[STARTUP] Initializing EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
 		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.Log)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to initialize EinoService: %v", err))
 		} else {
 			a.einoService = es
+			a.Log("[STARTUP] EinoService initialized successfully")
 		}
 	}
 
@@ -417,7 +478,7 @@ func (a *App) GetConfig() (config.Config, error) {
 		return config.Config{
 			LLMProvider:  "OpenAI",
 			ModelName:    "gpt-4o",
-			MaxTokens:    4096,
+			MaxTokens:    8192, // Safe default, will be adjusted per provider
 			LocalCache:   true,
 			Language:     "English",
 			DataCacheDir: defaultDataDir,
@@ -496,7 +557,62 @@ func (a *App) SaveConfig(cfg config.Config) error {
 		a.logger.Close()
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Save the configuration file
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+
+	// Reinitialize services that depend on configuration
+	a.reinitializeServices(cfg)
+
+	// Notify frontend that configuration has been updated
+	runtime.EventsEmit(a.ctx, "config-updated")
+
+	a.Log("Configuration saved and services reinitialized")
+	return nil
+}
+
+// reinitializeServices reinitializes services that depend on configuration
+func (a *App) reinitializeServices(cfg config.Config) {
+	// Reinitialize MemoryService if configuration changed
+	if a.memoryService != nil {
+		a.memoryService = agent.NewMemoryService(cfg)
+		a.Log("MemoryService reinitialized with new configuration")
+	}
+
+	// Reinitialize EinoService if it exists and dataSourceService is available
+	if a.dataSourceService != nil {
+		// Store reference to old service in case reinitialization fails
+		oldEinoService := a.einoService
+		
+		// Create new EinoService with updated configuration
+		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.Log)
+		if err != nil {
+			a.Log(fmt.Sprintf("Failed to reinitialize EinoService: %v", err))
+			// Keep the old service if reinitialization fails
+			if oldEinoService != nil {
+				a.Log("Keeping previous EinoService due to reinitialization failure")
+			} else {
+				a.Log("No EinoService available - analysis features will be disabled until configuration is fixed")
+			}
+			// Emit configuration error event to frontend
+			runtime.EventsEmit(a.ctx, "config-error", map[string]interface{}{
+				"type":    "eino_service",
+				"message": fmt.Sprintf("Failed to initialize analysis service: %v", err),
+				"suggestion": "Please check your LLM configuration, especially the model name field",
+			})
+		} else {
+			// Close old service only after successful creation of new one
+			if oldEinoService != nil {
+				oldEinoService.Close()
+				a.Log("Previous EinoService closed")
+			}
+			a.einoService = es
+			a.Log("EinoService reinitialized with new configuration")
+		}
+	}
+
+	// Note: LLMService is created fresh for each request in SendMessage, so no reinitialization needed
 }
 
 func (a *App) Greet(name string) string {
@@ -679,6 +795,12 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			}
 		}
 		a.Log(fmt.Sprintf("[TIMING] Checking Eino eligibility took: %v", time.Since(startCheck)))
+	} else if threadID != "" && a.einoService == nil {
+		a.Log("[ERROR] EinoService is nil - cannot use advanced analysis features")
+		// Log current configuration for debugging
+		if cfg, err := a.GetConfig(); err == nil {
+			a.Log(fmt.Sprintf("[DEBUG] Current config - Provider: %s, Model: %s", cfg.LLMProvider, cfg.ModelName))
+		}
 	}
 
 	if useEino {
@@ -731,160 +853,193 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			}
 		}
 
-		respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, progressCallback, fileSavedCallback, a.IsCancelRequested)
-		var resp string
-		if err != nil {
-			resp = fmt.Sprintf("Error: %v", err)
-			if cfg.DetailedLog {
-				a.logChatToFile(threadID, "SYSTEM ERROR", resp)
-			}
-			return "", err
-		}
-		resp = respMsg.Content
-
-		if cfg.DetailedLog {
-			a.logChatToFile(threadID, "LLM RESPONSE", resp)
-		}
-
-		startPost := time.Now()
-		// Detect and store chart data
-		var chartData *ChartData
-
-		// Priority order: ECharts > Image > Table > CSV
-		// 1. ECharts JSON
-		reECharts := regexp.MustCompile("(?s)```[ \\t]*json:echarts\\s*({.*?})\\s*```")
-		matchECharts := reECharts.FindStringSubmatch(resp)
-		if len(matchECharts) > 1 {
-			chartData = &ChartData{Charts: []ChartItem{{Type: "echarts", Data: matchECharts[1]}}}
-			runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-				"sessionId": threadID,
-				"type":      "echarts",
-				"data":      matchECharts[1],
-			})
-		}
-
-		// 2. Markdown Image (Base64)
-		if chartData == nil {
-			reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
-			matchImage := reImage.FindStringSubmatch(resp)
-			if len(matchImage) > 1 {
-				chartData = &ChartData{Charts: []ChartItem{{Type: "image", Data: matchImage[1]}}}
-				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-					"sessionId": threadID,
-					"type":      "image",
-					"data":      matchImage[1],
-				})
-			}
-		}
-
-		// 3. Check for saved chart files (e.g., chart.png from Python tool)
-		// This should be checked BEFORE table data, as saved images are more visual than tables
-		if chartData == nil && threadID != "" {
-			// Get session files to see if chart images were saved
-			sessionFiles, err := a.chatService.GetSessionFiles(threadID)
-			if err == nil {
-				// Collect ALL chart image files
-				var chartItems []ChartItem
-				for _, file := range sessionFiles {
-					if file.Type == "image" && (file.Name == "chart.png" || strings.HasPrefix(file.Name, "chart")) {
-						// Read the image file and encode as base64
-						filePath := filepath.Join(sessionDir, "files", file.Name)
-						if imageData, err := os.ReadFile(filePath); err == nil {
-							base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
-							chartItems = append(chartItems, ChartItem{Type: "image", Data: base64Data})
-							a.Log(fmt.Sprintf("[CHART] Detected saved chart file: %s", file.Name))
-						}
-					}
+		// Double-check EinoService is still available before using it (prevent race condition)
+		if a.einoService == nil {
+			a.Log("[WARNING] EinoService became nil during request processing, falling back to standard LLM")
+			// Fall through to standard LLM processing
+		} else {
+			a.Log(fmt.Sprintf("[EINO-CHECK] EinoService is available, proceeding with analysis for thread: %s, dataSource: %s", threadID, dataSourceID))
+			respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, progressCallback, fileSavedCallback, a.IsCancelRequested)
+			var resp string
+			if err != nil {
+				resp = fmt.Sprintf("Error: %v", err)
+				if cfg.DetailedLog {
+					a.logChatToFile(threadID, "SYSTEM ERROR", resp)
 				}
+				return "", err
+			}
+			resp = respMsg.Content
 
-				// If we found any chart files, create ChartData with all of them
-				if len(chartItems) > 0 {
-					chartData = &ChartData{Charts: chartItems}
-					// Emit dashboard update with the first chart (frontend will handle navigation)
+			if cfg.DetailedLog {
+				a.logChatToFile(threadID, "LLM RESPONSE", resp)
+			}
+
+			startPost := time.Now()
+			// Detect and store chart data
+			var chartData *ChartData
+
+			// Priority order: ECharts > Image > Table > CSV
+			// 1. ECharts JSON
+			// Match until closing ``` to handle deeply nested objects
+			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n([\\s\\S]+?)\\n\\s*```")
+			matchECharts := reECharts.FindStringSubmatch(resp)
+			if len(matchECharts) > 1 {
+				jsonStr := strings.TrimSpace(matchECharts[1])
+				// Validate it's valid JSON before using
+				var testJSON map[string]interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &testJSON); err == nil {
+					chartData = &ChartData{Charts: []ChartItem{{Type: "echarts", Data: jsonStr}}}
+					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+						"sessionId": threadID,
+						"type":      "echarts",
+						"data":      jsonStr,
+					})
+				} else {
+					maxLen := 500
+					if len(jsonStr) < maxLen {
+						maxLen = len(jsonStr)
+					}
+					a.Log(fmt.Sprintf("[CHART] Failed to parse echarts JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
+				}
+			}
+
+			// 2. Markdown Image (Base64)
+			if chartData == nil {
+				reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
+				matchImage := reImage.FindStringSubmatch(resp)
+				if len(matchImage) > 1 {
+					chartData = &ChartData{Charts: []ChartItem{{Type: "image", Data: matchImage[1]}}}
 					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
 						"sessionId": threadID,
 						"type":      "image",
-						"data":      chartItems[0].Data,
-						"chartData": chartData, // Send full chart data for multi-chart support
+						"data":      matchImage[1],
 					})
 				}
 			}
-		}
 
-		// 4. Dashboard Data Update (Metrics & Insights)
-		reDashboard := regexp.MustCompile("(?s)```[ \\t]*json:dashboard\\s*({.*?})\\s*```")
-		matchDashboard := reDashboard.FindStringSubmatch(resp)
-		if len(matchDashboard) > 1 {
-			var data DashboardData
-			if err := json.Unmarshal([]byte(matchDashboard[1]), &data); err == nil {
-				runtime.EventsEmit(a.ctx, "dashboard-data-update", data)
-			} else {
-				a.Log(fmt.Sprintf("Failed to unmarshal dashboard data: %v", err))
+			// 3. Check for saved chart files (e.g., chart.png from Python tool)
+			// This should be checked BEFORE table data, as saved images are more visual than tables
+			if chartData == nil && threadID != "" {
+				// Get session files to see if chart images were saved
+				sessionFiles, err := a.chatService.GetSessionFiles(threadID)
+				if err == nil {
+					// Collect ALL chart image files
+					var chartItems []ChartItem
+					for _, file := range sessionFiles {
+						if file.Type == "image" && (file.Name == "chart.png" || strings.HasPrefix(file.Name, "chart")) {
+							// Read the image file and encode as base64
+							filePath := filepath.Join(sessionDir, "files", file.Name)
+							if imageData, err := os.ReadFile(filePath); err == nil {
+								base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
+								chartItems = append(chartItems, ChartItem{Type: "image", Data: base64Data})
+								a.Log(fmt.Sprintf("[CHART] Detected saved chart file: %s", file.Name))
+							}
+						}
+					}
+
+					// If we found any chart files, create ChartData with all of them
+					if len(chartItems) > 0 {
+						chartData = &ChartData{Charts: chartItems}
+						// Emit dashboard update with the first chart (frontend will handle navigation)
+						runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+							"sessionId": threadID,
+							"type":      "image",
+							"data":      chartItems[0].Data,
+							"chartData": chartData, // Send full chart data for multi-chart support
+						})
+					}
+				}
 			}
-		}
 
-		// 5. Table Data (JSON array from SQL results or analysis)
-		if chartData == nil {
-			reTable := regexp.MustCompile("(?s)```[ \\t]*json:table\\s*(\\[.*?\\])\\s*```")
-			matchTable := reTable.FindStringSubmatch(resp)
-			if len(matchTable) > 1 {
-				var tableData []map[string]interface{}
-				if err := json.Unmarshal([]byte(matchTable[1]), &tableData); err == nil {
-					tableDataJSON, _ := json.Marshal(tableData)
-					chartData = &ChartData{Charts: []ChartItem{{Type: "table", Data: string(tableDataJSON)}}}
+			// 4. Dashboard Data Update (Metrics & Insights)
+			// Match until closing ``` to handle nested objects (same fix as echarts/table)
+			reDashboard := regexp.MustCompile("(?s)```\\s*json:dashboard\\s*\\n([\\s\\S]+?)\\n\\s*```")
+			matchDashboard := reDashboard.FindStringSubmatch(resp)
+			if len(matchDashboard) > 1 {
+				jsonStr := strings.TrimSpace(matchDashboard[1])
+				var data DashboardData
+				if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
+					runtime.EventsEmit(a.ctx, "dashboard-data-update", data)
+				} else {
+					a.Log(fmt.Sprintf("[DASHBOARD] Failed to unmarshal dashboard data: %v\nJSON (first 500 chars): %s", err, jsonStr[:min(500, len(jsonStr))]))
+				}
+			}
+
+			// 5. Table Data (JSON array from SQL results or analysis)
+			if chartData == nil {
+				// Use [\s\S] instead of . to match newlines, match until closing ``` not first ]
+				reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n([\\s\\S]+?)\\n\\s*```")
+				matchTable := reTable.FindStringSubmatch(resp)
+				if len(matchTable) > 1 {
+					jsonStr := strings.TrimSpace(matchTable[1])
+					var tableData []map[string]interface{}
+					if err := json.Unmarshal([]byte(jsonStr), &tableData); err == nil {
+						tableDataJSON, _ := json.Marshal(tableData)
+						chartData = &ChartData{Charts: []ChartItem{{Type: "table", Data: string(tableDataJSON)}}}
+						runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+							"sessionId": threadID,
+							"type":      "table",
+							"data":      tableData,
+						})
+					} else {
+						maxLen := 500
+						if len(jsonStr) < maxLen {
+							maxLen = len(jsonStr)
+						}
+						a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
+					}
+				}
+			}
+
+			// 6. CSV Download Link (data URL)
+			if chartData == nil {
+				reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
+				matchCSV := reCSV.FindStringSubmatch(resp)
+				if len(matchCSV) > 1 {
+					chartData = &ChartData{Charts: []ChartItem{{Type: "csv", Data: matchCSV[1]}}}
 					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
 						"sessionId": threadID,
-						"type":      "table",
-						"data":      tableData,
+						"type":      "csv",
+						"data":      matchCSV[1],
 					})
 				}
 			}
-		}
 
-		// 6. CSV Download Link (data URL)
-		if chartData == nil {
-			reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
-			matchCSV := reCSV.FindStringSubmatch(resp)
-			if len(matchCSV) > 1 {
-				chartData = &ChartData{Charts: []ChartItem{{Type: "csv", Data: matchCSV[1]}}}
-				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-					"sessionId": threadID,
-					"type":      "csv",
-					"data":      matchCSV[1],
-				})
-			}
-		}
-
-		// Attach chart data to the user's request message (specific user message ID)
-		if chartData != nil && threadID != "" {
-			if userMessageID != "" {
-				a.attachChartToUserMessage(threadID, userMessageID, chartData)
-			} else {
-				// Fallback to old behavior (last user message) only if ID is missing (backward compatibility)
-				a.Log("[WARNING] SendMessage called without userMessageID, falling back to last user message")
-				a.attachChartToUserMessage(threadID, "", chartData)
-			}
-		}
-
-		a.Log(fmt.Sprintf("[TIMING] Post-processing response took: %v", time.Since(startPost)))
-		a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Eino) took: %v", time.Since(startTotal)))
-
-		// Auto-extract metrics from analysis response
-		if resp != "" && userMessageID != "" {
-			go func() {
-				// Small delay to ensure frontend has processed the response
-				time.Sleep(1 * time.Second)
-				
-				// Notify frontend that metrics extraction is starting
-				runtime.EventsEmit(a.ctx, "metrics-extracting", userMessageID)
-				
-				if err := a.ExtractMetricsFromAnalysis(userMessageID, resp); err != nil {
-					a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
+			// Attach chart data to the user's request message (specific user message ID)
+			if chartData != nil && threadID != "" {
+				if userMessageID != "" {
+					a.attachChartToUserMessage(threadID, userMessageID, chartData)
+				} else {
+					// Fallback to old behavior (last user message) only if ID is missing (backward compatibility)
+					a.Log("[WARNING] SendMessage called without userMessageID, falling back to last user message")
+					a.attachChartToUserMessage(threadID, "", chartData)
 				}
-			}()
-		}
+			}
 
-		return resp, nil
+			a.Log(fmt.Sprintf("[TIMING] Post-processing response took: %v", time.Since(startPost)))
+			a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Eino) took: %v", time.Since(startTotal)))
+
+			// Auto-extract metrics from analysis response
+			if resp != "" && userMessageID != "" {
+				go func() {
+					// Small delay to ensure frontend has processed the response
+					time.Sleep(1 * time.Second)
+					
+					// Notify frontend that metrics extraction is starting
+					runtime.EventsEmit(a.ctx, "metrics-extracting", userMessageID)
+					
+					if err := a.ExtractMetricsFromAnalysis(userMessageID, resp); err != nil {
+						a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
+					}
+					// Extract and emit suggestions to dashboard
+					if err := a.ExtractSuggestionsFromAnalysis(threadID, userMessageID, resp); err != nil {
+						a.Log(fmt.Sprintf("Failed to extract suggestions for message %s: %v", userMessageID, err))
+					}
+				}()
+			}
+
+			return resp, nil
+		}
 	}
 
 	langPrompt := a.getLangPrompt(cfg)
@@ -1067,6 +1222,26 @@ func (a *App) ValidatePython(path string) agent.PythonValidationResult {
 	return a.pythonService.ValidatePythonEnvironment(path)
 }
 
+// InstallPythonPackages installs missing packages for the given Python environment
+func (a *App) InstallPythonPackages(pythonPath string, packages []string) error {
+	return a.pythonService.InstallMissingPackages(pythonPath, packages)
+}
+
+// CreateRapidBIEnvironment creates a dedicated virtual environment for RapidBI
+func (a *App) CreateRapidBIEnvironment() (string, error) {
+	return a.pythonService.CreateRapidBIEnvironment()
+}
+
+// CheckRapidBIEnvironmentExists checks if a rapidbi environment already exists
+func (a *App) CheckRapidBIEnvironmentExists() bool {
+	return a.pythonService.CheckRapidBIEnvironmentExists()
+}
+
+// DiagnosePythonInstallation provides detailed diagnostic information about Python installations
+func (a *App) DiagnosePythonInstallation() map[string]interface{} {
+	return a.pythonService.DiagnosePythonInstallation()
+}
+
 // GetChatHistory loads the chat history
 func (a *App) GetChatHistory() ([]ChatThread, error) {
 	if a.chatService == nil {
@@ -1104,6 +1279,24 @@ func (a *App) DeleteThread(threadID string) error {
 	if a.chatService == nil {
 		return fmt.Errorf("chat service not initialized")
 	}
+	
+	// Check if this thread is currently running analysis
+	a.cancelAnalysisMutex.Lock()
+	isActiveThread := a.activeThreadID == threadID
+	isGenerating := a.isChatGenerating
+	if isActiveThread && isGenerating {
+		// Cancel the ongoing analysis for this thread
+		a.cancelAnalysis = true
+		a.Log(fmt.Sprintf("[DELETE-THREAD] Cancelling ongoing analysis for thread: %s", threadID))
+	}
+	a.cancelAnalysisMutex.Unlock()
+	
+	// Wait a moment for cancellation to take effect if needed
+	if isActiveThread && isGenerating {
+		time.Sleep(100 * time.Millisecond)
+		a.Log(fmt.Sprintf("[DELETE-THREAD] Waited for analysis cancellation"))
+	}
+	
 	return a.chatService.DeleteThread(threadID)
 }
 
@@ -1115,7 +1308,17 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 
 	// Check if there's an active analysis session running
 	if a.isChatGenerating {
-		return ChatThread{}, fmt.Errorf("当前有分析会话进行中，创建新的会话将影响现有分析会话。请等待当前分析完成后再创建新会话。")
+		// Get current language configuration
+		cfg, _ := a.GetConfig()
+		
+		var errorMessage string
+		if cfg.Language == "简体中文" {
+			errorMessage = "当前有分析会话进行中，创建新的会话将影响现有分析会话。请等待当前分析完成后再创建新会话。"
+		} else {
+			errorMessage = "An analysis session is currently in progress. Creating a new session will affect the existing analysis session. Please wait for the current analysis to complete before creating a new session."
+		}
+		
+		return ChatThread{}, fmt.Errorf(errorMessage)
 	}
 
 	thread, err := a.chatService.CreateThread(dataSourceID, title)
@@ -1151,8 +1354,14 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 	}
 
 	// Notify frontend that background task started
-	runtime.EventsEmit(a.ctx, "chat-loading", true)
-	defer runtime.EventsEmit(a.ctx, "chat-loading", false)
+	runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+		"loading":  true,
+		"threadId": threadID,
+	})
+	defer runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+		"loading":  false,
+		"threadId": threadID,
+	})
 
 	cfg, _ := a.GetConfig()
 	langPrompt := a.getLangPrompt(cfg)
@@ -1188,7 +1397,44 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 		return
 	}
 
+	// Parse suggestions and emit to dashboard insights area
+	// Note: analysis struct doesn't have ID/Name fields, insights will be generic
+	insights := a.parseSuggestionsToInsights(resp, "", "")
+	if len(insights) > 0 {
+		a.Log(fmt.Sprintf("Emitting %d suggestions to dashboard insights", len(insights)))
+		runtime.EventsEmit(a.ctx, "dashboard-data-update", DashboardData{
+			Insights: insights,
+		})
+	}
+
 	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+}
+
+// parseSuggestionsToInsights extracts numbered suggestions from LLM response and converts to Insight objects
+func (a *App) parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceName string) []Insight {
+	var insights []Insight
+	lines := strings.Split(llmResponse, "\n")
+	
+	// Match lines starting with "1.", "2.", etc
+	numberPattern := regexp.MustCompile(`^\s*(\d+)\.\s+(.+)$`)
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if matches := numberPattern.FindStringSubmatch(line); len(matches) > 2 {
+			// Extract the suggestion text (everything after the number)
+			suggestionText := strings.TrimSpace(matches[2])
+			if suggestionText != "" {
+				insights = append(insights, Insight{
+					Text:         suggestionText,
+					Icon:         "lightbulb",
+					DataSourceID: dataSourceID,
+					SourceName:   dataSourceName,
+				})
+			}
+		}
+	}
+	
+	return insights
 }
 
 func (a *App) analyzeDataSource(dataSourceID string) {
@@ -1620,7 +1866,7 @@ func (a *App) GetErrorKnowledgeSummary() (*ErrorKnowledgeSummary, error) {
 
 	for i, rec := range recentRecords {
 		frontendRecords[i] = ErrorRecord{
-			Timestamp:    rec.Timestamp.Format("2006-01-02 15:04:05"),
+			Timestamp:    time.UnixMilli(rec.Timestamp).Format("2006-01-02 15:04:05"),
 			ErrorType:    rec.ErrorType,
 			ErrorMessage: rec.ErrorMessage,
 			Context:      rec.Context,
@@ -2091,6 +2337,65 @@ func (a *App) getConfigForExtraction() config.Config {
 	cfg, _ := a.GetConfig()
 	// Return config as-is since Temperature field doesn't exist
 	return cfg
+}
+
+// ExtractSuggestionsFromAnalysis extracts next-step suggestions from analysis response
+// and emits them to the dashboard insights area
+func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisContent string) error {
+	if analysisContent == "" {
+		return nil
+	}
+
+	// Look for patterns that indicate next steps or suggestions in the analysis
+	// Common patterns: numbered lists, "建议", "next steps", "you can", "可以", etc.
+	var insights []Insight
+	lines := strings.Split(analysisContent, "\n")
+	
+	// Patterns for next-step suggestions
+	numberPattern := regexp.MustCompile(`^\s*(\d+)[.、]\s+(.+)$`)
+	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步)`)
+	
+	foundSuggestionSection := false
+	
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		
+		// Check if we're entering a suggestion/next-steps section
+		if suggestionPattern.MatchString(trimmedLine) {
+			foundSuggestionSection = true
+		}
+		
+		// Extract numbered items (likely suggestions) - prefer items after suggestion markers
+		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
+			suggestionText := strings.TrimSpace(matches[2])
+			if suggestionText != "" && len(suggestionText) > 10 { // Filter out very short items
+				// Prioritize items found in/after suggestion sections
+				_ = foundSuggestionSection // Use variable to avoid compiler error
+				insights = append(insights, Insight{
+					Text:         suggestionText,
+					Icon:         "lightbulb",
+					DataSourceID: "", 
+					SourceName:   "",
+				})
+			}
+		}
+	}
+	
+	// Limit to 5 suggestions
+	if len(insights) > 5 {
+		insights = insights[:5]
+	}
+	
+	if len(insights) > 0 {
+		a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
+		
+		// Emit to dashboard
+		runtime.EventsEmit(a.ctx, "dashboard-data-update", DashboardData{
+			Insights: insights,
+		})
+	}
+	
+	return nil
 }
 
 // extractJSONFromResponse extracts JSON array from LLM response

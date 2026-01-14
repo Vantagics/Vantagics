@@ -96,9 +96,49 @@ function App() {
         }
 
         // Listen for config updates to retry
-        const unsubscribeConfig = EventsOn("config-updated", () => {
+        const unsubscribeConfig = EventsOn("config-updated", async () => {
+            console.log("[App] Configuration updated, reinitializing services...");
+
             if (!isAppReady) {
+                // If app is not ready, retry initialization
                 checkLLM();
+            } else {
+                // If app is ready, test the new configuration and show feedback
+                try {
+                    const config = await GetConfig();
+                    const result = await TestLLMConnection(config);
+
+                    if (result.success) {
+                        // Show success message briefly
+                        setMessageModal({
+                            isOpen: true,
+                            type: 'info',
+                            title: '配置更新成功',
+                            message: 'LLM配置已更新并生效，新的会话将使用更新后的设置。'
+                        });
+
+                        // Auto-close the modal after 3 seconds
+                        setTimeout(() => {
+                            setMessageModal(prev => ({ ...prev, isOpen: false }));
+                        }, 3000);
+                    } else {
+                        // Show error message
+                        setMessageModal({
+                            isOpen: true,
+                            type: 'warning',
+                            title: '配置更新警告',
+                            message: `配置已保存，但连接测试失败：${result.message}。请检查配置是否正确。`
+                        });
+                    }
+                } catch (error) {
+                    console.error("Failed to test updated configuration:", error);
+                    setMessageModal({
+                        isOpen: true,
+                        type: 'info',
+                        title: '配置已更新',
+                        message: '配置已保存，新的会话将使用更新后的设置。'
+                    });
+                }
             }
         });
 
@@ -155,19 +195,19 @@ function App() {
             setDashboardData(data);
             // 更新系统原始洞察和指标（如果当前没有显示LLM内容）
             if (data && data.insights) {
-                const hasLLMInsights = Array.isArray(data.insights) && 
+                const hasLLMInsights = Array.isArray(data.insights) &&
                     data.insights.some((insight: any) => insight.source === 'llm_suggestion');
-                
+
                 if (!hasLLMInsights) {
                     // 如果当前没有LLM建议，更新原始系统洞察
                     setOriginalSystemInsights(Array.isArray(data.insights) ? data.insights : []);
                 }
             }
-            
+
             if (data && data.metrics) {
-                const hasLLMMetrics = Array.isArray(data.metrics) && 
+                const hasLLMMetrics = Array.isArray(data.metrics) &&
                     data.metrics.some((metric: any) => metric.source === 'llm_analysis');
-                
+
                 if (!hasLLMMetrics) {
                     // 如果当前没有LLM指标，更新原始系统指标
                     setOriginalSystemMetrics(Array.isArray(data.metrics) ? data.metrics : []);
@@ -176,21 +216,78 @@ function App() {
         });
 
         const unsubscribeAnalyzeInsight = EventsOn("analyze-insight", (text: string) => {
+            console.log('[App] analyze-insight event received:', text);
+            console.log('[App] Current isChatOpen state:', isChatOpen);
+
             // First, open the chat sidebar
             setIsChatOpen(true);
+            console.log('[App] Set isChatOpen to true');
+
             // Then, after a small delay to allow sidebar to mount, send the message
             // Use setTimeout to ensure the sidebar component has mounted and initialized
             setTimeout(() => {
+                console.log('[App] Sending chat-send-message event:', text);
                 EventsEmit('chat-send-message', text);
             }, 150); // 150ms delay to ensure sidebar is fully mounted
         });
 
-        const unsubscribeStartNewChat = EventsOn("start-new-chat", () => {
+        const unsubscribeAnalyzeInsightInSession = EventsOn("analyze-insight-in-session", (data: any) => {
+            console.log('[App] analyze-insight-in-session event received:', data);
+            console.log('[App] Current isChatOpen state:', isChatOpen);
+
+            // First, open the chat sidebar
             setIsChatOpen(true);
+            console.log('[App] Set isChatOpen to true');
+
+            // Then, after a small delay to allow sidebar to mount, send the message with session context
+            setTimeout(() => {
+                console.log('[App] Sending chat-send-message-in-session event:', data);
+                EventsEmit('chat-send-message-in-session', data);
+            }, 150); // 150ms delay to ensure sidebar is fully mounted
+        });
+
+        const unsubscribeStartNewChat = EventsOn("start-new-chat", (data: any) => {
+            setIsChatOpen(true);
+            // If keepChatOpen is true, don't auto-hide the chat area
+            if (data && data.keepChatOpen) {
+                console.log('[App] start-new-chat with keepChatOpen=true, keeping chat area open');
+                // Additional logic could be added here if needed
+            }
         });
 
         const unsubscribeOpenSkills = EventsOn("open-skills", () => {
             setIsSkillsOpen(true);
+        });
+
+        const unsubscribeOpenDevTools = EventsOn("open-dev-tools", () => {
+            // Show instructions to user on how to open developer tools
+            setMessageModal({
+                isOpen: true,
+                type: 'info',
+                title: '打开开发者工具',
+                message: '请按 F12 键或右键点击页面选择"检查元素"来打开开发者工具控制台。'
+            });
+        });
+
+        const unsubscribeClearDashboard = EventsOn("clear-dashboard", () => {
+            console.log("[App] Clearing dashboard - resetting to initial state");
+            // 清空所有会话相关的状态
+            setSelectedUserRequest(null);
+            setActiveChart(null);
+            setSessionCharts({});
+            setSessionInsights({});
+            setSessionMetrics({});
+
+            // 重置仪表盘数据为初始状态（显示数据源信息）
+            setDashboardData(prevData => {
+                if (!prevData) return null;
+
+                return main.DashboardData.createFrom({
+                    ...prevData,
+                    insights: originalSystemInsights,  // 恢复系统初始化洞察
+                    metrics: originalSystemMetrics     // 恢复系统初始化指标
+                });
+            });
         });
 
         const unsubscribeMessageModal = EventsOn("show-message-modal", (payload: any) => {
@@ -218,54 +315,54 @@ function App() {
             // 加载与此用户消息关联的LLM建议和指标
             if (payload.messageId) {
                 console.log("[DEBUG] Loading insights and metrics for message:", payload.messageId);
-                
+
                 // 首先尝试从后端加载保存的指标JSON
                 EventsEmit('load-metrics-json', { messageId: payload.messageId });
-                
+
                 // 处理洞察
                 setSessionInsights(currentInsights => {
                     const messageInsights = currentInsights[payload.messageId];
-                    
+
                     // 处理指标
                     setSessionMetrics(currentMetrics => {
                         const messageMetrics = currentMetrics[payload.messageId];
-                        
+
                         // 同时更新洞察和指标
                         setDashboardData(prevData => {
                             if (!prevData) return prevData;
-                            
+
                             const hasInsights = messageInsights && messageInsights.length > 0;
                             const hasMetrics = messageMetrics && messageMetrics.length > 0;
-                            
+
                             return main.DashboardData.createFrom({
                                 ...prevData,
                                 insights: hasInsights ? messageInsights : originalSystemInsights,
                                 metrics: hasMetrics ? messageMetrics : originalSystemMetrics
                             });
                         });
-                        
+
                         if (messageInsights && messageInsights.length > 0) {
                             console.log("[DEBUG] Found insights for message:", messageInsights);
                         } else {
                             console.log("[DEBUG] No insights found for message:", payload.messageId);
                         }
-                        
+
                         if (messageMetrics && messageMetrics.length > 0) {
                             console.log("[DEBUG] Found metrics for message:", messageMetrics);
                         } else {
                             console.log("[DEBUG] No metrics found for message:", payload.messageId);
                         }
-                        
+
                         return currentMetrics;
                     });
-                    
+
                     return currentInsights;
                 });
             } else {
                 // 没有messageId时，恢复系统默认洞察和指标
                 setDashboardData(prevData => {
                     if (!prevData) return prevData;
-                    
+
                     return main.DashboardData.createFrom({
                         ...prevData,
                         insights: originalSystemInsights,  // 恢复系统初始化洞察
@@ -338,11 +435,11 @@ function App() {
                     ...prev,
                     [payload.userMessageId]: payload.insights
                 }));
-                
+
                 // 显示新的LLM建议时，清除所有现有洞察（包括系统初始化的内容）
                 setDashboardData(prevData => {
                     if (!prevData) return prevData;
-                    
+
                     // 转换新的洞察格式
                     const newInsights = payload.insights.map((insight: any) => ({
                         text: insight.text,
@@ -350,7 +447,7 @@ function App() {
                         source: insight.source || 'llm_suggestion',
                         userMessageId: insight.userMessageId
                     }));
-                    
+
                     return main.DashboardData.createFrom({
                         ...prevData,
                         insights: newInsights  // 完全替换所有洞察，清除系统初始化内容
@@ -368,11 +465,11 @@ function App() {
                     ...prev,
                     [payload.userMessageId]: payload.metrics
                 }));
-                
+
                 // 显示新的LLM指标时，完全替换所有现有指标
                 setDashboardData(prevData => {
                     if (!prevData) return prevData;
-                    
+
                     // 转换新的指标格式
                     const newMetrics = payload.metrics.map((metric: any) => ({
                         title: metric.title,
@@ -381,7 +478,7 @@ function App() {
                         source: metric.source || 'llm_analysis',
                         userMessageId: metric.userMessageId
                     }));
-                    
+
                     return main.DashboardData.createFrom({
                         ...prevData,
                         metrics: newMetrics  // 完全替换所有指标
@@ -399,17 +496,17 @@ function App() {
         // 监听指标提取完成事件
         const unsubscribeMetricsExtracted = EventsOn("metrics-extracted", (payload: any) => {
             console.log("[DEBUG] Metrics extracted:", payload);
-            
+
             if (payload && payload.messageId && payload.metrics) {
                 // 转换为Dashboard格式
                 const formattedMetrics = payload.metrics.map((metric: any, index: number) => {
                     const cleanName = String(metric.name || '').trim();
                     const cleanValue = String(metric.value || '').trim();
                     const cleanUnit = metric.unit ? String(metric.unit).trim() : '';
-                    
+
                     // 格式化显示值
                     const formattedValue = cleanUnit ? `${cleanValue}${cleanUnit}` : cleanValue;
-                    
+
                     // 计算变化趋势
                     let change = '';
                     if (cleanValue.includes('+')) {
@@ -424,7 +521,7 @@ function App() {
                     } else if (cleanUnit && (cleanUnit.includes('次/') || cleanUnit.includes('率'))) {
                         change = '🔄 周期';
                     }
-                    
+
                     return {
                         title: cleanName,
                         value: formattedValue,
@@ -434,23 +531,23 @@ function App() {
                         userMessageId: payload.messageId
                     };
                 });
-                
+
                 // 存储到sessionMetrics中
                 setSessionMetrics(prev => ({
                     ...prev,
                     [payload.messageId]: formattedMetrics
                 }));
-                
+
                 // 更新Dashboard显示
                 setDashboardData(prevData => {
                     if (!prevData) return prevData;
-                    
+
                     return main.DashboardData.createFrom({
                         ...prevData,
                         metrics: formattedMetrics
                     });
                 });
-                
+
                 console.log("[DEBUG] Auto-extracted metrics displayed on dashboard");
             }
         });
@@ -478,19 +575,36 @@ function App() {
                     // 调用后端API加载指标JSON
                     const { LoadMetricsJson } = await import('../wailsjs/go/main/App');
                     const metricsJson = await LoadMetricsJson(payload.messageId);
-                    const metricsData = JSON.parse(metricsJson);
-                    
+
+                    console.log("[DEBUG] Raw metrics JSON:", metricsJson);
+
+                    // 清理JSON字符串，移除可能的JavaScript函数
+                    let cleanedJson = metricsJson;
+                    if (typeof metricsJson === 'string') {
+                        // 移除JavaScript函数定义
+                        cleanedJson = metricsJson
+                            .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,(\s*[}\]])/g, '$1')
+                            .replace(/(\{\s*),/g, '$1');
+
+                        console.log("[DEBUG] Cleaned metrics JSON:", cleanedJson);
+                    }
+
+                    const metricsData = JSON.parse(cleanedJson);
+
                     console.log("[DEBUG] Metrics JSON loaded successfully:", metricsData);
-                    
+
                     // 转换为Dashboard格式并更新显示
                     const formattedMetrics = metricsData.map((metric: any, index: number) => {
                         const cleanName = String(metric.name || '').trim();
                         const cleanValue = String(metric.value || '').trim();
                         const cleanUnit = metric.unit ? String(metric.unit).trim() : '';
-                        
+
                         // 格式化显示值
                         const formattedValue = cleanUnit ? `${cleanValue}${cleanUnit}` : cleanValue;
-                        
+
                         // 计算变化趋势
                         let change = '';
                         if (cleanValue.includes('+')) {
@@ -505,7 +619,7 @@ function App() {
                         } else if (cleanUnit && (cleanUnit.includes('次/') || cleanUnit.includes('率'))) {
                             change = '🔄 周期';
                         }
-                        
+
                         return {
                             title: cleanName,
                             value: formattedValue,
@@ -515,23 +629,23 @@ function App() {
                             userMessageId: payload.messageId
                         };
                     });
-                    
+
                     // 存储到sessionMetrics中
                     setSessionMetrics(prev => ({
                         ...prev,
                         [payload.messageId]: formattedMetrics
                     }));
-                    
+
                     // 更新Dashboard显示
                     setDashboardData(prevData => {
                         if (!prevData) return prevData;
-                        
+
                         return main.DashboardData.createFrom({
                             ...prevData,
                             metrics: formattedMetrics
                         });
                     });
-                    
+
                 } catch (error) {
                     console.error("[DEBUG] Failed to load metrics JSON:", error);
                     // 如果加载失败，可能是文件不存在，这是正常情况
@@ -560,8 +674,11 @@ function App() {
             if (unsubscribeSessionSwitch) unsubscribeSessionSwitch();
             if (unsubscribeDashboardDataUpdate) unsubscribeDashboardDataUpdate();
             if (unsubscribeAnalyzeInsight) unsubscribeAnalyzeInsight();
+            if (unsubscribeAnalyzeInsightInSession) unsubscribeAnalyzeInsightInSession();
             if (unsubscribeStartNewChat) unsubscribeStartNewChat();
             if (unsubscribeOpenSkills) unsubscribeOpenSkills();
+            if (unsubscribeOpenDevTools) unsubscribeOpenDevTools();
+            if (unsubscribeClearDashboard) unsubscribeClearDashboard();
             if (unsubscribeMessageModal) unsubscribeMessageModal();
             if (unsubscribeUserMessageClick) unsubscribeUserMessageClick();
             if (unsubscribeUpdateDashboardInsights) unsubscribeUpdateDashboardInsights();
@@ -668,6 +785,7 @@ function App() {
                 onOpenSettings={() => setIsPreferenceOpen(true)}
                 onToggleChat={() => setIsChatOpen(!isChatOpen)}
                 onToggleSkills={() => setIsSkillsOpen(!isSkillsOpen)}
+                isChatOpen={isChatOpen}
             />
 
             {/* Sidebar Resizer */}
@@ -676,7 +794,7 @@ function App() {
                 onMouseDown={startResizingSidebar}
             />
 
-            <ContextPanel 
+            <ContextPanel
                 width={contextPanelWidth}
                 onContextPanelClick={() => {
                     if (isChatOpen) {
@@ -692,11 +810,12 @@ function App() {
             />
 
             <div className="flex-1 flex flex-col min-w-0">
-                <Dashboard 
-                    data={dashboardData} 
-                    activeChart={activeChart} 
+                <Dashboard
+                    data={dashboardData}
+                    activeChart={activeChart}
                     userRequestText={selectedUserRequest}
                     isChatOpen={isChatOpen}
+                    activeThreadId={activeSessionId}
                     onDashboardClick={() => {
                         if (isChatOpen) {
                             setIsChatOpen(false);

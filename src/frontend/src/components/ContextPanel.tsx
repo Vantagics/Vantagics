@@ -212,7 +212,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                                     <div className="flex-1 overflow-auto">
                                         {isLoading ? (
                                             <div className="p-8 text-center text-slate-400 text-xs">Loading data...</div>
-                                        ) : tableData.length === 0 ? (
+                                        ) : !tableData || tableData.length === 0 ? (
                                             <div className="p-8 text-center text-slate-400 text-xs italic">No data found in this table.</div>
                                         ) : (
                                             <div className="inline-block min-w-full align-middle">

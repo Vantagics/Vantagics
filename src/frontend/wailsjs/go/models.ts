@@ -16,8 +16,7 @@ export namespace agent {
 	}
 	export class AnalysisStep {
 	    step_id: number;
-	    // Go type: time
-	    timestamp: any;
+	    timestamp: number;
 	    tool_name: string;
 	    description: string;
 	    input: string;
@@ -32,7 +31,7 @@ export namespace agent {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.step_id = source["step_id"];
-	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.timestamp = source["timestamp"];
 	        this.tool_name = source["tool_name"];
 	        this.description = source["description"];
 	        this.input = source["input"];
@@ -40,24 +39,6 @@ export namespace agent {
 	        this.chart_type = source["chart_type"];
 	        this.chart_data = source["chart_data"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ReplayTableSchema {
 	    table_name: string;
@@ -77,8 +58,7 @@ export namespace agent {
 	    recording_id: string;
 	    title: string;
 	    description: string;
-	    // Go type: time
-	    created_at: any;
+	    created_at: number;
 	    source_id: string;
 	    source_name: string;
 	    source_schema: ReplayTableSchema[];
@@ -94,7 +74,7 @@ export namespace agent {
 	        this.recording_id = source["recording_id"];
 	        this.title = source["title"];
 	        this.description = source["description"];
-	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.created_at = source["created_at"];
 	        this.source_id = source["source_id"];
 	        this.source_name = source["source_name"];
 	        this.source_schema = this.convertValues(source["source_schema"], ReplayTableSchema);
@@ -240,8 +220,7 @@ export namespace agent {
 	    id: string;
 	    name: string;
 	    type: string;
-	    // Go type: time
-	    created_at: any;
+	    created_at: number;
 	    config: DataSourceConfig;
 	    analysis?: DataSourceAnalysis;
 	
@@ -254,7 +233,7 @@ export namespace agent {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];
-	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.created_at = source["created_at"];
 	        this.config = this.convertValues(source["config"], DataSourceConfig);
 	        this.analysis = this.convertValues(source["analysis"], DataSourceAnalysis);
 	    }

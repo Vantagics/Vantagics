@@ -16,9 +16,10 @@ interface SidebarProps {
     onToggleChat: () => void;
     onToggleSkills: () => void;
     width: number;
+    isChatOpen: boolean; // 添加当前会话区状态
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggleSkills, width }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggleSkills, width, isChatOpen }) => {
     const { t } = useLanguage();
     const [sources, setSources] = useState<any[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -82,14 +83,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
 
     const handleStartChatAnalysis = () => {
         if (!selectedId) {
-            alert("Please select a data source first.");
+            // 使用非模态提示而不是alert
+            EventsEmit('show-message-modal', {
+                type: 'info',
+                title: t('select_data_source'),
+                message: t('select_data_source_message')
+            });
             return;
         }
         setIsNewChatModalOpen(true);
     };
 
     const handleNewChatSubmit = (sessionName: string) => {
-        const source = sources.find(s => s.id === selectedId);
+        const source = sources?.find(s => s.id === selectedId);
         if (source) {
             // Trigger chat open with new session details
             // We need to pass data to ChatSidebar.
@@ -97,9 +103,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
             EventsEmit('start-new-chat', {
                 dataSourceId: source.id,
                 dataSourceName: source.name,
-                sessionName: sessionName
+                sessionName: sessionName,
+                keepChatOpen: true // 确保创建新会话后保持会话区展开
             });
-            onToggleChat(); // Ensure chat is open
+            // 只在会话区关闭时才打开它，避免切换状态
+            if (!isChatOpen) {
+                onToggleChat();
+            }
         }
     };
 
@@ -121,7 +131,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
                 </button>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
-                {sources.length === 0 ? (
+                {!sources || sources.length === 0 ? (
                     <div className="p-4 text-center text-xs text-slate-400 italic">
                         No data sources added yet.
                     </div>
@@ -160,7 +170,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
                 <button
                     onClick={handleStartChatAnalysis}
                     aria-label="Toggle chat"
-                    className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ${selectedId ? 'bg-blue-100 hover:bg-blue-200 text-blue-700' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                    className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700"
                 >
                     <span>💬</span> {t('chat_analysis')}
                 </button>
@@ -260,18 +270,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
                     onClose={() => setContextMenu(null)}
                     onSelectThread={(thread) => {
                         EventsEmit('open-chat', thread);
-                        onToggleChat();
+                        // 只在会话区关闭时才打开它，避免切换状态
+                        if (!isChatOpen) {
+                            onToggleChat();
+                        }
                     }}
                     onExport={() => {
-                        const source = sources.find(s => s.id === contextMenu.sourceId);
+                        const source = sources?.find(s => s.id === contextMenu.sourceId);
                         if (source) setExportTarget(source);
                     }}
                     onProperties={() => {
-                        const source = sources.find(s => s.id === contextMenu.sourceId);
+                        const source = sources?.find(s => s.id === contextMenu.sourceId);
                         if (source) setPropertiesTarget(source);
                     }}
                     onStartAnalysis={() => {
-                        const source = sources.find(s => s.id === contextMenu.sourceId);
+                        const source = sources?.find(s => s.id === contextMenu.sourceId);
                         if (source) {
                             setSelectedId(source.id);
                             setIsNewChatModalOpen(true);

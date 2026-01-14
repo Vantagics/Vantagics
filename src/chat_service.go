@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,10 @@ func (c *ChartData) UnmarshalJSON(data []byte) error {
 		Alias: (*Alias)(c),
 	}
 	if err := json.Unmarshal(data, &aux); err == nil && len(c.Charts) > 0 {
+		// Clean any function definitions from chart data
+		for i := range c.Charts {
+			c.Charts[i].Data = cleanChartData(c.Charts[i].Data)
+		}
 		return nil
 	}
 
@@ -41,11 +46,45 @@ func (c *ChartData) UnmarshalJSON(data []byte) error {
 		Data string `json:"data"`
 	}
 	if err := json.Unmarshal(data, &old); err == nil && old.Type != "" {
-		c.Charts = []ChartItem{{Type: old.Type, Data: old.Data}}
+		// Clean any function definitions from chart data
+		cleanedData := cleanChartData(old.Data)
+		c.Charts = []ChartItem{{Type: old.Type, Data: cleanedData}}
 		return nil
 	}
 	
 	return nil
+}
+
+// cleanChartData removes JavaScript functions from chart data to prevent JSON parsing errors
+func cleanChartData(data string) string {
+	if data == "" {
+		return data
+	}
+	
+	// Check if data contains function definitions
+	if !strings.Contains(data, "function(") && !strings.Contains(data, "function ") {
+		return data
+	}
+	
+	// Remove common function patterns that might appear in ECharts configs
+	cleanedData := data
+	
+	// Remove formatter functions
+	cleanedData = regexp.MustCompile(`(?s),?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}`).ReplaceAllString(cleanedData, "")
+	
+	// Remove matter functions
+	cleanedData = regexp.MustCompile(`(?s),?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}`).ReplaceAllString(cleanedData, "")
+	
+	// Remove any other function properties
+	cleanedData = regexp.MustCompile(`(?s),?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}`).ReplaceAllString(cleanedData, "")
+	
+	// Clean up any trailing commas that might be left
+	cleanedData = regexp.MustCompile(`,(\s*[}\]])`).ReplaceAllString(cleanedData, "$1")
+	
+	// Clean up any leading commas
+	cleanedData = regexp.MustCompile(`(\{\s*),`).ReplaceAllString(cleanedData, "$1")
+	
+	return cleanedData
 }
 
 // ChatMessage represents a single message in a chat thread
@@ -57,6 +96,57 @@ type ChatMessage struct {
 	ChartData *ChartData `json:"chart_data,omitempty"` // Associated chart/visualization data (can contain multiple charts)
 }
 
+// UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
+func (cm *ChatMessage) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct with Timestamp as interface{} to handle both formats
+	type Alias ChatMessage
+	aux := &struct {
+		Timestamp interface{} `json:"timestamp"`
+		*Alias
+	}{
+		Alias: (*Alias)(cm),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle Timestamp field conversion
+	switch v := aux.Timestamp.(type) {
+	case float64:
+		// Already int64 (JSON numbers are float64)
+		cm.Timestamp = int64(v)
+	case int64:
+		// Direct int64
+		cm.Timestamp = v
+	case int:
+		// Convert int to int64
+		cm.Timestamp = int64(v)
+	case string:
+		// Old time.Time format - parse and convert to Unix milliseconds
+		if v == "" {
+			cm.Timestamp = time.Now().UnixMilli()
+		} else if t, err := time.Parse(time.RFC3339, v); err == nil {
+			cm.Timestamp = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v); err == nil {
+			cm.Timestamp = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", v); err == nil {
+			cm.Timestamp = t.UnixMilli()
+		} else {
+			// If parsing fails, use current time
+			cm.Timestamp = time.Now().UnixMilli()
+		}
+	case nil:
+		// No Timestamp field - use current time
+		cm.Timestamp = time.Now().UnixMilli()
+	default:
+		// Safe fallback
+		cm.Timestamp = time.Now().UnixMilli()
+	}
+
+	return nil
+}
+
 // SessionFile represents a file generated during the session
 type SessionFile struct {
 	Name      string `json:"name"`       // File name (e.g., "chart.png", "result.csv")
@@ -64,6 +154,57 @@ type SessionFile struct {
 	Type      string `json:"type"`       // "image", "csv", "data", etc.
 	Size      int64  `json:"size"`       // File size in bytes
 	CreatedAt int64  `json:"created_at"` // Unix timestamp
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
+func (sf *SessionFile) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct with CreatedAt as interface{} to handle both formats
+	type Alias SessionFile
+	aux := &struct {
+		CreatedAt interface{} `json:"created_at"`
+		*Alias
+	}{
+		Alias: (*Alias)(sf),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle CreatedAt field conversion
+	switch v := aux.CreatedAt.(type) {
+	case float64:
+		// Already int64 (JSON numbers are float64)
+		sf.CreatedAt = int64(v)
+	case int64:
+		// Direct int64
+		sf.CreatedAt = v
+	case int:
+		// Convert int to int64
+		sf.CreatedAt = int64(v)
+	case string:
+		// Old time.Time format - parse and convert to Unix milliseconds
+		if v == "" {
+			sf.CreatedAt = time.Now().UnixMilli()
+		} else if t, err := time.Parse(time.RFC3339, v); err == nil {
+			sf.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v); err == nil {
+			sf.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", v); err == nil {
+			sf.CreatedAt = t.UnixMilli()
+		} else {
+			// If parsing fails, use current time
+			sf.CreatedAt = time.Now().UnixMilli()
+		}
+	case nil:
+		// No CreatedAt field - use current time
+		sf.CreatedAt = time.Now().UnixMilli()
+	default:
+		// Safe fallback
+		sf.CreatedAt = time.Now().UnixMilli()
+	}
+
+	return nil
 }
 
 // ChatThread represents a conversation thread
@@ -74,6 +215,57 @@ type ChatThread struct {
 	CreatedAt    int64         `json:"created_at"`
 	Messages     []ChatMessage `json:"messages"`
 	Files        []SessionFile `json:"files,omitempty"` // Generated files during session
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
+func (ct *ChatThread) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct with CreatedAt as interface{} to handle both formats
+	type Alias ChatThread
+	aux := &struct {
+		CreatedAt interface{} `json:"created_at"`
+		*Alias
+	}{
+		Alias: (*Alias)(ct),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle CreatedAt field conversion
+	switch v := aux.CreatedAt.(type) {
+	case float64:
+		// Already int64 (JSON numbers are float64)
+		ct.CreatedAt = int64(v)
+	case int64:
+		// Direct int64
+		ct.CreatedAt = v
+	case int:
+		// Convert int to int64
+		ct.CreatedAt = int64(v)
+	case string:
+		// Old time.Time format - parse and convert to Unix milliseconds
+		if v == "" {
+			ct.CreatedAt = time.Now().UnixMilli()
+		} else if t, err := time.Parse(time.RFC3339, v); err == nil {
+			ct.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v); err == nil {
+			ct.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", v); err == nil {
+			ct.CreatedAt = t.UnixMilli()
+		} else {
+			// If parsing fails, use current time
+			ct.CreatedAt = time.Now().UnixMilli()
+		}
+	case nil:
+		// No CreatedAt field - use current time
+		ct.CreatedAt = time.Now().UnixMilli()
+	default:
+		// Safe fallback
+		ct.CreatedAt = time.Now().UnixMilli()
+	}
+
+	return nil
 }
 
 // ChatService handles the persistence of chat history

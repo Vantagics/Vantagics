@@ -112,6 +112,7 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 
 	body := map[string]interface{}{
 		"model": s.ModelName,
+		"max_tokens": getProviderMaxTokens(s.ModelName, s.MaxTokens),
 		"messages": []map[string]string{
 			{"role": "user", "content": message},
 		},
@@ -189,7 +190,7 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 
 	body := map[string]interface{}{
 		"model": s.ModelName,
-		"max_tokens": 1024,
+		"max_tokens": getProviderMaxTokens(s.ModelName, s.MaxTokens),
 		"messages": []map[string]string{
 			{"role": "user", "content": message},
 		},
@@ -265,13 +266,10 @@ func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (
 
 	body := map[string]interface{}{
 		"model":      s.ModelName,
-		"max_tokens": 1024,
+		"max_tokens": getProviderMaxTokens(s.ModelName, s.MaxTokens),
 		"messages": []map[string]string{
 			{"role": "user", "content": message},
 		},
-	}
-	if s.MaxTokens > 0 {
-		body["max_tokens"] = s.MaxTokens
 	}
 
 	jsonBody, _ := json.Marshal(body)

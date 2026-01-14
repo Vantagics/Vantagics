@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import MetricCard from './MetricCard';
 import Chart from './Chart';
@@ -15,13 +16,17 @@ interface MessageBubbleProps {
     hasChart?: boolean;
     messageId?: string;  // 新增：消息ID用于关联建议
     userMessageId?: string;  // 新增：关联的用户消息ID（用于assistant消息）
+    dataSourceId?: string;  // 新增：当前会话的数据源ID
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId }) => {
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     const [clickedActions, setClickedActions] = useState<Set<string>>(new Set());
     const pendingActionsRef = useRef<Set<string>>(new Set()); // 跟踪正在处理的按钮点击
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
+    const messageContentRef = useRef<HTMLDivElement>(null);
+
     let parsedPayload: any = null;
 
     if (payload) {
@@ -70,7 +75,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // Auto-extract numbered list actions with intelligent filtering
     const extractedActions: any[] = [];
     const extractedInsights: string[] = []; // 提取的洞察建议
-    
+
     if (!isUser && isSuggestionContext(content)) {
         const lines = content.split('\n');
         for (const line of lines) {
@@ -91,7 +96,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         // Value should be clean text for the LLM input (no markdown)
                         value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
                     });
-                    
+
                     // 同时添加到洞察建议中
                     extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, ''));
                 }
@@ -108,7 +113,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
     // 发送洞察建议到Dashboard（仅在有新建议时）
     useEffect(() => {
-        if (extractedInsights.length > 0 && !isUser && userMessageId) {
+        if (extractedInsights && extractedInsights.length > 0 && !isUser && userMessageId) {
             // 发送洞察建议到Dashboard的自动洞察区域，关联到特定的用户消息
             EventsEmit('update-dashboard-insights', {
                 userMessageId: userMessageId,  // 关联的用户消息ID
@@ -117,13 +122,84 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     icon: 'star', // 使用星形图标表示LLM建议
                     source: 'llm_suggestion',
                     id: `llm_${userMessageId}_${index}`,
-                    userMessageId: userMessageId
+                    userMessageId: userMessageId,
+                    data_source_id: dataSourceId  // 添加数据源ID，这样点击时会创建新会话
                 }))
             });
         }
-    }, [extractedInsights.length, isUser, userMessageId]); // 依赖于洞察数量、用户角色和用户消息ID
+    }, [extractedInsights.length, isUser, userMessageId, dataSourceId]); // 添加dataSourceId到依赖项
 
     // 注意：关键指标现在通过后端自动提取，不再需要手动发送到Dashboard
+
+    const handleContextMenu = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+
+        const selection = window.getSelection();
+        const selectedText = selection?.toString().trim();
+
+        if (selectedText && selectedText.length > 0) {
+            // Wails应用中，使用pageX/pageY可能更准确
+            // 对于fixed定位，需要使用clientX/Y（视口坐标）
+            let x = e.clientX;
+            let y = e.clientY;
+
+            const menuWidth = 220;
+            const menuHeight = 120;
+
+            // 获取视口尺寸
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+
+            // 计算菜单位置：在鼠标位置稍微偏移
+            x = x + 5;
+            y = y + 5;
+
+            // 边界检查：确保菜单不超出视口
+            if (x + menuWidth > viewportWidth) {
+                x = e.clientX - menuWidth - 5;
+            }
+            if (y + menuHeight > viewportHeight) {
+                y = e.clientY - menuHeight - 5;
+            }
+
+            // 确保不会出现负坐标
+            x = Math.max(10, x);
+            y = Math.max(10, y);
+
+            setContextMenu({
+                x: x,
+                y: y,
+                selectedText: selectedText
+            });
+        }
+    };
+
+    // Handle context menu action - request analysis
+    const handleRequestAnalysis = () => {
+        if (contextMenu && onActionClick) {
+            onActionClick({
+                id: 'selected_text_analysis',
+                label: contextMenu.selectedText,
+                value: contextMenu.selectedText
+            });
+        }
+        setContextMenu(null);
+    };
+
+    // Close context menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = () => {
+            if (contextMenu) {
+                setContextMenu(null);
+            }
+        };
+
+        if (contextMenu) {
+            document.addEventListener('click', handleClickOutside);
+            return () => document.removeEventListener('click', handleClickOutside);
+        }
+    }, [contextMenu]);
 
     const renderButtonLabel = (label: string) => {
         // Split by bold markers **text**
@@ -142,7 +218,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         // Create unique key for this action
         const actionKey = `${action.id}-${action.value || action.label}`;
-        
+
         // Check if this action is already being processed
         if (pendingActionsRef.current.has(actionKey)) {
             console.log('[MessageBubble] Ignoring duplicate action click:', action.label?.substring(0, 50));
@@ -151,7 +227,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         // Mark action as pending
         pendingActionsRef.current.add(actionKey);
-        
+
         try {
             // Call the parent handler
             onActionClick(action);
@@ -194,18 +270,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         <>
             <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${isUser
-                        ? 'bg-slate-200 text-slate-600'
-                        : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
+                    ? 'bg-slate-200 text-slate-600'
+                    : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
                     }`}>
                     {isUser ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                 </div>
 
                 <div
+                    ref={messageContentRef}
                     className={`max-w-[85%] rounded-2xl px-5 py-3.5 shadow-sm ${isUser
-                            ? `bg-blue-600 text-white rounded-tr-none ${onClick && hasChart ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200' : ''}`
-                            : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
+                        ? `bg-blue-600 text-white rounded-tr-none ${onClick && hasChart ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200' : ''}`
+                        : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                         }`}
                     onClick={onClick && isUser ? onClick : undefined}
+                    onContextMenu={handleContextMenu}
                     style={onClick && hasChart && isUser ? { cursor: 'pointer' } : undefined}
                     title={onClick && hasChart && isUser ? 'Click to view analysis results on dashboard' : undefined}
                 >
@@ -217,7 +295,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             <span>Has visualization - Click to view</span>
                         </div>
                     )}
-                    <div className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}>
+                    <div
+                        className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}
+                        onContextMenu={handleContextMenu}
+                    >
                         <ReactMarkdown
                             components={{
                                 img(props) {
@@ -290,8 +371,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     key={action.id}
                                     onClick={() => handleActionClick(action)}
                                     className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${isUser
-                                            ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
-                                            : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
+                                        ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
+                                        : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
                                         } shadow-sm hover:shadow-md active:scale-95`}
                                 >
                                     {renderButtonLabel(action.label)}
@@ -329,6 +410,86 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         />
                     </div>
                 </div>
+            )}
+
+            {/* Text Selection Context Menu - 使用Portal渲染到body */}
+            {contextMenu && ReactDOM.createPortal(
+                <div
+                    style={{
+                        position: 'fixed',
+                        left: `${contextMenu.x}px`,
+                        top: `${contextMenu.y}px`,
+                        zIndex: 99999999,
+                        backgroundColor: 'white',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                        minWidth: '200px',
+                        overflow: 'hidden'
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div style={{
+                        padding: '10px 12px',
+                        borderBottom: '1px solid #e2e8f0',
+                        backgroundColor: '#f8fafc'
+                    }}>
+                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>
+                            选中的文本
+                        </div>
+                        <div style={{
+                            fontSize: '12px',
+                            color: '#1e293b',
+                            maxWidth: '280px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontWeight: 600
+                        }}>
+                            {contextMenu.selectedText}
+                        </div>
+                    </div>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleRequestAnalysis();
+                        }}
+                        style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            textAlign: 'left',
+                            fontSize: '13px',
+                            color: '#1e293b',
+                            backgroundColor: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontWeight: 500,
+                            transition: 'background-color 0.15s'
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#eff6ff';
+                            e.currentTarget.style.color = '#2563eb';
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'white';
+                            e.currentTarget.style.color = '#1e293b';
+                        }}
+                    >
+                        <svg style={{ width: '14px', height: '14px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        <span>请求分析</span>
+                    </button>
+                </div>,
+                document.body
             )}
         </>
     );

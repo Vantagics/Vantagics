@@ -12,14 +12,56 @@ import (
 
 // ErrorRecord represents a recorded error and its solution
 type ErrorRecord struct {
-	ID           string    `json:"id"`
-	Timestamp    time.Time `json:"timestamp"`
-	ErrorType    string    `json:"error_type"`    // "sql", "python", "schema", "timeout"
-	ErrorMessage string    `json:"error_message"` // Original error
+	ID           string `json:"id"`
+	Timestamp    int64  `json:"timestamp"`    // Unix timestamp in milliseconds
+	ErrorType    string `json:"error_type"`    // "sql", "python", "schema", "timeout"
+	ErrorMessage string `json:"error_message"` // Original error
 	Context      string    `json:"context"`       // What was being attempted
 	Solution     string    `json:"solution"`      // How it was resolved
 	Successful   bool      `json:"successful"`    // Was the solution effective?
 	Tags         []string  `json:"tags"`          // For similarity matching
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
+func (er *ErrorRecord) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct with Timestamp as interface{} to handle both formats
+	type Alias ErrorRecord
+	aux := &struct {
+		Timestamp interface{} `json:"timestamp"`
+		*Alias
+	}{
+		Alias: (*Alias)(er),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle Timestamp field conversion
+	switch v := aux.Timestamp.(type) {
+	case float64:
+		// Already int64 (JSON numbers are float64)
+		er.Timestamp = int64(v)
+	case string:
+		// Old time.Time format - parse and convert to Unix milliseconds
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			er.Timestamp = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v); err == nil {
+			er.Timestamp = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", v); err == nil {
+			er.Timestamp = t.UnixMilli()
+		} else {
+			// If parsing fails, use current time
+			er.Timestamp = time.Now().UnixMilli()
+		}
+	case nil:
+		// No Timestamp field - use current time
+		er.Timestamp = time.Now().UnixMilli()
+	default:
+		er.Timestamp = time.Now().UnixMilli()
+	}
+
+	return nil
 }
 
 // ErrorKnowledge manages the error knowledge base
@@ -75,7 +117,7 @@ func (ek *ErrorKnowledge) RecordError(errorType, errorMsg, context, solution str
 
 	record := ErrorRecord{
 		ID:           fmt.Sprintf("err_%d", time.Now().UnixNano()),
-		Timestamp:    time.Now(),
+		Timestamp:    time.Now().UnixMilli(),
 		ErrorType:    errorType,
 		ErrorMessage: truncateString(errorMsg, 500),
 		Context:      truncateString(context, 200),

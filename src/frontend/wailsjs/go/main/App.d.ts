@@ -10,17 +10,23 @@ export function AssetizeSession(arg1:string):Promise<void>;
 
 export function CancelAnalysis():Promise<void>;
 
+export function CheckRapidBIEnvironmentExists():Promise<boolean>;
+
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
 
 export function ClearHistory():Promise<void>;
 
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
 
+export function CreateRapidBIEnvironment():Promise<string>;
+
 export function DeleteDataSource(arg1:string):Promise<void>;
 
 export function DeleteSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteThread(arg1:string):Promise<void>;
+
+export function DiagnosePythonInstallation():Promise<Record<string, any>>;
 
 export function DisableSkill(arg1:string):Promise<void>;
 
@@ -35,6 +41,8 @@ export function ExportToMySQL(arg1:string,arg2:Array<string>,arg3:string,arg4:st
 export function ExportToSQL(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
 
 export function ExtractMetricsFromAnalysis(arg1:string,arg2:string):Promise<void>;
+
+export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function GetActiveThreadID():Promise<string>;
 
@@ -80,11 +88,15 @@ export function ImportCSVDataSource(arg1:string,arg2:string):Promise<agent.DataS
 
 export function ImportExcelDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
 
+export function InstallPythonPackages(arg1:string,arg2:Array<string>):Promise<void>;
+
 export function IsCancelRequested():Promise<boolean>;
 
 export function LoadMetricsJson(arg1:string):Promise<string>;
 
 export function Log(arg1:string):Promise<void>;
+
+export function OpenDevTools():Promise<void>;
 
 export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
 

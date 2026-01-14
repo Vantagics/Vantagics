@@ -32,6 +32,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null); // 跟踪哪个会话正在加载
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [dataSources, setDataSources] = useState<any[]>([]);
@@ -51,9 +52,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const blankMenuRef = useRef<HTMLDivElement>(null);
 
-    const activeThread = threads.find(t => t.id === activeThreadId);
+    const activeThread = threads?.find(t => t.id === activeThreadId);
     // Find associated data source name
-    const activeDataSource = dataSources.find(ds => ds.id === activeThread?.data_source_id);
+    const activeDataSource = dataSources?.find(ds => ds.id === activeThread?.data_source_id);
 
     useEffect(() => {
         if (isOpen) {
@@ -113,11 +114,24 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const handleCreateThreadRef = useRef<((dataSourceId?: string, title?: string) => Promise<main.ChatThread | null>) | null>(null);
     const handleSendMessageRef = useRef<((text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread) => Promise<void>) | null>(null);
 
+    // Refs to store latest state values for event handlers (avoid closure issues)
+    const threadsRef = useRef<main.ChatThread[]>([]);
+    const activeThreadIdRef = useRef<string | null>(null);
+
+    // Keep refs in sync with state
+    useEffect(() => {
+        threadsRef.current = threads || [];
+    }, [threads]);
+
+    useEffect(() => {
+        activeThreadIdRef.current = activeThreadId;
+    }, [activeThreadId]);
+
     // Listen for new chat creation - separate useEffect with empty deps to prevent duplicate listeners
     useEffect(() => {
         const unsubscribeStart = EventsOn('start-new-chat', async (data: any) => {
             console.log('[ChatSidebar] start-new-chat event received:', data);
-            
+
             // Use sessionName as a key to prevent duplicate processing
             const chatKey = `${data.dataSourceId}-${data.sessionName}`;
             if (pendingChatRef.current === chatKey) {
@@ -130,7 +144,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 const thread = handleCreateThreadRef.current ? await handleCreateThreadRef.current(data.dataSourceId, data.sessionName) : null;
                 if (thread) {
                     console.log('[ChatSidebar] Thread created, preparing to send initial message:', thread.id);
-                    
+
                     // Small delay to ensure state updates (activeThreadId) have propagated
                     setTimeout(async () => {
                         // Get current language from config to ensure consistency
@@ -143,37 +157,37 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         } catch (e) {
                             console.error("Failed to get config for language:", e);
                         }
-                        
+
                         // 防止重复发送相同消息 - 使用更强的检查
                         const messageKey = `${thread.id}-${prompt}`;
                         const currentTime = Date.now();
-                        
+
                         // 检查是否在短时间内发送了相同的消息
                         if (lastMessageRef.current === messageKey) {
                             console.log('[ChatSidebar] Ignoring duplicate message send (exact match):', messageKey);
                             return;
                         }
-                        
+
                         // 额外检查：检查线程中是否已经存在相同的消息
                         const existingMessages = thread.messages || [];
-                        const hasDuplicateMessage = existingMessages.some(msg => 
-                            msg.role === 'user' && 
+                        const hasDuplicateMessage = existingMessages.some(msg =>
+                            msg.role === 'user' &&
                             msg.content === prompt &&
                             (currentTime - (msg.timestamp * 1000)) < 10000 // 10秒内的重复消息
                         );
-                        
+
                         if (hasDuplicateMessage) {
                             console.log('[ChatSidebar] Ignoring duplicate message send (found in thread):', prompt);
                             return;
                         }
-                        
+
                         lastMessageRef.current = messageKey;
                         console.log('[ChatSidebar] Sending initial message:', prompt);
-                        
+
                         if (handleSendMessageRef.current) {
                             handleSendMessageRef.current(prompt, thread.id, thread);
                         }
-                        
+
                         // 清除消息标记
                         setTimeout(() => {
                             if (lastMessageRef.current === messageKey) {
@@ -212,24 +226,147 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         });
 
         // Listen for loading state from backend (for async tasks like suggestions)
-        const unsubscribeLoading = EventsOn('chat-loading', (loading: boolean) => {
-            setIsLoading(loading);
+        const unsubscribeLoading = EventsOn('chat-loading', (data: any) => {
+            if (typeof data === 'boolean') {
+                // 向后兼容：如果是布尔值，应用到当前活动会话
+                if (activeThreadId) {
+                    setIsLoading(data);
+                    if (data) {
+                        setLoadingThreadId(activeThreadId);
+                    } else {
+                        setLoadingThreadId(null);
+                    }
+                }
+            } else if (data && typeof data === 'object') {
+                // 新格式：包含threadId的对象
+                if (data.threadId === activeThreadId) {
+                    setIsLoading(data.loading);
+                    if (data.loading) {
+                        setLoadingThreadId(data.threadId);
+                    } else {
+                        setLoadingThreadId(null);
+                    }
+                }
+            }
         });
 
         // Listen for analysis progress updates
         const unsubscribeProgress = EventsOn('analysis-progress', (update: ProgressUpdate) => {
-            setProgress(update);
-            // Clear progress when complete
-            if (update.stage === 'complete') {
-                setTimeout(() => setProgress(null), 1000);
+            // 只有当前活动会话正在加载时才显示进度
+            if (loadingThreadId && loadingThreadId === activeThreadId) {
+                setProgress(update);
+                // Clear progress when complete
+                if (update.stage === 'complete') {
+                    setTimeout(() => setProgress(null), 1000);
+                }
             }
         });
 
         // Listen for send message request (triggered after sidebar is open)
         const unsubscribeSendMessage = EventsOn('chat-send-message', (text: string) => {
+            console.log('[ChatSidebar] chat-send-message event received:', text);
+            console.log('[ChatSidebar] isOpen state:', isOpen);
+            console.log('[ChatSidebar] activeThreadId:', activeThreadId);
+            console.log('[ChatSidebar] threads count:', threads?.length || 0);
+
             // Only handle if sidebar is open and initialized
             if (isOpen) {
+                console.log('[ChatSidebar] Calling handleSendMessage');
                 handleSendMessage(text);
+            } else {
+                console.log('[ChatSidebar] Sidebar not open, ignoring message');
+            }
+        });
+
+        // Listen for send message request in specific session (for LLM insights)
+        const unsubscribeSendMessageInSession = EventsOn('chat-send-message-in-session', (data: any) => {
+            console.log('[ChatSidebar] chat-send-message-in-session event received:', data);
+            console.log('[ChatSidebar] isOpen state:', isOpen);
+
+            // 使用 refs 获取最新的状态值（避免闭包问题）
+            const currentThreads = threadsRef.current;
+            const currentActiveThreadId = activeThreadIdRef.current;
+
+            console.log('[ChatSidebar] activeThreadId (from ref):', currentActiveThreadId);
+            console.log('[ChatSidebar] threads count (from ref):', currentThreads?.length || 0);
+            console.log('[ChatSidebar] threadId:', data.threadId, 'userMessageId:', data.userMessageId);
+
+            // Priority 1: Use directly provided threadId (most reliable)
+            if (isOpen && data && data.threadId) {
+                const targetThread = currentThreads?.find(t => t.id === data.threadId);
+                if (targetThread) {
+                    console.log('[ChatSidebar] ✅ Found thread by threadId:', targetThread.id);
+                    if (targetThread.id !== currentActiveThreadId) {
+                        setActiveThreadId(targetThread.id);
+                    }
+                    handleSendMessage(data.text, targetThread.id, targetThread);
+                    return;
+                }
+            }
+
+            // Priority 2: Use userMessageId lookup
+            if (isOpen && data && data.userMessageId) {
+                // 详细调试：检查所有线程和消息
+                console.log('[ChatSidebar] Searching for userMessageId in all threads:');
+                currentThreads?.forEach((thread, threadIndex) => {
+                    console.log(`[ChatSidebar] Thread ${threadIndex}: ${thread.id} (${thread.messages?.length || 0} messages)`);
+                    thread.messages?.forEach((msg, msgIndex) => {
+                        if (msg.role === 'user') {
+                            console.log(`[ChatSidebar]   User message ${msgIndex}: ${msg.id} - "${msg.content?.substring(0, 50)}..."`);
+                        }
+                    });
+                });
+
+                // 找到包含指定用户消息的会话
+                const targetThread = currentThreads?.find(thread =>
+                    thread.messages?.some(msg =>
+                        msg.role === 'user' && msg.id === data.userMessageId
+                    )
+                );
+
+                if (targetThread) {
+                    console.log('[ChatSidebar] ✅ Found target thread for user message:', targetThread.id);
+                    console.log('[ChatSidebar] Target thread data source:', targetThread.data_source_id);
+                    console.log('[ChatSidebar] Target thread messages count:', targetThread.messages?.length || 0);
+
+                    // 切换到目标会话（如果需要）
+                    if (targetThread.id !== currentActiveThreadId) {
+                        console.log('[ChatSidebar] Switching to target thread:', targetThread.id);
+                        setActiveThreadId(targetThread.id);
+                    }
+
+                    // 直接发送消息到目标会话，不依赖状态更新
+                    console.log('[ChatSidebar] 🚀 Sending message directly to target thread:', targetThread.id);
+                    console.log('[ChatSidebar] Message text:', data.text?.substring(0, 100));
+                    handleSendMessage(data.text, targetThread.id, targetThread);
+                } else {
+                    console.log('[ChatSidebar] ❌ Target thread not found for userMessageId:', data.userMessageId);
+                    console.log('[ChatSidebar] Available threads:', currentThreads?.map(t => ({
+                        id: t.id,
+                        messageCount: t.messages?.length || 0,
+                        userMessageIds: t.messages?.filter(m => m.role === 'user').map(m => m.id) || []
+                    })));
+
+                    // 回退到当前活动会话，而不是创建新会话
+                    // 这确保智能洞察的分析请求在同一个会话中进行
+                    if (currentActiveThreadId) {
+                        const activeThread = currentThreads?.find(t => t.id === currentActiveThreadId);
+                        if (activeThread) {
+                            console.log('[ChatSidebar] Falling back to active thread:', currentActiveThreadId);
+                            handleSendMessage(data.text, currentActiveThreadId, activeThread);
+                        } else {
+                            console.log('[ChatSidebar] Active thread not found in threads list, using activeThreadId directly');
+                            handleSendMessage(data.text, currentActiveThreadId);
+                        }
+                    } else {
+                        console.log('[ChatSidebar] No active thread, cannot send message in session');
+                        // 不创建新会话，只记录错误
+                        console.error('[ChatSidebar] Cannot find session for insight analysis');
+                    }
+                }
+            } else {
+                console.log('[ChatSidebar] Sidebar not open or invalid data, ignoring message');
+                console.log('[ChatSidebar] isOpen:', isOpen, 'data:', data, 'userMessageId:', data?.userMessageId);
             }
         });
 
@@ -239,8 +376,40 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeProgress) unsubscribeProgress();
             if (unsubscribeSendMessage) unsubscribeSendMessage();
+            if (unsubscribeSendMessageInSession) unsubscribeSendMessageInSession();
         };
     }, [threads]);
+
+    // 监听活动会话变化，自动显示第一个分析结果
+    useEffect(() => {
+        if (activeThreadId && threads) {
+            const activeThread = threads.find(t => t.id === activeThreadId);
+            if (activeThread && activeThread.messages) {
+                // 找到第一个有chart_data的用户消息（分析请求）
+                const firstAnalysisMessage = activeThread.messages.find(msg =>
+                    msg.role === 'user' && msg.chart_data
+                );
+
+                if (firstAnalysisMessage) {
+                    console.log("[ChatSidebar] Auto-displaying first analysis result for thread:", activeThreadId);
+                    console.log("[ChatSidebar] First analysis message:", firstAnalysisMessage.id);
+
+                    // 自动触发显示该消息的分析结果
+                    setTimeout(() => {
+                        EventsEmit('user-message-clicked', {
+                            messageId: firstAnalysisMessage.id,
+                            content: firstAnalysisMessage.content,
+                            chartData: firstAnalysisMessage.chart_data
+                        });
+                    }, 100); // 小延迟确保UI更新完成
+                } else {
+                    console.log("[ChatSidebar] No analysis results found in thread:", activeThreadId);
+                    // 如果没有分析结果，清空仪表盘显示系统默认内容
+                    EventsEmit('clear-dashboard');
+                }
+            }
+        }
+    }, [activeThreadId, threads]);
 
     useEffect(() => {
         const scrollToBottom = () => {
@@ -268,7 +437,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         try {
             const history = await GetChatHistory();
             setThreads(history);
-            if (history.length > 0 && !activeThreadId) {
+            if (history && history.length > 0 && !activeThreadId) {
                 setActiveThreadId(history[0].id);
             }
         } catch (err) {
@@ -288,7 +457,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const handleCreateThread = async (dataSourceId?: string, title?: string) => {
         try {
             const newThread = await CreateChatThread(dataSourceId || '', title || 'New Chat');
-            setThreads(prev => [newThread, ...prev]);
+            setThreads(prev => [newThread, ...(prev || [])]);
             setActiveThreadId(newThread.id);
             return newThread;
         } catch (err: any) {
@@ -318,7 +487,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     const handleDeleteThread = (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        const thread = threads.find(t => t.id === id);
+        const thread = threads?.find(t => t.id === id);
         if (thread) {
             setDeleteThreadTarget({ id: thread.id, title: thread.title });
         }
@@ -327,11 +496,36 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const confirmDeleteThread = async () => {
         if (!deleteThreadTarget) return;
         try {
+            // 如果删除的会话正在进行分析，先取消分析
+            if (loadingThreadId === deleteThreadTarget.id) {
+                console.log('[DELETE-THREAD] Cancelling ongoing analysis before deletion');
+                try {
+                    await CancelAnalysis();
+                    // 等待取消生效
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                } catch (cancelErr) {
+                    console.error('Failed to cancel analysis:', cancelErr);
+                }
+                // 重置loading状态
+                setIsLoading(false);
+                setLoadingThreadId(null);
+                setProgress(null);
+            }
+
             await DeleteThread(deleteThreadTarget.id);
-            const updatedThreads = threads.filter(t => t.id !== deleteThreadTarget.id);
+            const updatedThreads = threads?.filter(t => t.id !== deleteThreadTarget.id) || [];
             setThreads(updatedThreads);
+
+            // 如果删除的是当前活跃的会话
             if (activeThreadId === deleteThreadTarget.id) {
-                setActiveThreadId(updatedThreads.length > 0 ? updatedThreads[0].id : null);
+                if (updatedThreads.length > 0) {
+                    // 如果还有其他会话，选择第一个
+                    setActiveThreadId(updatedThreads[0].id);
+                } else {
+                    // 如果没有剩余会话，清空活跃会话ID并通知App清空仪表盘
+                    setActiveThreadId(null);
+                    EventsEmit('clear-dashboard');
+                }
             }
             setDeleteThreadTarget(null);
         } catch (err) {
@@ -391,15 +585,31 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     const handleSendMessage = async (text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread) => {
         const msgText = text || input;
+        console.log('[ChatSidebar] 🔥 handleSendMessage called with:', {
+            text: msgText?.substring(0, 50),
+            explicitThreadId,
+            hasExplicitThread: !!explicitThread,
+            explicitThreadDataSource: explicitThread?.data_source_id,
+            explicitThreadMessagesCount: explicitThread?.messages?.length || 0,
+            isLoading,
+            activeThreadId
+        });
+
         // If explicitThread is passed (auto-start), ignore isLoading check to ensure it fires.
-        if (!msgText.trim() || (isLoading && !explicitThread)) return;
+        if (!msgText.trim() || (isLoading && !explicitThread)) {
+            console.log('[ChatSidebar] ❌ handleSendMessage early return:', {
+                emptyText: !msgText.trim(),
+                isLoadingAndNoExplicitThread: isLoading && !explicitThread
+            });
+            return;
+        }
 
         // 防止重复的操作请求（特别是按钮点击）
-        const actionKey = `${activeThreadId || explicitThreadId}-${msgText}`;
+        const actionKey = `${explicitThread?.id || activeThreadId || 'no-thread'}-${msgText}`;
         const currentTime = Date.now();
-        
+
         if (pendingActionRef.current === actionKey) {
-            console.log('[ChatSidebar] Ignoring duplicate action (pending):', msgText.substring(0, 50));
+            console.log('[ChatSidebar] ⏸️ Ignoring duplicate action (pending):', msgText.substring(0, 50));
             return;
         }
         pendingActionRef.current = actionKey;
@@ -415,38 +625,64 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         let currentThreads = [...threads];
         let currentThread = explicitThread;
 
+        console.log('[ChatSidebar] 🧵 Thread selection logic:', {
+            hasExplicitThread: !!explicitThread,
+            explicitThreadId,
+            activeThreadId,
+            threadsCount: currentThreads.length,
+            explicitThreadIdFromObject: explicitThread?.id
+        });
+
         if (currentThread) {
+            console.log('[ChatSidebar] ✅ Using explicit thread:', currentThread.id, 'dataSource:', currentThread.data_source_id);
+            console.log('[ChatSidebar] Explicit thread messages count:', currentThread.messages?.length || 0);
             const threadId = currentThread.id;
             const idx = currentThreads.findIndex(t => t.id === threadId);
             if (idx === -1) {
-                currentThreads = [currentThread, ...currentThreads];
+                currentThreads = [currentThread, ...(currentThreads || [])];
+                console.log('[ChatSidebar] Added explicit thread to threads list');
             } else {
                 currentThreads[idx] = currentThread;
+                console.log('[ChatSidebar] Updated explicit thread in threads list');
             }
         } else {
             const targetId = explicitThreadId || activeThreadId;
-            currentThread = currentThreads.find(t => t.id === targetId);
+            console.log('[ChatSidebar] 🔍 Looking for thread with ID:', targetId);
+            currentThread = currentThreads?.find(t => t.id === targetId);
+            if (currentThread) {
+                console.log('[ChatSidebar] ✅ Found target thread:', currentThread.id, 'dataSource:', currentThread.data_source_id);
+            } else {
+                console.log('[ChatSidebar] ❌ Target thread not found');
+            }
         }
 
-        // If no active thread, create one first (only if explicitThreadId is not set)
-        if (!currentThread && !explicitThreadId) {
+        // If no active thread, create one first (only if no explicit thread is provided)
+        if (!currentThread && !explicitThread && !explicitThreadId) {
+            console.log('[ChatSidebar] 🆕 No current thread and no explicit thread, creating new thread');
             try {
                 const title = msgText.slice(0, 30);
                 const newThread = await CreateChatThread('', title);
                 currentThread = newThread;
-                currentThreads = [newThread, ...currentThreads];
-                setThreads(prev => [newThread, ...prev]);
+                currentThreads = [newThread, ...(currentThreads || [])];
+                setThreads(prev => [newThread, ...(prev || [])]);
                 setActiveThreadId(newThread.id);
+                console.log('[ChatSidebar] ✅ Created new thread:', newThread.id);
             } catch (err) {
                 console.error("Failed to create thread on send:", err);
                 return;
             }
-        } else if (!currentThread && explicitThreadId) {
-            console.error("Target thread not found:", explicitThreadId);
+        } else if (!currentThread && (explicitThreadId || explicitThread)) {
+            console.error('[ChatSidebar] 💥 Target thread not found:', explicitThreadId || explicitThread?.id);
+            console.error('[ChatSidebar] Available threads:', currentThreads.map(t => t.id));
             return;
         }
 
-        if (!currentThread) return;
+        if (!currentThread) {
+            console.error('[ChatSidebar] 💥 No current thread available, aborting');
+            return;
+        }
+
+        console.log('[ChatSidebar] 🎯 Final selected thread:', currentThread.id, 'dataSource:', currentThread.data_source_id);
 
         // Store thread ID to avoid TypeScript errors after awaits
         const currentThreadId = currentThread.id;
@@ -454,12 +690,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 检查是否已经存在相同内容的消息（防止重复发送）
         const existingMessages = currentThread.messages || [];
         const recentMessages = existingMessages.slice(-5); // 检查最近5条消息（增加检查范围）
-        const isDuplicate = recentMessages.some(msg => 
-            msg.role === 'user' && 
-            msg.content === msgText && 
+        const isDuplicate = recentMessages.some(msg =>
+            msg.role === 'user' &&
+            msg.content === msgText &&
             (currentTime - (msg.timestamp * 1000)) < 10000 // 增加到10秒内的重复消息
         );
-        
+
         if (isDuplicate) {
             console.log('[ChatSidebar] Ignoring duplicate message (found in recent messages):', msgText.substring(0, 50));
             // 清除操作标记
@@ -478,9 +714,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         if (!currentThread.messages) currentThread.messages = [];
         // Use immutable update for messages to ensure React detects change
-        currentThread.messages = [...currentThread.messages, userMsg];
+        currentThread.messages = [...(currentThread.messages || []), userMsg];
 
-        if (currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
+        if (currentThread.messages && currentThread.messages.length === 1 && currentThread.title === 'New Chat') {
             const newTitle = msgText.slice(0, 30) + (msgText.length > 30 ? '...' : '');
             try {
                 const uniqueTitle = await UpdateThreadTitle(currentThreadId, newTitle);
@@ -493,10 +729,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // Optimistic update using functional state logic
         // We must calculate the new state synchronously to ensure SaveChatHistory gets the correct data
         const threadIndex = currentThreads.findIndex(t => t.id === currentThreadId);
-        const updatedThreads = [...currentThreads];
+        const updatedThreads = [...(currentThreads || [])];
 
         // Clone the thread with the new user message
-        const threadClone = main.ChatThread.createFrom({ ...currentThread!, messages: [...currentThread!.messages] });
+        const threadClone = main.ChatThread.createFrom({ ...currentThread!, messages: [...(currentThread!.messages || [])] });
 
         if (threadIndex !== -1) {
             updatedThreads[threadIndex] = threadClone;
@@ -509,6 +745,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         setInput('');
         setIsLoading(true);
+        setLoadingThreadId(currentThreadId); // 记录正在加载的会话ID
 
         try {
             // Await save before sending message to prevent race condition
@@ -529,16 +766,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             assistantMsg.timestamp = Math.floor(Date.now() / 1000);
 
             // Find the reloaded thread (includes backend modifications like chart_data)
-            const reloadedThread = reloadedThreads.find(t => t.id === currentThreadId);
+            const reloadedThread = reloadedThreads?.find(t => t.id === currentThreadId);
 
             if (reloadedThread) {
                 // Add assistant message to reloaded thread (which has chart_data from backend)
-                reloadedThread.messages = [...reloadedThread.messages, assistantMsg];
+                reloadedThread.messages = [...(reloadedThread.messages || []), assistantMsg];
 
                 // Update state with reloaded thread
                 setThreads(prevThreads => {
-                    const index = prevThreads.findIndex(t => t.id === currentThreadId);
-                    const newThreads = [...prevThreads];
+                    const index = (prevThreads || []).findIndex(t => t.id === currentThreadId);
+                    const newThreads = [...(prevThreads || [])];
                     if (index !== -1) {
                         newThreads[index] = reloadedThread;
                     } else {
@@ -555,18 +792,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             } else {
                 // Fallback to old behavior if thread not found (shouldn't happen)
                 setThreads(prevThreads => {
-                    const index = prevThreads.findIndex(t => t.id === currentThreadId);
+                    const index = (prevThreads || []).findIndex(t => t.id === currentThreadId);
                     if (index !== -1) {
-                        const newThreads = [...prevThreads];
+                        const newThreads = [...(prevThreads || [])];
                         const updatedThread = main.ChatThread.createFrom({
                             ...newThreads[index],
-                            messages: [...newThreads[index].messages, assistantMsg]
+                            messages: [...(newThreads[index].messages || []), assistantMsg]
                         });
                         newThreads[index] = updatedThread;
                         SaveChatHistory(newThreads).catch(err => console.error("Failed to save assistant response:", err));
                         return newThreads;
                     }
-                    return prevThreads;
+                    return prevThreads || [];
                 });
             }
 
@@ -585,20 +822,21 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             errorMsg.content = errorText;
 
             errorMsg.timestamp = Math.floor(Date.now() / 1000);
-            currentThread.messages = [...currentThread.messages, errorMsg];
+            currentThread.messages = [...(currentThread.messages || []), errorMsg];
 
             setThreads(prevThreads => {
-                const index = prevThreads.findIndex(t => t.id === currentThread!.id);
+                const index = (prevThreads || []).findIndex(t => t.id === currentThread!.id);
                 if (index !== -1) {
-                    const newThreads = [...prevThreads];
+                    const newThreads = [...(prevThreads || [])];
                     newThreads[index] = currentThread!;
                     return newThreads;
                 }
-                return prevThreads;
+                return prevThreads || [];
             });
         } finally {
             clearTimeout(timeoutId); // 清除定时器
             setIsLoading(false);
+            setLoadingThreadId(null); // 清除加载会话ID
             setProgress(null);
             // 清除操作标记
             if (pendingActionRef.current === actionKey) {
@@ -611,6 +849,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     // This is critical for the start-new-chat event listener which has empty dependencies
     handleCreateThreadRef.current = handleCreateThread;
     handleSendMessageRef.current = handleSendMessage;
+
+    // 处理会话切换
+    const handleThreadSwitch = (threadId: string) => {
+        setActiveThreadId(threadId);
+        // 分析结果的显示由useEffect自动处理
+    };
 
     const handleUserMessageClick = (message: main.ChatMessage) => {
         // Debug logging
@@ -661,6 +905,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             await CancelAnalysis();
             setShowCancelConfirm(false);
             setIsLoading(false);
+            setLoadingThreadId(null); // 清除加载会话ID
             setProgress(null);
         } catch (err) {
             console.error('Failed to cancel analysis:', err);
@@ -702,12 +947,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         className="flex-1 overflow-y-auto p-2 space-y-1.5 scrollbar-hide"
                         onContextMenu={handleBlankAreaContextMenu}
                     >
-                        {threads.map(thread => {
-                            const threadDataSource = dataSources.find(ds => ds.id === thread.data_source_id);
+                        {threads?.map(thread => {
+                            const threadDataSource = dataSources?.find(ds => ds.id === thread.data_source_id);
                             return (
                                 <div
                                     key={thread.id}
-                                    onClick={() => setActiveThreadId(thread.id)}
+                                    onClick={() => handleThreadSwitch(thread.id)}
                                     onContextMenu={(e) => handleContextMenu(e, thread.id)}
                                     className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${activeThreadId === thread.id
                                         ? 'bg-white border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100'
@@ -734,7 +979,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 </div>
                             );
                         })}
-                        {threads.length === 0 && (
+                        {(!threads || threads.length === 0) && (
                             <div className="text-center py-12 px-4">
                                 <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                     <MessageSquare className="w-5 h-5 text-slate-300" />
@@ -826,7 +1071,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 <X className="w-5 h-5 pointer-events-none" />
                             </div>
                         </div>
-                        {isLoading && (
+                        {isLoading && loadingThreadId === activeThreadId && (
                             <div className="absolute bottom-0 left-0 right-0 h-1 z-20 overflow-hidden bg-slate-100">
                                 {progress ? (
                                     <div
@@ -853,7 +1098,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     }
                                 }
                             }
-                            
+
                             return (
                                 <MessageBubble
                                     key={msg.id || index}
@@ -861,13 +1106,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     content={msg.content}
                                     messageId={msg.id}
                                     userMessageId={userMessageId || undefined}
+                                    dataSourceId={activeThread?.data_source_id}
                                     onActionClick={(action) => handleSendMessage(action.value || action.label)}
                                     onClick={msg.role === 'user' ? () => handleUserMessageClick(msg) : undefined}
                                     hasChart={msg.role === 'user' && !!msg.chart_data}
                                 />
                             );
                         })}
-                        {isLoading && (
+                        {isLoading && loadingThreadId === activeThreadId && (
                             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3.5 shadow-sm rounded-bl-none max-w-[90%]">
                                     <div className="flex items-center gap-2 justify-between">
@@ -914,7 +1160,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 </div>
                             </div>
                         )}
-                        {!activeThread && !isLoading && (
+                        {!activeThread && !(isLoading && loadingThreadId === activeThreadId) && (
                             <div className="h-full flex flex-col items-center justify-center text-center px-8 animate-in fade-in zoom-in-95 duration-500">
                                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white">
                                     <MessageSquare className="w-10 h-10 text-blue-500" />
@@ -940,7 +1186,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             />
                             <button
                                 onClick={() => handleSendMessage()}
-                                disabled={isLoading || !input.trim()}
+                                disabled={(isLoading && loadingThreadId === activeThreadId) || !input.trim()}
                                 className="aspect-square bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >
                                 <Send className="w-5 h-5" />
@@ -991,6 +1237,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 sourceName={deleteThreadTarget?.title || ''}
                 onClose={() => setDeleteThreadTarget(null)}
                 onConfirm={confirmDeleteThread}
+                type="thread"
             />
 
             <MemoryViewModal

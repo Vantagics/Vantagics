@@ -14,6 +14,10 @@ export function CancelAnalysis() {
   return window['go']['main']['App']['CancelAnalysis']();
 }
 
+export function CheckRapidBIEnvironmentExists() {
+  return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
+}
+
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
@@ -26,6 +30,10 @@ export function CreateChatThread(arg1, arg2) {
   return window['go']['main']['App']['CreateChatThread'](arg1, arg2);
 }
 
+export function CreateRapidBIEnvironment() {
+  return window['go']['main']['App']['CreateRapidBIEnvironment']();
+}
+
 export function DeleteDataSource(arg1) {
   return window['go']['main']['App']['DeleteDataSource'](arg1);
 }
@@ -36,6 +44,10 @@ export function DeleteSessionFile(arg1, arg2) {
 
 export function DeleteThread(arg1) {
   return window['go']['main']['App']['DeleteThread'](arg1);
+}
+
+export function DiagnosePythonInstallation() {
+  return window['go']['main']['App']['DiagnosePythonInstallation']();
 }
 
 export function DisableSkill(arg1) {
@@ -64,6 +76,10 @@ export function ExportToSQL(arg1, arg2, arg3) {
 
 export function ExtractMetricsFromAnalysis(arg1, arg2) {
   return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2);
+}
+
+export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExtractSuggestionsFromAnalysis'](arg1, arg2, arg3);
 }
 
 export function GetActiveThreadID() {
@@ -154,6 +170,10 @@ export function ImportExcelDataSource(arg1, arg2) {
   return window['go']['main']['App']['ImportExcelDataSource'](arg1, arg2);
 }
 
+export function InstallPythonPackages(arg1, arg2) {
+  return window['go']['main']['App']['InstallPythonPackages'](arg1, arg2);
+}
+
 export function IsCancelRequested() {
   return window['go']['main']['App']['IsCancelRequested']();
 }
@@ -164,6 +184,10 @@ export function LoadMetricsJson(arg1) {
 
 export function Log(arg1) {
   return window['go']['main']['App']['Log'](arg1);
+}
+
+export function OpenDevTools() {
+  return window['go']['main']['App']['OpenDevTools']();
 }
 
 export function OpenSessionFile(arg1, arg2) {

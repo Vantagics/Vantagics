@@ -57,7 +57,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({ isOpen, onClose, onSelectSkill 
     };
 
     const filterSkills = () => {
-        let filtered = [...skills];
+        let filtered = [...(skills || [])];
 
         // Filter by category
         if (selectedCategory !== 'all') {
@@ -103,8 +103,8 @@ const SkillsPage: React.FC<SkillsPageProps> = ({ isOpen, onClose, onSelectSkill 
         }
     };
 
-    const categories = ['all', ...Array.from(new Set(skills.map(s => s.category)))];
-    const enabledCount = skills.filter(s => s.enabled).length;
+    const categories = ['all', ...Array.from(new Set((skills || []).map(s => s.category)))];
+    const enabledCount = (skills || []).filter(s => s.enabled).length;
 
     const getCategoryIcon = (category: string) => {
         const icons: { [key: string]: string } = {

@@ -36,6 +36,11 @@ func main() {
 		wailsRuntime.EventsEmit(app.ctx, "open-settings")
 	})
 	fileMenu.AddSeparator()
+	// Open Console/DevTools
+	fileMenu.AddText("Open Console", keys.CmdOrCtrl("i"), func(_ *menu.CallbackData) {
+		app.OpenDevTools()
+	})
+	fileMenu.AddSeparator()
 	fileMenu.AddText("Exit", keys.CmdOrCtrl("q"), func(_ *menu.CallbackData) {
 		wailsRuntime.Quit(app.ctx)
 	})

@@ -11,13 +11,19 @@ import (
 )
 
 type DataSourceContextTool struct {
-	dsService *DataSourceService
+	dsService    *DataSourceService
+	sqlCollector *SQLCollector // Optional: for tracking schema context
 }
 
 func NewDataSourceContextTool(dsService *DataSourceService) *DataSourceContextTool {
 	return &DataSourceContextTool{
 		dsService: dsService,
 	}
+}
+
+// SetSQLCollector injects the SQL collector for schema context tracking
+func (t *DataSourceContextTool) SetSQLCollector(collector *SQLCollector) {
+	t.sqlCollector = collector
 }
 
 type dataSourceContextInput struct {
@@ -191,6 +197,23 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 			sb.WriteString("*(Table is empty)*\n")
 		}
 		sb.WriteString("\n")
+	}
+
+	// Track schema context in SQL collector if available
+	if t.sqlCollector != nil {
+		schemaCtx := SchemaContext{
+			Tables:  targetTables,
+			Columns: make(map[string][]string),
+		}
+		
+		// Populate columns for tracked tables
+		for _, tableName := range targetTables {
+			if cols, err := t.dsService.GetDataSourceTableColumns(in.DataSourceID, tableName); err == nil {
+				schemaCtx.Columns[tableName] = cols
+			}
+		}
+		
+		t.sqlCollector.SetSchemaContext(schemaCtx)
 	}
 
 	result := sb.String()

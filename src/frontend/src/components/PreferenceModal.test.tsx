@@ -9,6 +9,9 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     SelectDirectory: vi.fn(),
     GetPythonEnvironments: vi.fn(),
     ValidatePython: vi.fn(),
+    InstallPythonPackages: vi.fn(),
+    CreateRapidBIEnvironment: vi.fn(),
+    CheckRapidBIEnvironmentExists: vi.fn(),
 }));
 
 // Mock window.runtime

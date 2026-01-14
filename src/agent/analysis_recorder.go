@@ -22,7 +22,7 @@ func NewAnalysisRecorder(sourceID, sourceName string, schema []ReplayTableSchema
 	return &AnalysisRecorder{
 		recording: &AnalysisRecording{
 			RecordingID:     fmt.Sprintf("rec_%d", time.Now().Unix()),
-			CreatedAt:       time.Now(),
+			CreatedAt:       time.Now().UnixMilli(),
 			SourceID:        sourceID,
 			SourceName:      sourceName,
 			SourceSchema:    schema,
@@ -46,7 +46,7 @@ func (r *AnalysisRecorder) RecordStep(toolName, description, input, output, char
 	r.stepCount++
 	step := AnalysisStep{
 		StepID:      r.stepCount,
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UnixMilli(),
 		ToolName:    toolName,
 		Description: description,
 		Input:       input,

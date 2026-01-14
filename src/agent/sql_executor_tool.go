@@ -19,6 +19,8 @@ type SQLExecutorTool struct {
 	logger         func(string)
 	maxRetries     int
 	errorKnowledge *ErrorKnowledge
+	sqlCollector   *SQLCollector // Collects successful SQL for training data
+	currentQueryLogic string // Natural language description of current query
 }
 
 func NewSQLExecutorTool(dsService *DataSourceService) *SQLExecutorTool {
@@ -41,6 +43,17 @@ func NewSQLExecutorToolWithPlanner(dsService *DataSourceService, sqlPlanner *SQL
 // SetErrorKnowledge injects the error knowledge system
 func (t *SQLExecutorTool) SetErrorKnowledge(ek *ErrorKnowledge) {
 	t.errorKnowledge = ek
+}
+
+// SetSQLCollector injects the SQL collector for training data collection
+func (t *SQLExecutorTool) SetSQLCollector(collector *SQLCollector) {
+	t.sqlCollector = collector
+}
+
+// SetQueryLogic sets the natural language description for the upcoming SQL execution
+// This is used to record meaningful intent for training data
+func (t *SQLExecutorTool) SetQueryLogic(logic string) {
+	t.currentQueryLogic = logic
 }
 
 type sqlExecutorInput struct {
@@ -421,6 +434,25 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 
 		if err == nil {
 			// Success!
+			// Record successful SQL execution for training data
+			if t.sqlCollector != nil && currentQuery != "" {
+				// Use natural language query logic as intent if available
+				intent := t.currentQueryLogic
+				if intent == "" {
+					// Fallback to SQL if no natural language description
+					intent = currentQuery
+				}
+				t.sqlCollector.SetSQLIntent(intent)
+				t.sqlCollector.RecordSuccessfulSQL(currentQuery, 0)
+				
+				// Clear query logic after recording
+				t.currentQueryLogic = ""
+				
+				if t.logger != nil {
+					t.logger(fmt.Sprintf("[SQL-COLLECTOR] Recorded SQL with intent (len=%d)", len(intent)))
+				}
+			}
+			
 			// If this was a retry (attempt > 0), record the successful solution
 			if attempt > 0 && t.errorKnowledge != nil && lastError != nil {
 				solution := fmt.Sprintf("Corrected SQL:\n%s", currentQuery)

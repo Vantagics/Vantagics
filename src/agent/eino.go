@@ -19,6 +19,59 @@ import (
 	"rapidbi/config"
 )
 
+// getProviderMaxTokens returns the maximum tokens supported by different providers
+// This function ensures adequate tokens for complete responses while respecting limits
+func getProviderMaxTokens(modelName string, configuredMax int) int {
+	// Provider-specific limits based on model names
+	providerLimits := map[string]int{
+		// OpenAI models
+		"gpt-4":           8192,
+		"gpt-4-turbo":     128000,
+		"gpt-4o":          128000,
+		"gpt-3.5-turbo":   16385,
+		
+		// Anthropic models
+		"claude-3":        8192,
+		"claude-3-sonnet": 200000,
+		"claude-3-opus":   200000,
+		"claude-3-haiku":  200000,
+		
+		// Default fallback
+		"default":         8192,
+	}
+	
+	// Find the limit for this model
+	limit := providerLimits["default"]
+	for model, maxTokens := range providerLimits {
+		if strings.Contains(strings.ToLower(modelName), strings.ToLower(model)) {
+			limit = maxTokens
+			break
+		}
+	}
+	
+	// Ensure minimum output capacity - reserve at least 4096 tokens for response
+	minOutputTokens := 4096
+	
+	// If configured max is set and reasonable, use it but ensure minimum output capacity
+	if configuredMax > 0 {
+		// Use the smaller of configured max and provider limit
+		effectiveMax := configuredMax
+		if effectiveMax > limit {
+			effectiveMax = limit
+		}
+		
+		// Ensure we have enough tokens for a complete response
+		if effectiveMax < minOutputTokens {
+			// If configured max is too small, use minimum required
+			return minOutputTokens
+		}
+		
+		return effectiveMax
+	}
+	
+	return limit
+}
+
 // EinoService manages Eino-based agents
 type EinoService struct {
 	ChatModel       model.ChatModel
@@ -63,15 +116,28 @@ type AgentTrajectory struct {
 
 // NewEinoService creates a new EinoService
 func NewEinoService(cfg config.Config, dsService *DataSourceService, logger func(string)) (*EinoService, error) {
+	// Validate required configuration
+	if cfg.ModelName == "" {
+		return nil, fmt.Errorf("model name is required but not configured")
+	}
+	
+	if logger != nil {
+		logger(fmt.Sprintf("[EINO-INIT] Creating EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
+	}
+	
 	var chatModel model.ChatModel
 	var err error
 
 	switch cfg.LLMProvider {
 	case "Anthropic":
+		if logger != nil {
+			logger(fmt.Sprintf("[EINO-INIT] Initializing Anthropic model: %s", cfg.ModelName))
+		}
 		chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-			APIKey:  cfg.APIKey,
-			BaseURL: cfg.BaseURL,
-			Model:   cfg.ModelName,
+			APIKey:    cfg.APIKey,
+			BaseURL:   cfg.BaseURL,
+			Model:     cfg.ModelName,
+			MaxTokens: cfg.MaxTokens,
 		})
 	default:
 		// Default to OpenAI (includes "OpenAI", "OpenAI-Compatible", "Claude-Compatible" if using OAI format)
@@ -80,23 +146,47 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, logger func
 		// If LLMService treats Claude-Compatible as Anthropic-format, we should use AnthropicChatModel.
 		// Checking llm_service.go: Claude-Compatible uses /v1/messages. So it is Anthropic format.
 		if cfg.LLMProvider == "Claude-Compatible" {
+			if logger != nil {
+				logger(fmt.Sprintf("[EINO-INIT] Initializing Claude-Compatible model: %s", cfg.ModelName))
+			}
 			chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-				APIKey:  cfg.APIKey,
-				BaseURL: cfg.BaseURL,
-				Model:   cfg.ModelName,
+				APIKey:    cfg.APIKey,
+				BaseURL:   cfg.BaseURL,
+				Model:     cfg.ModelName,
+				MaxTokens: cfg.MaxTokens,
 			})
 		} else {
+			if logger != nil {
+				logger(fmt.Sprintf("[EINO-INIT] Initializing OpenAI-Compatible model: %s", cfg.ModelName))
+			}
+			
+			// Validate OpenAI configuration
+			if cfg.APIKey == "" {
+				return nil, fmt.Errorf("OpenAI API key is empty - please configure your API key")
+			}
+			
+			// Set max tokens for OpenAI with intelligent provider limits
+			maxTokens := getProviderMaxTokens(cfg.ModelName, cfg.MaxTokens)
+			
 			chatModel, err = openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
-				APIKey:  cfg.APIKey,
-				BaseURL: cfg.BaseURL, // Might need adjustment if empty
-				Model:   cfg.ModelName,
-				Timeout: 0, // Default
+				APIKey:    cfg.APIKey,
+				BaseURL:   cfg.BaseURL, // Might need adjustment if empty
+				Model:     cfg.ModelName,
+				MaxTokens: &maxTokens, // Use pointer to int
+				Timeout:   0, // Default
 			})
 		}
 	}
 
 	if err != nil {
+		if logger != nil {
+			logger(fmt.Sprintf("[EINO-INIT] Failed to create chat model: %v", err))
+		}
 		return nil, fmt.Errorf("failed to create eino chat model: %v", err)
+	}
+
+	if logger != nil {
+		logger(fmt.Sprintf("[EINO-INIT] Chat model created successfully"))
 	}
 
 	// Initialize memory manager with config's MaxTokens
@@ -213,20 +303,50 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		Success:      false,
 	}
 
-	// Extract user request from last message
+	// Extract user request from last message with escaping for training visibility
 	if len(history) > 0 {
 		for i := len(history) - 1; i >= 0; i-- {
 			if history[i].Role == schema.User {
-				trajectory.UserRequest = history[i].Content
+				trajectory.UserRequest = escapeForTraining(history[i].Content)
 				break
 			}
 		}
 	}
 
-	// Save trajectory on completion (success or error)
+	// Initialize SQL collector for this session
+	var sqlCollector *SQLCollector
+	if sessionDir != "" && dataSourceID != "" {
+		// Get data source name
+		var dataSourceName string
+		if sources, err := s.dsService.LoadDataSources(); err == nil {
+			for _, ds := range sources {
+				if ds.ID == dataSourceID {
+					dataSourceName = ds.Name
+					break
+				}
+			}
+		}
+		sqlCollector = NewSQLCollector(threadID, dataSourceID, dataSourceName)
+		if s.Logger != nil {
+			s.Logger("[SQL-COLLECTOR] Initialized for session")
+		}
+	}
+
+	// Save trajectory and SQL collection data on completion (success or error)
 	defer func() {
 		if sessionDir != "" {
 			s.saveTrajectory(sessionDir, trajectory)
+			
+			// Save SQL collection data
+			if sqlCollector != nil {
+				if err := sqlCollector.SaveToFile(sessionDir); err != nil {
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[SQL-COLLECTOR] Failed to save: %v", err))
+					}
+				} else if sqlCollector.GetPairCount() > 0 && s.Logger != nil {
+					s.Logger(fmt.Sprintf("[SQL-COLLECTOR] Saved %d SQL pairs to file", sqlCollector.GetPairCount()))
+				}
+			}
 		}
 	}()
 
@@ -324,12 +444,29 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	dsTool := NewDataSourceContextTool(s.dsService)
+	// Inject SQL collector into datasource tool for schema tracking
+	if sqlCollector != nil {
+		dsTool.SetSQLCollector(sqlCollector)
+	}
 
 	// Create SQL planner for self-correction capability
 	sqlPlanner := NewSQLPlanner(s.ChatModel, s.dsService, s.Logger)
 	sqlTool := NewSQLExecutorToolWithPlanner(s.dsService, sqlPlanner, s.Logger)
 	// Inject error knowledge into SQL tool
 	sqlTool.SetErrorKnowledge(s.errorKnowledge)
+	// Inject SQL collector into SQL tool
+	if sqlCollector != nil {
+		sqlTool.SetSQLCollector(sqlCollector)
+		// Set current user request for context
+		if len(history) > 0 {
+			for i := len(history) - 1; i >= 0; i-- {
+				if history[i].Role == schema.User {
+					sqlCollector.SetUserRequest(history[i].Content)
+					break
+				}
+			}
+		}
+	}
 
 	// Remove PythonPlanner to reduce overhead - LLM can generate Python directly
 	// pythonPlanner := NewPythonPlanner(s.ChatModel, s.Logger)
@@ -457,7 +594,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			return nil, err
 		}
 
-		// Record successful model call in trajectory
+		// Record successful model call in trajectory with escaped content
 		step := TrajectoryStep{
 			StepNumber:  len(trajectory.Steps) + 1,
 			Timestamp:   time.Now().UnixMilli(),
@@ -503,30 +640,30 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			}
 			if s.Logger != nil {
 				s.Logger(fmt.Sprintf("[PROGRESS] %s", msg))
-			}
+				}
 		}
 
 		// Execute tools
 		toolResultMsg, err := toolsNode.Invoke(ctx, lastMsg)
 
-		// Record tool calls in trajectory
+		// Record tool calls in trajectory with escaped content for training visibility
 		for _, tc := range lastMsg.ToolCalls {
 			step := TrajectoryStep{
 				StepNumber: len(trajectory.Steps) + 1,
 				Timestamp:  time.Now().UnixMilli(),
 				Type:       "tool_call",
 				ToolName:   tc.Function.Name,
-				ToolInput:  tc.Function.Arguments,
+				ToolInput:  escapeForTraining(tc.Function.Arguments),
 				ToolCallID: tc.ID,
 			}
 
 			if err != nil {
-				step.Error = err.Error()
+				step.Error = escapeForTraining(err.Error())
 			} else if len(toolResultMsg) > 0 {
-				// Find matching tool result for this call
+				// Find matching tool result for this call - record escaped output for training visibility
 				for _, resultMsg := range toolResultMsg {
 					if resultMsg.ToolCallID == tc.ID {
-						step.ToolOutput = truncateString(resultMsg.Content, 1000)
+						step.ToolOutput = escapeForTraining(resultMsg.Content)
 						break
 					}
 				}
@@ -588,7 +725,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// CRITICAL: Truncate tool output to prevent context overflow
 		// Tool outputs (especially SQL results) can be huge
-		const maxToolOutputChars = 2000
+		const maxToolOutputChars = 50000 // Very high limit to prevent truncation of important data
 		for i, msg := range toolResultMsg {
 			if msg.Role == schema.Tool && len(msg.Content) > maxToolOutputChars {
 				toolResultMsg[i] = &schema.Message{
@@ -778,11 +915,11 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	emitProgress(StageComplete, 100, "Analysis complete", 6, 6)
 
-	// Return the last message and mark trajectory as successful
+	// Return the last message and mark trajectory as successful with escaped content
 	if len(finalHistory) > 0 {
 		lastMsg := finalHistory[len(finalHistory)-1]
 		trajectory.Success = true
-		trajectory.FinalResponse = truncateString(lastMsg.Content, 2000)
+		trajectory.FinalResponse = escapeForTraining(lastMsg.Content) // Escape for training visibility
 		return lastMsg, nil
 	}
 
@@ -815,19 +952,24 @@ func (s *EinoService) saveTrajectory(sessionDir string, trajectory *AgentTraject
 	filename := fmt.Sprintf("%d.json", trajectory.StartTime)
 	filePath := filepath.Join(trajectoryDir, filename)
 
-	// Marshal to JSON with indentation for readability
-	data, err := json.MarshalIndent(trajectory, "", "  ")
+	// Create JSON encoder with proper settings for complete data preservation
+	file, err := os.Create(filePath)
 	if err != nil {
 		if s.Logger != nil {
-			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to marshal: %v", err))
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to create file: %v", err))
 		}
 		return
 	}
+	defer file.Close()
 
-	// Write to file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	encoder.SetEscapeHTML(false) // Preserve HTML characters in content
+
+	// Encode trajectory to JSON with proper escaping
+	if err := encoder.Encode(trajectory); err != nil {
 		if s.Logger != nil {
-			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to write file: %v", err))
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Failed to encode JSON: %v", err))
 		}
 		return
 	}
@@ -835,7 +977,44 @@ func (s *EinoService) saveTrajectory(sessionDir string, trajectory *AgentTraject
 	if s.Logger != nil {
 		s.Logger(fmt.Sprintf("[TRAJECTORY] Saved to: %s (%d steps, %d tool calls, %dms)",
 			filePath, len(trajectory.Steps), trajectory.ToolCallCount, trajectory.TotalDuration))
+		
+		// Verify JSON format by attempting to read it back
+		if err := s.verifyTrajectoryJSON(filePath); err != nil {
+			s.Logger(fmt.Sprintf("[TRAJECTORY] JSON format verification failed: %v", err))
+		} else {
+			s.Logger("[TRAJECTORY] JSON format verified successfully")
+		}
 	}
+}
+
+// verifyTrajectoryJSON verifies that the saved trajectory file is valid JSON
+func (s *EinoService) verifyTrajectoryJSON(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	var trajectory AgentTrajectory
+	if err := decoder.Decode(&trajectory); err != nil {
+		return fmt.Errorf("JSON decode failed: %v", err)
+	}
+
+	// Additional verification: check if final_response can be extracted
+	if trajectory.FinalResponse != "" {
+		if s.Logger != nil {
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Final response length: %d chars (escaped)", len(trajectory.FinalResponse)))
+			// Log first 100 chars to verify escaped content is preserved correctly
+			preview := trajectory.FinalResponse
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			s.Logger(fmt.Sprintf("[TRAJECTORY] Final response preview (escaped): %s", preview))
+		}
+	}
+
+	return nil
 }
 
 // messagesToMap converts messages to simplified map representation for trajectory
@@ -847,26 +1026,48 @@ func messagesToMap(msgs []*schema.Message) []map[string]interface{} {
 	return result
 }
 
-// messageToMap converts a single message to map with truncated content
+// escapeForTraining converts content to escaped format for better training visibility
+func escapeForTraining(content string) string {
+	// Replace actual characters with their escaped representations for training visibility
+	content = strings.ReplaceAll(content, "\n", "\\n")
+	content = strings.ReplaceAll(content, "\r", "\\r")
+	content = strings.ReplaceAll(content, "\t", "\\t")
+	content = strings.ReplaceAll(content, "\"", "\\\"")
+	content = strings.ReplaceAll(content, "\\", "\\\\")
+	return content
+}
+
+// messageToMap converts a single message to map with escaped content for training visibility
 func messageToMap(msg *schema.Message) map[string]interface{} {
 	m := map[string]interface{}{
 		"role": string(msg.Role),
 	}
 
-	// Truncate long content to avoid huge trajectory files
-	if len(msg.Content) > 500 {
-		m["content"] = msg.Content[:500] + "... [truncated]"
-	} else {
-		m["content"] = msg.Content
+	// Escape content for training visibility - show actual escape sequences
+	m["content"] = escapeForTraining(msg.Content)
+
+	// Add complete tool calls information if present
+	if len(msg.ToolCalls) > 0 {
+		var toolCalls []map[string]interface{}
+		for _, tc := range msg.ToolCalls {
+			toolCall := map[string]interface{}{
+				"id":        tc.ID,
+				"name":      tc.Function.Name,
+				"arguments": escapeForTraining(tc.Function.Arguments),
+			}
+			toolCalls = append(toolCalls, toolCall)
+		}
+		m["tool_calls"] = toolCalls
 	}
 
-	// Add tool calls if present
-	if len(msg.ToolCalls) > 0 {
-		var calls []string
-		for _, tc := range msg.ToolCalls {
-			calls = append(calls, tc.Function.Name)
-		}
-		m["tool_calls"] = calls
+	// Add tool call ID if this is a tool response
+	if msg.ToolCallID != "" {
+		m["tool_call_id"] = msg.ToolCallID
+	}
+
+	// Add tool name if present
+	if msg.ToolName != "" {
+		m["tool_name"] = msg.ToolName
 	}
 
 	return m

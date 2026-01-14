@@ -1,15 +1,69 @@
 package agent
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // DataSource represents a registered data source
 type DataSource struct {
 	ID        string              `json:"id"`
 	Name      string              `json:"name"`
 	Type      string              `json:"type"` // excel, mysql, postgresql, etc.
-	CreatedAt time.Time           `json:"created_at"`
+	CreatedAt int64               `json:"created_at"` // Unix timestamp in milliseconds
 	Config    DataSourceConfig    `json:"config"`
 	Analysis  *DataSourceAnalysis `json:"analysis,omitempty"`
+}
+
+// UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
+func (ds *DataSource) UnmarshalJSON(data []byte) error {
+	// Define a temporary struct with CreatedAt as interface{} to handle both formats
+	type Alias DataSource
+	aux := &struct {
+		CreatedAt interface{} `json:"created_at"`
+		*Alias
+	}{
+		Alias: (*Alias)(ds),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Handle CreatedAt field conversion
+	switch v := aux.CreatedAt.(type) {
+	case float64:
+		// Already int64 (JSON numbers are float64)
+		ds.CreatedAt = int64(v)
+	case int64:
+		// Direct int64
+		ds.CreatedAt = v
+	case int:
+		// Convert int to int64
+		ds.CreatedAt = int64(v)
+	case string:
+		// Old time.Time format - parse and convert to Unix milliseconds
+		if v == "" {
+			ds.CreatedAt = time.Now().UnixMilli()
+		} else if t, err := time.Parse(time.RFC3339, v); err == nil {
+			ds.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05.999999999Z07:00", v); err == nil {
+			ds.CreatedAt = t.UnixMilli()
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z07:00", v); err == nil {
+			ds.CreatedAt = t.UnixMilli()
+		} else {
+			// If parsing fails, use current time
+			ds.CreatedAt = time.Now().UnixMilli()
+		}
+	case nil:
+		// No CreatedAt field - use current time
+		ds.CreatedAt = time.Now().UnixMilli()
+	default:
+		// Try to convert to string and parse, or use current time as fallback
+		ds.CreatedAt = time.Now().UnixMilli()
+	}
+
+	return nil
 }
 
 // DataSourceAnalysis holds the AI-generated analysis of the data source

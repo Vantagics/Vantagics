@@ -57,9 +57,10 @@ func TestAnthropicChatModel_Generate_ToolUse(t *testing.T) {
 	defer server.Close()
 
 	model, _ := NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-		APIKey:  "test-key",
-		BaseURL: server.URL,
-		Model:   "claude-3",
+		APIKey:    "test-key",
+		BaseURL:   server.URL,
+		Model:     "claude-3",
+		MaxTokens: 8192,
 	})
 
 	input := []*schema.Message{
@@ -130,8 +131,10 @@ func TestAnthropicChatModel_Generate_ToolResult(t *testing.T) {
 	defer server.Close()
 
 	model, _ := NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-		APIKey:  "test-key",
-		BaseURL: server.URL,
+		APIKey:    "test-key",
+		BaseURL:   server.URL,
+		Model:     "claude-3",
+		MaxTokens: 8192,
 	})
 
 	input := []*schema.Message{

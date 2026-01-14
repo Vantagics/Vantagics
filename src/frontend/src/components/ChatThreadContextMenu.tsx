@@ -50,7 +50,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                 className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
             >
                 <FolderOpen className="w-4 h-4 text-slate-400" />
-                {t('view_results_directory') || '查看结果数据'}
+                {t('view_results_directory')}
             </button>
             <div className="h-px bg-slate-100 my-1" />
             <button

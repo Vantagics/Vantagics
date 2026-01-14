@@ -29,16 +29,27 @@ type AnthropicChatModel struct {
 }
 
 type AnthropicConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
+	APIKey    string
+	BaseURL   string
+	Model     string
+	MaxTokens int
 }
 
 func NewAnthropicChatModel(ctx context.Context, config *AnthropicConfig) (*AnthropicChatModel, error) {
+	// Validate configuration
+	if config == nil {
+		return nil, fmt.Errorf("anthropic config is nil")
+	}
+	if config.Model == "" {
+		return nil, fmt.Errorf("anthropic model name is empty - please configure a valid model name")
+	}
+	if config.APIKey == "" {
+		return nil, fmt.Errorf("anthropic API key is empty - please configure your API key")
+	}
+	
 	return &AnthropicChatModel{
 		config: config,
-	},
-	nil
+	}, nil
 }
 
 func (m *AnthropicChatModel) BindTools(tools []*schema.ToolInfo) error {
@@ -47,10 +58,17 @@ func (m *AnthropicChatModel) BindTools(tools []*schema.ToolInfo) error {
 }
 
 func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	// Prepare request body
+	// Validate model configuration
+	if m.config.Model == "" {
+		return nil, fmt.Errorf("model name is empty - please configure a valid model name in settings")
+	}
+	
+	// Prepare request body with intelligent token limits
+	maxTokens := getProviderMaxTokens(m.config.Model, m.config.MaxTokens)
+	
 	reqBody := map[string]interface{}{
 		"model":      m.config.Model,
-		"max_tokens": 4096,
+		"max_tokens": maxTokens,
 	}
 
 	var messages []map[string]interface{}

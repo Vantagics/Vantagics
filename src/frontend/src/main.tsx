@@ -51,6 +51,9 @@ if (!window.go) {
                     missingPackages: [],
                     error: ''
                 }),
+                InstallPythonPackages: async () => {},
+                CreateRapidBIEnvironment: async () => '/path/to/rapidbi/python',
+                CheckRapidBIEnvironmentExists: async () => false,
                 // Add other mocks as needed
             }
         }

@@ -91,10 +91,10 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
             <div className="max-h-64 overflow-y-auto">
                 {isLoading ? (
                     <div className="p-4 text-center text-xs text-slate-400">Loading...</div>
-                ) : threads.length === 0 ? (
+                ) : !threads || threads.length === 0 ? (
                     <div className="p-4 text-center text-xs text-slate-400 italic">No associated chats found.</div>
                 ) : (
-                    threads.map(thread => (
+                    threads?.map(thread => (
                         <button 
                             key={thread.id}
                             onClick={() => {

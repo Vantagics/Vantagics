@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactECharts from 'echarts-for-react';
 import DashboardLayout from './DashboardLayout';
 import MetricCard from './MetricCard';
 import SmartInsight from './SmartInsight';
@@ -16,9 +17,10 @@ interface DashboardProps {
     userRequestText?: string | null;
     onDashboardClick?: () => void;
     isChatOpen?: boolean;
+    activeThreadId?: string | null;  // Track active thread for insight clicks
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen }) => {
+const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen, activeThreadId }) => {
     const { t } = useLanguage();
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [chartModalOpen, setChartModalOpen] = useState(false);
@@ -77,10 +79,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             const canvasElements = document.querySelectorAll('canvas');
             for (const canvas of canvasElements) {
                 const parent = canvas.parentElement;
-                if (parent && (parent.classList.contains('echarts-for-react') || 
-                              parent.style.height || 
-                              canvas.width > 200)) {
-                    
+                if (parent && (parent.classList.contains('echarts-for-react') ||
+                    parent.style.height ||
+                    canvas.width > 200)) {
+
                     console.log("[Dashboard] ECharts captured via Canvas toBlob method");
                     return new Promise((resolve) => {
                         canvas.toBlob((blob) => {
@@ -126,13 +128,13 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     const exportAsHTML = async () => {
         try {
             const timestamp = new Date().toLocaleString('zh-CN');
-            
+
             // 获取图表图片（如果有ECharts）
             let chartImageData = null;
             if (activeChart && activeChart.type === 'echarts') {
                 chartImageData = await captureEChartsAsImage();
             }
-            
+
             let htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -321,7 +323,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     <div class="section">
         <h2>分析图表</h2>
         <div class="chart-section">`;
-                
+
                 if (chartImageData) {
                     htmlContent += `
             <img src="${chartImageData}" alt="分析图表" class="chart-image" />
@@ -345,7 +347,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                 <p>此图表为交互式内容，请在原系统中查看完整效果</p>
             </div>`;
                 }
-                
+
                 htmlContent += `
         </div>
     </div>`;
@@ -386,7 +388,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             link.click();
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
-            
+
             console.log("[Dashboard] HTML export completed successfully");
         } catch (error) {
             console.error("[Dashboard] HTML export failed:", error);
@@ -568,7 +570,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     <div class="section">
         <h2>分析图表</h2>
         <div class="chart-section">`;
-                
+
                 if (chartImageData) {
                     printContent += `
             <img src="${chartImageData}" alt="分析图表" class="chart-image" />
@@ -590,7 +592,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                 <p>此图表为交互式内容，请在原系统中查看完整效果</p>
             </div>`;
                 }
-                
+
                 printContent += `
         </div>
     </div>`;
@@ -622,7 +624,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             // 写入打印窗口并触发打印
             printWindow.document.write(printContent);
             printWindow.document.close();
-            
+
             // 等待内容加载完成后打印
             printWindow.onload = () => {
                 setTimeout(() => {
@@ -630,7 +632,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     printWindow.close();
                 }, 1000); // 增加延迟确保图片加载完成
             };
-            
+
             console.log("[Dashboard] PDF export initiated successfully");
         } catch (error) {
             console.error("[Dashboard] PDF export failed:", error);
@@ -673,8 +675,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
         console.log("[Dashboard] chartData (first 100 chars):", typeof chartData === 'string' ? chartData.substring(0, 100) : chartData);
 
         // Generate a stable key for the chart based on content
-        const contentHash = typeof chartData === 'string' 
-            ? chartData.substring(0, 50) 
+        const contentHash = typeof chartData === 'string'
+            ? chartData.substring(0, 50)
             : JSON.stringify(chartData).substring(0, 50);
         const chartKey = `chart-${chartType}-${currentChartIndex}-${contentHash.replace(/[^a-zA-Z0-9]/g, '')}`;
 
@@ -696,14 +698,86 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
             if (chartType === 'echarts') {
                 try {
-                    const options = JSON.parse(chartData);
-                    
+                    // Validate that chartData is a string before parsing
+                    if (typeof chartData !== 'string') {
+                        console.error("Invalid ECharts data: not a string", typeof chartData);
+                        return null;
+                    }
+
+                    // Check if the string contains function definitions (invalid JSON)
+                    if (chartData.includes('function(') || chartData.includes('function (')) {
+                        console.error("Invalid ECharts data: contains function definitions", chartData.substring(0, 200));
+
+                        // Try to clean the data by removing function definitions
+                        try {
+                            let cleanedData = chartData;
+
+                            // Remove common function patterns that might appear in ECharts configs
+                            cleanedData = cleanedData.replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '');
+                            cleanedData = cleanedData.replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '');
+                            cleanedData = cleanedData.replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '');
+
+                            // Clean up any trailing commas that might be left
+                            cleanedData = cleanedData.replace(/,(\s*[}\]])/g, '$1');
+
+                            // Try to parse the cleaned data
+                            const cleanedOptions = JSON.parse(cleanedData);
+
+                            if (cleanedOptions && typeof cleanedOptions === 'object') {
+                                console.log("[Dashboard] Successfully cleaned ECharts data by removing functions");
+
+                                return (
+                                    <div className="w-full">
+                                        <ReactECharts
+                                            option={cleanedOptions}
+                                            style={{ height: '400px', width: '100%' }}
+                                            opts={{ renderer: 'canvas' }}
+                                            className="echarts-for-react"
+                                        />
+                                    </div>
+                                );
+                            }
+                        } catch (cleanError) {
+                            console.error("Failed to clean ECharts data:", cleanError);
+                        }
+
+                        // If cleaning fails, show error message
+                        return (
+                            <div className="w-full bg-amber-50 border border-amber-200 rounded-xl p-4 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-amber-100 p-2 rounded-lg">
+                                        <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-amber-800">Chart Data Format Error</p>
+                                        <p className="text-xs text-amber-600 mt-1">This chart contains JavaScript functions and cannot be displayed. The data has been corrupted.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    // 清理chartData中的JavaScript函数
+                    let cleanedChartData = chartData;
+                    if (typeof chartData === 'string') {
+                        cleanedChartData = chartData
+                            .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                            .replace(/,(\s*[}\]])/g, '$1')
+                            .replace(/(\{\s*),/g, '$1');
+                    }
+
+                    const options = JSON.parse(cleanedChartData);
+
                     // 验证ECharts选项的基本结构
                     if (!options || typeof options !== 'object') {
                         console.error("Invalid ECharts options: not an object", options);
                         return null;
                     }
-                    
+
                     // 确保必要的属性存在
                     const validatedOptions = {
                         ...options,
@@ -712,17 +786,17 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         // 如果没有series，添加一个空的
                         series: options.series || []
                     };
-                    
+
                     return (
                         <div
                             className="cursor-zoom-in group relative"
                             onDoubleClick={() => setChartModalOpen(true)}
                             title="Double click to expand"
                         >
-                            <Chart 
+                            <Chart
                                 key={chartKey}
-                                options={validatedOptions} 
-                                height="400px" 
+                                options={validatedOptions}
+                                height="400px"
                             />
                             <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <span className="bg-slate-800/80 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-sm">Double click to expand</span>
@@ -731,8 +805,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     );
                 } catch (e) {
                     console.error("Failed to parse ECharts options for dashboard", e);
-                    console.error("Raw chart data:", chartData);
-                    return null;
+                    console.error("Raw chart data (first 500 chars):", chartData?.substring(0, 500));
+                    return (
+                        <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-red-100 p-2 rounded-lg">
+                                    <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-red-800">Cannot Display Chart</p>
+                                    <p className="text-xs text-red-600 mt-1">The chart data is malformed. Error: {(e as Error).message}</p>
+                                </div>
+                            </div>
+                        </div>
+                    );
                 }
             }
 
@@ -873,7 +961,18 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                 </h3>
                 {tableCharts.map((chart, tableIndex) => {
                     try {
-                        const tableData = JSON.parse(chart.data);
+                        // 清理表格数据中的JavaScript函数
+                        let cleanedData = chart.data;
+                        if (typeof chart.data === 'string') {
+                            cleanedData = chart.data
+                                .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                .replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                .replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                .replace(/,(\s*[}\]])/g, '$1')
+                                .replace(/(\{\s*),/g, '$1');
+                        }
+
+                        const tableData = JSON.parse(cleanedData);
                         if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
                             return null;
                         }
@@ -968,7 +1067,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             )
         ].join('\n');
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        // 添加BOM以确保中文正确显示
+        const BOM = '\uFEFF';
+        const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -978,30 +1079,30 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     const handleDashboardClick = (e: React.MouseEvent) => {
         // 只有当点击的是Dashboard容器本身或其直接子元素（非交互元素）时才隐藏聊天
         const target = e.target as HTMLElement;
-        
+
         // 检查是否是交互元素
-        const isInteractiveElement = target.tagName === 'BUTTON' || 
-                                   target.tagName === 'A' || 
-                                   target.tagName === 'INPUT' || 
-                                   target.tagName === 'SELECT' || 
-                                   target.tagName === 'TEXTAREA' ||
-                                   target.closest('button') ||
-                                   target.closest('a') ||
-                                   target.closest('[role="button"]') ||
-                                   target.closest('.cursor-pointer') ||
-                                   target.closest('.cursor-zoom-in');
-        
+        const isInteractiveElement = target.tagName === 'BUTTON' ||
+            target.tagName === 'A' ||
+            target.tagName === 'INPUT' ||
+            target.tagName === 'SELECT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.closest('button') ||
+            target.closest('a') ||
+            target.closest('[role="button"]') ||
+            target.closest('.cursor-pointer') ||
+            target.closest('.cursor-zoom-in');
+
         // 检查是否在图表区域内（用户可能正在查看分析结果）
         const isInChartArea = target.closest('[class*="chart"]') ||
-                             target.closest('canvas') ||
-                             target.closest('svg') ||
-                             target.closest('table') ||
-                             target.closest('.echarts-container');
-        
+            target.closest('canvas') ||
+            target.closest('svg') ||
+            target.closest('table') ||
+            target.closest('.echarts-container');
+
         // 检查是否在智能洞察卡片内
         const isInInsightCard = target.closest('[class*="insight"]') ||
-                               target.closest('[class*="metric"]');
-        
+            target.closest('[class*="metric"]');
+
         // 只有在点击空白区域时才隐藏聊天侧边栏
         // 如果聊天区已经打开且用户点击了智能洞察，不要隐藏（让用户继续使用）
         if (!isInteractiveElement && !isInChartArea && !isInInsightCard && onDashboardClick) {
@@ -1010,21 +1111,46 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     };
 
     const handleInsightClick = (insight: any) => {
-        if (insight.data_source_id) {
-            // Directly trigger new chat session creation
-            // If there's a conflict, ChatSidebar will show the warning modal
+        // 区分洞察来源，决定不同的处理方式
+        if (insight.source === 'llm_suggestion') {
+            // LLM生成的洞察：在当前会话中继续分析
+            console.log('[Dashboard] LLM insight clicked, continuing in current session:', insight.text);
+            console.log('[Dashboard] Using activeThreadId:', activeThreadId);
+
+            // 优先使用 activeThreadId，确保在正确会话中发送
+            if (activeThreadId) {
+                EventsEmit("analyze-insight-in-session", {
+                    text: insight.text,
+                    threadId: activeThreadId,  // 直接传递 threadId
+                    userMessageId: insight.userMessageId,  // 保留作为备份
+                    continueInSession: true
+                });
+            } else {
+                // 没有活动会话，回退到使用 userMessageId
+                console.warn('[Dashboard] No activeThreadId, falling back to userMessageId');
+                EventsEmit("analyze-insight-in-session", {
+                    text: insight.text,
+                    userMessageId: insight.userMessageId,
+                    continueInSession: true
+                });
+            }
+        } else if (insight.data_source_id) {
+            // 系统洞察：创建新会话进行分析
+            console.log('[Dashboard] System insight clicked, creating new session:', insight.text);
             EventsEmit('start-new-chat', {
                 dataSourceId: insight.data_source_id,
                 sessionName: `${t('analysis_session_prefix')}${insight.source_name || insight.text}`,
                 keepChatOpen: true // 标记这是创建新会话，不要隐藏聊天区
             });
         } else {
+            // 其他洞察：使用analyze-insight事件（向后兼容）
+            console.log('[Dashboard] Generic insight clicked:', insight.text);
             EventsEmit("analyze-insight", insight.text);
         }
     };
 
     return (
-        <div 
+        <div
             className="flex-1 flex flex-col h-full overflow-hidden"
             onClick={handleDashboardClick}
         >
@@ -1034,7 +1160,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         <h1 className="text-2xl font-bold text-slate-800">{t('smart_dashboard')}</h1>
                         <p className="text-slate-500">{t('welcome_back')}</p>
                     </div>
-                    
+
                     {/* 导出按钮 - 只有在有可导出内容时显示 */}
                     {hasExportableContent() && (
                         <div className="relative export-dropdown-container">
@@ -1046,7 +1172,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                                 <Download className="w-4 h-4" />
                                 <span className="text-sm font-medium">导出</span>
                             </button>
-                            
+
                             {/* 导出下拉菜单 */}
                             {exportDropdownOpen && (
                                 <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
@@ -1120,9 +1246,42 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                             const charts = activeChart.chartData?.charts || [];
                             if (charts.length > 0) {
                                 const currentChart = charts[currentChartIndex];
-                                return currentChart?.type === 'echarts' ? JSON.parse(currentChart.data) : {};
+                                if (currentChart?.type === 'echarts') {
+                                    // 清理数据中的JavaScript函数
+                                    let cleanedData = currentChart.data;
+                                    if (typeof currentChart.data === 'string') {
+                                        cleanedData = currentChart.data
+                                            .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                            .replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                            .replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                            .replace(/,(\s*[}\]])/g, '$1')
+                                            .replace(/(\{\s*),/g, '$1');
+                                    }
+                                    try {
+                                        return JSON.parse(cleanedData);
+                                    } catch (e) {
+                                        console.error("Failed to parse cleaned chart data:", e);
+                                        return {};
+                                    }
+                                }
+                                return {};
                             }
-                            return JSON.parse(activeChart.data);
+                            // 清理activeChart.data中的JavaScript函数
+                            let cleanedData = activeChart.data;
+                            if (typeof activeChart.data === 'string') {
+                                cleanedData = activeChart.data
+                                    .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                    .replace(/,?\s*"?matter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                    .replace(/,?\s*[a-zA-Z_$][a-zA-Z0-9_$]*\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                    .replace(/,(\s*[}\]])/g, '$1')
+                                    .replace(/(\{\s*),/g, '$1');
+                            }
+                            try {
+                                return JSON.parse(cleanedData);
+                            } catch (e) {
+                                console.error("Failed to parse cleaned active chart data:", e);
+                                return {};
+                            }
                         })()}
                         onClose={() => setChartModalOpen(false)}
                     />

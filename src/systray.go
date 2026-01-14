@@ -10,10 +10,13 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+//go:embed build/windows/icon.ico
+var trayIcon []byte
+
 func runSystray(ctx context.Context) {
 	go func() {
 		systray.Run(func() {
-			systray.SetIcon(icon)
+			systray.SetIcon(trayIcon)
 			systray.SetTitle("RapidBI")
 			systray.SetTooltip("RapidBI")
 

@@ -313,7 +313,7 @@ func (s *DataSourceService) ImportRemoteDataSource(name string, driverType strin
 		ID:        id,
 		Name:      name,
 		Type:      strings.ToLower(driverType),
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UnixMilli(),
 		Config:    config,
 	}
 
@@ -753,7 +753,7 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		ID:        id,
 		Name:      name,
 		Type:      "excel",
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UnixMilli(),
 		Config: DataSourceConfig{
 			OriginalFile: filePath,
 			DBPath:       relDBPath,
@@ -881,7 +881,7 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 		ID:        id,
 		Name:      name,
 		Type:      "csv",
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UnixMilli(),
 		Config: DataSourceConfig{
 			OriginalFile: path,
 			DBPath:       relDBPath,

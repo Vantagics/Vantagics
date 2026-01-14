@@ -35,17 +35,17 @@ type MemoryManager struct {
 
 // NewMemoryManager creates a new memory manager
 func NewMemoryManager(maxTokens int, chatModel model.ChatModel) *MemoryManager {
-	// Cap maxTokens at 60k to leave plenty of room for system prompt + response + tool outputs
-	// Most models have 128k+ context but tool outputs can be huge
-	if maxTokens > 60000 {
-		maxTokens = 60000
+	// Cap maxTokens at 200k to allow very long contexts and responses
+	// Modern models support 128k+ context, so this provides plenty of room
+	if maxTokens > 200000 {
+		maxTokens = 200000
 	}
 
 	return &MemoryManager{
 		config: MemoryConfig{
 			MaxTokens:           maxTokens,
-			ShortTermMessages:   2,  // Keep last 2 messages only (very aggressive)
-			TokenReservePercent: 40, // Reserve 40% for response + system + tools
+			ShortTermMessages:   5,  // Keep more recent messages (increased from 3)
+			TokenReservePercent: 30, // Reserve more for response to ensure complete output (increased from 20%)
 			EstimatedTokenRatio: 3,  // ~3 chars per token (conservative)
 		},
 		chatModel: chatModel,
@@ -106,16 +106,16 @@ func (m *MemoryManager) ManageMemory(ctx context.Context, messages []*schema.Mes
 		return messages, nil
 	}
 
-	// Calculate target tokens (very conservative - 40% of max)
-	targetTokens := m.config.MaxTokens * 40 / 100
+	// Calculate target tokens for context (reserve 30% for response to ensure complete output)
+	targetTokens := m.config.MaxTokens * 70 / 100
 
-	// First pass: aggressive truncation of tool messages (max 500 chars each)
-	messages = m.TruncateToolMessages(messages, 500)
+	// First pass: moderate truncation of tool messages (max 10000 chars each) - increased significantly
+	messages = m.TruncateToolMessages(messages, 10000)
 	currentTokens := m.EstimateTokens(messages)
 
-	// If still too large, more aggressive truncation (200 chars)
+	// If still too large, more aggressive truncation (5000 chars) - still much higher than before
 	if currentTokens > targetTokens {
-		messages = m.TruncateToolMessages(messages, 200)
+		messages = m.TruncateToolMessages(messages, 5000)
 		currentTokens = m.EstimateTokens(messages)
 	}
 
