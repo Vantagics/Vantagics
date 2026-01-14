@@ -122,12 +122,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     icon: 'star', // 使用星形图标表示LLM建议
                     source: 'llm_suggestion',
                     id: `llm_${userMessageId}_${index}`,
-                    userMessageId: userMessageId,
-                    data_source_id: dataSourceId  // 添加数据源ID，这样点击时会创建新会话
+                    userMessageId: userMessageId
+                    // 不添加 data_source_id，因为LLM建议应该在当前会话中继续，而不是创建新会话
                 }))
             });
         }
-    }, [extractedInsights.length, isUser, userMessageId, dataSourceId]); // 添加dataSourceId到依赖项
+    }, [extractedInsights.length, isUser, userMessageId]); // 移除dataSourceId依赖项
 
     // 注意：关键指标现在通过后端自动提取，不再需要手动发送到Dashboard
 

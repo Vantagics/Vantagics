@@ -1565,6 +1565,23 @@ func (a *App) ClearHistory() error {
 	if a.chatService == nil {
 		return fmt.Errorf("chat service not initialized")
 	}
+	
+	// Check if there's an ongoing analysis and cancel it
+	a.cancelAnalysisMutex.Lock()
+	isGenerating := a.isChatGenerating
+	if isGenerating {
+		// Cancel any ongoing analysis
+		a.cancelAnalysis = true
+		a.Log("[CLEAR-HISTORY] Cancelling ongoing analysis before clearing history")
+	}
+	a.cancelAnalysisMutex.Unlock()
+	
+	// Wait for cancellation to take effect if needed
+	if isGenerating {
+		time.Sleep(100 * time.Millisecond)
+		a.Log("[CLEAR-HISTORY] Waited for analysis cancellation")
+	}
+	
 	return a.chatService.ClearHistory()
 }
 
