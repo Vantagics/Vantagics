@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, DeleteDataSource, GetConfig } from '../../wailsjs/go/main/App';
 import { Table, Database, FileText, ChevronRight, List, Trash2 } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 interface ContextPanelProps {
     width: number;
@@ -9,6 +10,7 @@ interface ContextPanelProps {
 }
 
 const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick }) => {
+    const { t } = useLanguage();
     const [selectedSource, setSelectedSource] = useState<any>(null);
     const [tables, setTables] = useState<string[]>([]);
     const [tableCounts, setTableCounts] = useState<Record<string, number>>({});
@@ -146,7 +148,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
             >
                 <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
                     <Database className="w-4 h-4 text-blue-500" />
-                    Data Explorer
+                    {t('data_explorer')}
                 </h2>
             </div>
             
@@ -156,7 +158,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                         <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
                             <List className="w-8 h-8 text-slate-300" />
                         </div>
-                        <p className="text-sm font-medium">Select a data source from the sidebar to explore its contents.</p>
+                        <p className="text-sm font-medium">{t('select_data_source_to_explore')}</p>
                     </div>
                 ) : (
                     <div className="flex flex-col h-full">
@@ -169,7 +171,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                                         {selectedSource.name} <span className="text-slate-400 font-normal">({tables.length})</span>
                                     </span>
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">{selectedSource.type} Source</div>
+                                <div className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">{selectedSource.type} {t('source')}</div>
                             </div>
                         </div>
 
@@ -177,7 +179,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                         <div className="flex-1 overflow-y-auto">
                             {!selectedTable ? (
                                 <div className="p-2">
-                                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest p-2 mb-1">Tables</h3>
+                                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest p-2 mb-1">{t('tables')}</h3>
                                     <div className="space-y-1">
                                         {tables.map((table) => (
                                             <button
@@ -203,7 +205,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                                             onClick={() => setSelectedTable(null)}
                                             className="text-[10px] font-bold text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
                                         >
-                                            ← BACK TO TABLES
+                                            {t('back_to_tables')}
                                         </button>
                                         <span className="text-xs text-slate-400">/</span>
                                         <span className="text-xs font-bold text-slate-700 truncate">{selectedTable}</span>
@@ -211,9 +213,9 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                                     
                                     <div className="flex-1 overflow-auto">
                                         {isLoading ? (
-                                            <div className="p-8 text-center text-slate-400 text-xs">Loading data...</div>
+                                            <div className="p-8 text-center text-slate-400 text-xs">{t('loading_data')}</div>
                                         ) : !tableData || tableData.length === 0 ? (
-                                            <div className="p-8 text-center text-slate-400 text-xs italic">No data found in this table.</div>
+                                            <div className="p-8 text-center text-slate-400 text-xs italic">{t('no_data_in_table')}</div>
                                         ) : (
                                             <div className="inline-block min-w-full align-middle">
                                                 <table className="min-w-full divide-y divide-slate-200">
@@ -249,7 +251,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick 
                                         )}
                                     </div>
                                     <div className="p-2 border-t border-slate-100 bg-slate-50 text-[10px] text-slate-400 text-center">
-                                        Showing up to {previewLimit} rows preview
+                                        {t('showing_preview_rows').replace('{0}', previewLimit.toString())}
                                     </div>
                                 </div>
                             )}

@@ -21,6 +21,7 @@ REM Execute command
 if /i "%COMMAND%"=="clean" goto :clean
 if /i "%COMMAND%"=="install-deps" goto :install_deps
 if /i "%COMMAND%"=="build" goto :build
+if /i "%COMMAND%"=="macos" goto :build_macos
 if /i "%COMMAND%"=="debug" goto :build_debug
 if /i "%COMMAND%"=="quick" goto :quick_build
 
@@ -41,6 +42,7 @@ echo.
 echo Example:
 echo   build.bat           (Full build with Wails)
 echo   build.bat quick     (Quick backend-only build)
+echo   build.bat macos     (Build for macOS - requires cross-compiler)
 echo   build.bat debug
 echo   build.bat clean
 exit /b 0
@@ -50,6 +52,7 @@ echo Cleaning build artifacts...
 if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
 if exist "%SRC_DIR%\frontend\dist" rmdir /s /q "%SRC_DIR%\frontend\dist"
 if exist "rapidbi.exe" del /q "rapidbi.exe"
+if exist "rapidbi.app" rmdir /s /q "rapidbi.app"
 echo Done.
 exit /b 0
 
@@ -127,6 +130,8 @@ if errorlevel 1 (
 
 echo Starting build for %APP_NAME%...
 cd /d "%SRC_DIR%"
+REM Enable CGO for sqlite3 support
+set CGO_ENABLED=1
 call wails build -clean
 if errorlevel 1 (
     echo Build failed!
@@ -136,6 +141,48 @@ if errorlevel 1 (
 
 echo.
 echo %APP_NAME% build finished successfully!
+echo Output directory: %BUILD_DIR%
+exit /b 0
+
+:build_macos
+echo Checking dependencies...
+where go >nul 2>nul
+if errorlevel 1 (
+    echo Error: Go is not installed. Please install Go from https://golang.org/
+    pause
+    exit /b 1
+)
+
+where npm >nul 2>nul
+if errorlevel 1 (
+    echo Error: NPM is not installed. Please install Node.js from https://nodejs.org/
+    pause
+    exit /b 1
+)
+
+where wails >nul 2>nul
+if errorlevel 1 (
+    echo Error: Wails CLI is not installed.
+    echo Please run: build.bat install-deps
+    pause
+    exit /b 1
+)
+
+echo Starting build for %APP_NAME% (macOS Universal)...
+echo NOTE: This requires a CGO cross-compilation toolchain for macOS to be active.
+cd /d "%SRC_DIR%"
+set CGO_ENABLED=1
+REM Set macOS deployment target to 15.0
+set MACOSX_DEPLOYMENT_TARGET=15.0
+call wails build -clean -platform darwin/universal
+if errorlevel 1 (
+    echo Build failed!
+    pause
+    exit /b 1
+)
+
+echo.
+echo %APP_NAME% macOS build finished successfully!
 echo Output directory: %BUILD_DIR%
 exit /b 0
 
@@ -165,6 +212,8 @@ if errorlevel 1 (
 
 echo Starting debug build for %APP_NAME%...
 cd /d "%SRC_DIR%"
+REM Enable CGO for sqlite3 support
+set CGO_ENABLED=1
 call wails build -debug
 if errorlevel 1 (
     echo Build failed!
@@ -191,6 +240,8 @@ if errorlevel 1 (
 
 echo Building %APP_NAME% backend...
 cd /d "%SRC_DIR%"
+REM Enable CGO for sqlite3 support
+set CGO_ENABLED=1
 go build -o ..\rapidbi.exe
 if errorlevel 1 (
     echo Quick build failed!

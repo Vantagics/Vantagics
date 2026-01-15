@@ -6,8 +6,8 @@ export function AddDataSource(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDataSource'](arg1, arg2, arg3);
 }
 
-export function AssetizeSession(arg1) {
-  return window['go']['main']['App']['AssetizeSession'](arg1);
+export function ApplyOptimizeSuggestions(arg1, arg2) {
+  return window['go']['main']['App']['ApplyOptimizeSuggestions'](arg1, arg2);
 }
 
 export function CancelAnalysis() {
@@ -58,6 +58,14 @@ export function EnableSkill(arg1) {
   return window['go']['main']['App']['EnableSkill'](arg1);
 }
 
+export function ExecuteImportAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['ExecuteImportAnalysis'](arg1, arg2);
+}
+
+export function ExportAnalysisProcess(arg1) {
+  return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
+}
+
 export function ExportSessionHTML(arg1) {
   return window['go']['main']['App']['ExportSessionHTML'](arg1);
 }
@@ -74,8 +82,8 @@ export function ExportToSQL(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToSQL'](arg1, arg2, arg3);
 }
 
-export function ExtractMetricsFromAnalysis(arg1, arg2) {
-  return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2);
+export function ExtractMetricsFromAnalysis(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2, arg3);
 }
 
 export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
@@ -88,6 +96,10 @@ export function GetActiveThreadID() {
 
 export function GetAgentMemory(arg1) {
   return window['go']['main']['App']['GetAgentMemory'](arg1);
+}
+
+export function GetAnalysisPath(arg1) {
+  return window['go']['main']['App']['GetAnalysisPath'](arg1);
 }
 
 export function GetChatHistory() {
@@ -134,6 +146,10 @@ export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetMySQLDatabases'](arg1, arg2, arg3, arg4);
 }
 
+export function GetOptimizeSuggestions(arg1) {
+  return window['go']['main']['App']['GetOptimizeSuggestions'](arg1);
+}
+
 export function GetPythonEnvironments() {
   return window['go']['main']['App']['GetPythonEnvironments']();
 }
@@ -162,6 +178,10 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function ImportAnalysisProcess() {
+  return window['go']['main']['App']['ImportAnalysisProcess']();
+}
+
 export function ImportCSVDataSource(arg1, arg2) {
   return window['go']['main']['App']['ImportCSVDataSource'](arg1, arg2);
 }
@@ -186,6 +206,10 @@ export function Log(arg1) {
   return window['go']['main']['App']['Log'](arg1);
 }
 
+export function MarkAsFinding(arg1, arg2, arg3) {
+  return window['go']['main']['App']['MarkAsFinding'](arg1, arg2, arg3);
+}
+
 export function OpenDevTools() {
   return window['go']['main']['App']['OpenDevTools']();
 }
@@ -198,12 +222,16 @@ export function OpenSessionResultsDirectory(arg1) {
   return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
 }
 
-export function ReloadSkills() {
-  return window['go']['main']['App']['ReloadSkills']();
+export function PrepareImportAnalysis() {
+  return window['go']['main']['App']['PrepareImportAnalysis']();
 }
 
-export function ReplayAnalysis() {
-  return window['go']['main']['App']['ReplayAnalysis']();
+export function ReadChartDataFile(arg1, arg2) {
+  return window['go']['main']['App']['ReadChartDataFile'](arg1, arg2);
+}
+
+export function ReloadSkills() {
+  return window['go']['main']['App']['ReloadSkills']();
 }
 
 export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
@@ -274,6 +302,18 @@ export function UpdateThreadTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateThreadTitle'](arg1, arg2);
 }
 
+export function UpdateWorkingContext(arg1, arg2) {
+  return window['go']['main']['App']['UpdateWorkingContext'](arg1, arg2);
+}
+
+export function ValidateImportAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['ValidateImportAnalysis'](arg1, arg2);
+}
+
 export function ValidatePython(arg1) {
   return window['go']['main']['App']['ValidatePython'](arg1);
+}
+
+export function WriteSystemLog(arg1, arg2, arg3) {
+  return window['go']['main']['App']['WriteSystemLog'](arg1, arg2, arg3);
 }

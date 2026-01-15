@@ -8,8 +8,15 @@ import ImageModal from './ImageModal';
 import ChartModal from './ChartModal';
 import { main } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
+import { useWorkingContext } from '../hooks/useWorkingContext';
+import EChartsFileLoader from './EChartsFileLoader';
+import TableFileLoader from './TableFileLoader';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { Download, Table, BarChart3, ChevronLeft, ChevronRight, FileText, FileImage } from 'lucide-react';
+import { createLogger } from '../utils/systemLog';
+import Toast, { ToastType } from './Toast';
+
+const logger = createLogger('Dashboard');
 
 interface DashboardProps {
     data: main.DashboardData | null;
@@ -18,14 +25,17 @@ interface DashboardProps {
     onDashboardClick?: () => void;
     isChatOpen?: boolean;
     activeThreadId?: string | null;  // Track active thread for insight clicks
+    isAnalysisLoading?: boolean;     // Analysis loading state
+    loadingThreadId?: string | null; // Which thread is loading
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen, activeThreadId }) => {
+const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen, activeThreadId, isAnalysisLoading, loadingThreadId }) => {
     const { t } = useLanguage();
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [chartModalOpen, setChartModalOpen] = useState(false);
     const [currentChartIndex, setCurrentChartIndex] = useState(0);
     const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
     // Reset chart index when activeChart changes
     React.useEffect(() => {
@@ -650,18 +660,15 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
     const renderChart = () => {
         if (!activeChart) {
-            console.log("[Dashboard] renderChart: activeChart is null");
+            logger.debug("renderChart: activeChart is null");
             return null;
         }
 
-        console.log("[Dashboard] renderChart called with activeChart:", activeChart);
-        console.log("[Dashboard] activeChart.type:", activeChart.type);
-        console.log("[Dashboard] activeChart.chartData:", activeChart.chartData);
+        logger.debug(`renderChart: type=${activeChart.type}, hasChartData=${!!activeChart.chartData}`);
 
         // Extract charts array if chartData is available (multi-chart support)
         const charts = activeChart.chartData?.charts || [];
-        console.log("[Dashboard] Extracted charts array:", charts);
-        console.log("[Dashboard] Charts length:", charts.length);
+        logger.debug(`renderChart: charts array length=${charts.length}`);
 
         const hasMultipleCharts = charts.length > 1;
 
@@ -670,9 +677,10 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
         const chartType = currentChart ? currentChart.type : activeChart.type;
         const chartData = currentChart ? currentChart.data : activeChart.data;
 
-        console.log("[Dashboard] currentChart:", currentChart);
-        console.log("[Dashboard] chartType:", chartType);
-        console.log("[Dashboard] chartData (first 100 chars):", typeof chartData === 'string' ? chartData.substring(0, 100) : chartData);
+        logger.debug(`renderChart: currentChart type=${chartType}, chartData type=${typeof chartData}`);
+        if (typeof chartData === 'string') {
+            logger.debug(`renderChart: chartData string length=${chartData.length}, preview=${chartData.substring(0, 100)}`);
+        }
 
         // Generate a stable key for the chart based on content
         const contentHash = typeof chartData === 'string'
@@ -690,23 +698,35 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     >
                         <img src={chartData} alt="Analysis Chart" className="max-h-[400px] object-contain group-hover:scale-[1.01] transition-transform duration-300" />
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/5 pointer-events-none rounded-xl">
-                            <span className="bg-white/90 px-3 py-1 rounded-full text-xs font-medium text-slate-600 shadow-sm backdrop-blur-sm">Double click to zoom</span>
+                            <span className="bg-white/90 px-3 py-1 rounded-full text-xs font-medium text-slate-600 shadow-sm backdrop-blur-sm">{t('double_click_to_zoom')}</span>
                         </div>
                     </div>
                 );
             }
 
             if (chartType === 'echarts') {
+                // Check if chartData is a file reference - if so, use dedicated loader component
+                if (typeof chartData === 'string' && chartData.startsWith('file://')) {
+                    logger.debug(`Detected file reference for ECharts: ${chartData}`);
+                    return <EChartsFileLoader
+                        fileRef={chartData}
+                        threadId={activeThreadId || null}
+                        chartKey={chartKey}
+                        onDoubleClick={() => setChartModalOpen(true)}
+                    />;
+                }
+
+                // Otherwise, handle inline chart data
                 try {
                     // Validate that chartData is a string before parsing
                     if (typeof chartData !== 'string') {
-                        console.error("Invalid ECharts data: not a string", typeof chartData);
+                        logger.error(`Invalid ECharts data: not a string, type=${typeof chartData}`);
                         return null;
                     }
 
                     // Check if the string contains function definitions (invalid JSON)
                     if (chartData.includes('function(') || chartData.includes('function (')) {
-                        console.error("Invalid ECharts data: contains function definitions", chartData.substring(0, 200));
+                        logger.error("Invalid ECharts data: contains function definitions");
 
                         // Try to clean the data by removing function definitions
                         try {
@@ -724,7 +744,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                             const cleanedOptions = JSON.parse(cleanedData);
 
                             if (cleanedOptions && typeof cleanedOptions === 'object') {
-                                console.log("[Dashboard] Successfully cleaned ECharts data by removing functions");
+                                logger.info("Successfully cleaned ECharts data by removing functions");
 
                                 return (
                                     <div className="w-full">
@@ -738,7 +758,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                                 );
                             }
                         } catch (cleanError) {
-                            console.error("Failed to clean ECharts data:", cleanError);
+                            logger.error(`Failed to clean ECharts data: ${cleanError}`);
                         }
 
                         // If cleaning fails, show error message
@@ -751,8 +771,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                                         </svg>
                                     </div>
                                     <div className="flex-1">
-                                        <p className="text-sm font-medium text-amber-800">Chart Data Format Error</p>
-                                        <p className="text-xs text-amber-600 mt-1">This chart contains JavaScript functions and cannot be displayed. The data has been corrupted.</p>
+                                        <p className="text-sm font-medium text-amber-800">{t('chart_data_format_error')}</p>
+                                        <p className="text-xs text-amber-600 mt-1">{t('chart_contains_functions')}</p>
                                     </div>
                                 </div>
                             </div>
@@ -774,17 +794,40 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
                     // 验证ECharts选项的基本结构
                     if (!options || typeof options !== 'object') {
-                        console.error("Invalid ECharts options: not an object", options);
+                        logger.error("Invalid ECharts options: not an object");
                         return null;
+                    }
+
+                    // 详细日志
+                    logger.debug(`ECharts options parsed successfully`);
+                    logger.debug(`Has title: ${!!options.title}`);
+                    logger.debug(`Has series: ${!!options.series}, length: ${options.series?.length || 0}`);
+                    logger.debug(`Has grid: ${!!options.grid}`);
+                    logger.debug(`Has xAxis: ${!!options.xAxis}`);
+                    logger.debug(`Has yAxis: ${!!options.yAxis}`);
+
+                    // 修复常见的ECharts配置问题
+                    const fixedOptions = { ...options };
+                    
+                    // 修复pie图表不应该有gridIndex的问题
+                    if (fixedOptions.series && Array.isArray(fixedOptions.series)) {
+                        fixedOptions.series = fixedOptions.series.map((s: any) => {
+                            if (s.type === 'pie' && s.gridIndex !== undefined) {
+                                const { gridIndex, xAxisIndex, yAxisIndex, ...rest } = s;
+                                logger.debug(`Removed gridIndex from pie chart: ${s.name}`);
+                                return rest;
+                            }
+                            return s;
+                        });
                     }
 
                     // 确保必要的属性存在
                     const validatedOptions = {
-                        ...options,
+                        ...fixedOptions,
                         // 确保有基本的配置
-                        animation: options.animation !== false,
+                        animation: fixedOptions.animation !== false,
                         // 如果没有series，添加一个空的
-                        series: options.series || []
+                        series: fixedOptions.series || []
                     };
 
                     return (
@@ -804,8 +847,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         </div>
                     );
                 } catch (e) {
-                    console.error("Failed to parse ECharts options for dashboard", e);
-                    console.error("Raw chart data (first 500 chars):", chartData?.substring(0, 500));
+                    logger.error(`Failed to parse ECharts options: ${e}`);
                     return (
                         <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
                             <div className="flex items-center gap-3">
@@ -825,8 +867,41 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             }
 
             if (chartType === 'table') {
-                const tableData = chartData as any[];
-                if (!tableData || !Array.isArray(tableData) || tableData.length === 0) return null;
+                // Check if chartData is a file reference
+                if (typeof chartData === 'string' && chartData.startsWith('file://')) {
+                    logger.debug(`Detected file reference for table data: ${chartData}`);
+                    return <TableFileLoader fileRef={chartData} threadId={activeThreadId || null} />;
+                }
+
+                // Otherwise, handle inline table data
+                // Parse if it's a JSON string
+                let tableData = chartData;
+                if (typeof chartData === 'string') {
+                    try {
+                        tableData = JSON.parse(chartData);
+                        logger.debug(`Parsed table data from JSON string, rows: ${tableData.length}`);
+                    } catch (e) {
+                        logger.error(`Failed to parse table data: ${e}`);
+                        return (
+                            <div className="w-full bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
+                                <div className="flex items-center gap-3">
+                                    <div className="bg-red-100 p-2 rounded-lg">
+                                        <Table className="w-5 h-5 text-red-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <p className="text-sm font-medium text-red-800">Cannot Display Table</p>
+                                        <p className="text-xs text-red-600 mt-1">The table data is malformed. Error: {(e as Error).message}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    }
+                }
+                
+                if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
+                    logger.warn(`Invalid table data: not an array or empty`);
+                    return null;
+                }
 
                 const columns = Object.keys(tableData[0]);
                 return (
@@ -953,6 +1028,17 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
         if (tableCharts.length === 0) return null;
 
+        // 如果当前显示的图表就是 table，不要重复显示
+        // 检查当前图表索引对应的图表类型
+        const charts = activeChart.chartData.charts || [];
+        const currentChart = charts.length > 0 ? charts[currentChartIndex] : null;
+        const isCurrentChartTable = currentChart && currentChart.type === 'table';
+        
+        // 如果只有一个 table 且正在显示，不重复渲染
+        if (tableCharts.length === 1 && isCurrentChartTable) {
+            return null;
+        }
+
         return (
             <div className="mt-6 space-y-4">
                 <h3 className="text-md font-semibold text-slate-700 flex items-center gap-2">
@@ -960,6 +1046,11 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     {t('analysis_data') || 'Analysis Data'}
                 </h3>
                 {tableCharts.map((chart, tableIndex) => {
+                    // 跳过当前正在显示的 table
+                    if (isCurrentChartTable && tableIndex === currentChartIndex) {
+                        return null;
+                    }
+                    
                     try {
                         // 清理表格数据中的JavaScript函数
                         let cleanedData = chart.data;
@@ -1029,7 +1120,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                             </div>
                         );
                     } catch (e) {
-                        console.error("Failed to parse table data", e);
+                        logger.error(`Failed to parse table data: ${e}`);
                         return null;
                     }
                 })}
@@ -1111,11 +1202,21 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
     };
 
     const handleInsightClick = (insight: any) => {
+        // 检查是否有分析正在进行
+        if (isAnalysisLoading && loadingThreadId) {
+            logger.debug(`Analysis in progress for thread ${loadingThreadId}, blocking insight click`);
+            setToast({
+                message: t('analysis_in_progress') || '分析进行中，请等待当前分析完成后再发起新的分析',
+                type: 'warning'
+            });
+            return;
+        }
+
         // 区分洞察来源，决定不同的处理方式
         if (insight.source === 'llm_suggestion') {
             // LLM生成的洞察：在当前会话中继续分析
-            console.log('[Dashboard] LLM insight clicked, continuing in current session:', insight.text);
-            console.log('[Dashboard] Using activeThreadId:', activeThreadId);
+            logger.debug(`LLM insight clicked, continuing in current session: ${insight.text.substring(0, 50)}`);
+            logger.debug(`Using activeThreadId: ${activeThreadId}`);
 
             // 优先使用 activeThreadId，确保在正确会话中发送
             if (activeThreadId) {
@@ -1127,7 +1228,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                 });
             } else {
                 // 没有活动会话，回退到使用 userMessageId
-                console.warn('[Dashboard] No activeThreadId, falling back to userMessageId');
+                logger.warn('No activeThreadId, falling back to userMessageId');
                 EventsEmit("analyze-insight-in-session", {
                     text: insight.text,
                     userMessageId: insight.userMessageId,
@@ -1136,7 +1237,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             }
         } else if (insight.data_source_id) {
             // 系统洞察：创建新会话进行分析
-            console.log('[Dashboard] System insight clicked, creating new session:', insight.text);
+            logger.debug(`System insight clicked, creating new session: ${insight.text.substring(0, 50)}`);
             EventsEmit('start-new-chat', {
                 dataSourceId: insight.data_source_id,
                 sessionName: `${t('analysis_session_prefix')}${insight.source_name || insight.text}`,
@@ -1144,7 +1245,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             });
         } else {
             // 其他洞察：使用analyze-insight事件（向后兼容）
-            console.log('[Dashboard] Generic insight clicked:', insight.text);
+            logger.debug(`Generic insight clicked: ${insight.text.substring(0, 50)}`);
             EventsEmit("analyze-insight", insight.text);
         }
     };
@@ -1210,7 +1311,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                                 <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                                 </svg>
-                                <span>{t('no_visualization_results') || 'This analysis request has no visualization results yet.'}</span>
+                                <span>{t('no_visualization_results')}</span>
                             </div>
                         )}
                     </div>
@@ -1218,9 +1319,54 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
             </header>
 
             <div className="flex-1 overflow-y-auto px-6 pb-8">
+                {/* 核心指标区域 - 显示在最上方 */}
+                {(() => {
+                    // 过滤掉无效的指标（没有具体数值的）
+                    const validMetrics = data.metrics?.filter(metric => {
+                        // 检查 value 是否有效
+                        if (!metric.value || typeof metric.value !== 'string') {
+                            return false;
+                        }
+                        
+                        const trimmedValue = metric.value.trim();
+                        
+                        // 排除空字符串
+                        if (trimmedValue === '') {
+                            return false;
+                        }
+                        
+                        // 排除常见的占位符
+                        const invalidValues = ['N/A', 'n/a', 'null', 'undefined', '-', '--', '...', 'TBD', 'tbd'];
+                        if (invalidValues.includes(trimmedValue)) {
+                            return false;
+                        }
+                        
+                        return true;
+                    }) || [];
+                    
+                    return validMetrics.length > 0 && (
+                        <section className="mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
+                            <h2 className="text-lg font-semibold text-slate-700 mb-4">{t('key_metrics')}</h2>
+                            <DashboardLayout>
+                                {validMetrics.map((metric, index) => (
+                                    <MetricCard
+                                        key={index}
+                                        title={metric.title}
+                                        value={metric.value}
+                                        change={metric.change}
+                                    />
+                                ))}
+                            </DashboardLayout>
+                        </section>
+                    );
+                })()}
+
+                {/* 分析图表/表格区域 */}
                 {activeChart && (
-                    <section className="animate-in fade-in slide-in-from-top-4 duration-500">
-                        <h2 className="text-lg font-semibold text-slate-700 mb-4">Latest Analysis</h2>
+                    <section className="mb-6 animate-in fade-in slide-in-from-top-4 duration-500">
+                        <h2 className="text-lg font-semibold text-slate-700 mb-4">
+                            {activeChart.type === 'table' ? (t('analysis_data') || 'Analysis Data') : t('latest_analysis')}
+                        </h2>
                         {renderChart()}
                     </section>
                 )}
@@ -1287,26 +1433,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     />
                 )}
 
-                {/* 核心指标区域 - 只有当存在有效指标时才显示 */}
-                {data.metrics && Array.isArray(data.metrics) && data.metrics.length > 0 && (
-                    <section className="mb-8">
-                        <h2 className="text-lg font-semibold text-slate-700 mb-4">{t('key_metrics')}</h2>
-                        <DashboardLayout>
-                            {data.metrics.map((metric, index) => (
-                                <MetricCard
-                                    key={index}
-                                    title={metric.title}
-                                    value={metric.value}
-                                    change={metric.change}
-                                />
-                            ))}
-                        </DashboardLayout>
-                    </section>
-                )}
-
-                {/* 自动洞察区域 - 只有当存在有效洞察时才显示 */}
+                {/* 自动洞察区域 - 显示在最下方 */}
                 {data.insights && Array.isArray(data.insights) && data.insights.length > 0 && (
-                    <section>
+                    <section className="mb-6">
                         <h2 className="text-lg font-semibold text-slate-700 mb-4">{t('automated_insights')}</h2>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {data.insights.map((insight, index) => (
@@ -1321,6 +1450,15 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     </section>
                 )}
             </div>
+
+            {/* Toast notification */}
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
+            )}
         </div>
     );
 };

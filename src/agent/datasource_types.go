@@ -98,5 +98,6 @@ type DataSourceConfig struct {
 	Password          string             `json:"password,omitempty"`
 	Database          string             `json:"database,omitempty"`
 	StoreLocally      bool               `json:"store_locally"`
+	Optimized         bool               `json:"optimized"` // Whether the database has been optimized
 	MySQLExportConfig *MySQLExportConfig `json:"mysql_export_config,omitempty"`
 }

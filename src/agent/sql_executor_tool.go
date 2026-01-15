@@ -14,13 +14,14 @@ import (
 )
 
 type SQLExecutorTool struct {
-	dsService      *DataSourceService
-	sqlPlanner     *SQLPlanner
-	logger         func(string)
-	maxRetries     int
-	errorKnowledge *ErrorKnowledge
-	sqlCollector   *SQLCollector // Collects successful SQL for training data
-	currentQueryLogic string // Natural language description of current query
+	dsService         *DataSourceService
+	sqlPlanner        *SQLPlanner
+	logger            func(string)
+	maxRetries        int
+	errorKnowledge    *ErrorKnowledge
+	sqlCollector      *SQLCollector // Collects successful SQL for training data
+	currentQueryLogic string        // Natural language description of current query
+	executionRecorder *ExecutionRecorder // Records SQL executions for replay
 }
 
 func NewSQLExecutorTool(dsService *DataSourceService) *SQLExecutorTool {
@@ -48,6 +49,11 @@ func (t *SQLExecutorTool) SetErrorKnowledge(ek *ErrorKnowledge) {
 // SetSQLCollector injects the SQL collector for training data collection
 func (t *SQLExecutorTool) SetSQLCollector(collector *SQLCollector) {
 	t.sqlCollector = collector
+}
+
+// SetExecutionRecorder injects the execution recorder
+func (t *SQLExecutorTool) SetExecutionRecorder(recorder *ExecutionRecorder) {
+	t.executionRecorder = recorder
 }
 
 // SetQueryLogic sets the natural language description for the upcoming SQL execution
@@ -453,6 +459,15 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 				}
 			}
 			
+			// Record execution for replay
+			if t.executionRecorder != nil {
+				// Extract table names from query
+				tables := t.extractTablesFromQuery(currentQuery, in.DataSourceID)
+				// Generate step description from query
+				stepDescription := t.generateStepDescription(currentQuery)
+				t.executionRecorder.RecordSQL(currentQuery, tables, true, "", result, stepDescription)
+			}
+			
 			// If this was a retry (attempt > 0), record the successful solution
 			if attempt > 0 && t.errorKnowledge != nil && lastError != nil {
 				solution := fmt.Sprintf("Corrected SQL:\n%s", currentQuery)
@@ -542,4 +557,70 @@ func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts .
 	}
 
 	return errorMsg, nil
+}
+
+
+// extractTablesFromQuery extracts table names and their columns from a SQL query
+func (t *SQLExecutorTool) extractTablesFromQuery(query string, dataSourceID string) []TableMetadata {
+	tables := []TableMetadata{}
+	
+	// Simple regex to extract table names from FROM and JOIN clauses
+	// This is a basic implementation - could be enhanced with a proper SQL parser
+	tableRegex := regexp.MustCompile(`(?i)(?:FROM|JOIN)\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+	matches := tableRegex.FindAllStringSubmatch(query, -1)
+	
+	tableNames := make(map[string]bool)
+	for _, match := range matches {
+		if len(match) > 1 {
+			tableName := match[1]
+			tableNames[tableName] = true
+		}
+	}
+	
+	// Get columns for each table
+	for tableName := range tableNames {
+		columns, err := t.dsService.GetDataSourceTableColumns(dataSourceID, tableName)
+		if err != nil {
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[EXECUTION-RECORDER] Failed to get columns for table %s: %v", tableName, err))
+			}
+			columns = []string{} // Empty if failed
+		}
+		
+		tables = append(tables, TableMetadata{
+			Name:    tableName,
+			Columns: columns,
+		})
+	}
+	
+	return tables
+}
+
+
+// generateStepDescription generates a human-readable description of what the SQL does
+func (t *SQLExecutorTool) generateStepDescription(query string) string {
+	query = strings.ToUpper(strings.TrimSpace(query))
+	
+	// Simple heuristics to describe the query
+	if strings.HasPrefix(query, "SELECT") {
+		if strings.Contains(query, "GROUP BY") {
+			return "Query and aggregate data"
+		} else if strings.Contains(query, "JOIN") {
+			return "Query data from multiple tables"
+		} else if strings.Contains(query, "WHERE") {
+			return "Query filtered data"
+		} else {
+			return "Query data"
+		}
+	} else if strings.HasPrefix(query, "INSERT") {
+		return "Insert data"
+	} else if strings.HasPrefix(query, "UPDATE") {
+		return "Update data"
+	} else if strings.HasPrefix(query, "DELETE") {
+		return "Delete data"
+	} else if strings.HasPrefix(query, "CREATE") {
+		return "Create table or view"
+	}
+	
+	return "Execute SQL query"
 }

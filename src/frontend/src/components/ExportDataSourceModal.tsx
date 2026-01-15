@@ -73,7 +73,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
 
     const handleTestConnection = async () => {
         if (!mysqlConfig.host || !mysqlConfig.user) {
-            alert("Please fill in Host and Username.");
+            alert(t('please_connect_mysql'));
             return;
         }
 
@@ -126,7 +126,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
 
     const handleExport = async () => {
         if (selectedTables.length === 0) {
-            ShowMessage("warning", "Export", "Please select at least one table to export.");
+            ShowMessage("warning", t('export'), t('please_select_table'));
             return;
         }
 
@@ -169,12 +169,12 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                 }
             } else if (exportType === 'mysql') {
                 if (!isConnected) {
-                    ShowMessage("warning", "Connection", "Please connect to MySQL server first.");
+                    ShowMessage("warning", t('connection'), t('please_connect_mysql'));
                     setIsExporting(false);
                     return;
                 }
                 if (!mysqlConfig.database) {
-                    ShowMessage("warning", "Database", "Please select a database.");
+                    ShowMessage("warning", t('database'), t('please_select_database'));
                     setIsExporting(false);
                     return;
                 }
@@ -225,19 +225,19 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-white w-[500px] rounded-xl shadow-2xl overflow-hidden text-slate-900 p-6 flex flex-col max-h-[90vh]">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">Export Data</h3>
+                <h3 className="text-lg font-bold text-slate-800 mb-4">{t('export_data')}</h3>
                 
                 <div className="space-y-4 overflow-y-auto flex-1 p-1">
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="block text-sm font-medium text-slate-700">Select Tables</label>
+                            <label className="block text-sm font-medium text-slate-700">{t('select_tables')}</label>
                             <div className="flex gap-2">
                                 <button
                                     type="button"
                                     onClick={handleSelectAll}
                                     className="text-xs text-blue-600 hover:text-blue-800"
                                 >
-                                    Select All
+                                    {t('select_all')}
                                 </button>
                                 <span className="text-xs text-slate-400">|</span>
                                 <button
@@ -245,13 +245,13 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                     onClick={handleDeselectAll}
                                     className="text-xs text-blue-600 hover:text-blue-800"
                                 >
-                                    Deselect All
+                                    {t('deselect_all')}
                                 </button>
                             </div>
                         </div>
                         <div className="border border-slate-300 rounded-md p-3 max-h-40 overflow-y-auto bg-slate-50">
                             {tables.length === 0 ? (
-                                <p className="text-sm text-slate-500">No tables found</p>
+                                <p className="text-sm text-slate-500">{t('no_tables_found')}</p>
                             ) : (
                                 <div className="space-y-2">
                                     {tables.map(table => (
@@ -269,12 +269,12 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                             )}
                         </div>
                         <p className="text-xs text-slate-500 mt-1">
-                            {selectedTables.length} of {tables.length} table(s) selected
+                            {t('tables_selected').replace('{0}', selectedTables.length.toString()).replace('{1}', tables.length.toString())}
                         </p>
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Export Format</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">{t('export_format')}</label>
                         <div className="flex gap-4">
                             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                                 <input 
@@ -298,7 +298,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                     name="exportType" 
                                     checked={exportType === 'mysql'} 
                                     onChange={() => setExportType('mysql')}
-                                /> MySQL Database
+                                /> {t('mysql_database')}
                             </label>
                         </div>
                     </div>
@@ -311,19 +311,19 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${mysqlStep === 'connection' || !isConnected ? 'bg-blue-600 text-white' : 'bg-green-500 text-white'}`}>
                                         {isConnected ? '✓' : '1'}
                                     </div>
-                                    <span className="text-xs font-medium text-slate-600">Connect</span>
+                                    <span className="text-xs font-medium text-slate-600">{t('connection')}</span>
                                     <div className="w-8 h-px bg-slate-300"></div>
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${mysqlStep === 'database' && isConnected ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-500'}`}>
                                         2
                                     </div>
-                                    <span className="text-xs font-medium text-slate-600">Select Database</span>
+                                    <span className="text-xs font-medium text-slate-600">{t('select_database')}</span>
                                 </div>
                                 {isConnected && mysqlStep === 'database' && (
                                     <button
                                         onClick={handleBackToConnection}
                                         className="text-xs text-blue-600 hover:text-blue-800"
                                     >
-                                        ← Back
+                                        ← {t('back')}
                                     </button>
                                 )}
                             </div>
@@ -361,7 +361,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-500 mb-1">Username *</label>
+                                            <label className="block text-xs font-medium text-slate-500 mb-1">{t('username')} *</label>
                                             <input
                                                 type="text"
                                                 value={mysqlConfig.user}
@@ -394,10 +394,10 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                         {isConnecting ? (
                                             <>
                                                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                                Connecting...
+                                                {t('connecting')}
                                             </>
                                         ) : (
-                                            'Connect to Server'
+                                            t('connect_to_server')
                                         )}
                                     </button>
                                 </>
@@ -406,7 +406,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                             {/* Step 2: Database selection */}
                             {mysqlStep === 'database' && isConnected && (
                                 <div>
-                                    <label className="block text-xs font-medium text-slate-500 mb-1">Select Database *</label>
+                                    <label className="block text-xs font-medium text-slate-500 mb-1">{t('select_database')} *</label>
                                     <div className="flex flex-col gap-2">
                                         <select
                                             value={availableDatabases.includes(mysqlConfig.database) ? mysqlConfig.database : ''}
@@ -417,7 +417,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                             }}
                                             className="w-full border border-slate-300 rounded-md p-1.5 text-sm"
                                         >
-                                            <option value="">-- Select Existing Database --</option>
+                                            <option value="">{t('select_existing_database')}</option>
                                             {availableDatabases.map(db => (
                                                 <option key={db} value={db}>{db}</option>
                                             ))}
@@ -428,7 +428,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                                 <span className="w-full border-t border-slate-200" />
                                             </div>
                                             <div className="relative flex justify-center text-xs uppercase">
-                                                <span className="bg-slate-50 px-2 text-slate-500">Or create new</span>
+                                                <span className="bg-slate-50 px-2 text-slate-500">{t('or_create_new')}</span>
                                             </div>
                                         </div>
 
@@ -437,13 +437,13 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                             value={mysqlConfig.database}
                                             onChange={(e) => setMysqlConfig({...mysqlConfig, database: e.target.value})}
                                             className="w-full border border-slate-300 rounded-md p-1.5 text-sm"
-                                            placeholder="Enter new database name"
+                                            placeholder={t('enter_new_database_name')}
                                             spellCheck={false}
                                         />
                                     </div>
                                     
                                     <p className="text-xs text-slate-500 mt-1">
-                                        Connected to {mysqlConfig.host}:{mysqlConfig.port}
+                                        {t('connected_to').replace('{0}', mysqlConfig.host).replace('{1}', mysqlConfig.port)}
                                     </p>
                                 </div>
                             )}
@@ -466,9 +466,9 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                         {isExporting ? (
                             <>
                                 <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                Exporting...
+                                {t('exporting')}
                             </>
-                        ) : 'Export'}
+                        ) : t('export')}
                     </button>
                 </div>
             </div>

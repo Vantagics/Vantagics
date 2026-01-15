@@ -3,6 +3,7 @@ import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, Validate
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
+import Toast, { ToastType } from './Toast';
 
 type Tab = 'llm' | 'system' | 'runenv';
 
@@ -31,6 +32,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     });
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
+    const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -45,10 +47,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         try {
             await SaveConfig(config);
             // Note: config-updated event is now sent by the backend
-            onClose();
+            setToast({ message: t('settings_saved_successfully'), type: 'success' });
+            // Close modal after a short delay to allow user to see the success message
+            setTimeout(() => {
+                onClose();
+            }, 1500);
         } catch (err) {
             console.error('Failed to save config:', err);
-            alert('Failed to save configuration: ' + err);
+            setToast({ message: t('settings_save_failed') + ': ' + err, type: 'error' });
         }
     };
 
@@ -345,6 +351,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                     </div>
                 </div>
             </div>
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    onClose={() => setToast(null)}
+                />
+            )}
         </div>
     );
 };

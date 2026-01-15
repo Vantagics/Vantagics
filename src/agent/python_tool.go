@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"rapidbi/config"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -15,12 +16,13 @@ import (
 )
 
 type PythonExecutorTool struct {
-	pythonService   PythonExecutor
-	cfg             config.Config
-	pool            *PythonPool
-	errorKnowledge  *ErrorKnowledge
-	sessionDir      string // Directory to save session files
-	onFileSaved     func(fileName, fileType string, fileSize int64) // Callback when file is saved
+	pythonService     PythonExecutor
+	cfg               config.Config
+	pool              *PythonPool
+	errorKnowledge    *ErrorKnowledge
+	sessionDir        string // Directory to save session files
+	onFileSaved       func(fileName, fileType string, fileSize int64) // Callback when file is saved
+	executionRecorder *ExecutionRecorder // Records Python executions for replay
 }
 
 func NewPythonExecutorTool(cfg config.Config) *PythonExecutorTool {
@@ -42,6 +44,11 @@ func NewPythonExecutorToolWithPool(cfg config.Config, pool *PythonPool) *PythonE
 // SetErrorKnowledge injects the error knowledge system
 func (t *PythonExecutorTool) SetErrorKnowledge(ek *ErrorKnowledge) {
 	t.errorKnowledge = ek
+}
+
+// SetExecutionRecorder injects the execution recorder
+func (t *PythonExecutorTool) SetExecutionRecorder(recorder *ExecutionRecorder) {
+	t.executionRecorder = recorder
 }
 
 // SetSessionDirectory sets the directory where session files should be saved
@@ -117,6 +124,18 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 		return "❌ Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil
 	}
 
+	// Clear old chart files from session directory to prevent accumulation
+	if t.sessionDir != "" {
+		filesDir := filepath.Join(t.sessionDir, "files")
+		if _, err := os.Stat(filesDir); err == nil {
+			// Find all chart*.png files
+			chartFiles, _ := filepath.Glob(filepath.Join(filesDir, "chart*.png"))
+			for _, oldFile := range chartFiles {
+				os.Remove(oldFile) // Remove old chart files
+			}
+		}
+	}
+
 	// Create temp working directory
 	workDir, err := os.MkdirTemp("", "rapidbi_py_*")
 	if err != nil {
@@ -139,9 +158,10 @@ import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-# Configure Chinese font support
-plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', 'Arial Unicode MS']
+# Configure Chinese font support with multiple fallbacks
+plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'SimSun', 'KaiTi', 'FangSong', 'STSong', 'STKaiti', 'STFangsong', 'DejaVu Sans', 'Arial Unicode MS']
 plt.rcParams['axes.unicode_minus'] = False  # Fix minus sign display
+plt.rcParams['font.family'] = 'sans-serif'  # Ensure sans-serif is used
 import pandas as pd
 import numpy as np
 os.chdir(r'%s')
@@ -257,19 +277,14 @@ except Exception as e:
 			return "", err
 		}
 
-		// Generate unique filename if needed
-		destPath := filepath.Join(filesDir, fileName)
-		counter := 1
-		for {
-			if _, err := os.Stat(destPath); os.IsNotExist(err) {
-				break
-			}
-			// File exists, add counter
-			ext := filepath.Ext(fileName)
-			nameWithoutExt := strings.TrimSuffix(fileName, ext)
-			destPath = filepath.Join(filesDir, fmt.Sprintf("%s_%d%s", nameWithoutExt, counter, ext))
-			counter++
-		}
+		// Generate unique filename to prevent overwriting
+		// Format: originalName_timestamp.ext (e.g., chart_1768437302231.png)
+		ext := filepath.Ext(fileName)
+		baseName := strings.TrimSuffix(fileName, ext)
+		timestamp := time.Now().UnixNano() / 1000000 // milliseconds
+		uniqueFileName := fmt.Sprintf("%s_%d%s", baseName, timestamp, ext)
+		
+		destPath := filepath.Join(filesDir, uniqueFileName)
 
 		// Write file to session directory
 		if err := os.WriteFile(destPath, data, 0644); err != nil {
@@ -343,6 +358,18 @@ except Exception as e:
 		// We could record successful patterns here, but for now just log
 		// This would be useful for building a knowledge base of working code patterns
 	}
+	
+	// Record execution for replay
+	if t.executionRecorder != nil {
+		success := err == nil
+		errorMsg := ""
+		if err != nil {
+			errorMsg = err.Error()
+		}
+		// Generate step description from code
+		stepDescription := t.generateStepDescription(in.Code)
+		t.executionRecorder.RecordPython(in.Code, success, errorMsg, output, stepDescription)
+	}
 
 	if err != nil {
 		// Return error as content so LLM can retry
@@ -350,4 +377,34 @@ except Exception as e:
 	}
 
 	return output, nil
+}
+
+
+// generateStepDescription generates a human-readable description of what the Python code does
+func (t *PythonExecutorTool) generateStepDescription(code string) string {
+	codeLower := strings.ToLower(code)
+	
+	// Check for common patterns
+	if strings.Contains(codeLower, "plt.") || strings.Contains(codeLower, "matplotlib") {
+		if strings.Contains(codeLower, "savefig") {
+			return "Generate and save chart"
+		}
+		return "Generate chart"
+	} else if strings.Contains(codeLower, "to_csv") {
+		return "Export data to CSV"
+	} else if strings.Contains(codeLower, "groupby") || strings.Contains(codeLower, "agg(") {
+		return "Aggregate and analyze data"
+	} else if strings.Contains(codeLower, "merge") || strings.Contains(codeLower, "join") {
+		return "Merge datasets"
+	} else if strings.Contains(codeLower, "sort") {
+		return "Sort data"
+	} else if strings.Contains(codeLower, "filter") || strings.Contains(codeLower, "[") && strings.Contains(codeLower, "]") {
+		return "Filter data"
+	} else if strings.Contains(codeLower, "describe()") || strings.Contains(codeLower, "info()") {
+		return "Analyze data statistics"
+	} else if strings.Contains(codeLower, "pd.dataframe") {
+		return "Process data"
+	}
+	
+	return "Execute Python code"
 }

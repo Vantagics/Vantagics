@@ -46,19 +46,22 @@ type DashboardData struct {
 
 // App struct
 type App struct {
-	ctx                  context.Context
-	chatService          *ChatService
-	pythonService        *agent.PythonService
-	dataSourceService    *agent.DataSourceService
-	memoryService        *agent.MemoryService
-	einoService          *agent.EinoService
-	storageDir           string
-	logger               *logger.Logger
-	isChatGenerating     bool
-	isChatOpen           bool
-	cancelAnalysisMutex  sync.Mutex
-	cancelAnalysis       bool
-	activeThreadID       string
+	ctx                   context.Context
+	chatService           *ChatService
+	pythonService         *agent.PythonService
+	dataSourceService     *agent.DataSourceService
+	memoryService         *agent.MemoryService
+	workingContextManager *agent.WorkingContextManager
+	analysisPathManager   *agent.AnalysisPathManager
+	preferenceLearner     *agent.PreferenceLearner
+	einoService           *agent.EinoService
+	storageDir            string
+	logger                *logger.Logger
+	isChatGenerating      bool
+	isChatOpen            bool
+	cancelAnalysisMutex   sync.Mutex
+	cancelAnalysis        bool
+	activeThreadID        string
 }
 
 // AgentMemoryView structure for frontend
@@ -136,31 +139,45 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 		if cfg.Language == "简体中文" {
 			title = "确认退出"
 			message = "当前有正在进行的分析任务，确定要退出吗？\n\n退出将中断分析过程。"
-			yesButton = "是"
-			noButton = "否"
+			yesButton = "退出"
+			noButton = "取消"
 		} else {
 			title = "Confirm Exit"
 			message = "There is an analysis task in progress. Are you sure you want to exit?\n\nExiting will interrupt the analysis."
-			yesButton = "Yes"
-			noButton = "No"
+			yesButton = "Exit"
+			noButton = "Cancel"
 		}
 		
 		dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
 			Title:         title,
 			Message:       message,
-			Buttons:       []string{yesButton, noButton},
+			Buttons:       []string{noButton, yesButton}, // 取消按钮在前，退出按钮在后
 			DefaultButton: noButton,
 			CancelButton:  noButton,
 		})
 
 		if err != nil {
-			return false
+			// 如果对话框出错，阻止关闭以保护用户数据
+			a.Log(fmt.Sprintf("[CLOSE-DIALOG] Error showing dialog: %v", err))
+			return true
 		}
 
-		return dialog == noButton
+		// Log the dialog result for debugging
+		a.Log(fmt.Sprintf("[CLOSE-DIALOG] User clicked: '%s' (yesButton='%s', noButton='%s')", dialog, yesButton, noButton))
+
+		// Windows may return standard button values instead of custom text
+		// Check for both custom button text and standard Windows values
+		// Allow close only if user explicitly clicked "Exit" button
+		// Standard Windows values for "Yes" button: "Yes", "OK", "Ok"
+		if dialog == yesButton || dialog == "Yes" || dialog == "OK" || dialog == "Ok" {
+			a.Log("[CLOSE-DIALOG] Allowing application to close")
+			return false // 允许关闭
+		}
+		a.Log("[CLOSE-DIALOG] Preventing application close")
+		return true // 阻止关闭 (user clicked Cancel/No or closed dialog)
 	}
-	return false
+	return false // 没有分析任务，允许关闭
 }
 
 // shutdown is called when the application is closing to clean up resources
@@ -175,6 +192,10 @@ func (a *App) shutdown(ctx context.Context) {
 
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
+	a.ctx = ctx
+
+	// Store App instance in context for system tray access
+	ctx = context.WithValue(ctx, "app", a)
 	a.ctx = ctx
 
 	// Start system tray (Windows/Linux only, handled by build tags)
@@ -210,8 +231,20 @@ func (a *App) startup(ctx context.Context) {
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 		
+		// Initialize working context manager for UI state tracking
+		a.workingContextManager = agent.NewWorkingContextManager(dataDir)
+		a.Log("[STARTUP] Working context manager initialized")
+		
+		// Initialize analysis path manager for storyline tracking
+		a.analysisPathManager = agent.NewAnalysisPathManager(dataDir)
+		a.Log("[STARTUP] Analysis path manager initialized")
+		
+		// Initialize preference learner for user behavior tracking
+		a.preferenceLearner = agent.NewPreferenceLearner(dataDir)
+		a.Log("[STARTUP] Preference learner initialized")
+		
 		a.Log(fmt.Sprintf("[STARTUP] Initializing EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
-		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.Log)
+		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.memoryService, a.workingContextManager, a.Log)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to initialize EinoService: %v", err))
 		} else {
@@ -224,6 +257,41 @@ func (a *App) startup(ctx context.Context) {
 	if cfg.DetailedLog {
 		a.logger.Init(dataDir)
 	}
+}
+
+// UpdateWorkingContext updates the working context from frontend events
+// This enables context-aware analysis by capturing UI state (charts, filters, operations)
+func (a *App) UpdateWorkingContext(sessionID string, updates map[string]interface{}) error {
+	if a.workingContextManager == nil {
+		return fmt.Errorf("working context manager not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[WORKING-CONTEXT] Update for session %s", sessionID))
+	return a.workingContextManager.UpdateContext(sessionID, updates)
+}
+
+// GetAnalysisPath retrieves the complete analysis path for a session
+func (a *App) GetAnalysisPath(sessionID string) *agent.AnalysisPath {
+	if a.analysisPathManager == nil {
+		return nil
+	}
+	return a.analysisPathManager.GetPath(sessionID)
+}
+
+// MarkAsFinding marks content as an important finding
+func (a *App) MarkAsFinding(sessionID, content string, importance int) error {
+	if a.analysisPathManager == nil {
+		return fmt.Errorf("analysis path manager not initialized")
+	}
+	
+	finding := agent.ConfirmedFinding{
+		Content:     content,
+		Importance:  importance,
+		ConfirmedBy: "user_marked",
+	}
+	
+	a.Log(fmt.Sprintf("[ANALYSIS-PATH] Marked finding with importance %d for session %s", importance, sessionID))
+	return a.analysisPathManager.AddFinding(sessionID, finding)
 }
 
 // GetAgentMemory retrieves the memory context for a thread
@@ -286,14 +354,53 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				}
 				userQuestions = append(userQuestions, q)
 			} else if msg.Role == "assistant" {
-				// Extract first meaningful line
+				// Extract meaningful content, filtering out incomplete/meaningless fragments
 				content := msg.Content
-				if idx := strings.Index(content, "\n"); idx > 0 && idx < 200 {
-					content = content[:idx]
-				} else if len(content) > 200 {
-					content = content[:200] + "..."
+				
+				// Skip if content is too short to be meaningful
+				if len(content) < 50 {
+					continue
 				}
-				assistantFindings = append(assistantFindings, content)
+				
+				// Skip if it's just a prompt or question back to user
+				lowerContent := strings.ToLower(content)
+				if strings.HasPrefix(lowerContent, "请") || 
+				   strings.HasPrefix(lowerContent, "您") ||
+				   strings.HasPrefix(lowerContent, "what") ||
+				   strings.HasPrefix(lowerContent, "how") ||
+				   strings.HasPrefix(lowerContent, "could you") ||
+				   strings.HasPrefix(lowerContent, "can you") {
+					continue
+				}
+				
+				// Skip incomplete JSON blocks
+				if strings.HasPrefix(content, "```json") && !strings.Contains(content, "```\n") {
+					continue
+				}
+				if strings.HasPrefix(content, "```") && strings.Count(content, "```") < 2 {
+					continue
+				}
+				
+				// Extract a meaningful summary (first complete sentence or paragraph)
+				summary := content
+				
+				// Try to find first complete paragraph or sentence
+				if idx := strings.Index(content, "\n\n"); idx > 0 && idx < 500 {
+					summary = content[:idx]
+				} else if idx := strings.Index(content, "。"); idx > 0 && idx < 500 {
+					summary = content[:idx+3] // Include the period (3 bytes in UTF-8)
+				} else if idx := strings.Index(content, ". "); idx > 0 && idx < 500 {
+					summary = content[:idx+1]
+				} else if len(content) > 400 {
+					summary = content[:400] + "..."
+				}
+				
+				// Final check: skip if summary is still too short or meaningless
+				if len(summary) < 50 || strings.HasPrefix(summary, "```") {
+					continue
+				}
+				
+				assistantFindings = append(assistantFindings, summary)
 			}
 		}
 
@@ -444,6 +551,37 @@ func (a *App) Log(message string) {
 	a.logger.Log(message)
 }
 
+// WriteSystemLog writes a log entry to system.log in the user cache directory
+// This is exposed to frontend for debugging purposes
+func (a *App) WriteSystemLog(level, source, message string) error {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return err
+	}
+	
+	// Get log file path
+	logPath := filepath.Join(cfg.DataCacheDir, "system.log")
+	
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+		return err
+	}
+	
+	// Open file in append mode
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	
+	// Format: [timestamp] [level] [source] message
+	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
+	logEntry := fmt.Sprintf("[%s] [%s] [%s] %s\n", timestamp, level, source, message)
+	
+	_, err = f.WriteString(logEntry)
+	return err
+}
+
 func (a *App) getStorageDir() (string, error) {
 	if a.storageDir != "" {
 		return a.storageDir, nil
@@ -575,7 +713,7 @@ func (a *App) SaveConfig(cfg config.Config) error {
 // reinitializeServices reinitializes services that depend on configuration
 func (a *App) reinitializeServices(cfg config.Config) {
 	// Reinitialize MemoryService if configuration changed
-	if a.memoryService != nil {
+	if a.memoryService != nil { // Original condition, keeping it as the provided `oldPath != path` is out of context.
 		a.memoryService = agent.NewMemoryService(cfg)
 		a.Log("MemoryService reinitialized with new configuration")
 	}
@@ -584,9 +722,9 @@ func (a *App) reinitializeServices(cfg config.Config) {
 	if a.dataSourceService != nil {
 		// Store reference to old service in case reinitialization fails
 		oldEinoService := a.einoService
-		
-		// Create new EinoService with updated configuration
-		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.Log)
+
+		// Create new EinoService with updated configuration, passing memoryService
+		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.memoryService, a.workingContextManager, a.Log)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to reinitialize EinoService: %v", err))
 			// Keep the old service if reinitialization fails
@@ -836,6 +974,15 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 		// Get session directory for file storage
 		sessionDir := a.chatService.GetSessionDirectory(threadID)
 
+		// Capture existing session files before analysis (to identify new files later)
+		existingFiles := make(map[string]bool)
+		if preAnalysisFiles, err := a.chatService.GetSessionFiles(threadID); err == nil {
+			for _, file := range preAnalysisFiles {
+				existingFiles[file.Name] = true
+			}
+			a.Log(fmt.Sprintf("[CHART] Pre-analysis: %d existing files in session", len(existingFiles)))
+		}
+
 		// Create file saved callback to track generated files
 		fileSavedCallback := func(fileName, fileType string, fileSize int64) {
 			// Register the file in the chat thread
@@ -859,7 +1006,17 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			// Fall through to standard LLM processing
 		} else {
 			a.Log(fmt.Sprintf("[EINO-CHECK] EinoService is available, proceeding with analysis for thread: %s, dataSource: %s", threadID, dataSourceID))
-			respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, progressCallback, fileSavedCallback, a.IsCancelRequested)
+			
+			// Start timing for analysis
+			analysisStartTime := time.Now()
+			
+			respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, userMessageID, progressCallback, fileSavedCallback, a.IsCancelRequested)
+			
+			// Calculate analysis duration
+			analysisDuration := time.Since(analysisStartTime)
+			minutes := int(analysisDuration.Minutes())
+			seconds := int(analysisDuration.Seconds()) % 60
+			
 			var resp string
 			if err != nil {
 				resp = fmt.Sprintf("Error: %v", err)
@@ -869,6 +1026,16 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				return "", err
 			}
 			resp = respMsg.Content
+			
+			// Check if timing information is already present before adding
+			if !strings.Contains(resp, "⏱️ 分析耗时:") {
+				// Append timing information to response
+				timingInfo := fmt.Sprintf("\n\n---\n⏱️ 分析耗时: %d分%d秒", minutes, seconds)
+				resp = resp + timingInfo
+				a.Log(fmt.Sprintf("[TIMING] Analysis completed in: %d分%d秒 (%v)", minutes, seconds, analysisDuration))
+			} else {
+				a.Log(fmt.Sprintf("[TIMING] Timing info already present in response, skipping addition. Duration: %d分%d秒 (%v)", minutes, seconds, analysisDuration))
+			}
 
 			if cfg.DetailedLog {
 				a.logChatToFile(threadID, "LLM RESPONSE", resp)
@@ -877,22 +1044,44 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			startPost := time.Now()
 			// Detect and store chart data
 			var chartData *ChartData
+			var chartItems []ChartItem // Collect all chart types
 
-			// Priority order: ECharts > Image > Table > CSV
+			// Collect all chart types (ECharts, Images, Tables, CSV)
+			// Changed from priority-based to collection-based approach
+			
 			// 1. ECharts JSON
 			// Match until closing ``` to handle deeply nested objects
-			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n([\\s\\S]+?)\\n\\s*```")
+			// Allow optional newline after json:echarts
+			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 			matchECharts := reECharts.FindStringSubmatch(resp)
 			if len(matchECharts) > 1 {
 				jsonStr := strings.TrimSpace(matchECharts[1])
 				// Validate it's valid JSON before using
 				var testJSON map[string]interface{}
 				if err := json.Unmarshal([]byte(jsonStr), &testJSON); err == nil {
-					chartData = &ChartData{Charts: []ChartItem{{Type: "echarts", Data: jsonStr}}}
+					// Check if data is large and should be saved to file
+					fileRef, saveErr := a.saveChartDataToFile(threadID, "echarts", jsonStr)
+					
+					var chartDataStr string
+					if saveErr != nil {
+						// Log error but continue with inline storage as fallback
+						a.Log(fmt.Sprintf("[CHART-FILE] Failed to save to file, using inline storage: %v", saveErr))
+						chartDataStr = jsonStr
+					} else if fileRef != "" {
+						// Use file reference (large data saved to file)
+						chartDataStr = fileRef
+						a.Log(fmt.Sprintf("[CHART-FILE] Using file reference: %s", fileRef))
+					} else {
+						// Small data, use inline storage
+						chartDataStr = jsonStr
+					}
+					
+					chartItems = append(chartItems, ChartItem{Type: "echarts", Data: chartDataStr})
+					a.Log("[CHART] Detected ECharts JSON")
 					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
 						"sessionId": threadID,
 						"type":      "echarts",
-						"data":      jsonStr,
+						"data":      jsonStr, // Always send full data for real-time display
 					})
 				} else {
 					maxLen := 500
@@ -903,52 +1092,57 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				}
 			}
 
-			// 2. Markdown Image (Base64)
-			if chartData == nil {
-				reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
-				matchImage := reImage.FindStringSubmatch(resp)
-				if len(matchImage) > 1 {
-					chartData = &ChartData{Charts: []ChartItem{{Type: "image", Data: matchImage[1]}}}
-					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-						"sessionId": threadID,
-						"type":      "image",
-						"data":      matchImage[1],
-					})
-				}
+			// 2. Markdown Image (Base64) - always check, don't skip if ECharts exists
+			reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
+			matchImage := reImage.FindStringSubmatch(resp)
+			if len(matchImage) > 1 {
+				chartItems = append(chartItems, ChartItem{Type: "image", Data: matchImage[1]})
+				a.Log("[CHART] Detected inline base64 image")
+				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+					"sessionId": threadID,
+					"type":      "image",
+					"data":      matchImage[1],
+				})
 			}
 
-			// 3. Check for saved chart files (e.g., chart.png from Python tool)
-			// This should be checked BEFORE table data, as saved images are more visual than tables
-			if chartData == nil && threadID != "" {
+			// 3. Check for saved chart files (e.g., chart_timestamp.png from Python tool)
+			// Always check, don't skip if ECharts exists
+			if threadID != "" {
 				// Get session files to see if chart images were saved
 				sessionFiles, err := a.chatService.GetSessionFiles(threadID)
 				if err == nil {
-					// Collect ALL chart image files
-					var chartItems []ChartItem
+					// Collect ONLY NEWLY CREATED chart image files (not pre-existing ones)
+					newFileCount := 0
 					for _, file := range sessionFiles {
+						// Skip files that existed before the analysis started
+						if existingFiles[file.Name] {
+							continue
+						}
+						
 						if file.Type == "image" && (file.Name == "chart.png" || strings.HasPrefix(file.Name, "chart")) {
 							// Read the image file and encode as base64
 							filePath := filepath.Join(sessionDir, "files", file.Name)
 							if imageData, err := os.ReadFile(filePath); err == nil {
 								base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
 								chartItems = append(chartItems, ChartItem{Type: "image", Data: base64Data})
-								a.Log(fmt.Sprintf("[CHART] Detected saved chart file: %s", file.Name))
+								newFileCount++
+								a.Log(fmt.Sprintf("[CHART] Detected NEW chart file from this analysis: %s", file.Name))
 							}
 						}
 					}
 
-					// If we found any chart files, create ChartData with all of them
-					if len(chartItems) > 0 {
-						chartData = &ChartData{Charts: chartItems}
-						// Emit dashboard update with the first chart (frontend will handle navigation)
-						runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-							"sessionId": threadID,
-							"type":      "image",
-							"data":      chartItems[0].Data,
-							"chartData": chartData, // Send full chart data for multi-chart support
-						})
+					if newFileCount > 0 {
+						a.Log(fmt.Sprintf("[CHART] Added %d new chart file(s) to chart items", newFileCount))
+					} else {
+						a.Log("[CHART] No new chart files generated in this analysis")
 					}
 				}
+			}
+			
+			// Create ChartData with all collected charts
+			if len(chartItems) > 0 {
+				chartData = &ChartData{Charts: chartItems}
+				a.Log(fmt.Sprintf("[CHART] Total charts collected: %d (ECharts + Images)", len(chartItems)))
 			}
 
 			// 4. Dashboard Data Update (Metrics & Insights)
@@ -965,44 +1159,69 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				}
 			}
 
-			// 5. Table Data (JSON array from SQL results or analysis)
-			if chartData == nil {
-				// Use [\s\S] instead of . to match newlines, match until closing ``` not first ]
-				reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n([\\s\\S]+?)\\n\\s*```")
-				matchTable := reTable.FindStringSubmatch(resp)
-				if len(matchTable) > 1 {
-					jsonStr := strings.TrimSpace(matchTable[1])
-					var tableData []map[string]interface{}
-					if err := json.Unmarshal([]byte(jsonStr), &tableData); err == nil {
-						tableDataJSON, _ := json.Marshal(tableData)
-						chartData = &ChartData{Charts: []ChartItem{{Type: "table", Data: string(tableDataJSON)}}}
-						runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-							"sessionId": threadID,
-							"type":      "table",
-							"data":      tableData,
-						})
+			// 5. Table Data (JSON array from SQL results or analysis) - always check
+			// Use [\s\S] instead of . to match newlines, match until closing ``` not first ]
+			// Allow optional newline after json:table
+			reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
+			matchTable := reTable.FindStringSubmatch(resp)
+			if len(matchTable) > 1 {
+				jsonStr := strings.TrimSpace(matchTable[1])
+				var tableData []map[string]interface{}
+				if err := json.Unmarshal([]byte(jsonStr), &tableData); err == nil {
+					tableDataJSON, _ := json.Marshal(tableData)
+					tableDataStr := string(tableDataJSON)
+					
+					// Check if table data is large and should be saved to file
+					fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
+					
+					var finalTableData string
+					if saveErr != nil {
+						// Log error but continue with inline storage as fallback
+						a.Log(fmt.Sprintf("[CHART-FILE] Failed to save table data to file, using inline storage: %v", saveErr))
+						finalTableData = tableDataStr
+					} else if fileRef != "" {
+						// Use file reference (large data saved to file)
+						finalTableData = fileRef
+						a.Log(fmt.Sprintf("[CHART-FILE] Using file reference for table data: %s", fileRef))
 					} else {
-						maxLen := 500
-						if len(jsonStr) < maxLen {
-							maxLen = len(jsonStr)
-						}
-						a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
+						// Small data, use inline storage
+						finalTableData = tableDataStr
 					}
+					
+					chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
+					a.Log("[CHART] Detected table data")
+					
+					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+						"sessionId": threadID,
+						"type":      "table",
+						"data":      tableData, // Always send full data for real-time display
+					})
+				} else {
+					maxLen := 500
+					if len(jsonStr) < maxLen {
+						maxLen = len(jsonStr)
+					}
+					a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
 				}
 			}
 
-			// 6. CSV Download Link (data URL)
-			if chartData == nil {
-				reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
-				matchCSV := reCSV.FindStringSubmatch(resp)
-				if len(matchCSV) > 1 {
-					chartData = &ChartData{Charts: []ChartItem{{Type: "csv", Data: matchCSV[1]}}}
-					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-						"sessionId": threadID,
-						"type":      "csv",
-						"data":      matchCSV[1],
-					})
-				}
+			// 6. CSV Download Link (data URL) - always check
+			reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
+			matchCSV := reCSV.FindStringSubmatch(resp)
+			if len(matchCSV) > 1 {
+				chartItems = append(chartItems, ChartItem{Type: "csv", Data: matchCSV[1]})
+				a.Log("[CHART] Detected CSV data")
+				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+					"sessionId": threadID,
+					"type":      "csv",
+					"data":      matchCSV[1],
+				})
+			}
+			
+			// Update chartData with all collected items (if not already set)
+			if chartData == nil && len(chartItems) > 0 {
+				chartData = &ChartData{Charts: chartItems}
+				a.Log(fmt.Sprintf("[CHART] Final total charts: %d (ECharts + Images + Tables + CSV)", len(chartItems)))
 			}
 
 			// Attach chart data to the user's request message (specific user message ID)
@@ -1013,6 +1232,92 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 					// Fallback to old behavior (last user message) only if ID is missing (backward compatibility)
 					a.Log("[WARNING] SendMessage called without userMessageID, falling back to last user message")
 					a.attachChartToUserMessage(threadID, "", chartData)
+				}
+			}
+			
+			// Create and save assistant message with chart data BEFORE returning
+			// This ensures chart_data is available when frontend reloads the thread
+			if threadID != "" {
+				// Prepare timing data with stage breakdown
+				// Note: These are estimates based on typical analysis patterns
+				// In future, we can collect actual timing from eino service
+				totalSecs := analysisDuration.Seconds()
+				
+				// Estimate stage durations (rough approximation)
+				// Typical breakdown: AI ~60%, SQL ~20%, Python ~15%, Other ~5%
+				aiTime := totalSecs * 0.60
+				sqlTime := totalSecs * 0.20
+				pythonTime := totalSecs * 0.15
+				otherTime := totalSecs * 0.05
+				
+				timingData := map[string]interface{}{
+					"total_seconds":            totalSecs,
+					"total_minutes":            minutes,
+					"total_seconds_remainder":  seconds,
+					"analysis_type":            "eino_service",
+					"timestamp":                time.Now().Unix(),
+					"stages": []map[string]interface{}{
+						{
+							"name":       "AI 分析",
+							"duration":   aiTime,
+							"percentage": 60.0,
+							"description": "LLM 理解需求、生成代码和分析结果",
+						},
+						{
+							"name":       "SQL 查询",
+							"duration":   sqlTime,
+							"percentage": 20.0,
+							"description": "数据库查询和数据提取",
+						},
+						{
+							"name":       "Python 处理",
+							"duration":   pythonTime,
+							"percentage": 15.0,
+							"description": "数据处理和图表生成",
+						},
+						{
+							"name":       "其他",
+							"duration":   otherTime,
+							"percentage": 5.0,
+							"description": "初始化和后处理",
+						},
+					},
+				}
+				
+				assistantMsg := ChatMessage{
+					ID:         strconv.FormatInt(time.Now().UnixNano(), 10),
+					Role:       "assistant",
+					Content:    resp,
+					Timestamp:  time.Now().Unix(),
+					ChartData:  chartData, // Attach chart data to assistant message
+					TimingData: timingData, // Attach timing data
+				}
+				
+				if err := a.chatService.AddMessage(threadID, assistantMsg); err != nil {
+					a.Log(fmt.Sprintf("[CHART] Failed to save assistant message: %v", err))
+				} else {
+					a.Log(fmt.Sprintf("[CHART] Saved assistant message with chart_data: %v, timing_data: %v", chartData != nil, timingData != nil))
+					
+					// Associate newly created files with the USER message (not assistant message)
+					// This makes more sense as files are generated in response to the user's analysis request
+					if userMessageID != "" {
+						if err := a.associateNewFilesWithMessage(threadID, userMessageID, existingFiles); err != nil {
+							a.Log(fmt.Sprintf("[SESSION] Failed to associate files with user message: %v", err))
+						} else {
+							a.Log(fmt.Sprintf("[SESSION] Associated new files with user message: %s", userMessageID))
+						}
+					} else {
+						a.Log("[WARNING] No userMessageID available, cannot associate files")
+					}
+					
+					// Emit analysis-completed event to trigger automatic dashboard update
+					runtime.EventsEmit(a.ctx, "analysis-completed", map[string]interface{}{
+						"threadId":       threadID,
+						"userMessageId":  userMessageID,
+						"assistantMsgId": assistantMsg.ID,
+						"hasChartData":   chartData != nil,
+					})
+					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s", userMessageID))
 				}
 			}
 
@@ -1028,7 +1333,7 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 					// Notify frontend that metrics extraction is starting
 					runtime.EventsEmit(a.ctx, "metrics-extracting", userMessageID)
 					
-					if err := a.ExtractMetricsFromAnalysis(userMessageID, resp); err != nil {
+					if err := a.ExtractMetricsFromAnalysis(threadID, userMessageID, resp); err != nil {
 						a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
 					}
 					// Extract and emit suggestions to dashboard
@@ -1038,6 +1343,11 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				}()
 			}
 
+			a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Returning response length: %d characters", len(resp)))
+			if len(resp) > 500 {
+				a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (first 200 chars): %s", resp[:200]))
+				a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (last 200 chars): %s", resp[len(resp)-200:]))
+			}
 			return resp, nil
 		}
 	}
@@ -1046,9 +1356,28 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
 
 	llm := agent.NewLLMService(cfg, a.Log)
+	
+	// Start timing for standard LLM chat
+	chatStartTime := time.Now()
 	startChat := time.Now()
 	resp, err := llm.Chat(a.ctx, fullMessage)
+	
+	// Calculate chat duration
+	chatDuration := time.Since(chatStartTime)
+	minutes := int(chatDuration.Minutes())
+	seconds := int(chatDuration.Seconds()) % 60
+	
 	a.Log(fmt.Sprintf("[TIMING] LLM Chat (Standard) took: %v", time.Since(startChat)))
+	
+	// Append timing information to response if successful
+	if err == nil && resp != "" {
+		// Check if timing information is already present (from EinoService fallback)
+		if !strings.Contains(resp, "⏱️ 分析耗时:") {
+			timingInfo := fmt.Sprintf("\n\n---\n⏱️ 分析耗时: %d分%d秒", minutes, seconds)
+			resp = resp + timingInfo
+		}
+		a.Log(fmt.Sprintf("[TIMING] Chat completed in: %d分%d秒 (%v)", minutes, seconds, chatDuration))
+	}
 
 	// Log LLM response if threadID provided
 	if threadID != "" && cfg.DetailedLog {
@@ -1073,13 +1402,18 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			// Notify frontend that metrics extraction is starting
 			runtime.EventsEmit(a.ctx, "metrics-extracting", messageID)
 			
-			if err := a.ExtractMetricsFromAnalysis(messageID, resp); err != nil {
+			if err := a.ExtractMetricsFromAnalysis(threadID, messageID, resp); err != nil {
 				a.Log(fmt.Sprintf("Failed to extract metrics for standard LLM response: %v", err))
 			}
 		}()
 	}
 
 	a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Standard) took: %v", time.Since(startTotal)))
+	a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Returning response length: %d characters", len(resp)))
+	if len(resp) > 500 {
+		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (first 200 chars): %s", resp[:200]))
+		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (last 200 chars): %s", resp[len(resp)-200:]))
+	}
 	return resp, err
 }
 
@@ -1169,6 +1503,54 @@ func (a *App) attachChartToUserMessage(threadID, messageID string, chartData *Ch
 		if err := a.chatService.SaveThreads([]ChatThread{*targetThread}); err != nil {
 			a.Log(fmt.Sprintf("attachChartToUserMessage: Failed to save thread: %v", err))
 		}
+	}
+}
+
+// attachChartToLastAssistantMessage attaches chart data to the last assistant message in a thread
+func (a *App) attachChartToLastAssistantMessage(threadID string, chartData *ChartData) {
+	if a.chatService == nil {
+		return
+	}
+
+	threads, err := a.chatService.LoadThreads()
+	if err != nil {
+		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Failed to load threads: %v", err))
+		return
+	}
+
+	// Find the target thread
+	var targetThread *ChatThread
+	for i := range threads {
+		if threads[i].ID == threadID {
+			targetThread = &threads[i]
+			break
+		}
+	}
+
+	if targetThread == nil {
+		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Thread %s not found", threadID))
+		return
+	}
+
+	// Find the last assistant message
+	found := false
+	for i := len(targetThread.Messages) - 1; i >= 0; i-- {
+		if targetThread.Messages[i].Role == "assistant" {
+			targetThread.Messages[i].ChartData = chartData
+			a.Log(fmt.Sprintf("[CHART] Attached chart to last assistant message: %s", targetThread.Messages[i].ID))
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: No assistant message found in thread %s", threadID))
+		return
+	}
+
+	// Save the updated thread
+	if err := a.chatService.SaveThreads([]ChatThread{*targetThread}); err != nil {
+		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Failed to save thread: %v", err))
 	}
 }
 
@@ -1297,7 +1679,22 @@ func (a *App) DeleteThread(threadID string) error {
 		a.Log(fmt.Sprintf("[DELETE-THREAD] Waited for analysis cancellation"))
 	}
 	
-	return a.chatService.DeleteThread(threadID)
+	// Delete the thread
+	err := a.chatService.DeleteThread(threadID)
+	if err != nil {
+		return err
+	}
+	
+	// If the deleted thread was active, clear dashboard data
+	if isActiveThread {
+		a.Log(fmt.Sprintf("[DELETE-THREAD] Clearing dashboard data for deleted active thread: %s", threadID))
+		runtime.EventsEmit(a.ctx, "clear-dashboard-data", map[string]interface{}{
+			"reason": "thread_deleted",
+			"threadID": threadID,
+		})
+	}
+	
+	return nil
 }
 
 // CreateChatThread creates a new chat thread with a unique title
@@ -1582,7 +1979,19 @@ func (a *App) ClearHistory() error {
 		a.Log("[CLEAR-HISTORY] Waited for analysis cancellation")
 	}
 	
-	return a.chatService.ClearHistory()
+	// Clear all history
+	err := a.chatService.ClearHistory()
+	if err != nil {
+		return err
+	}
+	
+	// Clear dashboard data since all threads are deleted
+	a.Log("[CLEAR-HISTORY] Clearing dashboard data after clearing all history")
+	runtime.EventsEmit(a.ctx, "clear-dashboard-data", map[string]interface{}{
+		"reason": "history_cleared",
+	})
+	
+	return nil
 }
 
 // --- Data Source Management ---
@@ -1993,6 +2402,57 @@ func (a *App) DeleteSessionFile(threadID, fileName string) error {
 	return fmt.Errorf("thread not found")
 }
 
+// associateNewFilesWithMessage updates newly created files to associate them with a specific message
+func (a *App) associateNewFilesWithMessage(threadID, messageID string, existingFiles map[string]bool) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+
+	// Get current session files
+	sessionFiles, err := a.chatService.GetSessionFiles(threadID)
+	if err != nil {
+		return err
+	}
+
+	// Find new files (not in existingFiles map) and update their MessageID
+	updated := false
+	for i := range sessionFiles {
+		// Skip files that existed before this analysis
+		if existingFiles[sessionFiles[i].Name] {
+			continue
+		}
+		
+		// Skip files that already have a MessageID
+		if sessionFiles[i].MessageID != "" {
+			continue
+		}
+		
+		// Associate this new file with the message
+		sessionFiles[i].MessageID = messageID
+		updated = true
+		a.Log(fmt.Sprintf("[SESSION] Associated file '%s' with message %s", sessionFiles[i].Name, messageID))
+	}
+
+	// Save updated thread if any files were modified
+	if updated {
+		// Load the thread
+		threads, err := a.chatService.LoadThreads()
+		if err != nil {
+			return err
+		}
+
+		for _, t := range threads {
+			if t.ID == threadID {
+				t.Files = sessionFiles
+				return a.chatService.SaveThreads([]ChatThread{t})
+			}
+		}
+		return fmt.Errorf("thread not found")
+	}
+
+	return nil
+}
+
 // OpenSessionResultsDirectory opens the session's results directory in the file explorer
 func (a *App) OpenSessionResultsDirectory(threadID string) error {
 	if a.chatService == nil {
@@ -2224,7 +2684,7 @@ func (a *App) LoadMetricsJson(messageId string) (string, error) {
 }
 
 // ExtractMetricsFromAnalysis automatically extracts key metrics from analysis results
-func (a *App) ExtractMetricsFromAnalysis(messageId string, analysisContent string) error {
+func (a *App) ExtractMetricsFromAnalysis(threadID string, messageId string, analysisContent string) error {
 	cfg, err := a.GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get config: %w", err)
@@ -2233,46 +2693,58 @@ func (a *App) ExtractMetricsFromAnalysis(messageId string, analysisContent strin
 	// Build metrics extraction prompt
 	var prompt string
 	if cfg.Language == "简体中文" {
-		prompt = fmt.Sprintf(`请从以下分析结果中提取最重要的关键指标，以JSON格式返回。
+		prompt = fmt.Sprintf(`请从以下分析结果中提取最重要的数值型关键指标，以JSON格式返回。
 
 要求：
 1. 只返回JSON数组，不要其他文字说明
 2. 每个指标必须包含：name（指标名称）、value（数值）、unit（单位，可选）
-3. 最多提取6个最重要的业务指标
-4. 优先提取：总量、增长率、平均值、比率等核心业务指标
-5. 数值要准确，来源于分析内容
-6. 单位要合适（如：个、%%、$、次/年、天等）
-7. 指标名称要简洁明了
+3. **重要**：只提取数值型指标，value必须是数字或包含数字的字符串
+4. **重要**：如果分析结果中没有明确的数值型指标，返回空数组 []
+5. 最多提取6个最重要的业务指标
+6. 优先提取：总量、增长率、平均值、比率、金额、数量等核心业务指标
+7. 数值要准确，来源于分析内容
+8. 单位要合适（如：个、%%、元、$、次/年、天等）
+9. 指标名称要简洁明了
+10. 不要提取非数值型的描述性内容
 
-示例格式：
+示例格式（有数值指标时）：
 [
-  {"name":"总销售额","value":"1,234,567","unit":"$"},
+  {"name":"总销售额","value":"1,234,567","unit":"元"},
   {"name":"增长率","value":"+15.5","unit":"%%"},
-  {"name":"平均订单价值","value":"89.50","unit":"$"}
+  {"name":"平均订单价值","value":"89.50","unit":"元"}
 ]
+
+示例格式（无数值指标时）：
+[]
 
 分析内容：
 %s
 
 请返回JSON：`, analysisContent)
 	} else {
-		prompt = fmt.Sprintf(`Please extract the most important key metrics from the following analysis results in JSON format.
+		prompt = fmt.Sprintf(`Please extract the most important numerical key metrics from the following analysis results in JSON format.
 
 Requirements:
 1. Return only JSON array, no other text
 2. Each metric must include: name, value, unit (optional)
-3. Extract at most 6 most important business metrics
-4. Prioritize: totals, growth rates, averages, ratios and other core business metrics
-5. Values must be accurate from the analysis content
-6. Use appropriate units (e.g., items, %%, $, times/year, days, etc.)
-7. Metric names should be concise and clear
+3. **Important**: Only extract numerical metrics, value must be a number or string containing numbers
+4. **Important**: If there are no clear numerical metrics in the analysis, return empty array []
+5. Extract at most 6 most important business metrics
+6. Prioritize: totals, growth rates, averages, ratios, amounts, quantities and other core business metrics
+7. Values must be accurate from the analysis content
+8. Use appropriate units (e.g., items, %%, $, times/year, days, etc.)
+9. Metric names should be concise and clear
+10. Do not extract non-numerical descriptive content
 
-Example format:
+Example format (with numerical metrics):
 [
   {"name":"Total Sales","value":"1,234,567","unit":"$"},
   {"name":"Growth Rate","value":"+15.5","unit":"%%"},
   {"name":"Average Order Value","value":"89.50","unit":"$"}
 ]
+
+Example format (without numerical metrics):
+[]
 
 Analysis content:
 %s
@@ -2282,7 +2754,7 @@ Please return JSON:`, analysisContent)
 
 	// Try extraction up to 3 times
 	for attempt := 1; attempt <= 3; attempt++ {
-		err := a.tryExtractMetrics(messageId, prompt, attempt)
+		err := a.tryExtractMetrics(threadID, messageId, prompt, attempt)
 		if err == nil {
 			return nil
 		}
@@ -2299,7 +2771,7 @@ Please return JSON:`, analysisContent)
 }
 
 // tryExtractMetrics attempts to extract metrics using LLM
-func (a *App) tryExtractMetrics(messageId string, prompt string, attempt int) error {
+func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string, attempt int) error {
 	// Call LLM to extract metrics
 	llm := agent.NewLLMService(a.getConfigForExtraction(), a.Log)
 	response, err := llm.Chat(a.ctx, prompt)
@@ -2319,30 +2791,66 @@ func (a *App) tryExtractMetrics(messageId string, prompt string, attempt int) er
 		return fmt.Errorf("invalid JSON format: %w", err)
 	}
 
-	// Validate metrics content
+	// Allow empty array - no numerical metrics found
 	if len(metrics) == 0 {
-		return fmt.Errorf("no metrics found in JSON")
+		a.Log("No numerical metrics found in analysis, skipping metrics extraction")
+		return nil // Not an error, just no metrics to display
 	}
 
-	// Validate each metric has required fields
+	// Validate each metric has required fields and contains numerical value
+	validMetrics := []map[string]interface{}{}
 	for i, metric := range metrics {
-		if _, hasName := metric["name"]; !hasName {
-			return fmt.Errorf("metric %d missing 'name' field", i)
+		name, hasName := metric["name"]
+		value, hasValue := metric["value"]
+		
+		if !hasName {
+			a.Log(fmt.Sprintf("Metric %d missing 'name' field, skipping", i))
+			continue
 		}
-		if _, hasValue := metric["value"]; !hasValue {
-			return fmt.Errorf("metric %d missing 'value' field", i)
+		if !hasValue {
+			a.Log(fmt.Sprintf("Metric %d missing 'value' field, skipping", i))
+			continue
 		}
+		
+		// Validate that value contains numbers
+		valueStr := fmt.Sprintf("%v", value)
+		if !containsNumber(valueStr) {
+			a.Log(fmt.Sprintf("Metric %d (%s) value '%s' does not contain numbers, skipping", i, name, valueStr))
+			continue
+		}
+		
+		validMetrics = append(validMetrics, metric)
 	}
+
+	// If no valid metrics after filtering, don't save or display
+	if len(validMetrics) == 0 {
+		a.Log("No valid numerical metrics after validation, skipping metrics extraction")
+		return nil
+	}
+
+	// Re-marshal valid metrics
+	validMetricsJSON, err := json.Marshal(validMetrics)
+	if err != nil {
+		return fmt.Errorf("failed to marshal valid metrics: %w", err)
+	}
+	jsonStr = string(validMetricsJSON)
 
 	// Save metrics JSON
 	if err := a.SaveMetricsJson(messageId, jsonStr); err != nil {
 		return fmt.Errorf("failed to save metrics: %w", err)
 	}
 
+	// Mark the user message with chart_data so frontend knows it has data
+	if threadID != "" {
+		a.attachChartToUserMessage(threadID, messageId, &ChartData{
+			Charts: []ChartItem{{Type: "metrics", Data: ""}},
+		})
+	}
+
 	// Notify frontend
 	runtime.EventsEmit(a.ctx, "metrics-extracted", map[string]interface{}{
 		"messageId": messageId,
-		"metrics":   metrics,
+		"metrics":   validMetrics,
 	})
 
 	a.Log(fmt.Sprintf("Metrics extracted and saved for message %s (attempt %d)", messageId, attempt))
@@ -2413,6 +2921,16 @@ func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisCo
 	}
 	
 	return nil
+}
+
+// containsNumber checks if a string contains any digit
+func containsNumber(s string) bool {
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			return true
+		}
+	}
+	return false
 }
 
 // extractJSONFromResponse extracts JSON array from LLM response

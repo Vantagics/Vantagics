@@ -27,7 +27,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
         try {
             const exists = await CheckSessionNameExists(dataSourceId, trimmedName);
             if (exists) {
-                setError(`A session named "${trimmedName}" already exists for this data source.`);
+                setError(t('session_already_exists').replace('{0}', trimmedName));
                 setIsValidating(false);
                 return;
             }
@@ -44,7 +44,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-white w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 p-6">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">Start New Analysis</h3>
+                <h3 className="text-lg font-bold text-slate-800 mb-4">{t('start_new_analysis')}</h3>
                 <form onSubmit={handleSubmit}>
                     <div className="mb-4">
                         {error && (
@@ -52,7 +52,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
                                 {error}
                             </div>
                         )}
-                        <label htmlFor="sessionName" className="block text-sm font-medium text-slate-700 mb-1">Session Name</label>
+                        <label htmlFor="sessionName" className="block text-sm font-medium text-slate-700 mb-1">{t('session_name')}</label>
                         <input
                             id="sessionName"
                             type="text"
@@ -62,7 +62,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
                                 if (error) setError(null);
                             }}
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                            placeholder="e.g. Sales Analysis Q1"
+                            placeholder={t('session_name_placeholder')}
                             autoFocus
                             disabled={isValidating}
                         />
@@ -84,10 +84,10 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
                             {isValidating ? (
                                 <>
                                     <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                    Validating...
+                                    {t('validating')}
                                 </>
                             ) : (
-                                'Start Chat'
+                                t('start_chat')
                             )}
                         </button>
                     </div>

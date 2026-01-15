@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
 import { TrendingUp, UserCheck, AlertCircle, Star, Info } from 'lucide-react';
 
 interface SmartInsightProps {
@@ -34,9 +35,22 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick }) => {
             <div className="insight-icon bg-gradient-to-br from-slate-50 to-slate-100 p-2 rounded-lg shrink-0 shadow-inner">
                 {IconComponent}
             </div>
-            <p className="text-slate-700 text-sm leading-relaxed pt-1">
-                {text}
-            </p>
+            <div className="text-slate-700 text-sm leading-relaxed pt-1 prose prose-sm max-w-none">
+                <ReactMarkdown
+                    components={{
+                        // 自定义markdown组件样式
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        strong: ({ children }) => <strong className="font-semibold text-slate-800">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
+                        li: ({ children }) => <li className="mb-1">{children}</li>,
+                        code: ({ children }) => <code className="bg-slate-100 px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                    }}
+                >
+                    {text}
+                </ReactMarkdown>
+            </div>
         </div>
     );
 };

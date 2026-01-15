@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import MetricCard from './MetricCard';
 import Chart from './Chart';
 import DataTable from './DataTable';
+import TimingAnalysisModal from './TimingAnalysisModal';
 import { User, Bot, ZoomIn } from 'lucide-react';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 
@@ -17,14 +18,18 @@ interface MessageBubbleProps {
     messageId?: string;  // 新增：消息ID用于关联建议
     userMessageId?: string;  // 新增：关联的用户消息ID（用于assistant消息）
     dataSourceId?: string;  // 新增：当前会话的数据源ID
+    isDisabled?: boolean;  // 新增：是否禁用点击（用于未完成的用户消息）
+    timingData?: any;  // 新增：耗时数据
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData }) => {
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     const [clickedActions, setClickedActions] = useState<Set<string>>(new Set());
     const pendingActionsRef = useRef<Set<string>>(new Set()); // 跟踪正在处理的按钮点击
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
+    const [exportMenu, setExportMenu] = useState<{ x: number; y: number } | null>(null);
+    const [timingModalOpen, setTimingModalOpen] = useState(false);
     const messageContentRef = useRef<HTMLDivElement>(null);
 
     let parsedPayload: any = null;
@@ -40,9 +45,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // Helper function to check if content is in a suggestion/recommendation context
     const isSuggestionContext = (content: string): boolean => {
         const suggestionKeywords = [
-            '建议', '分析建议', '推荐', '可以分析', '以下分析', '推荐分析',
+            '建议', '分析建议', '推荐', '可以分析', '以下分析', '推荐分析', '可以进行',
             'suggest', 'recommendation', 'analysis suggestion', 'can analyze',
-            'following analysis', 'recommended'
+            'following analysis', 'recommended', 'you can', 'you could', 'consider'
         ];
         const lowerContent = content.toLowerCase();
         return suggestionKeywords.some(kw => lowerContent.includes(kw.toLowerCase()));
@@ -52,53 +57,115 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const isActionableItem = (text: string): boolean => {
         const actionKeywords = [
             '分析', '查看', '对比', '统计', '趋势', '预测', '细分', '探索',
-            '检查', '评估', '比较', '研究', '洞察',
+            '检查', '评估', '比较', '研究', '洞察', '计算', '识别', '发现',
             'analysis', 'analyze', 'compare', 'trend', 'forecast', 'segment',
-            'explore', 'examine', 'assess', 'study', 'insight', 'review'
+            'explore', 'examine', 'assess', 'study', 'insight', 'review',
+            'calculate', 'identify', 'discover', 'investigate', 'evaluate'
         ];
         const lowerText = text.toLowerCase();
         return actionKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
     };
 
-    // Helper function to check if text matches explanation patterns
+    // Helper function to check if text matches explanation patterns (should be excluded)
     const isExplanationPattern = (text: string): boolean => {
         const exclusionPatterns = [
-            /^(首先|然后|接着|最后|其次)/i,
-            /^(first|then|next|finally|second)/i,
+            /^(首先|然后|接着|最后|其次|另外|此外)/i,
+            /^(first|then|next|finally|second|also|additionally)/i,
             /^(步骤|step|阶段|phase)/i,
             /^(我|I)\s+(分析|analyzed|发现|found|查看|looked)/i,
-            /^(这|this|that)\s+(是|was|will)/i
+            /^(这|this|that)\s+(是|was|will|can|could)/i,
+            /^(通过|by|via|using)/i,
+            /^(为了|to|in order to)/i
         ];
         return exclusionPatterns.some(pattern => pattern.test(text.trim()));
     };
 
-    // Auto-extract numbered list actions with intelligent filtering
+    // Enhanced: Extract actions from various formats
     const extractedActions: any[] = [];
     const extractedInsights: string[] = []; // 提取的洞察建议
 
-    if (!isUser && isSuggestionContext(content)) {
+    if (!isUser) {
         const lines = content.split('\n');
-        for (const line of lines) {
-            // Match lines starting with "1. ", "2. ", etc.
-            const match = line.match(/^(\d+)\.\s+(.*)$/);
-            if (match) {
-                const rawLabel = match[2].trim();
-                // Only extract if:
-                // 1. Length is reasonable (avoid very long text)
-                // 2. Contains actionable keywords
-                // 3. Doesn't match explanation patterns
-                if (rawLabel.length > 0 && rawLabel.length < 100 &&
-                    isActionableItem(rawLabel) &&
-                    !isExplanationPattern(rawLabel)) {
-                    extractedActions.push({
-                        id: `auto_${match[1]}`,
-                        label: rawLabel,
-                        // Value should be clean text for the LLM input (no markdown)
-                        value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '')
-                    });
+        let inSuggestionSection = false;
+        let suggestionCount = 0;
 
-                    // 同时添加到洞察建议中
-                    extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, ''));
+        // Check if this is a suggestion response
+        const hasSuggestionContext = isSuggestionContext(content);
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+
+            // Detect suggestion section headers
+            if (/^(分析建议|推荐分析|建议|suggestions?|recommendations?|you (can|could|might))[:：]/i.test(line)) {
+                inSuggestionSection = true;
+                continue;
+            }
+
+            // Extract from numbered lists: "1. ", "1) ", "1、"
+            const numberedMatch = line.match(/^(\d+)[.、)]\s+(.+)$/);
+            if (numberedMatch) {
+                const rawLabel = numberedMatch[2].trim();
+                
+                // More lenient extraction in suggestion context
+                if (hasSuggestionContext || inSuggestionSection) {
+                    if (rawLabel.length > 5 && rawLabel.length < 150) {
+                        suggestionCount++;
+                        extractedActions.push({
+                            id: `auto_${suggestionCount}`,
+                            label: rawLabel,
+                            value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                        });
+                        extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                    }
+                } else if (isActionableItem(rawLabel) && !isExplanationPattern(rawLabel)) {
+                    // Stricter filtering outside suggestion context
+                    if (rawLabel.length > 5 && rawLabel.length < 150) {
+                        suggestionCount++;
+                        extractedActions.push({
+                            id: `auto_${suggestionCount}`,
+                            label: rawLabel,
+                            value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                        });
+                        extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                    }
+                }
+                continue;
+            }
+
+            // Extract from bullet points: "- ", "* ", "• "
+            const bulletMatch = line.match(/^[-*•]\s+(.+)$/);
+            if (bulletMatch && (hasSuggestionContext || inSuggestionSection)) {
+                const rawLabel = bulletMatch[1].trim();
+                if (rawLabel.length > 5 && rawLabel.length < 150 && isActionableItem(rawLabel)) {
+                    suggestionCount++;
+                    extractedActions.push({
+                        id: `auto_bullet_${suggestionCount}`,
+                        label: rawLabel,
+                        value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                    });
+                    extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                }
+            }
+        }
+
+        // Fallback: If no actions extracted but content suggests analysis, extract from sentences
+        if (extractedActions.length === 0 && hasSuggestionContext) {
+            const sentences = content.split(/[。.！!？?]/);
+            for (const sentence of sentences) {
+                const trimmed = sentence.trim();
+                if (trimmed.length > 10 && trimmed.length < 150 && 
+                    isActionableItem(trimmed) && 
+                    !isExplanationPattern(trimmed)) {
+                    suggestionCount++;
+                    if (suggestionCount <= 5) { // Limit to 5 suggestions
+                        extractedActions.push({
+                            id: `auto_sentence_${suggestionCount}`,
+                            label: trimmed,
+                            value: trimmed.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                        });
+                        extractedInsights.push(trimmed.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                    }
                 }
             }
         }
@@ -138,6 +205,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         const selection = window.getSelection();
         const selectedText = selection?.toString().trim();
 
+        // If text is selected, show text selection menu
         if (selectedText && selectedText.length > 0) {
             // Wails应用中，使用pageX/pageY可能更准确
             // 对于fixed定位，需要使用clientX/Y（视口坐标）
@@ -172,6 +240,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 y: y,
                 selectedText: selectedText
             });
+        } else if (isUser && hasChart) {
+            // If no text selected and this is a user message with analysis results,
+            // show export menu
+            setExportMenu({
+                x: e.clientX,
+                y: e.clientY
+            });
         }
     };
 
@@ -187,19 +262,65 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         setContextMenu(null);
     };
 
+    // Handle export analysis action
+    const handleExportAnalysis = async () => {
+        if (!messageId) {
+            EventsEmit('show-message-modal', {
+                type: 'error',
+                title: '导出失败',
+                message: '无法获取消息ID'
+            });
+            setExportMenu(null);
+            return;
+        }
+
+        try {
+            console.log('[EXPORT] Starting export for message:', messageId);
+
+            // Import the function dynamically to avoid build errors
+            const { ExportAnalysisProcess } = await import('../../wailsjs/go/main/App');
+
+            console.log('[EXPORT] Calling ExportAnalysisProcess...');
+            await ExportAnalysisProcess(messageId);
+
+            console.log('[EXPORT] Export completed successfully');
+
+            // Show success message
+            EventsEmit('show-message-modal', {
+                type: 'info',
+                title: '导出成功',
+                message: '分析过程已导出'
+            });
+        } catch (err) {
+            console.error('[EXPORT] Export analysis failed:', err);
+
+            // Show error with details
+            EventsEmit('show-message-modal', {
+                type: 'error',
+                title: '导出失败',
+                message: err instanceof Error ? err.message : String(err)
+            });
+        } finally {
+            setExportMenu(null);
+        }
+    };
+
     // Close context menu when clicking outside
     useEffect(() => {
         const handleClickOutside = () => {
             if (contextMenu) {
                 setContextMenu(null);
             }
+            if (exportMenu) {
+                setExportMenu(null);
+            }
         };
 
-        if (contextMenu) {
+        if (contextMenu || exportMenu) {
             document.addEventListener('click', handleClickOutside);
             return () => document.removeEventListener('click', handleClickOutside);
         }
-    }, [contextMenu]);
+    }, [contextMenu, exportMenu]);
 
     const renderButtonLabel = (label: string) => {
         // Split by bold markers **text**
@@ -279,20 +400,40 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 <div
                     ref={messageContentRef}
                     className={`max-w-[85%] rounded-2xl px-5 py-3.5 shadow-sm ${isUser
-                        ? `bg-blue-600 text-white rounded-tr-none ${onClick && hasChart ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200' : ''}`
+                        ? `bg-blue-600 text-white rounded-tr-none ${
+                            isDisabled 
+                                ? 'opacity-50 cursor-not-allowed' 
+                                : onClick && hasChart 
+                                    ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200' 
+                                    : ''
+                        }`
                         : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                         }`}
-                    onClick={onClick && isUser ? onClick : undefined}
+                    onClick={onClick && isUser && !isDisabled ? onClick : undefined}
                     onContextMenu={handleContextMenu}
-                    style={onClick && hasChart && isUser ? { cursor: 'pointer' } : undefined}
-                    title={onClick && hasChart && isUser ? 'Click to view analysis results on dashboard' : undefined}
+                    style={onClick && hasChart && isUser && !isDisabled ? { cursor: 'pointer' } : isDisabled ? { cursor: 'not-allowed' } : undefined}
+                    title={
+                        isDisabled 
+                            ? 'Analysis in progress or incomplete - cannot view yet' 
+                            : onClick && hasChart && isUser 
+                                ? 'Click to view analysis results on dashboard' 
+                                : undefined
+                    }
                 >
-                    {isUser && hasChart && (
+                    {isUser && hasChart && !isDisabled && (
                         <div className="mb-2 flex items-center gap-2 text-xs opacity-70">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
                             </svg>
                             <span>Has visualization - Click to view</span>
+                        </div>
+                    )}
+                    {isUser && isDisabled && (
+                        <div className="mb-2 flex items-center gap-2 text-xs opacity-50">
+                            <svg className="w-3 h-3 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                            </svg>
+                            <span>Analysis in progress...</span>
                         </div>
                     )}
                     <div
@@ -491,6 +632,95 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 </div>,
                 document.body
             )}
+
+            {/* Export Analysis Context Menu - Portal to body */}
+            {exportMenu && ReactDOM.createPortal(
+                <div
+                    style={{
+                        position: 'fixed',
+                        left: `${exportMenu.x}px`,
+                        top: `${exportMenu.y}px`,
+                        zIndex: 99999999,
+                        backgroundColor: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        minWidth: '160px',
+                        overflow: 'hidden'
+                    }}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleExportAnalysis();
+                        }}
+                        style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            textAlign: 'left',
+                            fontSize: '13px',
+                            color: '#1e293b',
+                            backgroundColor: 'white',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                    >
+                        <span style={{ fontSize: '16px' }}>📋</span>
+                        <span style={{ fontWeight: 500 }}>导出分析过程</span>
+                    </button>
+                    
+                    {/* Timing Analysis Option - Only show if timing data exists */}
+                    {timingData && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setExportMenu(null);
+                                setTimingModalOpen(true);
+                            }}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                fontSize: '13px',
+                                color: '#1e293b',
+                                backgroundColor: 'white',
+                                border: 'none',
+                                borderTop: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                        >
+                            <span style={{ fontSize: '16px' }}>⏱️</span>
+                            <span style={{ fontWeight: 500 }}>耗时分析</span>
+                        </button>
+                    )}
+                </div>,
+                document.body
+            )}
+            
+            {/* Timing Analysis Modal */}
+            <TimingAnalysisModal
+                isOpen={timingModalOpen}
+                onClose={() => setTimingModalOpen(false)}
+                timingData={timingData}
+                messageContent={content}
+            />
         </>
     );
 };

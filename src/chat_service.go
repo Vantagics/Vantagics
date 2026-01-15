@@ -89,11 +89,12 @@ func cleanChartData(data string) string {
 
 // ChatMessage represents a single message in a chat thread
 type ChatMessage struct {
-	ID        string     `json:"id"`
-	Role      string     `json:"role"` // "user" or "assistant"
-	Content   string     `json:"content"`
-	Timestamp int64      `json:"timestamp"`
-	ChartData *ChartData `json:"chart_data,omitempty"` // Associated chart/visualization data (can contain multiple charts)
+	ID           string                 `json:"id"`
+	Role         string                 `json:"role"` // "user" or "assistant"
+	Content      string                 `json:"content"`
+	Timestamp    int64                  `json:"timestamp"`
+	ChartData    *ChartData             `json:"chart_data,omitempty"`    // Associated chart/visualization data (can contain multiple charts)
+	TimingData   map[string]interface{} `json:"timing_data,omitempty"`   // Detailed timing information for analysis stages
 }
 
 // UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
@@ -149,11 +150,12 @@ func (cm *ChatMessage) UnmarshalJSON(data []byte) error {
 
 // SessionFile represents a file generated during the session
 type SessionFile struct {
-	Name      string `json:"name"`       // File name (e.g., "chart.png", "result.csv")
-	Path      string `json:"path"`       // Relative path within session directory
-	Type      string `json:"type"`       // "image", "csv", "data", etc.
-	Size      int64  `json:"size"`       // File size in bytes
-	CreatedAt int64  `json:"created_at"` // Unix timestamp
+	Name      string `json:"name"`        // File name (e.g., "chart.png", "result.csv")
+	Path      string `json:"path"`        // Relative path within session directory
+	Type      string `json:"type"`        // "image", "csv", "data", etc.
+	Size      int64  `json:"size"`        // File size in bytes
+	CreatedAt int64  `json:"created_at"`  // Unix timestamp
+	MessageID string `json:"message_id,omitempty"` // Associated message ID (optional)
 }
 
 // UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats

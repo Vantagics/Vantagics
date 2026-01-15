@@ -1,5 +1,127 @@
 export namespace agent {
 	
+	export class ConfirmedFinding {
+	    finding_id: string;
+	    content: string;
+	    confirmed_by: string;
+	    importance: number;
+	    timestamp: number;
+	    related_steps: string[];
+	    tags?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConfirmedFinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.finding_id = source["finding_id"];
+	        this.content = source["content"];
+	        this.confirmed_by = source["confirmed_by"];
+	        this.importance = source["importance"];
+	        this.timestamp = source["timestamp"];
+	        this.related_steps = source["related_steps"];
+	        this.tags = source["tags"];
+	    }
+	}
+	export class Evidence {
+	    type: string;
+	    description: string;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Evidence(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.description = source["description"];
+	        this.data = source["data"];
+	    }
+	}
+	export class PathStep {
+	    step_id: string;
+	    timestamp: number;
+	    phenomenon: string;
+	    action: string;
+	    conclusion: string;
+	    evidence: Evidence[];
+	    user_query: string;
+	    ai_response: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PathStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.step_id = source["step_id"];
+	        this.timestamp = source["timestamp"];
+	        this.phenomenon = source["phenomenon"];
+	        this.action = source["action"];
+	        this.conclusion = source["conclusion"];
+	        this.evidence = this.convertValues(source["evidence"], Evidence);
+	        this.user_query = source["user_query"];
+	        this.ai_response = source["ai_response"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AnalysisPath {
+	    session_id: string;
+	    created_at: number;
+	    updated_at: number;
+	    steps: PathStep[];
+	    findings: ConfirmedFinding[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisPath(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.session_id = source["session_id"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	        this.steps = this.convertValues(source["steps"], PathStep);
+	        this.findings = this.convertValues(source["findings"], ConfirmedFinding);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConversationTurn {
 	    role: string;
 	    content: string;
@@ -102,6 +224,7 @@ export namespace agent {
 	}
 	
 	
+	
 	export class TableSchema {
 	    table_name: string;
 	    columns: string[];
@@ -178,6 +301,7 @@ export namespace agent {
 	    password?: string;
 	    database?: string;
 	    store_locally: boolean;
+	    optimized: boolean;
 	    mysql_export_config?: MySQLExportConfig;
 	
 	    static createFrom(source: any = {}) {
@@ -195,6 +319,7 @@ export namespace agent {
 	        this.password = source["password"];
 	        this.database = source["database"];
 	        this.store_locally = source["store_locally"];
+	        this.optimized = source["optimized"];
 	        this.mysql_export_config = this.convertValues(source["mysql_export_config"], MySQLExportConfig);
 	    }
 	
@@ -258,6 +383,7 @@ export namespace agent {
 	}
 	
 	
+	
 	export class FieldMapping {
 	    old_field: string;
 	    new_field: string;
@@ -272,6 +398,7 @@ export namespace agent {
 	        this.new_field = source["new_field"];
 	    }
 	}
+	
 	
 	export class PythonEnvironment {
 	    path: string;
@@ -474,6 +601,198 @@ export namespace main {
 	        this.short_term = source["short_term"];
 	    }
 	}
+	export class OriginalResults {
+	    summary: string;
+	    visualizations?: any[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OriginalResults(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = source["summary"];
+	        this.visualizations = source["visualizations"];
+	    }
+	}
+	export class ProducesInfo {
+	    type: string;
+	    filename?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProducesInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.filename = source["filename"];
+	    }
+	}
+	export class ResultSchema {
+	    columns: string[];
+	    types: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultSchema(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.columns = source["columns"];
+	        this.types = source["types"];
+	    }
+	}
+	export class ExecutableStep {
+	    step_id: number;
+	    step_type: string;
+	    description: string;
+	    sql?: string;
+	    code?: string;
+	    depends_on?: number[];
+	    expected_result_schema?: ResultSchema;
+	    produces?: ProducesInfo;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExecutableStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.step_id = source["step_id"];
+	        this.step_type = source["step_type"];
+	        this.description = source["description"];
+	        this.sql = source["sql"];
+	        this.code = source["code"];
+	        this.depends_on = source["depends_on"];
+	        this.expected_result_schema = this.convertValues(source["expected_result_schema"], ResultSchema);
+	        this.produces = this.convertValues(source["produces"], ProducesInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TableRequirement {
+	    name: string;
+	    columns: string[];
+	    types?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new TableRequirement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.columns = source["columns"];
+	        this.types = source["types"];
+	    }
+	}
+	export class SchemaRequirements {
+	    tables: TableRequirement[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SchemaRequirements(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tables = this.convertValues(source["tables"], TableRequirement);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DataSourceInfo {
+	    id: string;
+	    name: string;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	    }
+	}
+	export class AnalysisExport {
+	    file_type: string;
+	    format_version: string;
+	    description: string;
+	    exported_at: string;
+	    data_source: DataSourceInfo;
+	    schema_requirements: SchemaRequirements;
+	    executable_steps: ExecutableStep[];
+	    original_results?: OriginalResults;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisExport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file_type = source["file_type"];
+	        this.format_version = source["format_version"];
+	        this.description = source["description"];
+	        this.exported_at = source["exported_at"];
+	        this.data_source = this.convertValues(source["data_source"], DataSourceInfo);
+	        this.schema_requirements = this.convertValues(source["schema_requirements"], SchemaRequirements);
+	        this.executable_steps = this.convertValues(source["executable_steps"], ExecutableStep);
+	        this.original_results = this.convertValues(source["original_results"], OriginalResults);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ChartItem {
 	    type: string;
 	    data: string;
@@ -525,6 +844,7 @@ export namespace main {
 	    content: string;
 	    timestamp: number;
 	    chart_data?: ChartData;
+	    timing_data?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -537,6 +857,7 @@ export namespace main {
 	        this.content = source["content"];
 	        this.timestamp = source["timestamp"];
 	        this.chart_data = this.convertValues(source["chart_data"], ChartData);
+	        this.timing_data = source["timing_data"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -563,6 +884,7 @@ export namespace main {
 	    type: string;
 	    size: number;
 	    created_at: number;
+	    message_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new SessionFile(source);
@@ -575,6 +897,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.size = source["size"];
 	        this.created_at = source["created_at"];
+	        this.message_id = source["message_id"];
 	    }
 	}
 	export class ChatThread {
@@ -697,6 +1020,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class ErrorRecord {
 	    timestamp: string;
 	    error_type: string;
@@ -759,6 +1083,113 @@ export namespace main {
 	}
 	
 	
+	export class IndexSuggestion {
+	    table_name: string;
+	    index_name: string;
+	    columns: string[];
+	    reason: string;
+	    sql_command: string;
+	    applied: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IndexSuggestion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table_name = source["table_name"];
+	        this.index_name = source["index_name"];
+	        this.columns = source["columns"];
+	        this.reason = source["reason"];
+	        this.sql_command = source["sql_command"];
+	        this.applied = source["applied"];
+	        this.error = source["error"];
+	    }
+	}
+	
+	
+	export class OptimizeDataSourceResult {
+	    data_source_id: string;
+	    data_source_name: string;
+	    suggestions: IndexSuggestion[];
+	    summary: string;
+	    success: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OptimizeDataSourceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data_source_id = source["data_source_id"];
+	        this.data_source_name = source["data_source_name"];
+	        this.suggestions = this.convertValues(source["suggestions"], IndexSuggestion);
+	        this.summary = source["summary"];
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class OptimizeSuggestionsResult {
+	    data_source_id: string;
+	    data_source_name: string;
+	    suggestions: IndexSuggestion[];
+	    success: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OptimizeSuggestionsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data_source_id = source["data_source_id"];
+	        this.data_source_name = source["data_source_name"];
+	        this.suggestions = this.convertValues(source["suggestions"], IndexSuggestion);
+	        this.success = source["success"];
+	        this.error = source["error"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
 	
 	
 	export class SkillInfo {
@@ -794,6 +1225,59 @@ export namespace main {
 	        this.icon = source["icon"];
 	        this.tags = source["tags"];
 	    }
+	}
+	
+	export class ValidationIssue {
+	    type: string;
+	    table?: string;
+	    column?: string;
+	    message: string;
+	    severity: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationIssue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.table = source["table"];
+	        this.column = source["column"];
+	        this.message = source["message"];
+	        this.severity = source["severity"];
+	    }
+	}
+	export class ValidationResult {
+	    compatible: boolean;
+	    issues: ValidationIssue[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.compatible = source["compatible"];
+	        this.issues = this.convertValues(source["issues"], ValidationIssue);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

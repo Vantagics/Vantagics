@@ -19,22 +19,23 @@ import (
 	"rapidbi/config"
 )
 
-// getProviderMaxTokens returns the maximum tokens supported by different providers
-// This function ensures adequate tokens for complete responses while respecting limits
+// getProviderMaxTokens returns the maximum OUTPUT tokens for different providers
+// This controls how long the LLM's response can be, NOT the total context window
 func getProviderMaxTokens(modelName string, configuredMax int) int {
-	// Provider-specific limits based on model names
+	// Provider-specific OUTPUT limits based on model names
+	// These are conservative limits to ensure complete responses
 	providerLimits := map[string]int{
-		// OpenAI models
+		// OpenAI models - output limits
 		"gpt-4":           8192,
-		"gpt-4-turbo":     128000,
-		"gpt-4o":          128000,
-		"gpt-3.5-turbo":   16385,
+		"gpt-4-turbo":     16384,  // Increased for longer outputs
+		"gpt-4o":          16384,  // Increased for longer outputs
+		"gpt-3.5-turbo":   4096,
 		
-		// Anthropic models
+		// Anthropic models - output limits
 		"claude-3":        8192,
-		"claude-3-sonnet": 200000,
-		"claude-3-opus":   200000,
-		"claude-3-haiku":  200000,
+		"claude-3-sonnet": 8192,
+		"claude-3-opus":   8192,
+		"claude-3-haiku":  8192,
 		
 		// Default fallback
 		"default":         8192,
@@ -49,39 +50,27 @@ func getProviderMaxTokens(modelName string, configuredMax int) int {
 		}
 	}
 	
-	// Ensure minimum output capacity - reserve at least 4096 tokens for response
-	minOutputTokens := 4096
-	
-	// If configured max is set and reasonable, use it but ensure minimum output capacity
-	if configuredMax > 0 {
-		// Use the smaller of configured max and provider limit
-		effectiveMax := configuredMax
-		if effectiveMax > limit {
-			effectiveMax = limit
-		}
-		
-		// Ensure we have enough tokens for a complete response
-		if effectiveMax < minOutputTokens {
-			// If configured max is too small, use minimum required
-			return minOutputTokens
-		}
-		
-		return effectiveMax
+	// If configured max is set and reasonable, use it
+	if configuredMax > 0 && configuredMax <= limit {
+		return configuredMax
 	}
 	
+	// Otherwise use the provider's limit
 	return limit
 }
 
 // EinoService manages Eino-based agents
 type EinoService struct {
-	ChatModel       model.ChatModel
-	dsService       *DataSourceService
-	cfg             config.Config
-	Logger          func(string)
-	memoryManager   *MemoryManager
-	pythonPool      *PythonPool
-	errorKnowledge  *ErrorKnowledge
-	skillManager    *templates.SkillManager
+	ChatModel             model.ChatModel
+	dsService             *DataSourceService
+	cfg                   config.Config
+	Logger                func(string)
+	memoryManager         *MemoryManager
+	workingContextManager *WorkingContextManager
+	pythonPool            *PythonPool
+	errorKnowledge        *ErrorKnowledge
+	skillManager          *templates.SkillManager
+	memoryService         *MemoryService // For persistent memory storage
 }
 
 // TrajectoryStep represents a single step in agent execution
@@ -115,7 +104,7 @@ type AgentTrajectory struct {
 }
 
 // NewEinoService creates a new EinoService
-func NewEinoService(cfg config.Config, dsService *DataSourceService, logger func(string)) (*EinoService, error) {
+func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryService *MemoryService, workingContextManager *WorkingContextManager, logger func(string)) (*EinoService, error) {
 	// Validate required configuration
 	if cfg.ModelName == "" {
 		return nil, fmt.Errorf("model name is required but not configured")
@@ -224,14 +213,16 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, logger func
 	}
 
 	return &EinoService{
-		ChatModel:      chatModel,
-		dsService:      dsService,
-		cfg:            cfg,
-		Logger:         logger,
-		memoryManager:  memManager,
-		pythonPool:     pyPool,
-		errorKnowledge: errorKnowledge,
-		skillManager:   skillManager,
+		ChatModel:             chatModel,
+		dsService:             dsService,
+		cfg:                   cfg,
+		Logger:                logger,
+		memoryManager:         memManager,
+		workingContextManager: workingContextManager,
+		pythonPool:            pyPool,
+		errorKnowledge:        errorKnowledge,
+		skillManager:          skillManager,
+		memoryService:         memoryService,
 	}, nil
 }
 
@@ -284,11 +275,11 @@ func (s *EinoService) GetSkillManager() *templates.SkillManager {
 
 // RunAnalysis executes the agent with full history and tool support
 func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message, dataSourceID, threadID string) (*schema.Message, error) {
-	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, "", nil, nil, nil)
+	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, "", "", nil, nil, nil)
 }
 
 // RunAnalysisWithProgress executes the agent with progress callbacks
-func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*schema.Message, dataSourceID, threadID, sessionDir string, onProgress ProgressCallback, onFileSaved func(fileName, fileType string, fileSize int64), cancelCheck func() bool) (*schema.Message, error) {
+func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*schema.Message, dataSourceID, threadID, sessionDir, userMessageID string, onProgress ProgressCallback, onFileSaved func(fileName, fileType string, fileSize int64), cancelCheck func() bool) (*schema.Message, error) {
 	startTotal := time.Now()
 	if s.Logger != nil {
 		s.Logger(fmt.Sprintf("[TIMING] Start RunAnalysis for thread: %s", threadID))
@@ -331,6 +322,37 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			s.Logger("[SQL-COLLECTOR] Initialized for session")
 		}
 	}
+	
+	// Initialize execution recorder for this session
+	var executionRecorder *ExecutionRecorder
+	if sessionDir != "" && dataSourceID != "" {
+		// Get data source name
+		var dataSourceName string
+		if sources, err := s.dsService.LoadDataSources(); err == nil {
+			for _, ds := range sources {
+				if ds.ID == dataSourceID {
+					dataSourceName = ds.Name
+					break
+				}
+			}
+		}
+		
+		// Extract user request from history
+		var userRequest string
+		if len(history) > 0 {
+			for i := len(history) - 1; i >= 0; i-- {
+				if history[i].Role == schema.User {
+					userRequest = history[i].Content
+					break
+				}
+			}
+		}
+		
+		executionRecorder = NewExecutionRecorder(sessionDir, dataSourceID, dataSourceName, userRequest, userMessageID, s.Logger)
+		if s.Logger != nil {
+			s.Logger("[EXECUTION-RECORDER] Initialized for session")
+		}
+	}
 
 	// Save trajectory and SQL collection data on completion (success or error)
 	defer func() {
@@ -347,6 +369,17 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 					s.Logger(fmt.Sprintf("[SQL-COLLECTOR] Saved %d SQL pairs to file", sqlCollector.GetPairCount()))
 				}
 			}
+			
+			// Save execution recorder data
+			if executionRecorder != nil {
+				if err := executionRecorder.SaveToFile(); err != nil {
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[EXECUTION-RECORDER] Failed to save: %v", err))
+					}
+				} else if executionRecorder.GetRecordCount() > 0 && s.Logger != nil {
+					s.Logger(fmt.Sprintf("[EXECUTION-RECORDER] Saved %d execution records to file", executionRecorder.GetRecordCount()))
+				}
+			}
 		}
 	}()
 
@@ -357,7 +390,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	emitProgress(StageInitializing, 5, "Initializing analysis tools...", 1, 6)
+	emitProgress(StageInitializing, 5, "正在初始化分析工具...", 1, 6)
 
 	// Check for template match first (faster path)
 	if len(history) > 0 {
@@ -405,7 +438,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 				result, err := template.Execute(ctx, executor, dataSourceID, templateProgress)
 				if err == nil && result.Success {
-					emitProgress(StageComplete, 100, "Analysis complete", 6, 6)
+					emitProgress(StageComplete, 100, "分析完成", 6, 6)
 					if s.Logger != nil {
 						s.Logger(fmt.Sprintf("[TIMING] Template execution took: %v", time.Since(startTotal)))
 					}
@@ -424,6 +457,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	// 1. Initialize Tools
 	startTools := time.Now()
+	
 	var pyTool *PythonExecutorTool
 	if s.pythonPool != nil {
 		pyTool = NewPythonExecutorToolWithPool(s.cfg, s.pythonPool)
@@ -432,6 +466,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 	// Inject error knowledge into Python tool
 	pyTool.SetErrorKnowledge(s.errorKnowledge)
+	// Inject execution recorder into Python tool
+	if executionRecorder != nil {
+		pyTool.SetExecutionRecorder(executionRecorder)
+	}
 	// Set session directory for file storage
 	if sessionDir != "" {
 		pyTool.SetSessionDirectory(sessionDir)
@@ -454,6 +492,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	sqlTool := NewSQLExecutorToolWithPlanner(s.dsService, sqlPlanner, s.Logger)
 	// Inject error knowledge into SQL tool
 	sqlTool.SetErrorKnowledge(s.errorKnowledge)
+	// Inject execution recorder into SQL tool
+	if executionRecorder != nil {
+		sqlTool.SetExecutionRecorder(executionRecorder)
+	}
 	// Inject SQL collector into SQL tool
 	if sqlCollector != nil {
 		sqlTool.SetSQLCollector(sqlCollector)
@@ -503,7 +545,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Binding Tools took: %v", time.Since(startBind)))
 	}
 
-	emitProgress(StageInitializing, 10, "Tools ready, building analysis graph...", 1, 6)
+	emitProgress(StageInitializing, 10, "工具就绪，正在构建分析图谱...", 1, 6)
 
 	// 4. Build Graph using Lambda nodes to manage state ([]*schema.Message)
 	startGraph := time.Now()
@@ -560,7 +602,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// Emit progress based on iteration
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
-		emitProgress(StageAnalysis, progress, fmt.Sprintf("AI processing (step %d)...", iterationCount), 3, 6)
+		emitProgress(StageAnalysis, progress, fmt.Sprintf("AI处理中 (步骤 %d)...", iterationCount), 3, 6)
 
 		// CRITICAL: Apply memory management before each model call to prevent context overflow
 		managedInput, err := s.memoryManager.ManageMemory(ctx, input)
@@ -627,14 +669,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			var msg string
 			switch toolName {
 			case "get_data_source_context":
-				emitProgress(StageSchema, 25, "Loading database schema...", 2, 6)
-				msg = "Fetching schema"
+				emitProgress(StageSchema, 25, "正在加载数据库结构...", 2, 6)
+				msg = "获取模式中"
 			case "execute_sql":
-				emitProgress(StageQuery, 40, "Executing SQL query...", 4, 6)
-				msg = "Executing query"
+				emitProgress(StageQuery, 40, "正在执行SQL查询...", 4, 6)
+				msg = "执行查询中"
 			case "python_executor":
-				emitProgress(StageAnalysis, 60, "Running Python analysis...", 5, 6)
-				msg = "Analyzing data"
+				emitProgress(StageAnalysis, 60, "正在运行Python分析...", 5, 6)
+				msg = "分析数据中"
 			default:
 				msg = fmt.Sprintf("Running %s", toolName)
 			}
@@ -755,7 +797,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 					onProgress(ProgressUpdate{
 						Stage:      "tool_output",
 						Progress:   65,
-						Message:    fmt.Sprintf("Tool %s completed", toolName),
+						Message:    fmt.Sprintf("工具 %s 已完成", toolName),
 						Step:       4,
 						Total:      6,
 						ToolName:   toolName,
@@ -856,6 +898,17 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Context Prompt preparation took: %v", time.Since(startContext)))
 	}
 
+	// Load working context if available for context-aware analysis
+	var workingContextPrompt string
+	if threadID != "" && s.workingContextManager != nil {
+		if ctx := s.workingContextManager.GetContext(threadID); ctx != nil {
+			workingContextPrompt = ctx.FormatForPrompt()
+			if s.Logger != nil {
+				s.Logger("[WORKING-CONTEXT] Loaded context for prompt injection")
+			}
+		}
+	}
+
 	sysMsg := &schema.Message{
 		Role:    schema.System,
 		Content: `You are RapidBI's data analysis expert. Be FAST and DIRECT.
@@ -874,9 +927,17 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - Present results IMMEDIATELY after data ready
 - NO explanatory text before tool calls
 
-📊 OUTPUT: Use ` + "```json:echarts{...}```" + ` or ` + "```json:table[...]```" + `
+📊 OUTPUT FORMAT:
+- For charts: ` + "```json:echarts\n{...}\n```" + `
+- For tables: ` + "```json:table\n[...]\n```" + `
+- IMPORTANT: Add newline after json:echarts or json:table
 
-⚠️ You have LIMITED steps - be efficient!` + contextPrompt,
+🇨🇳 LANGUAGE REQUIREMENTS:
+- ALL chart titles, axis labels, and legends MUST be in Chinese
+- Use descriptive Chinese names for all visualizations (e.g., "销售趋势图", not "Sales Trend")
+- ALL Python code comments and print statements should be in Chinese where user-facing
+
+⚠️ You have LIMITED steps - be efficient!` + contextPrompt + workingContextPrompt,
 	}
 
 	// 7. Apply memory management to history
@@ -898,7 +959,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	input := append([]*schema.Message{sysMsg}, managedHistory...)
 
-	emitProgress(StageAnalysis, 20, "Starting analysis...", 3, 6)
+	emitProgress(StageAnalysis, 20, "开始分析...", 3, 6)
 
 	startInvoke := time.Now()
 	finalHistory, err := runnable.Invoke(ctx, input)
@@ -913,13 +974,117 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Total RunAnalysis took: %v", time.Since(startTotal)))
 	}
 
-	emitProgress(StageComplete, 100, "Analysis complete", 6, 6)
+	emitProgress(StageComplete, 100, "分析完成", 6, 6)
 
 	// Return the last message and mark trajectory as successful with escaped content
 	if len(finalHistory) > 0 {
 		lastMsg := finalHistory[len(finalHistory)-1]
 		trajectory.Success = true
 		trajectory.FinalResponse = escapeForTraining(lastMsg.Content) // Escape for training visibility
+		
+		// Extract and store valuable memories (only if analysis was successful)
+		// Run asynchronously to not block user response
+		if lastMsg.Role == schema.Assistant && lastMsg.Content != "" {
+			go func() {
+				startMemoryExtraction := time.Now()
+				
+				// Collect SQL queries and results from history
+				var sqlQueries []string
+				var dataResults []map[string]interface{}
+				var userQuery string
+				
+				// Extract user query from history
+				for i := len(finalHistory) - 1; i >= 0; i-- {
+					if finalHistory[i].Role == schema.User {
+						userQuery = finalHistory[i].Content
+						break
+					}
+				}
+				
+				// Extract SQL queries and results from tool calls
+				for i, msg := range finalHistory {
+					if msg.Role == schema.Assistant && len(msg.ToolCalls) > 0 {
+						for _, tc := range msg.ToolCalls {
+							if tc.Function.Name == "execute_sql" {
+								// Parse arguments to get SQL query
+								var args map[string]interface{}
+								if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
+									if query, ok := args["query"].(string); ok {
+										sqlQueries = append(sqlQueries, query)
+									}
+								}
+								
+								// Look for corresponding tool result in next messages
+								for j := i + 1; j < len(finalHistory); j++ {
+									if finalHistory[j].Role == schema.Tool && finalHistory[j].ToolCallID == tc.ID {
+										// Try to parse tool result as data
+										var result []map[string]interface{}
+										if err := json.Unmarshal([]byte(finalHistory[j].Content), &result); err == nil {
+											dataResults = append(dataResults, result...)
+										}
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+				
+				// Create memory extractor and extract key findings
+				if len(sqlQueries) > 0 || userQuery != "" {
+					extractor := NewMemoryExtractor(s.ChatModel, s.Logger)
+					memories := extractor.ExtractKeyFindings(
+						context.Background(), // Use background context for async operation
+						userQuery,
+						lastMsg.Content,
+						sqlQueries,
+						dataResults,
+					)
+					
+					if s.Logger != nil && len(memories) > 0 {
+						s.Logger(fmt.Sprintf("[MEMORY] Extracted %d valuable memories from analysis", len(memories)))
+					}
+					
+					// Store memories using MemoryService
+					if s.memoryService != nil {
+						for _, mem := range memories {
+							var err error
+							if mem.IsGlobal {
+								err = s.memoryService.AddGlobalMemory(mem.Content)
+								if err != nil && s.Logger != nil {
+									s.Logger(fmt.Sprintf("[MEMORY] Failed to store global memory: %v", err))
+								}
+							} else {
+								err = s.memoryService.AddSessionLongTermMemory(threadID, mem.Content)
+								if err != nil && s.Logger != nil {
+									s.Logger(fmt.Sprintf("[MEMORY] Failed to store session memory: %v", err))
+								}
+							}
+							
+							if err == nil && s.Logger != nil {
+								s.Logger(fmt.Sprintf("[MEMORY] ✓ Stored [%s] %s: %s", 
+									map[bool]string{true: "GLOBAL", false: "SESSION"}[mem.IsGlobal],
+									mem.Category,
+									mem.Content))
+							}
+						}
+					} else if s.Logger != nil {
+						// Log only if memoryService is not available
+						for _, mem := range memories {
+							s.Logger(fmt.Sprintf("[MEMORY] [%s] %s: %s", 
+								map[bool]string{true: "GLOBAL", false: "SESSION"}[mem.IsGlobal],
+								mem.Category,
+								mem.Content))
+						}
+					}
+					
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[TIMING] Memory extraction took: %v (async)", time.Since(startMemoryExtraction)))
+					}
+				}
+			}()
+		}
+		
 		return lastMsg, nil
 	}
 

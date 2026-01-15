@@ -34,19 +34,37 @@ type MemoryManager struct {
 }
 
 // NewMemoryManager creates a new memory manager
+// maxTokens here represents the OUTPUT token limit from config, NOT the context window
+// We need to determine the actual context window size based on the model
 func NewMemoryManager(maxTokens int, chatModel model.ChatModel) *MemoryManager {
-	// Cap maxTokens at 200k to allow very long contexts and responses
-	// Modern models support 128k+ context, so this provides plenty of room
-	if maxTokens > 200000 {
-		maxTokens = 200000
+	// Determine context window size based on common model limits
+	// This is separate from output token limit (maxTokens parameter)
+	contextWindowSize := 128000 // Default to 128k for modern models
+	
+	// If maxTokens suggests a smaller model, adjust context window
+	if maxTokens > 0 && maxTokens < 8192 {
+		contextWindowSize = 32000 // Smaller model, use 32k context
+	}
+	
+	// Reserve tokens for output - use the configured maxTokens or default to 8192
+	outputReserve := maxTokens
+	if outputReserve <= 0 {
+		outputReserve = 8192 // Default output reserve
+	}
+	
+	// Available tokens for input context = context window - output reserve
+	availableForInput := contextWindowSize - outputReserve
+	if availableForInput < 10000 {
+		// Safety check: ensure at least 10k tokens for input
+		availableForInput = 10000
 	}
 
 	return &MemoryManager{
 		config: MemoryConfig{
-			MaxTokens:           maxTokens,
-			ShortTermMessages:   5,  // Keep more recent messages (increased from 3)
-			TokenReservePercent: 30, // Reserve more for response to ensure complete output (increased from 20%)
-			EstimatedTokenRatio: 3,  // ~3 chars per token (conservative)
+			MaxTokens:           availableForInput, // Use available input tokens, not output limit
+			ShortTermMessages:   5,                 // Keep more recent messages
+			TokenReservePercent: 20,                // Reserve 20% as safety buffer
+			EstimatedTokenRatio: 3,                 // ~3 chars per token (conservative)
 		},
 		chatModel: chatModel,
 	}
@@ -106,14 +124,14 @@ func (m *MemoryManager) ManageMemory(ctx context.Context, messages []*schema.Mes
 		return messages, nil
 	}
 
-	// Calculate target tokens for context (reserve 30% for response to ensure complete output)
-	targetTokens := m.config.MaxTokens * 70 / 100
+	// Use the full available input tokens (output is reserved separately in API call)
+	targetTokens := m.config.MaxTokens * (100 - m.config.TokenReservePercent) / 100
 
-	// First pass: moderate truncation of tool messages (max 10000 chars each) - increased significantly
+	// First pass: moderate truncation of tool messages (max 10000 chars each)
 	messages = m.TruncateToolMessages(messages, 10000)
 	currentTokens := m.EstimateTokens(messages)
 
-	// If still too large, more aggressive truncation (5000 chars) - still much higher than before
+	// If still too large, more aggressive truncation (5000 chars)
 	if currentTokens > targetTokens {
 		messages = m.TruncateToolMessages(messages, 5000)
 		currentTokens = m.EstimateTokens(messages)
