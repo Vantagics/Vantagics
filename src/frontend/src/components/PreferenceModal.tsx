@@ -5,7 +5,7 @@ import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
 
-type Tab = 'llm' | 'system' | 'runenv';
+type Tab = 'llm' | 'system' | 'mcp' | 'runenv';
 
 interface PreferenceModalProps {
     isOpen: boolean;
@@ -14,7 +14,7 @@ interface PreferenceModalProps {
 
 const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) => {
     const { t } = useLanguage();
-    const [activeTab, setActiveTab] = useState<Tab>('llm');
+    const [activeTab, setActiveTab] = useState<Tab>('system');
     const [config, setConfig] = useState<configModel.Config>({
         llmProvider: 'OpenAI',
         apiKey: '',
@@ -28,10 +28,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         dataCacheDir: '',
         pythonPath: '',
         maxPreviewRows: 100,
-        detailedLog: false
+        detailedLog: false,
+        webSearchProvider: '',
+        webSearchAPIKey: '',
+        webSearchMCPURL: ''
     });
     const [isTesting, setIsTesting] = useState(false);
-    const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
+    const [testResult, setTestResult] = useState<{ success: boolean, message: string } | null>(null);
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
 
     useEffect(() => {
@@ -46,12 +49,12 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     const handleSave = async () => {
         try {
             await SaveConfig(config);
-            // Note: config-updated event is now sent by the backend
-            setToast({ message: t('settings_saved_successfully'), type: 'success' });
-            // Close modal after a short delay to allow user to see the success message
+            // Show success toast
+            setToast({ message: t('settings_save_success') || '配置保存成功', type: 'success' });
+            // Close modal after a short delay to allow toast to be visible
             setTimeout(() => {
                 onClose();
-            }, 1500);
+            }, 500);
         } catch (err) {
             console.error('Failed to save config:', err);
             setToast({ message: t('settings_save_failed') + ': ' + err, type: 'error' });
@@ -77,7 +80,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             const result = await window.go.main.App.TestLLMConnection(config);
             setTestResult(result);
         } catch (err) {
-            setTestResult({success: false, message: String(err)});
+            setTestResult({ success: false, message: String(err) });
         } finally {
             setIsTesting(false);
         }
@@ -96,16 +99,16 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
-                        {(['llm', 'system', 'runenv'] as const).map((tab) => (
+                        {(['system', 'llm', 'mcp', 'runenv'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                    activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
-                                }`}
+                                className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
+                                    }`}
                             >
-                                {tab === 'llm' && t('llm_config')}
                                 {tab === 'system' && t('system_params')}
+                                {tab === 'llm' && t('llm_config')}
+                                {tab === 'mcp' && t('mcp_services')}
                                 {tab === 'runenv' && t('run_env')}
                             </button>
                         ))}
@@ -121,10 +124,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 <div className="grid gap-4">
                                     <div>
                                         <label htmlFor="llmProvider" className="block text-sm font-medium text-slate-700 mb-1">{t('provider_type')}</label>
-                                        <select 
+                                        <select
                                             id="llmProvider"
                                             value={config.llmProvider}
-                                            onChange={(e) => setConfig({...config, llmProvider: e.target.value})}
+                                            onChange={(e) => setConfig({ ...config, llmProvider: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         >
                                             <option value="OpenAI">OpenAI</option>
@@ -133,29 +136,29 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <option value="Claude-Compatible">Claude-Compatible (Proxies, Bedrock, etc.)</option>
                                         </select>
                                     </div>
-                                    
+
                                     {(isOpenAICompatible || isClaudeCompatible) && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                                             <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">
                                                 API Base URL
                                             </label>
-                                            <input 
+                                            <input
                                                 id="baseUrl"
-                                                type="text" 
+                                                type="text"
                                                 value={config.baseUrl}
-                                                onChange={(e) => setConfig({...config, baseUrl: e.target.value})}
+                                                onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 placeholder={
-                                                    isOpenAICompatible ? "http://localhost:11434" : 
-                                                    "https://bedrock-runtime.us-east-1.amazonaws.com"
+                                                    isOpenAICompatible ? "http://localhost:11434" :
+                                                        "https://bedrock-runtime.us-east-1.amazonaws.com"
                                                 }
                                                 autoCapitalize="none"
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
-                                                {isOpenAICompatible 
-                                                    ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)" 
+                                                {isOpenAICompatible
+                                                    ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)"
                                                     : "Base URL for Claude proxy (e.g., AWS Bedrock, Vertex AI, One API)"}
                                             </p>
                                         </div>
@@ -166,10 +169,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <label htmlFor="headerStyle" className="block text-sm font-medium text-slate-700 mb-1">
                                                 Header Style
                                             </label>
-                                            <select 
+                                            <select
                                                 id="headerStyle"
                                                 value={config.claudeHeaderStyle || 'Anthropic'}
-                                                onChange={(e) => setConfig({...config, claudeHeaderStyle: e.target.value})}
+                                                onChange={(e) => setConfig({ ...config, claudeHeaderStyle: e.target.value })}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             >
                                                 <option value="Anthropic">Anthropic (x-api-key)</option>
@@ -185,11 +188,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         <label htmlFor="apiKey" className="block text-sm font-medium text-slate-700 mb-1">
                                             {t('api_key')} {isOpenAICompatible ? '(Optional)' : ''}
                                         </label>
-                                        <input 
+                                        <input
                                             id="apiKey"
-                                            type="password" 
+                                            type="password"
                                             value={config.apiKey}
-                                            onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                                            onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "sk-ant-..." : "sk-..."}
                                             autoCapitalize="none"
@@ -199,11 +202,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
                                     <div>
                                         <label htmlFor="modelName" className="block text-sm font-medium text-slate-700 mb-1">{t('model_name')}</label>
-                                        <input 
+                                        <input
                                             id="modelName"
-                                            type="text" 
+                                            type="text"
                                             value={config.modelName}
-                                            onChange={(e) => setConfig({...config, modelName: e.target.value})}
+                                            onChange={(e) => setConfig({ ...config, modelName: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
                                             autoCapitalize="none"
@@ -214,30 +217,28 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 
                                     <div>
                                         <label htmlFor="maxTokens" className="block text-sm font-medium text-slate-700 mb-1">{t('max_tokens')}</label>
-                                        <input 
+                                        <input
                                             id="maxTokens"
-                                            type="number" 
+                                            type="number"
                                             value={config.maxTokens}
-                                            onChange={(e) => setConfig({...config, maxTokens: parseInt(e.target.value) || 0})}
+                                            onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) || 0 })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         />
                                     </div>
-                                    
+
                                     <div className="pt-2 flex items-center gap-4">
-                                        <button 
+                                        <button
                                             onClick={handleTestConnection}
                                             disabled={isTesting}
-                                            className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors ${
-                                                isTesting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                            }`}
+                                            className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors ${isTesting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                                }`}
                                         >
                                             {isTesting ? 'Testing...' : 'Test Connection'}
                                         </button>
-                                        
+
                                         {testResult && (
-                                            <div className={`text-xs font-medium animate-in fade-in slide-in-from-left-1 ${
-                                                testResult.success ? 'text-green-600' : 'text-red-600'
-                                            }`}>
+                                            <div className={`text-xs font-medium animate-in fade-in slide-in-from-left-1 ${testResult.success ? 'text-green-600' : 'text-red-600'
+                                                }`}>
                                                 {testResult.success ? '✓ Connection successful!' : `✗ ${testResult.message}`}
                                             </div>
                                         )}
@@ -254,10 +255,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <span className="block text-sm font-medium text-slate-700">{t('dark_mode')}</span>
                                             <span className="block text-xs text-slate-500">Enable dark appearance for the UI</span>
                                         </div>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={config.darkMode}
-                                            onChange={(e) => setConfig({...config, darkMode: e.target.checked})}
+                                            onChange={(e) => setConfig({ ...config, darkMode: e.target.checked })}
                                         />
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -265,10 +266,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <span className="block text-sm font-medium text-slate-700">{t('local_cache')}</span>
                                             <span className="block text-xs text-slate-500">Store query results locally</span>
                                         </div>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={config.localCache}
-                                            onChange={(e) => setConfig({...config, localCache: e.target.checked})}
+                                            onChange={(e) => setConfig({ ...config, localCache: e.target.checked })}
                                         />
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -276,17 +277,17 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <span className="block text-sm font-medium text-slate-700">{t('detailed_log')}</span>
                                             <span className="block text-xs text-slate-500">Enable detailed logging for debugging</span>
                                         </div>
-                                        <input 
-                                            type="checkbox" 
+                                        <input
+                                            type="checkbox"
                                             checked={config.detailedLog}
-                                            onChange={(e) => setConfig({...config, detailedLog: e.target.checked})}
+                                            onChange={(e) => setConfig({ ...config, detailedLog: e.target.checked })}
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
-                                        <select 
+                                        <select
                                             value={config.language}
-                                            onChange={(e) => setConfig({...config, language: e.target.value})}
+                                            onChange={(e) => setConfig({ ...config, language: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm"
                                         >
                                             <option>English</option>
@@ -295,11 +296,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                     </div>
                                     <div>
                                         <label htmlFor="maxPreviewRows" className="block text-sm font-medium text-slate-700 mb-1">{t('max_preview_rows')}</label>
-                                        <input 
+                                        <input
                                             id="maxPreviewRows"
-                                            type="number" 
+                                            type="number"
                                             value={config.maxPreviewRows}
-                                            onChange={(e) => setConfig({...config, maxPreviewRows: parseInt(e.target.value) || 100})}
+                                            onChange={(e) => setConfig({ ...config, maxPreviewRows: parseInt(e.target.value) || 100 })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             min="1"
                                             max="10000"
@@ -315,7 +316,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 id="dataCacheDir"
                                                 type="text"
                                                 value={config.dataCacheDir}
-                                                onChange={(e) => setConfig({...config, dataCacheDir: e.target.value})}
+                                                onChange={(e) => setConfig({ ...config, dataCacheDir: e.target.value })}
                                                 className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 placeholder="~/RapidBI"
                                                 autoCapitalize="none"
@@ -337,9 +338,85 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 </div>
                             </div>
                         )}
+                        {activeTab === 'mcp' && (
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('mcp_services')}</h3>
+                                <div className="space-y-4">
+                                    <div>
+                                        <h4 className="text-md font-semibold text-slate-800 mb-4">{t('web_search_mcp')}</h4>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label htmlFor="webSearchProvider" className="block text-sm font-medium text-slate-700 mb-1">{t('web_search_provider')}</label>
+                                                <select
+                                                    id="webSearchProvider"
+                                                    value={config.webSearchProvider}
+                                                    onChange={(e) => setConfig({ ...config, webSearchProvider: e.target.value })}
+                                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                >
+                                                    <option value="">{t('web_search_disabled')}</option>
+                                                    <option value="Tavily">Tavily</option>
+                                                    <option value="Bright">Bright Data</option>
+                                                </select>
+                                                <p className="mt-1 text-[10px] text-slate-400 italic">
+                                                    {t('web_search_description')}
+                                                </p>
+                                            </div>
+
+                                            {config.webSearchProvider && (
+                                                <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                                                    <label htmlFor="webSearchAPIKey" className="block text-sm font-medium text-slate-700 mb-1">{t('web_search_api_key')}</label>
+                                                    <input
+                                                        id="webSearchAPIKey"
+                                                        type="password"
+                                                        value={config.webSearchAPIKey}
+                                                        onChange={(e) => setConfig({ ...config, webSearchAPIKey: e.target.value })}
+                                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                        placeholder="Enter your API key..."
+                                                        autoCapitalize="none"
+                                                        autoCorrect="off"
+                                                        spellCheck={false}
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const url = config.webSearchProvider === 'Tavily'
+                                                                ? 'https://app.tavily.com/home'
+                                                                : config.webSearchProvider === 'Bright'
+                                                                    ? 'https://www.bright.cn/?hs_signup=1'
+                                                                    : '';
+                                                            if (url) {
+                                                                window.open(url, '_blank');
+                                                            }
+                                                        }}
+                                                        className="mt-2 px-3 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-300 rounded-md transition-colors inline-flex items-center gap-1"
+                                                    >
+                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                        </svg>
+                                                        {t('apply_api_key')}
+                                                    </button>
+                                                    {config.webSearchAPIKey && (
+                                                        <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-200">
+                                                            <label className="block text-xs font-medium text-slate-600 mb-1">{t('web_search_mcp_url_preview')}</label>
+                                                            <code className="text-xs text-slate-700 break-all">
+                                                                {config.webSearchProvider === 'Tavily'
+                                                                    ? `https://mcp.tavily.com/mcp/?tavilyApiKey=${config.webSearchAPIKey}`
+                                                                    : config.webSearchProvider === 'Bright'
+                                                                        ? `https://mcp.brightdata.com/mcp?token=${config.webSearchAPIKey}`
+                                                                        : ''}
+                                                            </code>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} />}
                     </div>
-                    
+
                     {/* Footer */}
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
                         <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md">
@@ -376,7 +453,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
     const [creatingEnv, setCreatingEnv] = useState(false);
     const [showCreateButton, setShowCreateButton] = useState(false);
     const [diagnosing, setDiagnosing] = useState(false);
-    const [notification, setNotification] = useState<{type: 'success' | 'error' | 'info', message: string} | null>(null);
+    const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
     // Auto-hide notification after 5 seconds for success/info, 10 seconds for error
     useEffect(() => {
@@ -384,7 +461,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             const timeout = setTimeout(() => {
                 setNotification(null);
             }, notification.type === 'error' ? 10000 : 5000);
-            
+
             return () => clearTimeout(timeout);
         }
     }, [notification]);
@@ -394,14 +471,14 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
         try {
             const environments = await GetPythonEnvironments();
             setEnvs(environments);
-            
+
             // Check if we should show the "Create RapidBI Environment" button
-            const hasVirtualEnvSupport = environments.some(env => 
-                env.type.toLowerCase().includes('conda') || 
+            const hasVirtualEnvSupport = environments.some(env =>
+                env.type.toLowerCase().includes('conda') ||
                 env.type.toLowerCase().includes('virtualenv') ||
                 env.type.toLowerCase().includes('venv')
             );
-            
+
             const hasRapidBIEnv = await CheckRapidBIEnvironmentExists();
             setShowCreateButton(hasVirtualEnvSupport && !hasRapidBIEnv);
         } catch (error) {
@@ -435,20 +512,20 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
         setInstalling(true);
         try {
             await InstallPythonPackages(config.pythonPath, validation.missingPackages);
-            
+
             // Re-validate the environment after installation
             setValidating(true);
             const newValidation = await ValidatePython(config.pythonPath);
             setValidation(newValidation);
-            
+
             if (newValidation.missingPackages && newValidation.missingPackages.length === 0) {
-                setNotification({type: 'success', message: '所有缺失的包已成功安装！'});
+                setNotification({ type: 'success', message: '所有缺失的包已成功安装！' });
             } else {
-                setNotification({type: 'info', message: `安装完成。仍有 ${newValidation.missingPackages?.length || 0} 个包未能安装。`});
+                setNotification({ type: 'info', message: `安装完成。仍有 ${newValidation.missingPackages?.length || 0} 个包未能安装。` });
             }
         } catch (error) {
             console.error('Package installation failed:', error);
-            setNotification({type: 'error', message: `包安装失败: ${error}`});
+            setNotification({ type: 'error', message: `包安装失败: ${error}` });
         } finally {
             setInstalling(false);
             setValidating(false);
@@ -459,31 +536,31 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
         setCreatingEnv(true);
         try {
             const pythonPath = await CreateRapidBIEnvironment();
-            
+
             // Refresh the environment list
             await loadEnvironments();
-            
+
             // Auto-select the new environment
             setConfig({ ...config, pythonPath });
-            
-            setNotification({type: 'success', message: 'RapidBI专用环境创建成功！已自动选择该环境。'});
+
+            setNotification({ type: 'success', message: 'RapidBI专用环境创建成功！已自动选择该环境。' });
         } catch (error) {
             console.error('Environment creation failed:', error);
-            
+
             // Show detailed error message with suggestions
             const errorMessage = String(error);
             let userMessage = '环境创建失败\n\n';
-            
+
             if (errorMessage.includes('No suitable Python interpreter found')) {
                 // Extract the detailed diagnostic information from the error
                 const diagnosticStart = errorMessage.indexOf('Detection attempts:');
                 const diagnosticEnd = errorMessage.indexOf('To resolve this issue');
-                
+
                 if (diagnosticStart !== -1 && diagnosticEnd !== -1) {
                     const diagnosticInfo = errorMessage.substring(diagnosticStart, diagnosticEnd);
                     userMessage += '诊断信息：\n' + diagnosticInfo + '\n\n';
                 }
-                
+
                 userMessage += '解决方案：\n\n';
                 userMessage += '1. 安装Anaconda（推荐）\n';
                 userMessage += '   • 下载地址：https://www.anaconda.com/\n';
@@ -523,9 +600,9 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                 userMessage += '• 以管理员权限运行RapidBI\n';
                 userMessage += '• 重启应用程序后重试';
             }
-            
+
             // Show error notification instead of blocking alert
-            setNotification({type: 'error', message: userMessage});
+            setNotification({ type: 'error', message: userMessage });
         } finally {
             setCreatingEnv(false);
         }
@@ -535,13 +612,13 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
         setDiagnosing(true);
         try {
             const diagnostics = await DiagnosePythonInstallation();
-            
+
             // Format diagnostic information for display
             let diagnosticText = 'Python安装诊断报告\n\n';
-            
+
             // System info
             diagnosticText += `系统信息：${diagnostics.os} ${diagnostics.arch}\n\n`;
-            
+
             // Conda info
             const conda = diagnostics.conda as any;
             diagnosticText += 'Conda检测：\n';
@@ -556,7 +633,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                 diagnosticText += `  ✗ 未找到conda：${conda.error}\n`;
             }
             diagnosticText += '\n';
-            
+
             // Python commands info
             const pythonCommands = diagnostics.python_commands as any;
             diagnosticText += 'Python命令检测：\n';
@@ -579,7 +656,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                 }
             }
             diagnosticText += '\n';
-            
+
             // Existing environments
             const envs = diagnostics.existing_environments as any[];
             diagnosticText += `现有Python环境（${envs.length}个）：\n`;
@@ -587,7 +664,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                 diagnosticText += `  ${index + 1}. ${env.type} - ${env.version}\n`;
                 diagnosticText += `     路径：${env.path}\n`;
             });
-            
+
             // Show diagnostic results
             const textarea = document.createElement('textarea');
             textarea.value = diagnosticText;
@@ -596,7 +673,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             textarea.style.fontFamily = 'monospace';
             textarea.style.fontSize = '12px';
             textarea.readOnly = true;
-            
+
             const modal = document.createElement('div');
             modal.style.position = 'fixed';
             modal.style.top = '0';
@@ -608,7 +685,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             modal.style.alignItems = 'center';
             modal.style.justifyContent = 'center';
             modal.style.zIndex = '10000';
-            
+
             const content = document.createElement('div');
             content.style.backgroundColor = 'white';
             content.style.padding = '20px';
@@ -616,11 +693,11 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             content.style.maxWidth = '80%';
             content.style.maxHeight = '80%';
             content.style.overflow = 'auto';
-            
+
             const title = document.createElement('h3');
             title.textContent = 'Python安装诊断报告';
             title.style.marginTop = '0';
-            
+
             const closeBtn = document.createElement('button');
             closeBtn.textContent = '关闭';
             closeBtn.style.marginTop = '10px';
@@ -631,7 +708,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             closeBtn.style.borderRadius = '4px';
             closeBtn.style.cursor = 'pointer';
             closeBtn.onclick = () => document.body.removeChild(modal);
-            
+
             const copyBtn = document.createElement('button');
             copyBtn.textContent = '复制到剪贴板';
             copyBtn.style.marginTop = '10px';
@@ -647,16 +724,16 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                 copyBtn.textContent = '已复制！';
                 setTimeout(() => copyBtn.textContent = '复制到剪贴板', 2000);
             };
-            
+
             content.appendChild(title);
             content.appendChild(textarea);
             content.appendChild(closeBtn);
             content.appendChild(copyBtn);
             modal.appendChild(content);
             document.body.appendChild(modal);
-            
+
         } catch (error) {
-            setNotification({type: 'error', message: `诊断失败：${error}`});
+            setNotification({ type: 'error', message: `诊断失败：${error}` });
         } finally {
             setDiagnosing(false);
         }
@@ -693,7 +770,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                             ))}
                         </select>
                     )}
-                    
+
                     {/* Create RapidBI Environment Button */}
                     {showCreateButton && (
                         <div className="mt-3">
@@ -721,11 +798,11 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                             </p>
                         </div>
                     )}
-                    
+
                     <p className="mt-1 text-[10px] text-slate-400 italic">
                         Select the Python interpreter to use for executing generated scripts.
                     </p>
-                    
+
                     {/* Python Diagnostic Button */}
                     <div className="mt-3">
                         <button
@@ -777,7 +854,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                             </span>
                             <span className="text-xs text-slate-500">{validation.version}</span>
                         </div>
-                        
+
                         {!validation.valid && validation.error && (
                             <div className="text-sm text-red-700 mb-2">{validation.error}</div>
                         )}
@@ -806,20 +883,19 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                                 )}
                             </div>
                         )}
-                        
+
                         {validation.valid && (!validation.missingPackages || validation.missingPackages.length === 0) && (
                             <div className="text-xs text-green-700">All required packages (matplotlib, numpy, pandas, mlxtend, sqlite3) are installed.</div>
                         )}
                     </div>
                 )}
-                
+
                 {/* Notification Component */}
                 {notification && (
-                    <div className={`fixed top-4 right-4 max-w-md p-4 rounded-lg shadow-lg border z-50 animate-in slide-in-from-right-2 ${
-                        notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+                    <div className={`fixed top-4 right-4 max-w-md p-4 rounded-lg shadow-lg border z-50 animate-in slide-in-from-right-2 ${notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
                         notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                        'bg-blue-50 border-blue-200 text-blue-800'
-                    }`}>
+                            'bg-blue-50 border-blue-200 text-blue-800'
+                        }`}>
                         <div className="flex items-start justify-between">
                             <div className="flex items-start gap-3">
                                 <div className="flex-shrink-0 mt-0.5">

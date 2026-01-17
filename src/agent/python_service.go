@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 )
 
 // PythonEnvironment represents a detected Python environment
@@ -191,7 +190,7 @@ func (s *PythonService) checkPackage(pythonPath, packageName string) bool {
 	// Run python -c "import package"
 	cmd := exec.Command(pythonPath, "-c", "import "+packageName)
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 	err := cmd.Run()
 	return err == nil
@@ -201,7 +200,7 @@ func (s *PythonService) checkPackage(pythonPath, packageName string) bool {
 func (s *PythonService) getPythonVersion(pythonPath string) string {
 	cmd := exec.Command(pythonPath, "--version")
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 	out, err := cmd.Output()
 	if err != nil {
@@ -227,7 +226,7 @@ func (s *PythonService) ExecuteScript(pythonPath string, script string) (string,
 
 	cmd := exec.Command(pythonPath, tmpFile.Name())
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 
 	// Set UTF-8 encoding for Python output to handle Unicode characters
@@ -277,7 +276,7 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 	// Check if pip is available
 	pipCmd := exec.Command(pythonPath, "-m", "pip", "--version")
 	if runtime.GOOS == "windows" {
-		pipCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		pipCmd.SysProcAttr = getSysProcAttr()
 	}
 	if err := pipCmd.Run(); err != nil {
 		return fmt.Errorf("pip is not available in this Python environment")
@@ -287,7 +286,7 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 	for _, pkg := range installablePackages {
 		cmd := exec.Command(pythonPath, "-m", "pip", "install", pkg)
 		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = getSysProcAttr()
 		}
 		
 		// Set environment variables for better pip behavior
@@ -328,7 +327,7 @@ func (s *PythonService) CreateRapidBIEnvironment() (string, error) {
 		venvPath = "rapidbi" // conda env name
 		cmd := exec.Command("conda", "create", "-n", "rapidbi", "python", "-y")
 		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = getSysProcAttr()
 		}
 		
 		output, err := cmd.CombinedOutput()
@@ -347,7 +346,7 @@ func (s *PythonService) CreateRapidBIEnvironment() (string, error) {
 		venvPath = filepath.Join(home, ".rapidbi-venv")
 		cmd := exec.Command(basePython, "-m", "venv", venvPath)
 		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = getSysProcAttr()
 		}
 		
 		output, err := cmd.CombinedOutput()
@@ -405,7 +404,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 				// Test if this Python has venv support
 				venvCmd := exec.Command(env.Path, "-m", "venv", "--help")
 				if runtime.GOOS == "windows" {
-					venvCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+					venvCmd.SysProcAttr = getSysProcAttr()
 				}
 				
 				if err := venvCmd.Run(); err == nil {
@@ -427,7 +426,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 			// Test if this Python has venv support
 			venvCmd := exec.Command(env.Path, "-m", "venv", "--help")
 			if runtime.GOOS == "windows" {
-				venvCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				venvCmd.SysProcAttr = getSysProcAttr()
 			}
 			
 			if err := venvCmd.Run(); err == nil {
@@ -453,7 +452,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 		// Test if this Python has venv support
 		venvCmd := exec.Command(env.Path, "-m", "venv", "--help")
 		if runtime.GOOS == "windows" {
-			venvCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			venvCmd.SysProcAttr = getSysProcAttr()
 		}
 		
 		if err := venvCmd.Run(); err == nil {
@@ -476,7 +475,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 				// Test if venv module is available
 				venvCmd := exec.Command(pythonPath, "-m", "venv", "--help")
 				if runtime.GOOS == "windows" {
-					venvCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+					venvCmd.SysProcAttr = getSysProcAttr()
 				}
 				
 				if err := venvCmd.Run(); err == nil {
@@ -683,7 +682,7 @@ func (s *PythonService) findCondaBasePython() string {
 	// Method 1: Try to get conda info
 	cmd := exec.Command("conda", "info", "--json")
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 	
 	output, err := cmd.Output()
@@ -717,7 +716,7 @@ func (s *PythonService) findCondaBasePython() string {
 			// Test if this python works
 			cmd := exec.Command(env.Path, "--version")
 			if runtime.GOOS == "windows" {
-				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				cmd.SysProcAttr = getSysProcAttr()
 			}
 			if err := cmd.Run(); err == nil {
 				return env.Path
@@ -731,7 +730,7 @@ func (s *PythonService) findCondaBasePython() string {
 			// Test if this python works
 			cmd := exec.Command(env.Path, "--version")
 			if runtime.GOOS == "windows" {
-				cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				cmd.SysProcAttr = getSysProcAttr()
 			}
 			if err := cmd.Run(); err == nil {
 				return env.Path
@@ -746,7 +745,7 @@ func (s *PythonService) findCondaBasePython() string {
 func (s *PythonService) getCondaEnvPythonPath(envName string) (string, error) {
 	cmd := exec.Command("conda", "info", "--envs", "--json")
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 	
 	output, err := cmd.Output()
@@ -784,7 +783,7 @@ func (s *PythonService) cleanupFailedEnvironment(envManager, envPath string) {
 	case "conda":
 		cmd := exec.Command("conda", "env", "remove", "-n", envPath, "-y")
 		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = getSysProcAttr()
 		}
 		cmd.Run() // Ignore errors during cleanup
 	case "venv":
@@ -819,7 +818,7 @@ func (s *PythonService) DiagnosePythonInstallation() map[string]interface{} {
 		
 		cmd := exec.Command(condaPath, "--version")
 		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			cmd.SysProcAttr = getSysProcAttr()
 		}
 		if output, err := cmd.CombinedOutput(); err == nil {
 			condaInfo["version"] = strings.TrimSpace(string(output))
@@ -847,7 +846,7 @@ func (s *PythonService) DiagnosePythonInstallation() map[string]interface{} {
 			// Check version
 			versionCmd := exec.Command(pythonPath, "--version")
 			if runtime.GOOS == "windows" {
-				versionCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				versionCmd.SysProcAttr = getSysProcAttr()
 			}
 			if output, err := versionCmd.CombinedOutput(); err == nil {
 				cmdInfo["version"] = strings.TrimSpace(string(output))
@@ -856,7 +855,7 @@ func (s *PythonService) DiagnosePythonInstallation() map[string]interface{} {
 				// Check venv support
 				venvCmd := exec.Command(pythonPath, "-m", "venv", "--help")
 				if runtime.GOOS == "windows" {
-					venvCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+					venvCmd.SysProcAttr = getSysProcAttr()
 				}
 				if err := venvCmd.Run(); err == nil {
 					cmdInfo["venv_support"] = true
@@ -890,7 +889,7 @@ func (s *PythonService) DiagnosePythonInstallation() map[string]interface{} {
 			// Test if it works
 			versionCmd := exec.Command(path, "--version")
 			if runtime.GOOS == "windows" {
-				versionCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+				versionCmd.SysProcAttr = getSysProcAttr()
 			}
 			if output, err := versionCmd.CombinedOutput(); err == nil {
 				pathInfo["working"] = true

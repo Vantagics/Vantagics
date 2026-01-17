@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -158,7 +157,7 @@ func (p *PythonPool) startWorker() (*PythonWorker, error) {
 	cmd := exec.Command(p.pythonPath, "-c", pythonWorkerScript)
 
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = getSysProcAttr()
 	}
 
 	// Set UTF-8 encoding

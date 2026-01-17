@@ -390,7 +390,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	emitProgress(StageInitializing, 5, "正在初始化分析工具...", 1, 6)
+	emitProgress(StageInitializing, 5, "progress.initializing_tools", 1, 6)
 
 	// Check for template match first (faster path)
 	if len(history) > 0 {
@@ -438,7 +438,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 				result, err := template.Execute(ctx, executor, dataSourceID, templateProgress)
 				if err == nil && result.Success {
-					emitProgress(StageComplete, 100, "分析完成", 6, 6)
+					emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
 					if s.Logger != nil {
 						s.Logger(fmt.Sprintf("[TIMING] Template execution took: %v", time.Since(startTotal)))
 					}
@@ -545,7 +545,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Binding Tools took: %v", time.Since(startBind)))
 	}
 
-	emitProgress(StageInitializing, 10, "工具就绪，正在构建分析图谱...", 1, 6)
+	emitProgress(StageInitializing, 10, "progress.tools_ready", 1, 6)
 
 	// 4. Build Graph using Lambda nodes to manage state ([]*schema.Message)
 	startGraph := time.Now()
@@ -602,7 +602,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// Emit progress based on iteration
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
-		emitProgress(StageAnalysis, progress, fmt.Sprintf("AI处理中 (步骤 %d)...", iterationCount), 3, 6)
+		emitProgress(StageAnalysis, progress, "progress.ai_processing", 3, 6)
 
 		// CRITICAL: Apply memory management before each model call to prevent context overflow
 		managedInput, err := s.memoryManager.ManageMemory(ctx, input)
@@ -669,13 +669,13 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			var msg string
 			switch toolName {
 			case "get_data_source_context":
-				emitProgress(StageSchema, 25, "正在加载数据库结构...", 2, 6)
+				emitProgress(StageSchema, 25, "progress.loading_schema", 2, 6)
 				msg = "获取模式中"
 			case "execute_sql":
-				emitProgress(StageQuery, 40, "正在执行SQL查询...", 4, 6)
+				emitProgress(StageQuery, 40, "progress.executing_sql", 4, 6)
 				msg = "执行查询中"
 			case "python_executor":
-				emitProgress(StageAnalysis, 60, "正在运行Python分析...", 5, 6)
+				emitProgress(StageAnalysis, 60, "progress.running_python", 5, 6)
 				msg = "分析数据中"
 			default:
 				msg = fmt.Sprintf("Running %s", toolName)
@@ -797,7 +797,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 					onProgress(ProgressUpdate{
 						Stage:      "tool_output",
 						Progress:   65,
-						Message:    fmt.Sprintf("工具 %s 已完成", toolName),
+						Message:    "progress.tool_completed",
 						Step:       4,
 						Total:      6,
 						ToolName:   toolName,

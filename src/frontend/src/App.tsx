@@ -13,6 +13,7 @@ import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen } from '../
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
+import { ToastProvider } from './contexts/ToastContext';
 import './App.css';
 
 const logger = createLogger('App');
@@ -27,10 +28,12 @@ function App() {
     const [sessionCharts, setSessionCharts] = useState<{ [sessionId: string]: { type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: main.ChartData } }>({});
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [selectedUserRequest, setSelectedUserRequest] = useState<string | null>(null);
+    const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);  // 存储当前选中的消息ID
     const [sessionInsights, setSessionInsights] = useState<{ [messageId: string]: any[] }>({});  // 存储每个用户消息对应的LLM建议
     const [sessionMetrics, setSessionMetrics] = useState<{ [messageId: string]: any[] }>({});  // 存储每个用户消息对应的关键指标
     const [originalSystemInsights, setOriginalSystemInsights] = useState<any[]>([]);  // 存储系统初始化的洞察
     const [originalSystemMetrics, setOriginalSystemMetrics] = useState<any[]>([]);  // 存储系统初始化的指标
+    const [sessionFiles, setSessionFiles] = useState<main.SessionFile[]>([]);  // 存储当前会话的文件列表
     const [messageModal, setMessageModal] = useState<{ isOpen: boolean, type: 'info' | 'warning' | 'error', title: string, message: string }>({
         isOpen: false,
         type: 'info',
@@ -112,42 +115,8 @@ function App() {
                 // If app is not ready, retry initialization
                 checkLLM();
             } else {
-                // If app is ready, test the new configuration and show feedback
-                try {
-                    const config = await GetConfig();
-                    const result = await TestLLMConnection(config);
-
-                    if (result.success) {
-                        // Show success message briefly
-                        setMessageModal({
-                            isOpen: true,
-                            type: 'info',
-                            title: '配置更新成功',
-                            message: 'LLM配置已更新并生效，新的会话将使用更新后的设置。'
-                        });
-
-                        // Auto-close the modal after 3 seconds
-                        setTimeout(() => {
-                            setMessageModal(prev => ({ ...prev, isOpen: false }));
-                        }, 3000);
-                    } else {
-                        // Show error message
-                        setMessageModal({
-                            isOpen: true,
-                            type: 'warning',
-                            title: '配置更新警告',
-                            message: `配置已保存，但连接测试失败：${result.message}。请检查配置是否正确。`
-                        });
-                    }
-                } catch (error) {
-                    logger.error(`Failed to test updated configuration: ${error}`);
-                    setMessageModal({
-                        isOpen: true,
-                        type: 'info',
-                        title: '配置已更新',
-                        message: '配置已保存，新的会话将使用更新后的设置。'
-                    });
-                }
+                // If app is ready, configuration has been updated
+                logger.info("Configuration updated successfully");
             }
         });
 
@@ -212,17 +181,28 @@ function App() {
         });
 
         // Listen for session switch to update dashboard
-        const unsubscribeSessionSwitch = EventsOn("session-switched", (sessionId: string) => {
+        const unsubscribeSessionSwitch = EventsOn("session-switched", async (sessionId: string) => {
             logger.debug(`Session switched: ${sessionId}`);
             setActiveSessionId(sessionId);
-            
+
             // 从 sessionCharts 中加载该会话的图表
             setSessionCharts(charts => {
                 const chart = charts[sessionId];
                 setActiveChart(chart || null);
                 return charts;
             });
-            
+
+            // 加载该会话的文件列表
+            try {
+                const { GetSessionFiles } = await import('../wailsjs/go/main/App');
+                const files = await GetSessionFiles(sessionId);
+                logger.debug(`Loaded ${files?.length || 0} session files for session ${sessionId}`);
+                setSessionFiles(files || []);
+            } catch (err) {
+                logger.error(`Failed to load session files: ${err}`);
+                setSessionFiles([]);
+            }
+
             // ChatSidebar 会自动加载第一个分析结果（通过 activeThreadId 的 useEffect）
         });
 
@@ -254,7 +234,7 @@ function App() {
         // Listen for clear dashboard data event (when thread is deleted or history is cleared)
         const unsubscribeClearDashboardData = EventsOn("clear-dashboard-data", (payload: any) => {
             logger.debug("Clear dashboard data event received");
-            
+
             // Clear all dashboard data
             setDashboardData(prevData => {
                 if (!prevData) return prevData;
@@ -264,14 +244,14 @@ function App() {
                     metrics: [],
                 });
             });
-            
+
             // Clear active chart
             setActiveChart(null);
-            
+
             // Clear original system data
             setOriginalSystemInsights([]);
             setOriginalSystemMetrics([]);
-            
+
             logger.info(`Dashboard cleared: ${payload?.reason || 'unknown reason'}`);
         });
 
@@ -335,14 +315,14 @@ function App() {
             setSelectedUserRequest(null);
             setActiveChart(null);
             setSessionCharts({});
-            
+
             // 重新获取并显示系统初始的仪表盘数据（数据源统计和自动洞察）
             logger.debug("Reloading original system dashboard data");
             try {
                 const freshData = await GetDashboardData();
                 logger.debug(`Fresh dashboard data loaded: ${JSON.stringify(freshData)}`);
                 setDashboardData(freshData);
-                
+
                 // 更新保存的初始数据
                 if (freshData && freshData.insights) {
                     setOriginalSystemInsights(Array.isArray(freshData.insights) ? freshData.insights : []);
@@ -355,7 +335,7 @@ function App() {
                 // 如果获取失败，尝试使用保存的数据
                 setDashboardData(prevData => {
                     if (!prevData) return prevData;
-                    
+
                     return main.DashboardData.createFrom({
                         ...prevData,
                         insights: originalSystemInsights,
@@ -367,28 +347,28 @@ function App() {
 
         const unsubscribeAnalysisCompleted = EventsOn("analysis-completed", (payload: any) => {
             logger.debug(`Analysis completed event received: ${JSON.stringify(payload)}`);
-            
+
             const { threadId, userMessageId, assistantMsgId, hasChartData } = payload;
-            
+
             // 清除仪表盘所有内容，准备显示新的分析结果
             logger.debug('Clearing dashboard for new analysis results');
             setDashboardData(prevData => {
                 if (!prevData) return prevData;
-                
+
                 return main.DashboardData.createFrom({
                     ...prevData,
                     insights: [],  // 清除所有洞察
                     metrics: []    // 清除所有指标
                 });
             });
-            
+
             // 清除当前图表
             setActiveChart(null);
-            
+
             // 延迟加载新的分析结果（确保清除操作完成）
             setTimeout(() => {
                 logger.debug(`Auto-loading analysis results for message: ${userMessageId}`);
-                
+
                 // 触发 user-message-clicked 事件来加载完整的分析结果
                 // 这会加载 chartData, metrics, insights
                 EventsEmit('user-message-clicked', {
@@ -408,7 +388,7 @@ function App() {
             });
         });
 
-        const unsubscribeUserMessageClick = EventsOn("user-message-clicked", (payload: any) => {
+        const unsubscribeUserMessageClick = EventsOn("user-message-clicked", async (payload: any) => {
             logger.debug(`User message clicked: ${payload.messageId}`);
             logger.debug(`Has chartData: ${!!payload.chartData}`);
             if (payload.chartData) {
@@ -416,6 +396,25 @@ function App() {
             }
 
             setSelectedUserRequest(payload.content);
+            setSelectedMessageId(payload.messageId);  // 保存当前选中的消息ID
+
+            // 获取会话文件列表
+            if (activeSessionId) {
+                try {
+                    const { GetSessionFiles } = await import('../wailsjs/go/main/App');
+                    const files = await GetSessionFiles(activeSessionId);
+                    logger.debug(`Loaded ${files?.length || 0} session files for active session ${activeSessionId}`);
+                    if (files && files.length > 0) {
+                        logger.debug(`Session files: ${JSON.stringify(files.map(f => ({ name: f.name, type: f.type, size: f.size, message_id: f.message_id })))}`);
+                    }
+                    setSessionFiles(files || []);
+                } catch (err) {
+                    logger.error(`Failed to load session files: ${err}`);
+                    setSessionFiles([]);
+                }
+            } else {
+                logger.warn('No active session ID, cannot load session files');
+            }
 
             // 加载与此用户消息关联的LLM建议和指标
             if (payload.messageId) {
@@ -876,99 +875,103 @@ function App() {
     }
 
     return (
-        <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900 relative">
-            {/* Removed draggable title bar - using system window border for dragging */}
+        <ToastProvider>
+            <div className="flex h-screen overflow-hidden bg-slate-100 font-sans text-slate-900 relative">
+                {/* Removed draggable title bar - using system window border for dragging */}
 
-            <Sidebar
-                width={sidebarWidth}
-                onOpenSettings={() => setIsPreferenceOpen(true)}
-                onToggleChat={() => setIsChatOpen(!isChatOpen)}
-                onToggleSkills={() => setIsSkillsOpen(!isSkillsOpen)}
-                isChatOpen={isChatOpen}
-            />
-
-            {/* Sidebar Resizer */}
-            <div
-                className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingSidebar ? 'bg-blue-600' : 'bg-transparent'}`}
-                onMouseDown={startResizingSidebar}
-            />
-
-            <ContextPanel
-                width={contextPanelWidth}
-                onContextPanelClick={() => {
-                    if (isChatOpen) {
-                        setIsChatOpen(false);
-                    }
-                }}
-            />
-
-            {/* Context Panel Resizer */}
-            <div
-                className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
-                onMouseDown={startResizingContextPanel}
-            />
-
-            <div className="flex-1 flex flex-col min-w-0">
-                <Dashboard
-                    data={dashboardData}
-                    activeChart={activeChart}
-                    userRequestText={selectedUserRequest}
+                <Sidebar
+                    width={sidebarWidth}
+                    onOpenSettings={() => setIsPreferenceOpen(true)}
+                    onToggleChat={() => setIsChatOpen(!isChatOpen)}
+                    onToggleSkills={() => setIsSkillsOpen(!isSkillsOpen)}
                     isChatOpen={isChatOpen}
-                    activeThreadId={activeSessionId}
-                    isAnalysisLoading={isAnalysisLoading}
-                    loadingThreadId={loadingThreadId}
-                    onDashboardClick={() => {
+                />
+
+                {/* Sidebar Resizer */}
+                <div
+                    className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingSidebar ? 'bg-blue-600' : 'bg-transparent'}`}
+                    onMouseDown={startResizingSidebar}
+                />
+
+                <ContextPanel
+                    width={contextPanelWidth}
+                    onContextPanelClick={() => {
                         if (isChatOpen) {
                             setIsChatOpen(false);
                         }
                     }}
                 />
-            </div>
 
-            <ChatSidebar
-                isOpen={isChatOpen}
-                onClose={() => {
-                    logger.debug('ChatSidebar onClose called');
-                    setIsChatOpen(false);
-                }}
-            />
-
-            <PreferenceModal
-                isOpen={isPreferenceOpen}
-                onClose={() => setIsPreferenceOpen(false)}
-            />
-
-            <MessageModal
-                isOpen={messageModal.isOpen}
-                type={messageModal.type}
-                title={messageModal.title}
-                message={messageModal.message}
-                onClose={() => setMessageModal(prev => ({ ...prev, isOpen: false }))}
-            />
-
-            <SkillsPage
-                isOpen={isSkillsOpen}
-                onClose={() => setIsSkillsOpen(false)}
-            />
-
-            {contextMenu && (
-                <ContextMenu
-                    position={{ x: contextMenu.x, y: contextMenu.y }}
-                    target={contextMenu.target}
-                    onClose={() => setContextMenu(null)}
+                {/* Context Panel Resizer */}
+                <div
+                    className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
+                    onMouseDown={startResizingContextPanel}
                 />
-            )}
 
-            {!isChatOpen && (
-                <button
-                    onClick={() => setIsChatOpen(true)}
-                    className="fixed right-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-r-0 rounded-l-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:-translate-x-1 group"
-                    title="Open Chat"
-                >
-                    <ChevronLeft className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                </button>
-            )}
-        </div>
+                <div className="flex-1 flex flex-col min-w-0">
+                    <Dashboard
+                        data={dashboardData}
+                        activeChart={activeChart}
+                        userRequestText={selectedUserRequest}
+                        isChatOpen={isChatOpen}
+                        activeThreadId={activeSessionId}
+                        isAnalysisLoading={isAnalysisLoading}
+                        loadingThreadId={loadingThreadId}
+                        sessionFiles={sessionFiles}
+                        selectedMessageId={selectedMessageId}
+                        onDashboardClick={() => {
+                            if (isChatOpen) {
+                                setIsChatOpen(false);
+                            }
+                        }}
+                    />
+                </div>
+
+                <ChatSidebar
+                    isOpen={isChatOpen}
+                    onClose={() => {
+                        logger.debug('ChatSidebar onClose called');
+                        setIsChatOpen(false);
+                    }}
+                />
+
+                <PreferenceModal
+                    isOpen={isPreferenceOpen}
+                    onClose={() => setIsPreferenceOpen(false)}
+                />
+
+                <MessageModal
+                    isOpen={messageModal.isOpen}
+                    type={messageModal.type}
+                    title={messageModal.title}
+                    message={messageModal.message}
+                    onClose={() => setMessageModal(prev => ({ ...prev, isOpen: false }))}
+                />
+
+                <SkillsPage
+                    isOpen={isSkillsOpen}
+                    onClose={() => setIsSkillsOpen(false)}
+                />
+
+                {contextMenu && (
+                    <ContextMenu
+                        position={{ x: contextMenu.x, y: contextMenu.y }}
+                        target={contextMenu.target}
+                        onClose={() => setContextMenu(null)}
+                    />
+                )}
+
+                {!isChatOpen && (
+                    <button
+                        onClick={() => setIsChatOpen(true)}
+                        className="fixed right-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-r-0 rounded-l-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:-translate-x-1 group"
+                        title="Open Chat"
+                    >
+                        <ChevronLeft className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    </button>
+                )}
+            </div>
+        </ToastProvider>
     );
 }
 

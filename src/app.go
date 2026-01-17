@@ -650,6 +650,20 @@ func (a *App) GetConfig() (config.Config, error) {
 
 // SaveConfig saves the config to the ~/rapidbi/config.json
 func (a *App) SaveConfig(cfg config.Config) error {
+	// Compute Web Search MCP URL based on provider and API key
+	if cfg.WebSearchProvider != "" && cfg.WebSearchAPIKey != "" {
+		switch cfg.WebSearchProvider {
+		case "Tavily":
+			cfg.WebSearchMCPURL = fmt.Sprintf("https://mcp.tavily.com/mcp/?tavilyApiKey=%s", cfg.WebSearchAPIKey)
+		case "Bright":
+			cfg.WebSearchMCPURL = fmt.Sprintf("https://mcp.brightdata.com/mcp?token=%s", cfg.WebSearchAPIKey)
+		default:
+			cfg.WebSearchMCPURL = ""
+		}
+	} else {
+		cfg.WebSearchMCPURL = ""
+	}
+
 	// Validate DataCacheDir exists if it's set
 	if cfg.DataCacheDir != "" {
 		info, err := os.Stat(cfg.DataCacheDir)
@@ -2038,6 +2052,23 @@ func (a *App) ImportCSVDataSource(name string, dirPath string) (*agent.DataSourc
 	return ds, err
 }
 
+// ImportJSONDataSource imports a JSON file as a data source
+func (a *App) ImportJSONDataSource(name string, filePath string) (*agent.DataSource, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+
+	headerGen := func(prompt string) (string, error) {
+		return a.SendMessage("", prompt, "")
+	}
+
+	ds, err := a.dataSourceService.ImportJSON(name, filePath, headerGen)
+	if err == nil && ds != nil {
+		go a.analyzeDataSource(ds.ID)
+	}
+	return ds, err
+}
+
 // AddDataSource adds a new data source with generic configuration
 func (a *App) AddDataSource(name string, driverType string, config map[string]string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
@@ -2143,6 +2174,16 @@ func (a *App) SelectCSVFile() (string, error) {
 	})
 }
 
+// SelectJSONFile opens a file dialog to select a JSON file
+func (a *App) SelectJSONFile() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select JSON File",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "JSON Files", Pattern: "*.json"},
+		},
+	})
+}
+
 // SelectSaveFile opens a save file dialog
 
 func (a *App) SelectSaveFile(filename string, filterPattern string) (string, error) {
@@ -2179,6 +2220,19 @@ func (a *App) ExportToCSV(id string, tableNames []string, outputPath string) err
 
 }
 
+// ExportToJSON exports one or more data source tables to JSON
+
+func (a *App) ExportToJSON(id string, tableNames []string, outputPath string) error {
+
+	if a.dataSourceService == nil {
+
+		return fmt.Errorf("data source service not initialized")
+
+	}
+
+	return a.dataSourceService.ExportToJSON(id, tableNames, outputPath)
+
+}
 
 
 // ExportToSQL exports one or more data source tables to SQL

@@ -12,6 +12,7 @@ import { useWorkingContext } from '../hooks/useWorkingContext';
 import EChartsFileLoader from './EChartsFileLoader';
 import TableFileLoader from './TableFileLoader';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
+import { ExportDashboardToPDF } from '../../wailsjs/go/main/App';
 import { Download, Table, BarChart3, ChevronLeft, ChevronRight, FileText, FileImage } from 'lucide-react';
 import { createLogger } from '../utils/systemLog';
 import Toast, { ToastType } from './Toast';
@@ -27,9 +28,11 @@ interface DashboardProps {
     activeThreadId?: string | null;  // Track active thread for insight clicks
     isAnalysisLoading?: boolean;     // Analysis loading state
     loadingThreadId?: string | null; // Which thread is loading
+    sessionFiles?: main.SessionFile[]; // Session files for download
+    selectedMessageId?: string | null; // Current selected message ID for filtering files
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen, activeThreadId, isAnalysisLoading, loadingThreadId }) => {
+const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestText, onDashboardClick, isChatOpen, activeThreadId, isAnalysisLoading, loadingThreadId, sessionFiles, selectedMessageId }) => {
     const { t } = useLanguage();
     const [imageModalOpen, setImageModalOpen] = useState(false);
     const [chartModalOpen, setChartModalOpen] = useState(false);
@@ -78,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     console.log("[Dashboard] ECharts captured via getDataURL method");
                     const dataURL = echartsInstance.getDataURL({
                         type: 'png',
-                        pixelRatio: 2, // 高分辨率
+                        pixelRatio: 4, // 高分辨率 (提高到4倍以获得更清晰的图片)
                         backgroundColor: '#fff'
                     });
                     return dataURL;
@@ -134,519 +137,227 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
         }
     };
 
-    // 导出为HTML（改进版本，支持图表转图片）
-    const exportAsHTML = async () => {
+    // 导出数据文件（ZIP 格式）
+    const exportDataFiles = async () => {
         try {
-            const timestamp = new Date().toLocaleString('zh-CN');
-
-            // 获取图表图片（如果有ECharts）
-            let chartImageData = null;
-            if (activeChart && activeChart.type === 'echarts') {
-                chartImageData = await captureEChartsAsImage();
-            }
-
-            let htmlContent = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能仪表盘报告 - ${timestamp}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #334155;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f8fafc;
-        }
-        .header {
-            background: linear-gradient(135deg, #3b82f6, #6366f1);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            text-align: center;
-        }
-        .header h1 {
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
-            font-weight: bold;
-        }
-        .header p {
-            margin: 0;
-            opacity: 0.9;
-            font-size: 1.1em;
-        }
-        .request-info {
-            background: #dbeafe;
-            border: 1px solid #93c5fd;
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 30px;
-        }
-        .request-info h3 {
-            margin: 0 0 10px 0;
-            color: #1e40af;
-            font-size: 1.2em;
-        }
-        .section {
-            background: white;
-            border-radius: 12px;
-            padding: 25px;
-            margin-bottom: 25px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        .section h2 {
-            margin: 0 0 20px 0;
-            color: #1e293b;
-            font-size: 1.5em;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 10px;
-        }
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }
-        .metric-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-        }
-        .metric-title {
-            font-size: 0.9em;
-            color: #64748b;
-            margin-bottom: 8px;
-            font-weight: 500;
-        }
-        .metric-value {
-            font-size: 1.8em;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 5px;
-        }
-        .metric-change {
-            font-size: 0.8em;
-            color: #059669;
-            font-weight: 500;
-        }
-        .insights-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 15px;
-        }
-        .insight-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 18px;
-        }
-        .insight-text {
-            color: #475569;
-            line-height: 1.5;
-        }
-        .chart-section {
-            text-align: center;
-            padding: 20px;
-            background: #f8fafc;
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
-        }
-        .chart-image {
-            max-width: 100%;
-            height: auto;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            margin: 20px 0;
-        }
-        .chart-placeholder {
-            padding: 40px;
-            background: #f1f5f9;
-            border: 2px dashed #cbd5e1;
-            border-radius: 8px;
-            color: #64748b;
-            font-style: italic;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 40px;
-            padding: 20px;
-            color: #64748b;
-            font-size: 0.9em;
-            border-top: 1px solid #e2e8f0;
-        }
-        @media print {
-            body { background-color: white; }
-            .section { 
-                box-shadow: none; 
-                border: 1px solid #e2e8f0;
-                page-break-inside: avoid;
-            }
-            .chart-image {
-                max-height: 400px;
-                page-break-inside: avoid;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>智能仪表盘报告</h1>
-        <p>生成时间: ${timestamp}</p>
-    </div>`;
-
-            // 添加分析请求信息
-            if (userRequestText) {
-                htmlContent += `
-    <div class="request-info">
-        <h3>📊 分析请求</h3>
-        <p>${userRequestText}</p>
-    </div>`;
-            }
-
-            // 添加核心指标
-            if (data?.metrics && Array.isArray(data.metrics) && data.metrics.length > 0) {
-                htmlContent += `
-    <div class="section">
-        <h2>核心指标</h2>
-        <div class="metrics-grid">`;
-                data.metrics.forEach(metric => {
-                    htmlContent += `
-            <div class="metric-card">
-                <div class="metric-title">${metric.title}</div>
-                <div class="metric-value">${metric.value}</div>
-                ${metric.change ? `<div class="metric-change">${metric.change}</div>` : ''}
-            </div>`;
-                });
-                htmlContent += `
-        </div>
-    </div>`;
-            }
-
-            // 添加图表（改进版本，包含实际图片）
-            if (activeChart) {
-                htmlContent += `
-    <div class="section">
-        <h2>分析图表</h2>
-        <div class="chart-section">`;
-
-                if (chartImageData) {
-                    htmlContent += `
-            <img src="${chartImageData}" alt="分析图表" class="chart-image" />
-            <p style="margin-top: 15px; color: #64748b; font-size: 0.9em;">
-                图表类型: ${activeChart.type.toUpperCase()} | 
-                导出时间: ${timestamp}
-            </p>`;
-                } else if (activeChart.type === 'image' && activeChart.data) {
-                    // 处理已有的图片数据
-                    htmlContent += `
-            <img src="${activeChart.data}" alt="分析图表" class="chart-image" />
-            <p style="margin-top: 15px; color: #64748b; font-size: 0.9em;">
-                图表类型: ${activeChart.type.toUpperCase()} | 
-                导出时间: ${timestamp}
-            </p>`;
-                } else {
-                    // 无法获取图片时的占位符
-                    htmlContent += `
-            <div class="chart-placeholder">
-                <p>📊 ${activeChart.type.toUpperCase()} 图表</p>
-                <p>此图表为交互式内容，请在原系统中查看完整效果</p>
-            </div>`;
-                }
-
-                htmlContent += `
-        </div>
-    </div>`;
-            }
-
-            // 添加自动洞察
-            if (data?.insights && Array.isArray(data.insights) && data.insights.length > 0) {
-                htmlContent += `
-    <div class="section">
-        <h2>自动洞察</h2>
-        <div class="insights-grid">`;
-                data.insights.forEach(insight => {
-                    htmlContent += `
-            <div class="insight-card">
-                <div class="insight-text">${insight.text}</div>
-            </div>`;
-                });
-                htmlContent += `
-        </div>
-    </div>`;
-            }
-
-            htmlContent += `
-    <div class="footer">
-        <p>本报告由 RapidBI 智能仪表盘生成</p>
-        <p>如需查看交互式图表和实时数据，请访问原系统</p>
-    </div>
-</body>
-</html>`;
-
-            // 创建并下载文件
-            const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `dashboard-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.html`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-
-            console.log("[Dashboard] HTML export completed successfully");
-        } catch (error) {
-            console.error("[Dashboard] HTML export failed:", error);
-            alert('HTML导出失败，请重试');
-        }
-    };
-
-    // 导出为PDF（改进版本，支持图表转图片）
-    const exportAsPDF = async () => {
-        try {
-            // 获取图表图片（如果有ECharts）
-            let chartImageData = null;
-            if (activeChart && activeChart.type === 'echarts') {
-                chartImageData = await captureEChartsAsImage();
-            }
-
-            // 创建一个新窗口用于打印
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                alert('请允许弹出窗口以完成PDF导出');
+            if (!activeThreadId) {
+                setToast({ message: '无法导出：未选择会话', type: 'error' });
                 return;
             }
 
-            const timestamp = new Date().toLocaleString('zh-CN');
-            let printContent = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能仪表盘报告 - ${timestamp}</title>
-    <style>
-        @page {
-            margin: 20mm;
-            size: A4;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #334155;
-            margin: 0;
-            padding: 0;
-        }
-        .header {
-            text-align: center;
-            border-bottom: 2px solid #3b82f6;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .header h1 {
-            color: #3b82f6;
-            margin: 0 0 10px 0;
-            font-size: 2.2em;
-        }
-        .header p {
-            color: #64748b;
-            margin: 0;
-        }
-        .request-info {
-            background: #f1f5f9;
-            border-left: 4px solid #3b82f6;
-            padding: 15px;
-            margin-bottom: 25px;
-        }
-        .section {
-            margin-bottom: 25px;
-            page-break-inside: avoid;
-        }
-        .section h2 {
-            color: #1e293b;
-            border-bottom: 1px solid #e2e8f0;
-            padding-bottom: 8px;
-            margin-bottom: 15px;
-        }
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        .metric-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 15px;
-            text-align: center;
-        }
-        .metric-title {
-            font-size: 0.9em;
-            color: #64748b;
-            margin-bottom: 5px;
-        }
-        .metric-value {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 3px;
-        }
-        .metric-change {
-            font-size: 0.8em;
-            color: #059669;
-        }
-        .chart-section {
-            text-align: center;
-            margin: 20px 0;
-            page-break-inside: avoid;
-        }
-        .chart-image {
-            max-width: 100%;
-            max-height: 400px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            margin: 15px 0;
-        }
-        .chart-placeholder {
-            padding: 30px;
-            background: #f8fafc;
-            border: 2px dashed #cbd5e1;
-            border-radius: 6px;
-            color: #64748b;
-            font-style: italic;
-            margin: 15px 0;
-        }
-        .insight-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            padding: 12px;
-            margin-bottom: 10px;
-        }
-        .insight-text {
-            color: #475569;
-            line-height: 1.4;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-            color: #64748b;
-            font-size: 0.9em;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>智能仪表盘报告</h1>
-        <p>生成时间: ${timestamp}</p>
-    </div>`;
-
-            // 添加分析请求信息
-            if (userRequestText) {
-                printContent += `
-    <div class="request-info">
-        <h3>📊 分析请求</h3>
-        <p>${userRequestText}</p>
-    </div>`;
+            if (!selectedMessageId) {
+                setToast({ message: '无法导出：未选择分析请求', type: 'error' });
+                return;
             }
 
-            // 添加核心指标
-            if (data?.metrics && Array.isArray(data.metrics) && data.metrics.length > 0) {
-                printContent += `
-    <div class="section">
-        <h2>核心指标</h2>
-        <div class="metrics-grid">`;
-                data.metrics.forEach(metric => {
-                    printContent += `
-            <div class="metric-card">
-                <div class="metric-title">${metric.title}</div>
-                <div class="metric-value">${metric.value}</div>
-                ${metric.change ? `<div class="metric-change">${metric.change}</div>` : ''}
-            </div>`;
-                });
-                printContent += `
-        </div>
-    </div>`;
-            }
+            setExportDropdownOpen(false);
+            
+            logger.debug(`Exporting files for thread ${activeThreadId}, message ${selectedMessageId}`);
+            
+            const { ExportSessionFilesToZip } = await import('../../wailsjs/go/main/App');
+            await ExportSessionFilesToZip(activeThreadId, selectedMessageId);
+            
+            setToast({ message: '数据文件导出成功！', type: 'success' });
+        } catch (error) {
+            console.error('[Dashboard] Data files export failed:', error);
+            setToast({
+                message: '数据文件导出失败: ' + (error instanceof Error ? error.message : String(error)),
+                type: 'error'
+            });
+        }
+    };
 
-            // 添加图表（改进版本，包含实际图片）
-            if (activeChart) {
-                printContent += `
-    <div class="section">
-        <h2>分析图表</h2>
-        <div class="chart-section">`;
+    // 导出为PDF（使用后端chromedp生成）
+    const exportAsPDF = async () => {
+        try {
+            console.log('[Dashboard] Starting PDF export...');
 
-                if (chartImageData) {
-                    printContent += `
-            <img src="${chartImageData}" alt="分析图表" class="chart-image" />
-            <p style="margin-top: 10px; color: #64748b; font-size: 0.9em;">
-                图表类型: ${activeChart.type.toUpperCase()} | 导出时间: ${timestamp}
-            </p>`;
-                } else if (activeChart.type === 'image' && activeChart.data) {
-                    // 处理已有的图片数据
-                    printContent += `
-            <img src="${activeChart.data}" alt="分析图表" class="chart-image" />
-            <p style="margin-top: 10px; color: #64748b; font-size: 0.9em;">
-                图表类型: ${activeChart.type.toUpperCase()} | 导出时间: ${timestamp}
-            </p>`;
-                } else {
-                    // 无法获取图片时的占位符
-                    printContent += `
-            <div class="chart-placeholder">
-                <p>📊 ${activeChart.type.toUpperCase()} 图表</p>
-                <p>此图表为交互式内容，请在原系统中查看完整效果</p>
-            </div>`;
-                }
-
-                printContent += `
-        </div>
-    </div>`;
-            }
-
-            // 添加自动洞察
-            if (data?.insights && Array.isArray(data.insights) && data.insights.length > 0) {
-                printContent += `
-    <div class="section">
-        <h2>自动洞察</h2>`;
-                data.insights.forEach(insight => {
-                    printContent += `
-        <div class="insight-card">
-            <div class="insight-text">${insight.text}</div>
-        </div>`;
-                });
-                printContent += `
-    </div>`;
-            }
-
-            printContent += `
-    <div class="footer">
-        <p>本报告由 RapidBI 智能仪表盘生成</p>
-        <p>如需查看交互式图表和实时数据，请访问原系统</p>
-    </div>
-</body>
-</html>`;
-
-            // 写入打印窗口并触发打印
-            printWindow.document.write(printContent);
-            printWindow.document.close();
-
-            // 等待内容加载完成后打印
-            printWindow.onload = () => {
-                setTimeout(() => {
-                    printWindow.print();
-                    printWindow.close();
-                }, 1000); // 增加延迟确保图片加载完成
+            // 收集仪表盘数据
+            const exportData: any = {
+                userRequest: userRequestText || '',
+                metrics: [],
+                insights: [],
+                chartImage: ''
             };
 
-            console.log("[Dashboard] PDF export initiated successfully");
+            // 收集指标数据
+            if (data?.metrics && Array.isArray(data.metrics)) {
+                exportData.metrics = data.metrics.map((metric: any) => ({
+                    title: metric.title || '',
+                    value: metric.value || '',
+                    change: metric.change || ''
+                }));
+            }
+
+            // 收集洞察数据
+            if (data?.insights && Array.isArray(data.insights)) {
+                exportData.insights = data.insights.map((insight: any) =>
+                    insight.text || insight.toString()
+                );
+            }
+
+            // 收集所有图表图片
+            const chartImages: string[] = [];
+
+            // 方法1: 无条件收集页面上所有ECharts组件
+            const echartsComponents = document.querySelectorAll('.echarts-for-react');
+            console.log('[Dashboard] Found ECharts components on page:', echartsComponents.length);
+
+            for (let i = 0; i < echartsComponents.length; i++) {
+                try {
+                    const component = echartsComponents[i] as any;
+                    console.log(`[Dashboard] Processing EChart component ${i}:`, {
+                        hasGetInstance: !!component?.getEchartsInstance,
+                        componentType: component?.constructor?.name
+                    });
+                    
+                    if (component?.getEchartsInstance) {
+                        const instance = component.getEchartsInstance();
+                        if (instance) {
+                            const dataURL = instance.getDataURL({
+                                type: 'png',
+                                pixelRatio: 4,
+                                backgroundColor: '#fff'
+                            });
+                            chartImages.push(dataURL);
+                            console.log(`[Dashboard] ✓ Captured EChart ${i + 1}, size: ${dataURL.length} bytes`);
+                        } else {
+                            console.warn(`[Dashboard] ✗ EChart ${i} instance is null`);
+                        }
+                    } else {
+                        console.warn(`[Dashboard] ✗ EChart ${i} has no getEchartsInstance method`);
+                    }
+                } catch (e) {
+                    console.error(`[Dashboard] Failed to capture EChart ${i}:`, e);
+                }
+            }
+
+            // 方法2: 尝试通过Canvas元素捕获（备用方案）
+            if (chartImages.length === 0) {
+                console.log('[Dashboard] No ECharts captured via component method, trying Canvas fallback');
+                const canvasElements = document.querySelectorAll('canvas');
+                console.log('[Dashboard] Found canvas elements:', canvasElements.length);
+                
+                for (let i = 0; i < canvasElements.length; i++) {
+                    const canvas = canvasElements[i];
+                    const parent = canvas.parentElement;
+                    
+                    // 检查是否是 ECharts 的 canvas
+                    if (parent && (parent.classList.contains('echarts-for-react') || 
+                                   parent.querySelector('.echarts-for-react') ||
+                                   canvas.width > 200)) {
+                        try {
+                            const dataURL = canvas.toDataURL('image/png');
+                            chartImages.push(dataURL);
+                            console.log(`[Dashboard] ✓ Captured canvas ${i + 1} as fallback, size: ${dataURL.length} bytes`);
+                        } catch (e) {
+                            console.error(`[Dashboard] Failed to capture canvas ${i}:`, e);
+                        }
+                    }
+                }
+            }
+
+            // 收集chartData.charts中的所有image类型
+            if (activeChart?.chartData?.charts) {
+                console.log('[Dashboard] chartData.charts:', activeChart.chartData.charts.map((c: any) => ({ type: c.type, hasData: !!c.data })));
+                for (const chart of activeChart.chartData.charts) {
+                    if (chart.type === 'image' && typeof chart.data === 'string' && chart.data.startsWith('data:image')) {
+                        chartImages.push(chart.data);
+                        console.log('[Dashboard] ✓ Added image from chartData, size:', chart.data.length);
+                    }
+                }
+            }
+
+            // 也检查activeChart.data（直接图片）
+            if (activeChart?.type === 'image' && typeof activeChart.data === 'string' && activeChart.data.startsWith('data:image')) {
+                if (!chartImages.includes(activeChart.data)) {
+                    chartImages.push(activeChart.data);
+                    console.log('[Dashboard] ✓ Added direct image, size:', activeChart.data.length);
+                }
+            }
+
+            console.log('[Dashboard] ========================================');
+            console.log('[Dashboard] Total images collected:', chartImages.length);
+            console.log('[Dashboard] Image sizes:', chartImages.map(img => `${(img.length / 1024).toFixed(1)}KB`));
+            console.log('[Dashboard] ========================================');
+
+            // 添加图表图片到导出数据
+            if (chartImages.length > 0) {
+                exportData.chartImages = chartImages;
+            }
+
+            // 收集表格数据（从chartData.charts中提取type=table的数据）
+            if (activeChart?.chartData?.charts) {
+                console.log('[Dashboard] Checking chartData.charts for table data');
+
+                // 找到所有table类型的图表
+                const tableCharts = activeChart.chartData.charts.filter(
+                    (chart: any) => chart.type === 'table'
+                );
+
+                console.log('[Dashboard] Found table charts:', tableCharts.length);
+
+                if (tableCharts.length > 0) {
+                    // 使用第一个table的数据
+                    const firstTable = tableCharts[0];
+                    try {
+                        let tableDataRaw = firstTable.data;
+
+                        // 如果是字符串，需要解析JSON
+                        if (typeof tableDataRaw === 'string') {
+                            // 清理可能的函数定义
+                            tableDataRaw = tableDataRaw
+                                .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
+                                .replace(/,(\s*[}\]])/g, '$1');
+                            tableDataRaw = JSON.parse(tableDataRaw);
+                        }
+
+                        if (Array.isArray(tableDataRaw) && tableDataRaw.length > 0) {
+                            // 从第一行推断列
+                            const columns = Object.keys(tableDataRaw[0]).map(key => ({
+                                title: key,
+                                dataType: 'string'
+                            }));
+
+                            // 转换为二维数组
+                            const rows = tableDataRaw.map((row: any) =>
+                                Object.values(row).map(v => v === null || v === undefined ? '' : v)
+                            );
+
+                            exportData.tableData = {
+                                columns: columns,
+                                data: rows
+                            };
+
+                            console.log('[Dashboard] Table data extracted:', {
+                                columnsCount: columns.length,
+                                rowsCount: rows.length
+                            });
+                        }
+                    } catch (e) {
+                        console.error('[Dashboard] Failed to parse table data:', e);
+                    }
+                }
+            }
+
+
+            console.log('[Dashboard] Export data prepared:', {
+                metricsCount: exportData.metrics.length,
+                insightsCount: exportData.insights.length,
+                hasChart: !!exportData.chartImage
+            });
+
+            // 调用后端API生成PDF
+            await ExportDashboardToPDF(exportData);
+
+            console.log('[Dashboard] PDF export completed successfully');
+            setToast({ message: 'PDF导出成功！', type: 'success' });
         } catch (error) {
-            console.error("[Dashboard] PDF export failed:", error);
-            alert('PDF导出失败，请重试');
+            console.error('[Dashboard] PDF export failed:', error);
+            setToast({
+                message: 'PDF导出失败: ' + (error instanceof Error ? error.message : String(error)),
+                type: 'error'
+            });
         }
     };
 
@@ -808,7 +519,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
                     // 修复常见的ECharts配置问题
                     const fixedOptions = { ...options };
-                    
+
                     // 修复pie图表不应该有gridIndex的问题
                     if (fixedOptions.series && Array.isArray(fixedOptions.series)) {
                         fixedOptions.series = fixedOptions.series.map((s: any) => {
@@ -897,7 +608,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         );
                     }
                 }
-                
+
                 if (!tableData || !Array.isArray(tableData) || tableData.length === 0) {
                     logger.warn(`Invalid table data: not an array or empty`);
                     return null;
@@ -1033,7 +744,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
         const charts = activeChart.chartData.charts || [];
         const currentChart = charts.length > 0 ? charts[currentChartIndex] : null;
         const isCurrentChartTable = currentChart && currentChart.type === 'table';
-        
+
         // 如果只有一个 table 且正在显示，不重复渲染
         if (tableCharts.length === 1 && isCurrentChartTable) {
             return null;
@@ -1050,7 +761,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                     if (isCurrentChartTable && tableIndex === currentChartIndex) {
                         return null;
                     }
-                    
+
                     try {
                         // 清理表格数据中的JavaScript函数
                         let cleanedData = chart.data;
@@ -1167,6 +878,192 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
         link.click();
     };
 
+    // Helper function to download file
+    const downloadFile = async (file: main.SessionFile) => {
+        try {
+            if (!activeThreadId) {
+                logger.error('No active thread ID for file download');
+                setToast({ message: t('download_failed') || 'Download failed', type: 'error' });
+                return;
+            }
+
+            logger.debug(`Downloading file: ${file.name} from thread ${activeThreadId}`);
+            
+            // Call backend API to show save dialog and copy file
+            const { DownloadSessionFile } = await import('../../wailsjs/go/main/App');
+            await DownloadSessionFile(activeThreadId, file.name);
+            
+            logger.info(`File downloaded successfully: ${file.name}`);
+            setToast({ message: t('download_success') || 'File saved successfully', type: 'success' });
+        } catch (error) {
+            logger.error(`Failed to download file: ${error}`);
+            setToast({ message: t('download_failed') || 'Download failed: ' + (error instanceof Error ? error.message : String(error)), type: 'error' });
+        }
+    };
+
+    // Helper function to get file thumbnail URL for images
+    const getFileThumbnailUrl = async (file: main.SessionFile): Promise<string | null> => {
+        if (file.type !== 'image' || !activeThreadId) {
+            return null;
+        }
+        
+        try {
+            const { GetSessionFilePath } = await import('../../wailsjs/go/main/App');
+            const filePath = await GetSessionFilePath(activeThreadId, file.name);
+            // Convert Windows path to file URL
+            return `file:///${filePath.replace(/\\/g, '/')}`;
+        } catch (error) {
+            logger.error(`Failed to get thumbnail URL: ${error}`);
+            return null;
+        }
+    };
+
+    // Helper function to get file icon based on type
+    const getFileIcon = (fileType: string) => {
+        switch (fileType) {
+            case 'image':
+                return <FileImage className="w-5 h-5 text-blue-500" />;
+            case 'csv':
+            case 'data':
+                return <FileText className="w-5 h-5 text-green-500" />;
+            default:
+                return <Download className="w-5 h-5 text-slate-500" />;
+        }
+    };
+
+    // Helper function to format file size
+    const formatFileSize = (bytes: number): string => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    };
+
+    // Render session files download section
+    const renderFilesSection = () => {
+        logger.debug(`renderFilesSection called: sessionFiles=${sessionFiles?.length || 0}, selectedMessageId=${selectedMessageId}`);
+        
+        if (!sessionFiles || sessionFiles.length === 0) {
+            return null;
+        }
+
+        // 过滤只显示当前消息的文件
+        const filteredFiles = selectedMessageId 
+            ? sessionFiles.filter(file => file.message_id === selectedMessageId)
+            : sessionFiles;
+
+        logger.debug(`Filtered files for message ${selectedMessageId}: ${filteredFiles.length} files`);
+        
+        if (filteredFiles.length === 0) {
+            return null;
+        }
+
+        return (
+            <section className="mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
+                <h2 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                    <Download className="w-5 h-5 text-blue-500" />
+                    {t('session_files') || 'Generated Files'}
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredFiles.map((file, index) => (
+                        <FileCard key={index} file={file} />
+                    ))}
+                </div>
+            </section>
+        );
+    };
+
+    // File card component with thumbnail support
+    const FileCard: React.FC<{ file: main.SessionFile }> = ({ file }) => {
+        const [thumbnailUrl, setThumbnailUrl] = React.useState<string | null>(null);
+        const [thumbnailLoading, setThumbnailLoading] = React.useState(false);
+
+        React.useEffect(() => {
+            if (activeThreadId) {
+                // Load thumbnail for image and CSV files
+                const loadThumbnail = async () => {
+                    setThumbnailLoading(true);
+                    try {
+                        if (file.type === 'image') {
+                            // Load image thumbnail
+                            const { GetSessionFileAsBase64 } = await import('../../wailsjs/go/main/App');
+                            const base64Data = await GetSessionFileAsBase64(activeThreadId, file.name);
+                            setThumbnailUrl(base64Data);
+                        } else if (file.type === 'csv') {
+                            // Generate CSV preview thumbnail
+                            const { GenerateCSVThumbnail } = await import('../../wailsjs/go/main/App');
+                            const base64Data = await GenerateCSVThumbnail(activeThreadId, file.name);
+                            setThumbnailUrl(base64Data);
+                        }
+                    } catch (error) {
+                        logger.error(`Failed to load thumbnail: ${error}`);
+                        setThumbnailUrl(null);
+                    } finally {
+                        setThumbnailLoading(false);
+                    }
+                };
+                
+                if (file.type === 'image' || file.type === 'csv') {
+                    loadThumbnail();
+                }
+            }
+        }, [file, activeThreadId]);
+
+        return (
+            <div
+                className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group overflow-hidden"
+                onClick={() => downloadFile(file)}
+            >
+                {/* 图片/CSV 缩略图 */}
+                {(file.type === 'image' || file.type === 'csv') && (
+                    <div className="w-full h-32 bg-slate-100 overflow-hidden flex items-center justify-center">
+                        {thumbnailLoading ? (
+                            <div className="animate-pulse text-slate-400 text-xs">Loading preview...</div>
+                        ) : thumbnailUrl ? (
+                            <img 
+                                src={thumbnailUrl} 
+                                alt={file.name}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            />
+                        ) : (
+                            file.type === 'image' ? (
+                                <FileImage className="w-8 h-8 text-slate-300" />
+                            ) : (
+                                <FileText className="w-8 h-8 text-slate-300" />
+                            )
+                        )}
+                    </div>
+                )}
+                
+                {/* 文件信息 */}
+                <div className="p-4">
+                    <div className="flex items-start gap-3">
+                        <div className="flex-shrink-0 p-2 bg-slate-50 rounded-lg group-hover:bg-blue-50 transition-colors">
+                            {getFileIcon(file.type)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-700 truncate group-hover:text-blue-600 transition-colors" title={file.name}>
+                                {file.name}
+                            </p>
+                            <p className="text-xs text-slate-400 mt-1">
+                                {formatFileSize(file.size)}
+                            </p>
+                            {file.created_at && (
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                    {new Date(file.created_at * (file.created_at < 10000000000 ? 1000 : 1)).toLocaleString()}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Download className="w-4 h-4 text-blue-500" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     const handleDashboardClick = (e: React.MouseEvent) => {
         // 只有当点击的是Dashboard容器本身或其直接子元素（非交互元素）时才隐藏聊天
         const target = e.target as HTMLElement;
@@ -1278,18 +1175,18 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                             {exportDropdownOpen && (
                                 <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
                                     <button
-                                        onClick={exportAsHTML}
-                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                    >
-                                        <FileText className="w-4 h-4 text-blue-600" />
-                                        <span>导出为 HTML</span>
-                                    </button>
-                                    <button
                                         onClick={exportAsPDF}
                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                     >
                                         <FileImage className="w-4 h-4 text-red-600" />
                                         <span>导出为 PDF</span>
+                                    </button>
+                                    <button
+                                        onClick={exportDataFiles}
+                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                    >
+                                        <Download className="w-4 h-4 text-green-600" />
+                                        <span>导出数据文件</span>
                                     </button>
                                 </div>
                             )}
@@ -1327,23 +1224,23 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         if (!metric.value || typeof metric.value !== 'string') {
                             return false;
                         }
-                        
+
                         const trimmedValue = metric.value.trim();
-                        
+
                         // 排除空字符串
                         if (trimmedValue === '') {
                             return false;
                         }
-                        
+
                         // 排除常见的占位符
                         const invalidValues = ['N/A', 'n/a', 'null', 'undefined', '-', '--', '...', 'TBD', 'tbd'];
                         if (invalidValues.includes(trimmedValue)) {
                             return false;
                         }
-                        
+
                         return true;
                     }) || [];
-                    
+
                     return validMetrics.length > 0 && (
                         <section className="mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
                             <h2 className="text-lg font-semibold text-slate-700 mb-4">{t('key_metrics')}</h2>
@@ -1370,6 +1267,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                         {renderChart()}
                     </section>
                 )}
+
+                {/* Session Files Download Section */}
+                {renderFilesSection()}
 
                 <ImageModal
                     isOpen={imageModalOpen}

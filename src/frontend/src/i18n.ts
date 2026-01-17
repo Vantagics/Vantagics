@@ -34,6 +34,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'preferences': 'Preferences',
         'llm_config': 'LLM Configuration',
         'system_params': 'System Parameters',
+        'mcp_services': 'MCP Services',
         'drivers': 'Drivers',
         'run_env': 'Run Environment',
         'save_changes': 'Save Changes',
@@ -188,6 +189,23 @@ export const translations: Record<Language, Record<string, string>> = {
         'connection_test_failed': 'Connection Test Failed',
         'open_settings': 'Open Settings',
         'retry_connection': 'Retry Connection',
+        // Web Search MCP Service
+        'web_search_mcp': 'Web Search MCP Service',
+        'web_search_provider': 'Search Provider',
+        'web_search_api_key': 'API Key',
+        'web_search_mcp_url_preview': 'MCP URL Preview',
+        'web_search_disabled': '-- Disabled (No Web Search) --',
+        'web_search_description': 'Configure web search capabilities via MCP protocol',
+        'apply_api_key': 'Apply for API Key',
+        // AI Progress Messages
+        'progress.initializing_tools': 'Initializing analysis tools...',
+        'progress.tools_ready': 'Tools ready, building analysis graph...',
+        'progress.loading_schema': 'Loading database structure...',
+        'progress.executing_sql': 'Executing SQL query...',
+        'progress.running_python': 'Running Python analysis...',
+        'progress.ai_processing': 'AI processing (step {0})...',
+        'progress.analysis_complete': 'Analysis complete',
+        'progress.tool_completed': 'Tool {0} completed',
     },
     '简体中文': {
         'data_sources': '数据源',
@@ -218,6 +236,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'preferences': '系统偏好设置',
         'llm_config': 'LLM 配置',
         'system_params': '系统参数',
+        'mcp_services': 'MCP 服务',
         'drivers': '驱动程序',
         'run_env': '运行环境',
         'save_changes': '保存更改',
@@ -372,6 +391,23 @@ export const translations: Record<Language, Record<string, string>> = {
         'connection_test_failed': '连接测试失败',
         'open_settings': '打开设置',
         'retry_connection': '重试连接',
+        // Web Search MCP Service
+        'web_search_mcp': 'Web 搜索 MCP 服务',
+        'web_search_provider': '搜索服务商',
+        'web_search_api_key': 'API 密钥',
+        'web_search_mcp_url_preview': 'MCP URL 预览',
+        'web_search_disabled': '-- 禁用（不启用网络搜索） --',
+        'web_search_description': '通过 MCP 协议配置网络搜索功能',
+        'apply_api_key': '申请 API Key',
+        // AI进度消息
+        'progress.initializing_tools': '正在初始化分析工具...',
+        'progress.tools_ready': '工具就绪，正在构建分析图谱...',
+        'progress.loading_schema': '正在加载数据库结构...',
+        'progress.executing_sql': '正在执行SQL查询...',
+        'progress.running_python': '正在运行Python分析...',
+        'progress.ai_processing': 'AI处理中 (步骤 {0})...',
+        'progress.analysis_complete': '分析完成',
+        'progress.tool_completed': '工具 {0} 已完成',
     }
 };
 
@@ -397,8 +433,13 @@ export function useLanguage() {
         };
     }, []);
 
-    const t = (key: string) => {
-        return translations[language][key] || key;
+    const t = (key: string, ...params: (string | number)[]) => {
+        let text = translations[language][key] || key;
+        // Replace {0}, {1}, etc. with provided parameters
+        params.forEach((param, index) => {
+            text = text.replace(`{${index}}`, String(param));
+        });
+        return text;
     };
 
     return { language, t };

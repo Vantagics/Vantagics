@@ -279,6 +279,8 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportExcel(name, config.OriginalFile, headerGen)
 	case "csv":
 		return s.ImportCSV(name, config.OriginalFile, headerGen)
+	case "json":
+		return s.ImportJSON(name, config.OriginalFile, headerGen)
 	case "mysql", "doris":
 		return s.ImportRemoteDataSource(name, driverType, config)
 	case "postgresql":

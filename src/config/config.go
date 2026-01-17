@@ -15,4 +15,8 @@ type Config struct {
 	PythonPath        string `json:"pythonPath"`
 	MaxPreviewRows    int    `json:"maxPreviewRows"`
 	DetailedLog       bool   `json:"detailedLog"`
+	// Web Search MCP Service Configuration
+	WebSearchProvider string `json:"webSearchProvider"` // e.g., "Tavily" or "" (disabled)
+	WebSearchAPIKey   string `json:"webSearchAPIKey"`
+	WebSearchMCPURL   string `json:"webSearchMCPURL"` // Computed MCP URL with API key
 }

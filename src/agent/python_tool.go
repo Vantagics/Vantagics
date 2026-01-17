@@ -124,17 +124,9 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 		return "❌ Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil
 	}
 
-	// Clear old chart files from session directory to prevent accumulation
-	if t.sessionDir != "" {
-		filesDir := filepath.Join(t.sessionDir, "files")
-		if _, err := os.Stat(filesDir); err == nil {
-			// Find all chart*.png files
-			chartFiles, _ := filepath.Glob(filepath.Join(filesDir, "chart*.png"))
-			for _, oldFile := range chartFiles {
-				os.Remove(oldFile) // Remove old chart files
-			}
-		}
-	}
+	// Don't clear old chart files - keep all files from all user requests
+	// Each file will have a unique name with timestamp or message ID
+	// This allows users to download all generated files from the session
 
 	// Create temp working directory
 	workDir, err := os.MkdirTemp("", "rapidbi_py_*")

@@ -1,257 +1,110 @@
 @echo off
-REM RapidBI Build Script for Windows
-REM This script helps to build the RapidBI application using Wails.
+REM RapidBI Build Script
 
-setlocal EnableDelayedExpansion
-
-set APP_NAME=RapidBI
-set SRC_DIR=src
-set BUILD_DIR=%SRC_DIR%\build\bin
+set "SRC_DIR=src"
+set "DIST_DIR=dist"
+set "BUILD_DIR=src\build\bin"
+set "OUTPUT_NAME=rapidbi"
 
 REM Parse command line arguments
-set COMMAND=%~1
-if "%COMMAND%"=="" set COMMAND=build
+set "COMMAND=%~1"
+if "%COMMAND%"=="" set "COMMAND=build"
 
-REM Display help
-if /i "%COMMAND%"=="help" goto :show_help
-if /i "%COMMAND%"=="-h" goto :show_help
-if /i "%COMMAND%"=="--help" goto :show_help
-
-REM Execute command
 if /i "%COMMAND%"=="clean" goto :clean
-if /i "%COMMAND%"=="install-deps" goto :install_deps
-if /i "%COMMAND%"=="build" goto :build
+if /i "%COMMAND%"=="build" goto :build_all
+if /i "%COMMAND%"=="windows" goto :build_windows
 if /i "%COMMAND%"=="macos" goto :build_macos
-if /i "%COMMAND%"=="debug" goto :build_debug
-if /i "%COMMAND%"=="quick" goto :quick_build
 
-echo Unknown command: %COMMAND%
-goto :show_help
-
-:show_help
-echo Usage: build.bat [command]
-echo.
-echo Commands:
-echo   build         Build the application (default) - Full Wails build
-echo   quick         Quick build (backend only) - Fast iteration for Go code
-echo   debug         Build the application with debug symbols
-echo   clean         Remove build artifacts
-echo   install-deps  Install Go and NPM dependencies
-echo   help          Show this help message
-echo.
-echo Example:
-echo   build.bat           (Full build with Wails)
-echo   build.bat quick     (Quick backend-only build)
-echo   build.bat macos     (Build for macOS - requires cross-compiler)
-echo   build.bat debug
-echo   build.bat clean
+:build_all
+if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
+call :build_windows
+if errorlevel 1 exit /b 1
+call :build_macos
+if errorlevel 1 exit /b 1
 exit /b 0
 
-:clean
-echo Cleaning build artifacts...
-if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
-if exist "%SRC_DIR%\frontend\dist" rmdir /s /q "%SRC_DIR%\frontend\dist"
-if exist "rapidbi.exe" del /q "rapidbi.exe"
-if exist "rapidbi.app" rmdir /s /q "rapidbi.app"
-echo Done.
-exit /b 0
-
-:install_deps
-echo Checking dependencies...
-where go >nul 2>nul
-if errorlevel 1 (
-    echo Error: Go is not installed. Please install Go from https://golang.org/
-    pause
-    exit /b 1
-)
-
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo Error: NPM is not installed. Please install Node.js from https://nodejs.org/
-    pause
-    exit /b 1
-)
-
-where wails >nul 2>nul
-if errorlevel 1 (
-    echo Wails CLI not found. Installing latest Wails v2...
-    go install github.com/wailsapp/wails/v2/cmd/wails@latest
-    if errorlevel 1 (
-        echo Failed to install Wails. Please install manually.
-        pause
-        exit /b 1
-    )
-)
-
-echo Installing Go dependencies...
+:build_windows
+echo [Windows] Building...
 cd /d "%SRC_DIR%"
-call go mod download
-if errorlevel 1 (
-    echo Failed to download Go dependencies.
-    pause
-    exit /b 1
-)
-
-echo Installing NPM dependencies...
-cd /d frontend
-call npm install
-if errorlevel 1 (
-    echo Failed to install NPM dependencies.
-    pause
-    exit /b 1
-)
-
-echo Dependencies installed successfully.
-exit /b 0
-
-:build
-echo Checking dependencies...
-where go >nul 2>nul
-if errorlevel 1 (
-    echo Error: Go is not installed. Please install Go from https://golang.org/
-    pause
-    exit /b 1
-)
-
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo Error: NPM is not installed. Please install Node.js from https://nodejs.org/
-    pause
-    exit /b 1
-)
-
-where wails >nul 2>nul
-if errorlevel 1 (
-    echo Error: Wails CLI is not installed.
-    echo Please run: build.bat install-deps
-    pause
-    exit /b 1
-)
-
-echo Starting build for %APP_NAME%...
-cd /d "%SRC_DIR%"
-REM Enable CGO for sqlite3 support
 set CGO_ENABLED=1
-call wails build -clean
+call wails build -clean -platform windows/amd64 -nsis
 if errorlevel 1 (
-    echo Build failed!
+    echo Error: Windows build failed!
     pause
     exit /b 1
 )
-
-echo.
-echo %APP_NAME% build finished successfully!
-echo Output directory: %BUILD_DIR%
+cd /d ..
+if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
+move /y "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\" >nul 2>nul
 exit /b 0
 
 :build_macos
-echo Checking dependencies...
-where go >nul 2>nul
+echo [macOS] Starting...
+echo DEBUG: 1
+set "ZIG_EXE=zig"
+echo DEBUG: 2
+go install github.com/randall77/makefat@latest
 if errorlevel 1 (
-    echo Error: Go is not installed. Please install Go from https://golang.org/
+    echo Error: Failed to install makefat!
     pause
     exit /b 1
 )
+echo DEBUG: 3
 
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo Error: NPM is not installed. Please install Node.js from https://nodejs.org/
-    pause
-    exit /b 1
-)
-
-where wails >nul 2>nul
-if errorlevel 1 (
-    echo Error: Wails CLI is not installed.
-    echo Please run: build.bat install-deps
-    pause
-    exit /b 1
-)
-
-echo Starting build for %APP_NAME% (macOS Universal)...
-echo NOTE: This requires a CGO cross-compilation toolchain for macOS to be active.
 cd /d "%SRC_DIR%"
 set CGO_ENABLED=1
-REM Set macOS deployment target to 15.0
-set MACOSX_DEPLOYMENT_TARGET=15.0
-call wails build -clean -platform darwin/universal
+set "CC=%CD%\zcc.bat"
+set "CXX=%CD%\zxx.bat"
+set "ZIG_EXE=%ZIG_EXE%"
+set GOOS=darwin
+set GOARCH=arm64
+echo DEBUG: 4
+go build -o ..\%DIST_DIR%\rapidbi_arm64 -ldflags="-s -w" .
 if errorlevel 1 (
-    echo Build failed!
+    echo Error: macOS arm64 build failed!
     pause
     exit /b 1
 )
 
-echo.
-echo %APP_NAME% macOS build finished successfully!
-echo Output directory: %BUILD_DIR%
+set GOARCH=amd64
+echo DEBUG: 5
+go build -o ..\%DIST_DIR%\rapidbi_amd64 -ldflags="-s -w" .
+if errorlevel 1 (
+    echo Error: macOS amd64 build failed!
+    pause
+    exit /b 1
+)
+
+echo [macOS] Creating Universal...
+cd /d ..\%DIST_DIR%
+makefat rapidbi_universal rapidbi_arm64 rapidbi_amd64
+if errorlevel 1 (
+    echo Error: Failed to create universal binary!
+    pause
+    exit /b 1
+)
+
+echo [macOS] Bundling...
+set "APP_BUNDLE=RapidBI.app"
+if exist "%APP_BUNDLE%" rmdir /s /q "%APP_BUNDLE%"
+mkdir "%APP_BUNDLE%\Contents\MacOS"
+mkdir "%APP_BUNDLE%\Contents\Resources"
+move /y rapidbi_universal "%APP_BUNDLE%\Contents\MacOS\%OUTPUT_NAME%" >nul
+copy /y "..\src\build\Info.plist" "%APP_BUNDLE%\Contents\Info.plist" >nul
+copy /y "..\src\build\appicon.png" "%APP_BUNDLE%\Contents\Resources\iconfile.png" >nul
+del /q rapidbi_arm64 rapidbi_amd64
+
+echo [macOS] Zipping App Bundle...
+powershell -Command "Compress-Archive -Path '%APP_BUNDLE%' -DestinationPath 'RapidBI_macOS_Universal.zip' -Force"
+if errorlevel 1 (
+    echo Error: Failed to create zip archive!
+    pause
+    exit /b 1
+)
+
+cd /d ..
 exit /b 0
 
-:build_debug
-echo Checking dependencies...
-where go >nul 2>nul
-if errorlevel 1 (
-    echo Error: Go is not installed. Please install Go from https://golang.org/
-    pause
-    exit /b 1
-)
-
-where npm >nul 2>nul
-if errorlevel 1 (
-    echo Error: NPM is not installed. Please install Node.js from https://nodejs.org/
-    pause
-    exit /b 1
-)
-
-where wails >nul 2>nul
-if errorlevel 1 (
-    echo Error: Wails CLI is not installed.
-    echo Please run: build.bat install-deps
-    pause
-    exit /b 1
-)
-
-echo Starting debug build for %APP_NAME%...
-cd /d "%SRC_DIR%"
-REM Enable CGO for sqlite3 support
-set CGO_ENABLED=1
-call wails build -debug
-if errorlevel 1 (
-    echo Build failed!
-    pause
-    exit /b 1
-)
-
-echo.
-echo %APP_NAME% debug build finished successfully!
-echo Output directory: %BUILD_DIR%
-exit /b 0
-
-:quick_build
-echo Performing quick build (backend only)...
-echo Note: This builds only the Go backend without frontend changes.
-echo.
-
-where go >nul 2>nul
-if errorlevel 1 (
-    echo Error: Go is not installed. Please install Go from https://golang.org/
-    pause
-    exit /b 1
-)
-
-echo Building %APP_NAME% backend...
-cd /d "%SRC_DIR%"
-REM Enable CGO for sqlite3 support
-set CGO_ENABLED=1
-go build -o ..\rapidbi.exe
-if errorlevel 1 (
-    echo Quick build failed!
-    pause
-    exit /b 1
-)
-
-echo.
-echo %APP_NAME% quick build finished successfully!
-echo Output: rapidbi.exe (in root directory)
-echo.
-echo TIP: Use 'build.bat build' for a full build including frontend changes.
+:clean
+if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
 exit /b 0

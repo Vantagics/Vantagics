@@ -54,6 +54,10 @@ export function DisableSkill(arg1) {
   return window['go']['main']['App']['DisableSkill'](arg1);
 }
 
+export function DownloadSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['DownloadSessionFile'](arg1, arg2);
+}
+
 export function EnableSkill(arg1) {
   return window['go']['main']['App']['EnableSkill'](arg1);
 }
@@ -66,12 +70,28 @@ export function ExportAnalysisProcess(arg1) {
   return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
 }
 
+export function ExportDashboardToPDF(arg1) {
+  return window['go']['main']['App']['ExportDashboardToPDF'](arg1);
+}
+
+export function ExportMessageToPDF(arg1, arg2) {
+  return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
+}
+
+export function ExportSessionFilesToZip(arg1, arg2) {
+  return window['go']['main']['App']['ExportSessionFilesToZip'](arg1, arg2);
+}
+
 export function ExportSessionHTML(arg1) {
   return window['go']['main']['App']['ExportSessionHTML'](arg1);
 }
 
 export function ExportToCSV(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToCSV'](arg1, arg2, arg3);
+}
+
+export function ExportToJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportToJSON'](arg1, arg2, arg3);
 }
 
 export function ExportToMySQL(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
@@ -88,6 +108,10 @@ export function ExtractMetricsFromAnalysis(arg1, arg2, arg3) {
 
 export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExtractSuggestionsFromAnalysis'](arg1, arg2, arg3);
+}
+
+export function GenerateCSVThumbnail(arg1, arg2) {
+  return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
 }
 
 export function GetActiveThreadID() {
@@ -154,6 +178,10 @@ export function GetPythonEnvironments() {
   return window['go']['main']['App']['GetPythonEnvironments']();
 }
 
+export function GetSessionFileAsBase64(arg1, arg2) {
+  return window['go']['main']['App']['GetSessionFileAsBase64'](arg1, arg2);
+}
+
 export function GetSessionFilePath(arg1, arg2) {
   return window['go']['main']['App']['GetSessionFilePath'](arg1, arg2);
 }
@@ -188,6 +216,10 @@ export function ImportCSVDataSource(arg1, arg2) {
 
 export function ImportExcelDataSource(arg1, arg2) {
   return window['go']['main']['App']['ImportExcelDataSource'](arg1, arg2);
+}
+
+export function ImportJSONDataSource(arg1, arg2) {
+  return window['go']['main']['App']['ImportJSONDataSource'](arg1, arg2);
 }
 
 export function InstallPythonPackages(arg1, arg2) {
@@ -268,6 +300,10 @@ export function SelectExcelFile() {
 
 export function SelectFolder(arg1) {
   return window['go']['main']['App']['SelectFolder'](arg1);
+}
+
+export function SelectJSONFile() {
+  return window['go']['main']['App']['SelectJSONFile']();
 }
 
 export function SelectSaveFile(arg1, arg2) {

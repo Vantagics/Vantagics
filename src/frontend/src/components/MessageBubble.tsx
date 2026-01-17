@@ -106,7 +106,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             const numberedMatch = line.match(/^(\d+)[.、)]\s+(.+)$/);
             if (numberedMatch) {
                 const rawLabel = numberedMatch[2].trim();
-                
+
                 // More lenient extraction in suggestion context
                 if (hasSuggestionContext || inSuggestionSection) {
                     if (rawLabel.length > 5 && rawLabel.length < 150) {
@@ -154,8 +154,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             const sentences = content.split(/[。.！!？?]/);
             for (const sentence of sentences) {
                 const trimmed = sentence.trim();
-                if (trimmed.length > 10 && trimmed.length < 150 && 
-                    isActionableItem(trimmed) && 
+                if (trimmed.length > 10 && trimmed.length < 150 &&
+                    isActionableItem(trimmed) &&
                     !isExplanationPattern(trimmed)) {
                     suggestionCount++;
                     if (suggestionCount <= 5) { // Limit to 5 suggestions
@@ -240,9 +240,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 y: y,
                 selectedText: selectedText
             });
-        } else if (isUser && hasChart) {
-            // If no text selected and this is a user message with analysis results,
-            // show export menu
+        } else if ((isUser && hasChart) || !isUser) {
+            // Show export menu for:
+            // 1. User messages with analysis results
+            // 2. Assistant messages (for PDF export)
             setExportMenu({
                 x: e.clientX,
                 y: e.clientY
@@ -299,6 +300,37 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 type: 'error',
                 title: '导出失败',
                 message: err instanceof Error ? err.message : String(err)
+            });
+        } finally {
+            setExportMenu(null);
+        }
+    };
+
+    // Handle export PDF action
+    const handleExportPDF = async () => {
+        try {
+            console.log('[EXPORT PDF] Starting PDF export for message:', messageId);
+
+            // Import the function dynamically
+            const { ExportMessageToPDF } = await import('../../wailsjs/go/main/App');
+
+            await ExportMessageToPDF(content, messageId || '');
+
+            // Show success toast
+            import('../contexts/ToastContext').then(({ useToast }) => {
+                // Can't use hook here, emit event instead
+                EventsEmit('show-toast', {
+                    type: 'success',
+                    message: 'PDF导出成功',
+                    title: '导出完成'
+                });
+            });
+        } catch (err) {
+            console.error('[EXPORT PDF] PDF export failed:', err);
+            EventsEmit('show-toast', {
+                type: 'error',
+                message: err instanceof Error ? err.message : String(err),
+                title: 'PDF导出失败'
             });
         } finally {
             setExportMenu(null);
@@ -400,12 +432,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 <div
                     ref={messageContentRef}
                     className={`max-w-[85%] rounded-2xl px-5 py-3.5 shadow-sm ${isUser
-                        ? `bg-blue-600 text-white rounded-tr-none ${
-                            isDisabled 
-                                ? 'opacity-50 cursor-not-allowed' 
-                                : onClick && hasChart 
-                                    ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200' 
-                                    : ''
+                        ? `bg-blue-600 text-white rounded-tr-none ${isDisabled
+                            ? 'opacity-50 cursor-not-allowed'
+                            : onClick && hasChart
+                                ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200'
+                                : ''
                         }`
                         : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                         }`}
@@ -413,10 +444,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     onContextMenu={handleContextMenu}
                     style={onClick && hasChart && isUser && !isDisabled ? { cursor: 'pointer' } : isDisabled ? { cursor: 'not-allowed' } : undefined}
                     title={
-                        isDisabled 
-                            ? 'Analysis in progress or incomplete - cannot view yet' 
-                            : onClick && hasChart && isUser 
-                                ? 'Click to view analysis results on dashboard' 
+                        isDisabled
+                            ? 'Analysis in progress or incomplete - cannot view yet'
+                            : onClick && hasChart && isUser
+                                ? 'Click to view analysis results on dashboard'
                                 : undefined
                     }
                 >
@@ -658,7 +689,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
-                            handleExportAnalysis();
+                            if (isUser) {
+                                handleExportAnalysis();
+                            } else {
+                                handleExportPDF();
+                            }
                         }}
                         style={{
                             width: '100%',
@@ -677,9 +712,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                     >
                         <span style={{ fontSize: '16px' }}>📋</span>
-                        <span style={{ fontWeight: 500 }}>导出分析过程</span>
+                        <span style={{ fontWeight: 500 }}>{isUser ? '导出分析过程' : '导出为PDF'}</span>
                     </button>
-                    
+
                     {/* Timing Analysis Option - Only show if timing data exists */}
                     {timingData && (
                         <button
@@ -713,7 +748,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 </div>,
                 document.body
             )}
-            
+
             {/* Timing Analysis Modal */}
             <TimingAnalysisModal
                 isOpen={timingModalOpen}

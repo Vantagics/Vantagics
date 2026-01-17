@@ -78,16 +78,50 @@ func runSystray(ctx context.Context) {
 				})
 			}()
 
+
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// Recover from panic to keep tray working
+						println("Tray event handler recovered from panic:", r)
+					}
+				}()
+				
 				for {
 					select {
 					case <-mShow.ClickedCh:
-						wailsRuntime.WindowShow(ctx)
+						// Handle show in non-blocking way
+						go func() {
+							defer func() {
+								if r := recover(); r != nil {
+									println("Show window recovered from panic:", r)
+								}
+							}()
+							println("[Tray] Show window clicked")
+							wailsRuntime.WindowShow(ctx)
+							wailsRuntime.WindowUnminimise(ctx)
+						}()
 					case <-mHide.ClickedCh:
-						wailsRuntime.WindowHide(ctx)
+						// Handle hide in non-blocking way
+						go func() {
+							defer func() {
+								if r := recover(); r != nil {
+									println("Hide window recovered from panic:", r)
+								}
+							}()
+							println("[Tray] Hide window clicked")
+							wailsRuntime.WindowHide(ctx)
+						}()
 					case <-mQuit.ClickedCh:
+						// Handle quit
+						println("[Tray] Quit clicked")
 						systray.Quit()
 						wailsRuntime.Quit(ctx)
+						return
+					case <-ctx.Done():
+						// Context cancelled, exit
+						println("[Tray] Context cancelled, exiting event loop")
+						return
 					}
 				}
 			}()

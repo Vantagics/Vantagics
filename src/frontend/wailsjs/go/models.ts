@@ -558,6 +558,9 @@ export namespace config {
 	    pythonPath: string;
 	    maxPreviewRows: number;
 	    detailedLog: boolean;
+	    webSearchProvider: string;
+	    webSearchAPIKey: string;
+	    webSearchMCPURL: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -578,6 +581,9 @@ export namespace config {
 	        this.pythonPath = source["pythonPath"];
 	        this.maxPreviewRows = source["maxPreviewRows"];
 	        this.detailedLog = source["detailedLog"];
+	        this.webSearchProvider = source["webSearchProvider"];
+	        this.webSearchAPIKey = source["webSearchAPIKey"];
+	        this.webSearchMCPURL = source["webSearchMCPURL"];
 	    }
 	}
 
@@ -1020,6 +1026,109 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TableColumn {
+	    title: string;
+	    dataType: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TableColumn(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.dataType = source["dataType"];
+	    }
+	}
+	export class TableData {
+	    columns: TableColumn[];
+	    data: any[][];
+	
+	    static createFrom(source: any = {}) {
+	        return new TableData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.columns = this.convertValues(source["columns"], TableColumn);
+	        this.data = source["data"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DashboardMetric {
+	    title: string;
+	    value: string;
+	    change: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DashboardMetric(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.value = source["value"];
+	        this.change = source["change"];
+	    }
+	}
+	export class DashboardExportData {
+	    userRequest: string;
+	    metrics: DashboardMetric[];
+	    insights: string[];
+	    chartImage: string;
+	    chartImages: string[];
+	    tableData?: TableData;
+	
+	    static createFrom(source: any = {}) {
+	        return new DashboardExportData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userRequest = source["userRequest"];
+	        this.metrics = this.convertValues(source["metrics"], DashboardMetric);
+	        this.insights = source["insights"];
+	        this.chartImage = source["chartImage"];
+	        this.chartImages = source["chartImages"];
+	        this.tableData = this.convertValues(source["tableData"], TableData);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class ErrorRecord {
 	    timestamp: string;
@@ -1226,6 +1335,8 @@ export namespace main {
 	        this.tags = source["tags"];
 	    }
 	}
+	
+	
 	
 	export class ValidationIssue {
 	    type: string;

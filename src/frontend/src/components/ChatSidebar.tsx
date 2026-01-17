@@ -396,19 +396,19 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // 找到第一个有分析结果的用户消息
                 // 判断标准：用户消息后有助手回复，或者有 chart_data
                 let firstAnalysisMessage: main.ChatMessage | null = null;
-                
+
                 for (let i = 0; i < activeThread.messages.length; i++) {
                     const msg = activeThread.messages[i];
-                    
+
                     // 必须是用户消息
                     if (msg.role !== 'user') continue;
-                    
+
                     // 检查是否有 chart_data
                     if (msg.chart_data) {
                         firstAnalysisMessage = msg;
                         break;
                     }
-                    
+
                     // 检查下一条消息是否是助手回复
                     if (i < activeThread.messages.length - 1) {
                         const nextMsg = activeThread.messages[i + 1];
@@ -524,9 +524,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     const confirmDeleteThread = async () => {
         if (!deleteThreadTarget) return;
-        
+
         console.log('[DELETE-THREAD] Starting deletion for thread:', deleteThreadTarget.id);
-        
+
         try {
             // 如果删除的会话正在进行分析，先取消分析
             if (loadingThreadId === deleteThreadTarget.id) {
@@ -547,7 +547,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             console.log('[DELETE-THREAD] Calling DeleteThread API...');
             await DeleteThread(deleteThreadTarget.id);
             console.log('[DELETE-THREAD] DeleteThread API completed successfully');
-            
+
             const updatedThreads = threads?.filter(t => t.id !== deleteThreadTarget.id) || [];
             setThreads(updatedThreads);
             console.log('[DELETE-THREAD] Updated threads list, remaining:', updatedThreads.length);
@@ -559,11 +559,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     console.log('[DELETE-THREAD] Switching to first remaining thread');
                     const newActiveThread = updatedThreads[0];
                     setActiveThreadId(newActiveThread.id);
-                    
+
                     // 清空当前仪表盘，准备显示新会话的数据
                     console.log('[DELETE-THREAD] Clearing dashboard before loading new thread data');
                     EventsEmit('clear-dashboard');
-                    
+
                     // 加载新会话的最后一条用户消息的分析结果
                     if (newActiveThread.messages && newActiveThread.messages.length > 0) {
                         // 从后往前找最后一条用户消息
@@ -591,7 +591,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // 如果删除的不是当前活跃会话，仪表盘保持不变
                 console.log('[DELETE-THREAD] Deleted non-active thread, dashboard unchanged');
             }
-            
+
             // 关闭删除确认模态框
             console.log('[DELETE-THREAD] Closing delete confirmation modal');
             setDeleteThreadTarget(null);
@@ -600,7 +600,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             console.error('[DELETE-THREAD] Failed to delete thread:', err);
             // 即使失败也关闭模态框，并显示错误消息
             setDeleteThreadTarget(null);
-            
+
             // 显示错误消息给用户
             EventsEmit('show-message-modal', {
                 type: 'error',
@@ -663,11 +663,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     const handleSendMessage = async (text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread) => {
         const msgText = text || input;
-        
+
         // 使用 refs 获取最新的状态值（避免闭包问题）
         const currentIsLoading = isLoadingRef.current;
         const currentLoadingThreadId = loadingThreadIdRef.current;
-        
+
         console.log('[ChatSidebar] 🔥 handleSendMessage called with:', {
             text: msgText?.substring(0, 50),
             explicitThreadId,
@@ -691,7 +691,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 检查当前会话是否有分析正在进行（包括 explicitThread 的情况）
         // 确定目标会话ID
         const targetThreadId = explicitThread?.id || explicitThreadId || activeThreadId;
-        
+
         console.log('[ChatSidebar] 🔍 Loading state check:', {
             currentIsLoading,
             currentLoadingThreadId,
@@ -699,7 +699,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             matches: currentLoadingThreadId === targetThreadId,
             willBlock: currentIsLoading && currentLoadingThreadId === targetThreadId
         });
-        
+
         if (currentIsLoading && currentLoadingThreadId === targetThreadId) {
             console.log('[ChatSidebar] ⚠️ Analysis in progress for target thread, blocking new request');
             // 显示Toast提示
@@ -879,7 +879,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // Check if backend already added the assistant message
                 const lastMessage = reloadedThread.messages[reloadedThread.messages.length - 1];
                 const backendAddedAssistant = lastMessage && lastMessage.role === 'assistant' && lastMessage.content === response;
-                
+
                 if (!backendAddedAssistant) {
                     // Backend didn't add assistant message, add it ourselves (backward compatibility)
                     console.log("[ChatSidebar] Backend didn't add assistant message, adding it manually");
@@ -970,18 +970,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 const updatedThread = threadsRef.current.find(t => t.id === currentThreadId);
                 if (updatedThread && updatedThread.messages) {
                     // Find the user message we just sent (by matching the message text)
-                    const userMessage = updatedThread.messages.find(msg => 
-                        msg.role === 'user' && 
+                    const userMessage = updatedThread.messages.find(msg =>
+                        msg.role === 'user' &&
                         msg.content === msgText &&
                         msg.id === userMsg.id
                     );
 
                     if (userMessage) {
                         console.log('[ChatSidebar] 🎯 Auto-updating dashboard after analysis completion');
-                        
+
                         // Find chart data from user message or assistant response
                         let chartDataToUse = userMessage.chart_data;
-                        
+
                         // Check if there's an assistant response with chart_data
                         const messageIndex = updatedThread.messages.findIndex(msg => msg.id === userMessage.id);
                         if (messageIndex !== -1 && messageIndex < updatedThread.messages.length - 1) {
@@ -1021,7 +1021,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const handleUserMessageClick = (message: main.ChatMessage) => {
         // 检查消息是否完成（有对应的助手回复或有chart_data）
         let isCompleted = false;
-        
+
         if (activeThread) {
             const messageIndex = activeThread.messages.findIndex(msg => msg.id === message.id);
             if (messageIndex !== -1) {
@@ -1032,20 +1032,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         isCompleted = true;
                     }
                 }
-                
+
                 // 或者检查是否有chart_data
                 if (message.chart_data) {
                     isCompleted = true;
                 }
             }
         }
-        
+
         // 如果消息未完成，不允许点击
         if (!isCompleted) {
             console.log("[ChatSidebar] Message not completed, ignoring click:", message.id);
             return;
         }
-        
+
         // Debug logging
         console.log("[ChatSidebar] User message clicked:", message.id);
         console.log("[ChatSidebar] Message content:", message.content?.substring(0, 100));
@@ -1058,7 +1058,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // Find the corresponding assistant message (next message after this user message)
         let chartDataToUse = message.chart_data;
-        
+
         if (activeThread) {
             const messageIndex = activeThread.messages.findIndex(msg => msg.id === message.id);
             if (messageIndex !== -1 && messageIndex < activeThread.messages.length - 1) {
@@ -1357,7 +1357,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         <div className="flex items-center gap-2">
                                             <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                                             <span className="text-xs text-slate-500 font-medium">
-                                                {progress?.message || t('ai_thinking')}
+                                                {progress?.message
+                                                    ? (progress.message === 'progress.ai_processing'
+                                                        ? t('progress.ai_processing', progress.step || 0)
+                                                        : progress.message === 'progress.tool_completed'
+                                                            ? t('progress.tool_completed', progress.tool_name || '')
+                                                            : t(progress.message))
+                                                    : t('ai_thinking')}
                                             </span>
                                         </div>
                                         <button

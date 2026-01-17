@@ -69,9 +69,26 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 		return nil, fmt.Errorf("data source not found: %s", dataSourceID)
 	}
 
+	// Check if it's a remote database (not allowed to optimize)
+	if dataSource.Type == "mysql" || dataSource.Type == "doris" || dataSource.Type == "postgresql" {
+		if !dataSource.Config.StoreLocally {
+			return &OptimizeSuggestionsResult{
+				DataSourceID:   dataSourceID,
+				DataSourceName: dataSource.Name,
+				Success:        false,
+				Error:          fmt.Sprintf("无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。", dataSource.Type),
+			}, nil
+		}
+	}
+
 	// Check if it's a local SQLite database
 	if dataSource.Config.DBPath == "" {
-		return nil, fmt.Errorf("data source is not a local SQLite database")
+		return &OptimizeSuggestionsResult{
+			DataSourceID:   dataSourceID,
+			DataSourceName: dataSource.Name,
+			Success:        false,
+			Error:          "数据源没有本地存储，无法优化。请先将数据导入到本地。",
+		}, nil
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Data source: %s, DBPath: %s", dataSource.Name, dataSource.Config.DBPath))
@@ -135,6 +152,28 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 
 	if dataSource == nil {
 		return nil, fmt.Errorf("data source not found: %s", dataSourceID)
+	}
+
+	// Check if it's a remote database (not allowed to optimize)
+	if dataSource.Type == "mysql" || dataSource.Type == "doris" || dataSource.Type == "postgresql" {
+		if !dataSource.Config.StoreLocally {
+			return &OptimizeDataSourceResult{
+				DataSourceID:   dataSourceID,
+				DataSourceName: dataSource.Name,
+				Success:        false,
+				Error:          fmt.Sprintf("无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。", dataSource.Type),
+			}, nil
+		}
+	}
+
+	// Check if it's a local SQLite database
+	if dataSource.Config.DBPath == "" {
+		return &OptimizeDataSourceResult{
+			DataSourceID:   dataSourceID,
+			DataSourceName: dataSource.Name,
+			Success:        false,
+			Error:          "数据源没有本地存储，无法优化。",
+		}, nil
 	}
 
 	// Get data cache directory from config

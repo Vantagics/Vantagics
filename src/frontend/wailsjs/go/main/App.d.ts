@@ -30,15 +30,25 @@ export function DiagnosePythonInstallation():Promise<Record<string, any>>;
 
 export function DisableSkill(arg1:string):Promise<void>;
 
+export function DownloadSessionFile(arg1:string,arg2:string):Promise<void>;
+
 export function EnableSkill(arg1:string):Promise<void>;
 
 export function ExecuteImportAnalysis(arg1:main.AnalysisExport,arg2:string):Promise<void>;
 
 export function ExportAnalysisProcess(arg1:string):Promise<void>;
 
+export function ExportDashboardToPDF(arg1:main.DashboardExportData):Promise<void>;
+
+export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
+
+export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
+
 export function ExportSessionHTML(arg1:string):Promise<void>;
 
 export function ExportToCSV(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
+
+export function ExportToJSON(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
 
 export function ExportToMySQL(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;
 
@@ -47,6 +57,8 @@ export function ExportToSQL(arg1:string,arg2:Array<string>,arg3:string):Promise<
 export function ExtractMetricsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function GenerateCSVThumbnail(arg1:string,arg2:string):Promise<string>;
 
 export function GetActiveThreadID():Promise<string>;
 
@@ -80,6 +92,8 @@ export function GetOptimizeSuggestions(arg1:string):Promise<main.OptimizeSuggest
 
 export function GetPythonEnvironments():Promise<Array<agent.PythonEnvironment>>;
 
+export function GetSessionFileAsBase64(arg1:string,arg2:string):Promise<string>;
+
 export function GetSessionFilePath(arg1:string,arg2:string):Promise<string>;
 
 export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
@@ -97,6 +111,8 @@ export function ImportAnalysisProcess():Promise<void>;
 export function ImportCSVDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
 
 export function ImportExcelDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
+
+export function ImportJSONDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
 
 export function InstallPythonPackages(arg1:string,arg2:Array<string>):Promise<void>;
 
@@ -137,6 +153,8 @@ export function SelectDirectory():Promise<string>;
 export function SelectExcelFile():Promise<string>;
 
 export function SelectFolder(arg1:string):Promise<string>;
+
+export function SelectJSONFile():Promise<string>;
 
 export function SelectSaveFile(arg1:string,arg2:string):Promise<string>;
 
