@@ -1844,3 +1844,44 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 
 	return result, nil
 }
+
+
+// RenameDataSource renames a data source (checks for duplicate names)
+func (s *DataSourceService) RenameDataSource(id string, newName string) error {
+	s.log(fmt.Sprintf("RenameDataSource: %s -> %s", id, newName))
+	
+	if newName == "" {
+		return fmt.Errorf("data source name cannot be empty")
+	}
+	
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	// Check for duplicate name (case-insensitive)
+	for _, source := range sources {
+		if source.ID != id && strings.EqualFold(source.Name, newName) {
+			return fmt.Errorf("data source with name '%s' already exists", newName)
+		}
+	}
+
+	// Find and rename the data source
+	found := false
+	for i := range sources {
+		if sources[i].ID == id {
+			sources[i].Name = newName
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("data source not found")
+	}
+
+	// Invalidate cache
+	s.InvalidateCache(id)
+
+	return s.SaveDataSources(sources)
+}

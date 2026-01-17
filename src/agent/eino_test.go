@@ -19,7 +19,8 @@ func TestNewEinoService_Anthropic(t *testing.T) {
 	}
 
 	// Attempt to create EinoService
-	_, err := NewEinoService(cfg, nil, nil, func(msg string) {})
+	dsService := &DataSourceService{dataCacheDir: t.TempDir()}
+	_, err := NewEinoService(cfg, dsService, nil, nil, func(msg string) {})
 
 	if err != nil {
 		t.Fatalf("NewEinoService failed: %v", err)
@@ -90,7 +91,8 @@ func (m *MockChatModel) Stream(ctx context.Context, input []*schema.Message, opt
 func TestRunAnalysis(t *testing.T) {
 	mockModel := &MockChatModel{}
 	service := &EinoService{
-		ChatModel: mockModel,
+		ChatModel:     mockModel,
+		memoryManager: NewMemoryManager(4096, mockModel),
 	}
 
 	ctx := context.Background()
@@ -119,7 +121,8 @@ func TestRunAnalysis(t *testing.T) {
 func TestRunAnalysis_EmptyHistory(t *testing.T) {
 	mockModel := &MockChatModel{}
 	service := &EinoService{
-		ChatModel: mockModel,
+		ChatModel:     mockModel,
+		memoryManager: NewMemoryManager(4096, mockModel),
 	}
 
 	ctx := context.Background()

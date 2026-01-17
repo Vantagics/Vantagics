@@ -49,8 +49,9 @@ func TestPythonExecutorTool_InvokableRun(t *testing.T) {
 		t.Errorf("Expected output 'Test Output', got '%s'", resp)
 	}
 
-	if !strings.Contains(mockExec.lastScript, "print('hello')") {
-		t.Errorf("Script did not contain code: %s", mockExec.lastScript)
+	encodedExpected := base64.StdEncoding.EncodeToString([]byte("print('hello')"))
+	if !strings.Contains(mockExec.lastScript, encodedExpected) {
+		t.Errorf("Script did not contain encoded code: %s", mockExec.lastScript)
 	}
 }
 

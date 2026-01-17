@@ -10,7 +10,14 @@ vi.mock('../../wailsjs/go/main/App', () => ({
   SendMessage: vi.fn(() => Promise.resolve("Mock response")),
   DeleteThread: vi.fn(() => Promise.resolve()),
   ClearHistory: vi.fn(() => Promise.resolve()),
+  GetConfig: vi.fn(() => Promise.resolve({ language: 'English' })),
+  GetDataSources: vi.fn(() => Promise.resolve([])),
 }));
+
+// Mock window.runtime
+(window as any).runtime = {
+    EventsOnMultiple: vi.fn().mockReturnValue(() => {}),
+};
 
 describe('ChatSidebar', () => {
   it('renders closed by default', () => {

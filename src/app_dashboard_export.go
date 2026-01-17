@@ -834,7 +834,7 @@ tr:nth-child(even) {
 	err = chromedp.Run(ctx,
 		chromedp.Navigate("file://"+htmlPath),
 		chromedp.Sleep(500*time.Millisecond),
-		chromedp.Screenshot("table", &buf, chromedp.NodeVisible, chromedp.ByQuery("table")),
+		chromedp.Screenshot(`table`, &buf, chromedp.NodeVisible, chromedp.ByQuery),
 	)
 
 	if err != nil {

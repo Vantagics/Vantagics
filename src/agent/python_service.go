@@ -527,7 +527,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 	errorMsg += "   - Try: python -m venv --help\n\n"
 	errorMsg += "After installation, restart RapidBI and try again."
 
-	return "", "", fmt.Errorf(errorMsg)
+	return "", "", fmt.Errorf("%s", errorMsg)
 }
 
 // getCommonPythonPaths returns common Python installation paths for different platforms

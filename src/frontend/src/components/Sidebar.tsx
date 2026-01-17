@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource } from '../../wailsjs/go/main/App';
+import { GetDataSources, DeleteDataSource, RenameDataSource } from '../../wailsjs/go/main/App';
 import { EventsEmit, EventsOn } from '../../wailsjs/runtime/runtime';
 import AddDataSourceModal from './AddDataSourceModal';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
@@ -9,6 +9,7 @@ import SourceContextMenu from './SourceContextMenu';
 import ExportDataSourceModal from './ExportDataSourceModal';
 import DataSourcePropertiesModal from './DataSourcePropertiesModal';
 import DataSourceOptimizeModal from './DataSourceOptimizeModal';
+import RenameDataSourceModal from './RenameDataSourceModal';
 import { Trash2, Plus } from 'lucide-react';
 import { main } from '../../wailsjs/go/models';
 
@@ -30,6 +31,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
     const [exportTarget, setExportTarget] = useState<any | null>(null);
     const [propertiesTarget, setPropertiesTarget] = useState<any | null>(null);
     const [optimizeTarget, setOptimizeTarget] = useState<{ id: string, name: string } | null>(null);
+    const [renameTarget, setRenameTarget] = useState<{ id: string, name: string } | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string, sourceName: string, hasLocalDB: boolean } | null>(null);
     const [isReplayLoading, setIsReplayLoading] = useState(false);
 
@@ -74,6 +76,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
         } catch (err) {
             console.error('Failed to delete data source:', err);
             alert('Failed to delete: ' + err);
+        }
+    };
+
+    const handleRename = async (newName: string) => {
+        if (!renameTarget) return;
+        try {
+            await RenameDataSource(renameTarget.id, newName);
+            fetchSources();
+            EventsEmit('data-source-renamed', { id: renameTarget.id, newName });
+        } catch (err) {
+            throw err; // Re-throw to let modal handle the error
         }
     };
 
@@ -254,6 +267,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
                 onClose={() => setOptimizeTarget(null)}
             />
 
+            <RenameDataSourceModal
+                isOpen={!!renameTarget}
+                currentName={renameTarget?.name || ''}
+                onClose={() => setRenameTarget(null)}
+                onRename={handleRename}
+            />
+
             {contextMenu && (
                 <SourceContextMenu
                     position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -275,6 +295,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, onToggl
                     onProperties={() => {
                         const source = sources?.find(s => s.id === contextMenu.sourceId);
                         if (source) setPropertiesTarget(source);
+                    }}
+                    onRename={() => {
+                        setRenameTarget({ id: contextMenu.sourceId, name: contextMenu.sourceName });
                     }}
                     onOptimize={() => {
                         setOptimizeTarget({ id: contextMenu.sourceId, name: contextMenu.sourceName });

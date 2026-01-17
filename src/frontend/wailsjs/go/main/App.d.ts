@@ -136,6 +136,8 @@ export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
 export function ReloadSkills():Promise<void>;
 
+export function RenameDataSource(arg1:string,arg2:string):Promise<void>;
+
 export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<agent.ReplayResult>;
 
 export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;

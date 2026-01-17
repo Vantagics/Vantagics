@@ -266,6 +266,10 @@ export function ReloadSkills() {
   return window['go']['main']['App']['ReloadSkills']();
 }
 
+export function RenameDataSource(arg1, arg2) {
+  return window['go']['main']['App']['RenameDataSource'](arg1, arg2);
+}
+
 export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ReplayAnalysisRecording'](arg1, arg2, arg3, arg4);
 }

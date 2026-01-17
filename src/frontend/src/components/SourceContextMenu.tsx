@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info, Play, Zap } from 'lucide-react';
+import { MessageSquare, Download, Info, Play, Zap, Edit3 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
@@ -15,9 +15,10 @@ interface SourceContextMenuProps {
     onProperties: () => void;
     onStartAnalysis: () => void;
     onOptimize?: () => void; // New: optimize data source
+    onRename?: () => void; // New: rename data source
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, hasLocalDB, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, hasLocalDB, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
@@ -74,6 +75,20 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 <Info className="w-4 h-4 text-slate-400" />
                 {t('properties')}
             </button>
+            
+            {onRename && (
+                <button 
+                    onClick={() => {
+                        onRename();
+                        onClose();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                >
+                    <Edit3 className="w-4 h-4 text-slate-400" />
+                    {t('rename') || 'Rename'}
+                </button>
+            )}
+            
             <button 
                 onClick={() => {
                     onExport();

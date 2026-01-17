@@ -2104,6 +2104,14 @@ func (a *App) DeleteDataSource(id string) error {
 	return a.dataSourceService.DeleteDataSource(id)
 }
 
+// RenameDataSource renames a data source
+func (a *App) RenameDataSource(id string, newName string) error {
+	if a.dataSourceService == nil {
+		return fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.RenameDataSource(id, newName)
+}
+
 // UpdateMySQLExportConfig updates the MySQL export configuration for a data source
 func (a *App) UpdateMySQLExportConfig(id string, host, port, user, password, database string) error {
 	if a.dataSourceService == nil {
