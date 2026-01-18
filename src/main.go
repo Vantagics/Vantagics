@@ -40,9 +40,15 @@ func main() {
 		wailsRuntime.Quit(app.ctx)
 	})
 
+	// Add Help Menu
+	helpMenu := appMenu.AddSubmenu("Help")
+	helpMenu.AddText("About", nil, func(_ *menu.CallbackData) {
+		wailsRuntime.EventsEmit(app.ctx, "open-about")
+	})
+
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "RapidBI",
+		Title:  "VantageData",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{
@@ -50,6 +56,7 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.onBeforeClose,
 		Menu:             appMenu,
 		Bind: []interface{}{
@@ -60,9 +67,12 @@ func main() {
 				TitlebarAppearsTransparent: true,
 			},
 			About: &mac.AboutInfo{
-				Title:   "RapidBI",
-				Message: "Modern Business Intelligence",
+				Title:   "VantageData (观界)",
+				Message: "See Beyond Data. Master Your Vantage.\n观数据之界，见商业全貌。",
 			},
+		},
+		Debug: options.Debug{
+			OpenInspectorOnStartup: true, // Auto-open DevTools for debugging
 		},
 	})
 

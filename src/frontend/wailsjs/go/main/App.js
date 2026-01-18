@@ -6,6 +6,22 @@ export function AddDataSource(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDataSource'](arg1, arg2, arg3);
 }
 
+export function ApplyOptimizeSuggestions(arg1, arg2) {
+  return window['go']['main']['App']['ApplyOptimizeSuggestions'](arg1, arg2);
+}
+
+export function CancelAnalysis() {
+  return window['go']['main']['App']['CancelAnalysis']();
+}
+
+export function CheckChromeAvailability() {
+  return window['go']['main']['App']['CheckChromeAvailability']();
+}
+
+export function CheckRapidBIEnvironmentExists() {
+  return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
+}
+
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
@@ -18,16 +34,68 @@ export function CreateChatThread(arg1, arg2) {
   return window['go']['main']['App']['CreateChatThread'](arg1, arg2);
 }
 
+export function CreateRapidBIEnvironment() {
+  return window['go']['main']['App']['CreateRapidBIEnvironment']();
+}
+
 export function DeleteDataSource(arg1) {
   return window['go']['main']['App']['DeleteDataSource'](arg1);
+}
+
+export function DeleteSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['DeleteSessionFile'](arg1, arg2);
 }
 
 export function DeleteThread(arg1) {
   return window['go']['main']['App']['DeleteThread'](arg1);
 }
 
+export function DiagnosePythonInstallation() {
+  return window['go']['main']['App']['DiagnosePythonInstallation']();
+}
+
+export function DisableSkill(arg1) {
+  return window['go']['main']['App']['DisableSkill'](arg1);
+}
+
+export function DownloadSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['DownloadSessionFile'](arg1, arg2);
+}
+
+export function EnableSkill(arg1) {
+  return window['go']['main']['App']['EnableSkill'](arg1);
+}
+
+export function ExecuteImportAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['ExecuteImportAnalysis'](arg1, arg2);
+}
+
+export function ExportAnalysisProcess(arg1) {
+  return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
+}
+
+export function ExportDashboardToPDF(arg1) {
+  return window['go']['main']['App']['ExportDashboardToPDF'](arg1);
+}
+
+export function ExportMessageToPDF(arg1, arg2) {
+  return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
+}
+
+export function ExportSessionFilesToZip(arg1, arg2) {
+  return window['go']['main']['App']['ExportSessionFilesToZip'](arg1, arg2);
+}
+
+export function ExportSessionHTML(arg1) {
+  return window['go']['main']['App']['ExportSessionHTML'](arg1);
+}
+
 export function ExportToCSV(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToCSV'](arg1, arg2, arg3);
+}
+
+export function ExportToJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportToJSON'](arg1, arg2, arg3);
 }
 
 export function ExportToMySQL(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
@@ -38,8 +106,28 @@ export function ExportToSQL(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToSQL'](arg1, arg2, arg3);
 }
 
+export function ExtractMetricsFromAnalysis(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2, arg3);
+}
+
+export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExtractSuggestionsFromAnalysis'](arg1, arg2, arg3);
+}
+
+export function GenerateCSVThumbnail(arg1, arg2) {
+  return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
+}
+
+export function GetActiveThreadID() {
+  return window['go']['main']['App']['GetActiveThreadID']();
+}
+
 export function GetAgentMemory(arg1) {
   return window['go']['main']['App']['GetAgentMemory'](arg1);
+}
+
+export function GetAnalysisPath(arg1) {
+  return window['go']['main']['App']['GetAnalysisPath'](arg1);
 }
 
 export function GetChatHistory() {
@@ -74,16 +162,56 @@ export function GetDataSources() {
   return window['go']['main']['App']['GetDataSources']();
 }
 
+export function GetEnabledSkills() {
+  return window['go']['main']['App']['GetEnabledSkills']();
+}
+
+export function GetErrorKnowledgeSummary() {
+  return window['go']['main']['App']['GetErrorKnowledgeSummary']();
+}
+
 export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetMySQLDatabases'](arg1, arg2, arg3, arg4);
+}
+
+export function GetOptimizeSuggestions(arg1) {
+  return window['go']['main']['App']['GetOptimizeSuggestions'](arg1);
 }
 
 export function GetPythonEnvironments() {
   return window['go']['main']['App']['GetPythonEnvironments']();
 }
 
+export function GetSessionFileAsBase64(arg1, arg2) {
+  return window['go']['main']['App']['GetSessionFileAsBase64'](arg1, arg2);
+}
+
+export function GetSessionFilePath(arg1, arg2) {
+  return window['go']['main']['App']['GetSessionFilePath'](arg1, arg2);
+}
+
+export function GetSessionFiles(arg1) {
+  return window['go']['main']['App']['GetSessionFiles'](arg1);
+}
+
+export function GetSessionRecordings() {
+  return window['go']['main']['App']['GetSessionRecordings']();
+}
+
+export function GetSkillCategories() {
+  return window['go']['main']['App']['GetSkillCategories']();
+}
+
+export function GetSkills() {
+  return window['go']['main']['App']['GetSkills']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
+}
+
+export function ImportAnalysisProcess() {
+  return window['go']['main']['App']['ImportAnalysisProcess']();
 }
 
 export function ImportCSVDataSource(arg1, arg2) {
@@ -94,8 +222,60 @@ export function ImportExcelDataSource(arg1, arg2) {
   return window['go']['main']['App']['ImportExcelDataSource'](arg1, arg2);
 }
 
+export function ImportJSONDataSource(arg1, arg2) {
+  return window['go']['main']['App']['ImportJSONDataSource'](arg1, arg2);
+}
+
+export function InstallPythonPackages(arg1, arg2) {
+  return window['go']['main']['App']['InstallPythonPackages'](arg1, arg2);
+}
+
+export function IsCancelRequested() {
+  return window['go']['main']['App']['IsCancelRequested']();
+}
+
+export function LoadMetricsJson(arg1) {
+  return window['go']['main']['App']['LoadMetricsJson'](arg1);
+}
+
 export function Log(arg1) {
   return window['go']['main']['App']['Log'](arg1);
+}
+
+export function MarkAsFinding(arg1, arg2, arg3) {
+  return window['go']['main']['App']['MarkAsFinding'](arg1, arg2, arg3);
+}
+
+export function OpenDevTools() {
+  return window['go']['main']['App']['OpenDevTools']();
+}
+
+export function OpenSessionFile(arg1, arg2) {
+  return window['go']['main']['App']['OpenSessionFile'](arg1, arg2);
+}
+
+export function OpenSessionResultsDirectory(arg1) {
+  return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
+}
+
+export function PrepareImportAnalysis() {
+  return window['go']['main']['App']['PrepareImportAnalysis']();
+}
+
+export function ReadChartDataFile(arg1, arg2) {
+  return window['go']['main']['App']['ReadChartDataFile'](arg1, arg2);
+}
+
+export function ReloadSkills() {
+  return window['go']['main']['App']['ReloadSkills']();
+}
+
+export function RenameDataSource(arg1, arg2) {
+  return window['go']['main']['App']['RenameDataSource'](arg1, arg2);
+}
+
+export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ReplayAnalysisRecording'](arg1, arg2, arg3, arg4);
 }
 
 export function SaveChatHistory(arg1) {
@@ -104,6 +284,14 @@ export function SaveChatHistory(arg1) {
 
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SaveMetricsJson(arg1, arg2) {
+  return window['go']['main']['App']['SaveMetricsJson'](arg1, arg2);
+}
+
+export function SaveSessionRecording(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveSessionRecording'](arg1, arg2, arg3);
 }
 
 export function SelectCSVFile() {
@@ -122,16 +310,24 @@ export function SelectFolder(arg1) {
   return window['go']['main']['App']['SelectFolder'](arg1);
 }
 
+export function SelectJSONFile() {
+  return window['go']['main']['App']['SelectJSONFile']();
+}
+
 export function SelectSaveFile(arg1, arg2) {
   return window['go']['main']['App']['SelectSaveFile'](arg1, arg2);
 }
 
-export function SendMessage(arg1, arg2) {
-  return window['go']['main']['App']['SendMessage'](arg1, arg2);
+export function SendMessage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3);
 }
 
 export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
+}
+
+export function ShowAbout() {
+  return window['go']['main']['App']['ShowAbout']();
 }
 
 export function ShowMessage(arg1, arg2, arg3) {
@@ -142,8 +338,24 @@ export function TestLLMConnection(arg1) {
   return window['go']['main']['App']['TestLLMConnection'](arg1);
 }
 
+export function TestMCPService(arg1) {
+  return window['go']['main']['App']['TestMCPService'](arg1);
+}
+
 export function TestMySQLConnection(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['TestMySQLConnection'](arg1, arg2, arg3, arg4);
+}
+
+export function TestProxy(arg1) {
+  return window['go']['main']['App']['TestProxy'](arg1);
+}
+
+export function TestSearchEngine(arg1) {
+  return window['go']['main']['App']['TestSearchEngine'](arg1);
+}
+
+export function TestSearchTools(arg1) {
+  return window['go']['main']['App']['TestSearchTools'](arg1);
 }
 
 export function UpdateMySQLExportConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
@@ -154,6 +366,18 @@ export function UpdateThreadTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateThreadTitle'](arg1, arg2);
 }
 
+export function UpdateWorkingContext(arg1, arg2) {
+  return window['go']['main']['App']['UpdateWorkingContext'](arg1, arg2);
+}
+
+export function ValidateImportAnalysis(arg1, arg2) {
+  return window['go']['main']['App']['ValidateImportAnalysis'](arg1, arg2);
+}
+
 export function ValidatePython(arg1) {
   return window['go']['main']['App']['ValidatePython'](arg1);
+}
+
+export function WriteSystemLog(arg1, arg2, arg3) {
+  return window['go']['main']['App']['WriteSystemLog'](arg1, arg2, arg3);
 }

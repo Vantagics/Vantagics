@@ -9,6 +9,11 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     SelectDirectory: vi.fn(),
     GetPythonEnvironments: vi.fn(),
     ValidatePython: vi.fn(),
+    InstallPythonPackages: vi.fn(),
+    CreateRapidBIEnvironment: vi.fn(),
+    CheckRapidBIEnvironmentExists: vi.fn(),
+    DiagnosePythonInstallation: vi.fn(),
+    TestLLMConnection: vi.fn(),
 }));
 
 // Mock window.runtime
@@ -31,6 +36,10 @@ describe('PreferenceModal', () => {
 
         const handleClose = vi.fn();
         render(<PreferenceModal isOpen={true} onClose={handleClose} />);
+
+        // Switch to LLM tab
+        const llmTab = await screen.findByRole('button', { name: /LLM Configuration/i });
+        fireEvent.click(llmTab);
 
         // Check if config loaded
         await waitFor(() => {
@@ -67,6 +76,10 @@ describe('PreferenceModal', () => {
         (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
 
         render(<PreferenceModal isOpen={true} onClose={() => {}} />);
+
+        // Switch to LLM tab
+        const llmTab = await screen.findByRole('button', { name: /LLM Configuration/i });
+        fireEvent.click(llmTab);
 
         await waitFor(() => {
             screen.getByLabelText(/Provider Type/i);
@@ -120,7 +133,7 @@ describe('PreferenceModal', () => {
         render(<PreferenceModal isOpen={true} onClose={() => {}} />);
 
         // Switch to System Parameters tab
-        const systemTab = await screen.findByText(/System Parameters/i);
+        const systemTab = await screen.findByRole('button', { name: /System Parameters/i });
         fireEvent.click(systemTab);
 
         // Check if field exists and has value
@@ -161,16 +174,13 @@ describe('PreferenceModal', () => {
         render(<PreferenceModal isOpen={true} onClose={() => {}} />);
 
         // Switch to System Parameters tab
-        const systemTab = await screen.findByText(/System Parameters/i);
+        const systemTab = await screen.findByRole('button', { name: /System Parameters/i });
         fireEvent.click(systemTab);
 
-        // Click Browse button - this test might fail if the button was removed in a previous track
-        // Assuming it's gone for now based on context, we skip interaction or just check field
-        // But wait, the previous track removed the button. 
-        // I should probably remove this test case or adapt it if I'm reusing the file content.
-        // Let's assume the button is gone and just stick to the text input test above.
-        // Or if I restored the file content from before the button removal, it might be confusing.
-        // Let's just focus on the new test case.
+        const browseButton = screen.getByRole('button', { name: /Browse/i });
+        fireEvent.click(browseButton);
+
+        expect(AppBindings.SelectDirectory).toHaveBeenCalled();
     });
 
     it('renders Run Env tab and interacts with python settings', async () => {
@@ -198,12 +208,13 @@ describe('PreferenceModal', () => {
         (AppBindings.GetConfig as any).mockResolvedValue(mockConfig);
         (AppBindings.GetPythonEnvironments as any).mockResolvedValue(mockEnvs);
         (AppBindings.ValidatePython as any).mockResolvedValue(mockValidation);
+        (AppBindings.CheckRapidBIEnvironmentExists as any).mockResolvedValue(false);
         (AppBindings.SaveConfig as any).mockResolvedValue({});
 
         render(<PreferenceModal isOpen={true} onClose={() => {}} />);
 
         // Switch to Run Env tab
-        const runEnvTab = await screen.findByText(/Run Environment/i);
+        const runEnvTab = await screen.findByRole('button', { name: /Run Environment/i });
         fireEvent.click(runEnvTab);
 
         // Check if loading state or dropdown appears
@@ -250,9 +261,17 @@ describe('PreferenceModal', () => {
 
         render(<PreferenceModal isOpen={true} onClose={() => {}} />);
 
+        // Switch to LLM tab
+        const llmTab = await screen.findByRole('button', { name: /LLM Configuration/i });
+        fireEvent.click(llmTab);
+
         await waitFor(() => {
             screen.getByLabelText(/Provider Type/i);
         });
+
+        // Set provider to OpenAI-Compatible to show Base URL
+        const providerSelect = screen.getByLabelText(/Provider Type/i);
+        fireEvent.change(providerSelect, { target: { value: 'OpenAI-Compatible' } });
 
         const technicalInputs = [
             /API Base URL/i,
@@ -268,7 +287,7 @@ describe('PreferenceModal', () => {
         });
 
         // Switch to System Parameters for Data Cache Dir
-        const systemTab = screen.getByText(/System Parameters/i);
+        const systemTab = screen.getByRole('button', { name: /System Parameters/i });
         fireEvent.click(systemTab);
 
         const cacheDirInput = await screen.findByLabelText(/Data Cache Directory/i) as HTMLInputElement;

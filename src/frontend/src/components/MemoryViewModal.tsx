@@ -81,43 +81,52 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
                         <div className="space-y-2">
                             {activeTab === 'short' && (
                                 <>
-                                    <p className="text-xs text-slate-500 mb-4 italic">Recent context from the current conversation (last 10 messages).</p>
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                                        <p className="text-xs text-blue-700 font-medium">💭 {t('short_term_memory_title')}</p>
+                                        <p className="text-xs text-blue-600 mt-1">{t('short_term_memory_desc')}</p>
+                                    </div>
                                     {memory?.short_term && memory.short_term.length > 0 ? (
                                         memory.short_term.map((item, idx) => (
-                                            <div key={idx} className="p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 shadow-sm">
+                                            <div key={idx} className="p-3 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 shadow-sm whitespace-pre-wrap">
                                                 {item}
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No short-term memory found.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_short_term_memory')}</div>
                                     )}
                                 </>
                             )}
                             {activeTab === 'medium' && (
                                 <>
-                                    <p className="text-xs text-slate-500 mb-4 italic">Important facts derived from this and recent interactions.</p>
+                                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
+                                        <p className="text-xs text-purple-700 font-medium">📝 {t('medium_term_memory_title')}</p>
+                                        <p className="text-xs text-purple-600 mt-1">{t('medium_term_memory_desc')}</p>
+                                    </div>
                                     {memory?.medium_term && memory.medium_term.length > 0 ? (
                                         memory.medium_term.map((item, idx) => (
-                                            <div key={idx} className="p-3 bg-white border border-purple-100 rounded-lg text-sm text-slate-700 shadow-sm border-l-4 border-l-purple-400">
+                                            <div key={idx} className="p-3 bg-white border border-purple-100 rounded-lg text-sm text-slate-700 shadow-sm border-l-4 border-l-purple-400 whitespace-pre-wrap">
                                                 {item}
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No medium-term memory found.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_medium_term_memory')}</div>
                                     )}
                                 </>
                             )}
                             {activeTab === 'long' && (
                                 <>
-                                    <p className="text-xs text-slate-500 mb-4 italic">Global knowledge and long-standing facts.</p>
+                                    <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+                                        <p className="text-xs text-green-700 font-medium">🗄️ {t('long_term_memory_title')}</p>
+                                        <p className="text-xs text-green-600 mt-1">{t('long_term_memory_desc')}</p>
+                                    </div>
                                     {memory?.long_term && memory.long_term.length > 0 ? (
                                         memory.long_term.map((item, idx) => (
-                                            <div key={idx} className="p-3 bg-white border border-green-100 rounded-lg text-sm text-slate-700 shadow-sm border-l-4 border-l-green-400">
+                                            <div key={idx} className="p-3 bg-white border border-green-100 rounded-lg text-sm text-slate-700 shadow-sm border-l-4 border-l-green-400 whitespace-pre-wrap">
                                                 {item}
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No long-term memory found.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_long_term_memory')}</div>
                                     )}
                                 </>
                             )}

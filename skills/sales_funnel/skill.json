@@ -1,0 +1,37 @@
+{
+  "id": "sales_funnel",
+  "name": "销售漏斗分析",
+  "description": "分析销售转化漏斗，识别各阶段转化率和流失点",
+  "version": "1.0.0",
+  "author": "RapidBI System",
+  "category": "sales_analytics",
+  "keywords": [
+    "funnel",
+    "sales funnel",
+    "conversion",
+    "转化漏斗",
+    "销售漏斗",
+    "转化率"
+  ],
+  "required_columns": [
+    "user_id",
+    "stage",
+    "date"
+  ],
+  "tools": [
+    "sql",
+    "python"
+  ],
+  "language": "python",
+  "code_template": "sales_funnel.py",
+  "parameters": {
+    "stages": "lead,qualified,proposal,negotiation,closed"
+  },
+  "enabled": true,
+  "icon": "filter",
+  "tags": [
+    "conversion",
+    "sales",
+    "funnel_analysis"
+  ]
+}

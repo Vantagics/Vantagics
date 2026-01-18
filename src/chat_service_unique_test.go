@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"os"
@@ -202,5 +203,47 @@ func TestChatService_GetThreadsByDataSource(t *testing.T) {
 	}
 	if len(threadsDS3) != 0 {
 		t.Errorf("Expected 0 threads for non-existent-ds, got %d", len(threadsDS3))
+	}
+}
+
+func TestChartData_UnmarshalJSON_BackwardCompatibility(t *testing.T) {
+	// Test Case 1: Old format (flat structure)
+	oldJSON := `{"type": "echarts", "data": "{}"}`
+	var chartData1 ChartData
+	if err := json.Unmarshal([]byte(oldJSON), &chartData1); err != nil {
+		t.Fatalf("Failed to unmarshal old format: %v", err)
+	}
+	if len(chartData1.Charts) != 1 {
+		t.Errorf("Expected 1 chart from old format, got %d", len(chartData1.Charts))
+	}
+	if len(chartData1.Charts) > 0 {
+		if chartData1.Charts[0].Type != "echarts" {
+			t.Errorf("Expected type 'echarts', got '%s'", chartData1.Charts[0].Type)
+		}
+	}
+
+	// Test Case 2: New format (array structure)
+	newJSON := `{"charts": [{"type": "image", "data": "base64..."}]}`
+	var chartData2 ChartData
+	if err := json.Unmarshal([]byte(newJSON), &chartData2); err != nil {
+		t.Fatalf("Failed to unmarshal new format: %v", err)
+	}
+	if len(chartData2.Charts) != 1 {
+		t.Errorf("Expected 1 chart from new format, got %d", len(chartData2.Charts))
+	}
+	if len(chartData2.Charts) > 0 {
+		if chartData2.Charts[0].Type != "image" {
+			t.Errorf("Expected type 'image', got '%s'", chartData2.Charts[0].Type)
+		}
+	}
+
+	// Test Case 3: Empty JSON
+	emptyJSON := `{}`
+	var chartData3 ChartData
+	if err := json.Unmarshal([]byte(emptyJSON), &chartData3); err != nil {
+		t.Fatalf("Failed to unmarshal empty JSON: %v", err)
+	}
+	if len(chartData3.Charts) != 0 {
+		t.Errorf("Expected 0 charts from empty JSON, got %d", len(chartData3.Charts))
 	}
 }
