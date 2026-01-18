@@ -1,4 +1,4 @@
-# RapidBI
-A commercially qualified Smart Business Intelligence Suite.
+# VangtageData
 
-For RapidBI
+VantageData: An AI-driven intelligent data insights platform for business."
+
