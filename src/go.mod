@@ -11,6 +11,7 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
+	github.com/leanovate/gopter v0.2.11
 	github.com/wailsapp/wails/v2 v2.11.0
 	github.com/xuri/excelize/v2 v2.10.0
 	modernc.org/sqlite v1.42.2

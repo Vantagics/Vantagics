@@ -22,6 +22,10 @@ export function CheckChromeOnStartup() {
   return window['go']['main']['App']['CheckChromeOnStartup']();
 }
 
+export function CheckComponentHasData(arg1, arg2) {
+  return window['go']['main']['App']['CheckComponentHasData'](arg1, arg2);
+}
+
 export function CheckRapidBIEnvironmentExists() {
   return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
 }
@@ -62,6 +66,10 @@ export function DisableSkill(arg1) {
   return window['go']['main']['App']['DisableSkill'](arg1);
 }
 
+export function DownloadFile(arg1) {
+  return window['go']['main']['App']['DownloadFile'](arg1);
+}
+
 export function DownloadSessionFile(arg1, arg2) {
   return window['go']['main']['App']['DownloadSessionFile'](arg1, arg2);
 }
@@ -76,6 +84,10 @@ export function ExecuteImportAnalysis(arg1, arg2) {
 
 export function ExportAnalysisProcess(arg1) {
   return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
+}
+
+export function ExportDashboard(arg1) {
+  return window['go']['main']['App']['ExportDashboard'](arg1);
 }
 
 export function ExportDashboardToPDF(arg1) {
@@ -174,6 +186,10 @@ export function GetErrorKnowledgeSummary() {
   return window['go']['main']['App']['GetErrorKnowledgeSummary']();
 }
 
+export function GetFilesByCategory(arg1) {
+  return window['go']['main']['App']['GetFilesByCategory'](arg1);
+}
+
 export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetMySQLDatabases'](arg1, arg2, arg3, arg4);
 }
@@ -238,6 +254,10 @@ export function IsCancelRequested() {
   return window['go']['main']['App']['IsCancelRequested']();
 }
 
+export function LoadLayout(arg1) {
+  return window['go']['main']['App']['LoadLayout'](arg1);
+}
+
 export function LoadMetricsJson(arg1) {
   return window['go']['main']['App']['LoadMetricsJson'](arg1);
 }
@@ -292,6 +312,10 @@ export function SaveChatHistory(arg1) {
 
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SaveLayout(arg1) {
+  return window['go']['main']['App']['SaveLayout'](arg1);
 }
 
 export function SaveMetricsJson(arg1, arg2) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	"rapidbi/agent"
 	"rapidbi/config"
+	"rapidbi/database"
 	"rapidbi/logger"
 
 	"github.com/cloudwego/eino/schema"
@@ -57,6 +59,7 @@ type App struct {
 	analysisPathManager   *agent.AnalysisPathManager
 	preferenceLearner     *agent.PreferenceLearner
 	einoService           *agent.EinoService
+	db                    *sql.DB
 	storageDir            string
 	logger                *logger.Logger
 	isChatGenerating      bool
@@ -64,6 +67,11 @@ type App struct {
 	cancelAnalysisMutex   sync.Mutex
 	cancelAnalysis        bool
 	activeThreadID        string
+	// Dashboard drag-drop layout services
+	layoutService         *database.LayoutService
+	dataService           *database.DataService
+	fileService           *database.FileService
+	exportService         *database.ExportService
 }
 
 // AgentMemoryView structure for frontend
@@ -210,6 +218,11 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 
 // shutdown is called when the application is closing to clean up resources
 func (a *App) shutdown(ctx context.Context) {
+	// Close database connection
+	if a.db != nil {
+		a.db.Close()
+		a.Log("[SHUTDOWN] Database connection closed")
+	}
 	// Close EinoService (which closes Python pool)
 	if a.einoService != nil {
 		a.einoService.Close()
@@ -259,6 +272,15 @@ func (a *App) startup(ctx context.Context) {
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 		
+		// Initialize database with migrations
+		db, err := database.InitDB(dataDir)
+		if err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to initialize database: %v", err))
+		} else {
+			a.db = db
+			a.Log("[STARTUP] Database initialized successfully")
+		}
+		
 		// Initialize working context manager for UI state tracking
 		a.workingContextManager = agent.NewWorkingContextManager(dataDir)
 		a.Log("[STARTUP] Working context manager initialized")
@@ -278,6 +300,25 @@ func (a *App) startup(ctx context.Context) {
 		} else {
 			a.einoService = es
 			a.Log("[STARTUP] EinoService initialized successfully")
+		}
+		
+		// Initialize dashboard drag-drop layout services after all other services are ready
+		if a.db != nil {
+			a.fileService = database.NewFileService(a.db, dataDir)
+			a.Log("[STARTUP] FileService initialized successfully")
+			
+			a.dataService = database.NewDataService(a.db, dataDir, a.fileService)
+			// Set the data source service to avoid circular dependency
+			if a.dataSourceService != nil {
+				a.dataService.SetDataSourceService(a.dataSourceService)
+			}
+			a.Log("[STARTUP] DataService initialized successfully")
+			
+			a.layoutService = database.NewLayoutService(a.db)
+			a.Log("[STARTUP] LayoutService initialized successfully")
+			
+			a.exportService = database.NewExportService(a.dataService, a.layoutService)
+			a.Log("[STARTUP] ExportService initialized successfully")
 		}
 	}
 
@@ -3852,5 +3893,129 @@ func (a *App) ReplayAnalysisRecording(recordingID, targetSourceID string, autoFi
 		return nil, fmt.Errorf("replay failed: %w", err)
 	}
 
+	return result, nil
+}
+// --- Dashboard Drag-Drop Layout Wails Bridge Methods ---
+
+// SaveLayout saves a layout configuration to the database (Task 5.1)
+func (a *App) SaveLayout(config database.LayoutConfiguration) error {
+	if a.layoutService == nil {
+		return fmt.Errorf("layout service not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[LAYOUT] Saving layout configuration for user: %s", config.UserID))
+	err := a.layoutService.SaveLayout(config)
+	if err != nil {
+		a.Log(fmt.Sprintf("[LAYOUT] Failed to save layout: %v", err))
+		return err
+	}
+	
+	a.Log("[LAYOUT] Layout configuration saved successfully")
+	return nil
+}
+
+// LoadLayout loads a layout configuration from the database (Task 5.2)
+func (a *App) LoadLayout(userID string) (*database.LayoutConfiguration, error) {
+	if a.layoutService == nil {
+		return nil, fmt.Errorf("layout service not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[LAYOUT] Loading layout configuration for user: %s", userID))
+	config, err := a.layoutService.LoadLayout(userID)
+	if err != nil {
+		// If no layout found, return default layout instead of error
+		if err.Error() == fmt.Sprintf("no layout found for user: %s", userID) {
+			a.Log("[LAYOUT] No saved layout found, returning default layout")
+			defaultConfig := a.layoutService.GetDefaultLayout()
+			defaultConfig.UserID = userID
+			return &defaultConfig, nil
+		}
+		
+		a.Log(fmt.Sprintf("[LAYOUT] Failed to load layout: %v", err))
+		return nil, err
+	}
+	
+	a.Log("[LAYOUT] Layout configuration loaded successfully")
+	return config, nil
+}
+
+// CheckComponentHasData checks if a component has data available (Task 5.3)
+func (a *App) CheckComponentHasData(componentType string, instanceID string) (bool, error) {
+	if a.dataService == nil {
+		return false, fmt.Errorf("data service not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[DATA] Checking data availability for component: %s (%s)", instanceID, componentType))
+	hasData, err := a.dataService.CheckComponentHasData(componentType, instanceID)
+	if err != nil {
+		a.Log(fmt.Sprintf("[DATA] Failed to check component data: %v", err))
+		return false, err
+	}
+	
+	a.Log(fmt.Sprintf("[DATA] Component %s has data: %v", instanceID, hasData))
+	return hasData, nil
+}
+
+// GetFilesByCategory retrieves files for a specific category (Task 5.4)
+func (a *App) GetFilesByCategory(category string) ([]database.FileInfo, error) {
+	if a.fileService == nil {
+		return nil, fmt.Errorf("file service not initialized")
+	}
+	
+	// Convert string to FileCategory type
+	var fileCategory database.FileCategory
+	switch category {
+	case "all_files":
+		fileCategory = database.AllFiles
+	case "user_request_related":
+		fileCategory = database.UserRequestRelated
+	default:
+		return nil, fmt.Errorf("invalid file category: %s", category)
+	}
+	
+	a.Log(fmt.Sprintf("[FILES] Getting files for category: %s", category))
+	files, err := a.fileService.GetFilesByCategory(fileCategory)
+	if err != nil {
+		a.Log(fmt.Sprintf("[FILES] Failed to get files: %v", err))
+		return nil, err
+	}
+	
+	a.Log(fmt.Sprintf("[FILES] Retrieved %d files for category %s", len(files), category))
+	return files, nil
+}
+
+// DownloadFile returns the file path for download (Task 5.5)
+func (a *App) DownloadFile(fileID string) (string, error) {
+	if a.fileService == nil {
+		return "", fmt.Errorf("file service not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[FILES] Downloading file: %s", fileID))
+	filePath, err := a.fileService.DownloadFile(fileID)
+	if err != nil {
+		a.Log(fmt.Sprintf("[FILES] Failed to download file: %v", err))
+		return "", err
+	}
+	
+	a.Log(fmt.Sprintf("[FILES] File download path: %s", filePath))
+	return filePath, nil
+}
+
+// ExportDashboard exports dashboard data with component filtering (Task 5.6)
+func (a *App) ExportDashboard(req database.ExportRequest) (*database.ExportResult, error) {
+	if a.exportService == nil {
+		return nil, fmt.Errorf("export service not initialized")
+	}
+	
+	a.Log(fmt.Sprintf("[EXPORT] Exporting dashboard for user: %s, format: %s", req.UserID, req.Format))
+	result, err := a.exportService.ExportDashboard(req)
+	if err != nil {
+		a.Log(fmt.Sprintf("[EXPORT] Failed to export dashboard: %v", err))
+		return nil, err
+	}
+	
+	a.Log(fmt.Sprintf("[EXPORT] Dashboard exported successfully: %s", result.FilePath))
+	a.Log(fmt.Sprintf("[EXPORT] Included components: %d, Excluded components: %d", 
+		len(result.IncludedComponents), len(result.ExcludedComponents)))
 	return result, nil
 }
