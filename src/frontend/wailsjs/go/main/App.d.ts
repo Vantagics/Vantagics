@@ -12,6 +12,8 @@ export function CancelAnalysis():Promise<void>;
 
 export function CheckChromeAvailability():Promise<main.ChromeCheckResult>;
 
+export function CheckChromeOnStartup():Promise<boolean>;
+
 export function CheckRapidBIEnvironmentExists():Promise<boolean>;
 
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
@@ -131,6 +133,8 @@ export function OpenDevTools():Promise<void>;
 export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
+
+export function OpenURL(arg1:string):Promise<void>;
 
 export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 

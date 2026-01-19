@@ -53,7 +53,7 @@ function App() {
 
     // Startup State
     const [isAppReady, setIsAppReady] = useState(false);
-    const [startupStatus, setStartupStatus] = useState<"checking" | "failed">("checking");
+    const [startupStatus, setStartupStatus] = useState<"checking" | "failed" | "chrome_missing">("checking");
     const [startupMessage, setStartupMessage] = useState(t('initializing'));
 
     // Layout State
@@ -67,6 +67,29 @@ function App() {
 
     const checkLLM = async () => {
         setStartupStatus("checking");
+        
+        // Step 1: Check Chrome availability first
+        setStartupMessage(t('checking_chrome'));
+        try {
+            // @ts-ignore - CheckChromeAvailability is defined in App.go
+            const chromeResult = await window.go.main.App.CheckChromeAvailability();
+            
+            if (!chromeResult.available) {
+                // Set a special status for Chrome failure
+                setStartupStatus("chrome_missing");
+                setStartupMessage(chromeResult.message);
+                return;
+            }
+            
+            logger.info("Chrome check passed");
+        } catch (err: any) {
+            console.error("Chrome check failed:", err);
+            setStartupStatus("chrome_missing");
+            setStartupMessage(err.message || String(err));
+            return;
+        }
+        
+        // Step 2: Check LLM configuration
         setStartupMessage(t('checking_llm_config'));
         try {
             const config = await GetConfig();
@@ -100,6 +123,21 @@ function App() {
             setStartupStatus("failed");
             setStartupMessage(err.message || String(err));
             setIsPreferenceOpen(true);
+        }
+    };
+
+    // Helper function to open Chrome download URL
+    const openChromeDownload = async () => {
+        try {
+            const config = await GetConfig();
+            const url = config.language === '简体中文' 
+                ? 'https://www.google.cn/chrome/'
+                : 'https://www.google.com/chrome/';
+            
+            // @ts-ignore - OpenURL is defined in App.go
+            await window.go.main.App.OpenURL(url);
+        } catch (err) {
+            console.error('Failed to open Chrome download URL:', err);
         }
     };
 
@@ -848,31 +886,122 @@ function App() {
             <div className="flex h-screen w-screen bg-slate-50 items-center justify-center flex-col gap-6 relative">
                 {/* Removed draggable area - using system window border for dragging */}
 
-                <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                {startupStatus !== 'chrome_missing' && (
+                    <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                )}
 
-                <div className="text-center max-w-md px-6">
-                    <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('system_startup')}</h2>
-                    <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
-                        {startupMessage}
-                    </p>
+                {startupStatus === 'chrome_missing' ? (
+                    // Chrome Missing UI
+                    <div className="max-w-2xl mx-auto px-6">
+                        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+                            {/* Header */}
+                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-8 py-6">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-lg">
+                                        <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                    </div>
+                                    <div className="flex-1">
+                                        <h2 className="text-2xl font-bold text-white mb-1">
+                                            {t('chrome_required_title')}
+                                        </h2>
+                                        <p className="text-amber-50 text-sm">
+                                            {t('chrome_required_subtitle')}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
 
-                    {startupStatus === 'failed' && (
-                        <div className="mt-6 flex flex-col gap-3">
-                            <button
-                                onClick={() => setIsPreferenceOpen(true)}
-                                className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
-                            >
-                                {t('open_settings')}
-                            </button>
-                            <button
-                                onClick={checkLLM}
-                                className="px-6 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-md hover:bg-slate-50 transition-colors"
-                            >
-                                {t('retry_connection')}
-                            </button>
+                            {/* Content */}
+                            <div className="px-8 py-6">
+                                <div className="space-y-4">
+                                    <p className="text-slate-700 leading-relaxed">
+                                        {t('chrome_required_message')}
+                                    </p>
+
+                                    {/* Installation Steps */}
+                                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                        <h3 className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                                            </svg>
+                                            {t('installation_steps')}
+                                        </h3>
+                                        <ol className="space-y-2 text-sm text-blue-800">
+                                            <li className="flex items-start gap-2">
+                                                <span className="flex-shrink-0 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
+                                                <span>{t('chrome_step_1')}</span>
+                                            </li>
+                                            <li className="flex items-start gap-2">
+                                                <span className="flex-shrink-0 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
+                                                <span>{t('chrome_step_2')}</span>
+                                            </li>
+                                            <li className="flex items-start gap-2">
+                                                <span className="flex-shrink-0 w-5 h-5 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
+                                                <span>{t('chrome_step_3')}</span>
+                                            </li>
+                                        </ol>
+                                    </div>
+
+                                    {/* Note */}
+                                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                        <p className="text-xs text-slate-600 leading-relaxed">
+                                            <span className="font-semibold text-slate-700">{t('note')}:</span> {t('chrome_note')}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="px-8 py-6 bg-slate-50 border-t border-slate-200 flex gap-3">
+                                <button
+                                    onClick={openChromeDownload}
+                                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-semibold rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    {t('download_chrome')}
+                                </button>
+                                <button
+                                    onClick={checkLLM}
+                                    className="px-6 py-3 bg-white border-2 border-slate-300 text-slate-700 text-sm font-semibold rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    {t('retry_check')}
+                                </button>
+                            </div>
                         </div>
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    // Normal startup UI
+                    <div className="text-center max-w-md px-6">
+                        <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('system_startup')}</h2>
+                        <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
+                            {startupMessage}
+                        </p>
+
+                        {startupStatus === 'failed' && (
+                            <div className="mt-6 flex flex-col gap-3">
+                                <button
+                                    onClick={() => setIsPreferenceOpen(true)}
+                                    className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
+                                >
+                                    {t('open_settings')}
+                                </button>
+                                <button
+                                    onClick={checkLLM}
+                                    className="px-6 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-md hover:bg-slate-50 transition-colors"
+                                >
+                                    {t('retry_connection')}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <PreferenceModal
                     isOpen={isPreferenceOpen}

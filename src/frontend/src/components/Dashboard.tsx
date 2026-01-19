@@ -942,21 +942,52 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
 
     // Render session files download section
     const renderFilesSection = () => {
-        logger.debug(`renderFilesSection called: sessionFiles=${sessionFiles?.length || 0}, selectedMessageId=${selectedMessageId}`);
+        logger.debug(`[renderFilesSection] Called with sessionFiles count: ${sessionFiles?.length || 0}, selectedMessageId: ${selectedMessageId}`);
+        
+        if (sessionFiles && sessionFiles.length > 0) {
+            logger.debug(`[renderFilesSection] Session files: ${JSON.stringify(sessionFiles.map(f => ({
+                name: f.name,
+                message_id: f.message_id,
+                type: f.type
+            })))}`);
+        }
         
         if (!sessionFiles || sessionFiles.length === 0) {
+            logger.debug(`[renderFilesSection] No session files available`);
             return null;
         }
 
         // 过滤只显示当前消息的文件
         const filteredFiles = selectedMessageId 
-            ? sessionFiles.filter(file => file.message_id === selectedMessageId)
+            ? sessionFiles.filter(file => {
+                const matches = file.message_id === selectedMessageId;
+                logger.debug(`[renderFilesSection] File ${file.name}: message_id=${file.message_id}, matches=${matches}`);
+                return matches;
+            })
             : sessionFiles;
 
-        logger.debug(`Filtered files for message ${selectedMessageId}: ${filteredFiles.length} files`);
+        logger.debug(`[renderFilesSection] Filtered ${filteredFiles.length} files for message ${selectedMessageId}`);
         
         if (filteredFiles.length === 0) {
-            return null;
+            logger.warn(`[renderFilesSection] No files match selectedMessageId: ${selectedMessageId}`);
+            // 如果没有匹配的文件，显示所有文件（可能是message_id不匹配的问题）
+            logger.debug(`[renderFilesSection] Showing all ${sessionFiles.length} files as fallback`);
+            return (
+                <section className="mb-6 animate-in fade-in slide-in-from-top-2 duration-500">
+                    <h2 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                        <Download className="w-5 h-5 text-blue-500" />
+                        {t('session_files') || 'Generated Files'}
+                        <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                            (Showing all files - message filter not matched)
+                        </span>
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {sessionFiles.map((file, index) => (
+                            <FileCard key={index} file={file} />
+                        ))}
+                    </div>
+                </section>
+            );
         }
 
         return (

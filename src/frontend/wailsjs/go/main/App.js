@@ -18,6 +18,10 @@ export function CheckChromeAvailability() {
   return window['go']['main']['App']['CheckChromeAvailability']();
 }
 
+export function CheckChromeOnStartup() {
+  return window['go']['main']['App']['CheckChromeOnStartup']();
+}
+
 export function CheckRapidBIEnvironmentExists() {
   return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
 }
@@ -256,6 +260,10 @@ export function OpenSessionFile(arg1, arg2) {
 
 export function OpenSessionResultsDirectory(arg1) {
   return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
+}
+
+export function OpenURL(arg1) {
+  return window['go']['main']['App']['OpenURL'](arg1);
 }
 
 export function PrepareImportAnalysis() {

@@ -1008,10 +1008,19 @@ func (a *App) TestSearchEngine(url string) ConnectionResult {
 
 // TestSearchTools tests web_search and web_fetch tools with a sample query
 func (a *App) TestSearchTools(engineURL string) ConnectionResult {
+	// Get user's language preference
+	cfg, _ := a.GetConfig()
+	lang := cfg.Language
+	isChinese := lang == "简体中文"
+	
 	if engineURL == "" {
+		msg := "Search engine URL is required"
+		if isChinese {
+			msg = "搜索引擎URL不能为空"
+		}
 		return ConnectionResult{
 			Success: false,
-			Message: "Search engine URL is required",
+			Message: msg,
 		}
 	}
 
@@ -1061,7 +1070,7 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
 		
 		// Provide helpful error message based on the error type
-		errorMsg := fmt.Sprintf("web_search failed: %v", err)
+		var errorMsg string
 		
 		// Check for specific error patterns
 		if strings.Contains(err.Error(), "no search results found") {
@@ -1070,66 +1079,131 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 			a.WriteSystemLog("WARNING", "SearchTest", "Search engine may be redirected or blocked. Check debug HTML files in dist/ folder.")
 			
 			if strings.Contains(strings.ToLower(engineURL), "google") {
-				errorMsg = "Search failed: No results found.\n\n" +
-					"⚠️ Google appears to be redirected or blocked.\n\n" +
-					"Common causes:\n" +
-					"1. DNS hijacking (redirected to 360搜索 or other search engines)\n" +
-					"2. Network firewall blocking Google\n" +
-					"3. Regional restrictions\n\n" +
-					"Solutions:\n" +
-					"1. ✅ Use Bing (www.bing.com) - Works in most regions\n" +
-					"2. ✅ Use Baidu (www.baidu.com) - Best for Chinese content\n" +
-					"3. Configure a proxy server in Network Settings\n\n" +
-					"Debug: Check dist/debug_google_*.html to see actual page content"
+				if isChinese {
+					errorMsg = "搜索失败：未找到结果。\n\n" +
+						"⚠️ Google似乎被重定向或屏蔽。\n\n" +
+						"常见原因：\n" +
+						"1. DNS劫持（被重定向到360搜索或其他搜索引擎）\n" +
+						"2. 网络防火墙屏蔽Google\n" +
+						"3. 地区限制\n\n" +
+						"解决方案：\n" +
+						"1. ✅ 使用Bing (www.bing.com) - 在大多数地区可用\n" +
+						"2. ✅ 使用百度 (www.baidu.com) - 最适合中文内容\n" +
+						"3. 在网络设置中配置代理服务器\n\n" +
+						"调试：检查 dist/debug_google_*.html 查看实际页面内容"
+				} else {
+					errorMsg = "Search failed: No results found.\n\n" +
+						"⚠️ Google appears to be redirected or blocked.\n\n" +
+						"Common causes:\n" +
+						"1. DNS hijacking (redirected to 360搜索 or other search engines)\n" +
+						"2. Network firewall blocking Google\n" +
+						"3. Regional restrictions\n\n" +
+						"Solutions:\n" +
+						"1. ✅ Use Bing (www.bing.com) - Works in most regions\n" +
+						"2. ✅ Use Baidu (www.baidu.com) - Best for Chinese content\n" +
+						"3. Configure a proxy server in Network Settings\n\n" +
+						"Debug: Check dist/debug_google_*.html to see actual page content"
+				}
 			} else {
-				errorMsg = "Search failed: No results found.\n\n" +
-					"The page loaded but search results couldn't be extracted.\n\n" +
-					"Possible causes:\n" +
-					"1. Search engine HTML structure changed\n" +
-					"2. Page was redirected\n" +
-					"3. Anti-bot detection\n\n" +
-					"Solutions:\n" +
-					"1. Try a different search engine\n" +
-					"2. Check debug HTML files in dist/ folder\n" +
-					"3. Report this issue with the debug HTML file"
+				if isChinese {
+					errorMsg = "搜索失败：未找到结果。\n\n" +
+						"页面已加载但无法提取搜索结果。\n\n" +
+						"可能原因：\n" +
+						"1. 搜索引擎HTML结构已更改\n" +
+						"2. 页面被重定向\n" +
+						"3. 反机器人检测\n\n" +
+						"解决方案：\n" +
+						"1. 尝试其他搜索引擎\n" +
+						"2. 检查 dist/ 文件夹中的调试HTML文件\n" +
+						"3. 将调试HTML文件报告此问题"
+				} else {
+					errorMsg = "Search failed: No results found.\n\n" +
+						"The page loaded but search results couldn't be extracted.\n\n" +
+						"Possible causes:\n" +
+						"1. Search engine HTML structure changed\n" +
+						"2. Page was redirected\n" +
+						"3. Anti-bot detection\n\n" +
+						"Solutions:\n" +
+						"1. Try a different search engine\n" +
+						"2. Check debug HTML files in dist/ folder\n" +
+						"3. Report this issue with the debug HTML file"
+				}
 			}
 		} else if strings.Contains(err.Error(), "context deadline exceeded") {
 			// Timeout error
 			a.WriteSystemLog("ERROR", "SearchTest", "Search timeout after 90 seconds")
 			
 			if strings.Contains(strings.ToLower(engineURL), "google") {
-				errorMsg = "Search timeout (90s exceeded).\n\n" +
-					"⚠️ Google may be blocked in your region.\n\n" +
-					"Suggestions:\n" +
-					"1. Try Bing (www.bing.com) or Baidu (www.baidu.com)\n" +
-					"2. Configure a proxy in Network Settings\n" +
-					"3. Use a VPN\n\n" +
-					"Note: The connection test passed, but actual search timed out. " +
-					"This usually means the search engine is blocked or very slow in your network."
+				if isChinese {
+					errorMsg = "搜索超时（超过90秒）。\n\n" +
+						"⚠️ Google可能在您的地区被屏蔽。\n\n" +
+						"建议：\n" +
+						"1. 尝试Bing (www.bing.com) 或百度 (www.baidu.com)\n" +
+						"2. 在网络设置中配置代理\n" +
+						"3. 使用VPN\n\n" +
+						"注意：连接测试通过，但实际搜索超时。" +
+						"这通常意味着搜索引擎在您的网络中被屏蔽或非常慢。"
+				} else {
+					errorMsg = "Search timeout (90s exceeded).\n\n" +
+						"⚠️ Google may be blocked in your region.\n\n" +
+						"Suggestions:\n" +
+						"1. Try Bing (www.bing.com) or Baidu (www.baidu.com)\n" +
+						"2. Configure a proxy in Network Settings\n" +
+						"3. Use a VPN\n\n" +
+						"Note: The connection test passed, but actual search timed out. " +
+						"This usually means the search engine is blocked or very slow in your network."
+				}
 			} else {
-				errorMsg = "Search timeout (90s exceeded).\n\n" +
-					"The search engine is taking too long to respond.\n\n" +
-					"Possible causes:\n" +
-					"1. Network is slow or unstable\n" +
-					"2. Search engine may be blocked\n" +
-					"3. Proxy configuration needed\n\n" +
-					"Suggestions:\n" +
-					"1. Try a different search engine\n" +
-					"2. Configure a proxy in Network Settings\n" +
-					"3. Check your network connection"
+				if isChinese {
+					errorMsg = "搜索超时（超过90秒）。\n\n" +
+						"搜索引擎响应时间过长。\n\n" +
+						"可能原因：\n" +
+						"1. 网络缓慢或不稳定\n" +
+						"2. 搜索引擎可能被屏蔽\n" +
+						"3. 需要配置代理\n\n" +
+						"建议：\n" +
+						"1. 尝试其他搜索引擎\n" +
+						"2. 在网络设置中配置代理\n" +
+						"3. 检查您的网络连接"
+				} else {
+					errorMsg = "Search timeout (90s exceeded).\n\n" +
+						"The search engine is taking too long to respond.\n\n" +
+						"Possible causes:\n" +
+						"1. Network is slow or unstable\n" +
+						"2. Search engine may be blocked\n" +
+						"3. Proxy configuration needed\n\n" +
+						"Suggestions:\n" +
+						"1. Try a different search engine\n" +
+						"2. Configure a proxy in Network Settings\n" +
+						"3. Check your network connection"
+				}
 			}
 		} else if strings.Contains(strings.ToLower(err.Error()), "captcha") {
 			// Captcha detected
 			a.WriteSystemLog("WARNING", "SearchTest", "Captcha or bot detection encountered")
-			errorMsg = "Search failed: Bot detection.\n\n" +
-				"The search engine detected automated access.\n\n" +
-				"Solutions:\n" +
-				"1. Wait a few minutes and try again\n" +
-				"2. Use a different search engine\n" +
-				"3. Configure a proxy to change IP address"
+			if isChinese {
+				errorMsg = "搜索失败：检测到机器人。\n\n" +
+					"搜索引擎检测到自动化访问。\n\n" +
+					"解决方案：\n" +
+					"1. 等待几分钟后重试\n" +
+					"2. 使用其他搜索引擎\n" +
+					"3. 配置代理以更改IP地址"
+			} else {
+				errorMsg = "Search failed: Bot detection.\n\n" +
+					"The search engine detected automated access.\n\n" +
+					"Solutions:\n" +
+					"1. Wait a few minutes and try again\n" +
+					"2. Use a different search engine\n" +
+					"3. Configure a proxy to change IP address"
+			}
 		} else {
 			// Generic error
 			a.WriteSystemLog("ERROR", "SearchTest", fmt.Sprintf("Unexpected error: %v", err))
+			if isChinese {
+				errorMsg = fmt.Sprintf("搜索失败：%v", err)
+			} else {
+				errorMsg = fmt.Sprintf("web_search failed: %v", err)
+			}
 		}
 		
 		return ConnectionResult{
@@ -1147,9 +1221,14 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 		errMsg := fmt.Sprintf("[SEARCH-TEST] Failed to parse search results: %v", err)
 		a.logger.Log(errMsg)
 		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
+		
+		msg := fmt.Sprintf("Failed to parse search results: %v", err)
+		if isChinese {
+			msg = fmt.Sprintf("解析搜索结果失败：%v", err)
+		}
 		return ConnectionResult{
 			Success: false,
-			Message: fmt.Sprintf("Failed to parse search results: %v", err),
+			Message: msg,
 		}
 	}
 
@@ -1157,9 +1236,14 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 		errMsg := "[SEARCH-TEST] No search results found after parsing"
 		a.logger.Log(errMsg)
 		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
+		
+		msg := "No search results found for 'whitehouse'"
+		if isChinese {
+			msg = "未找到'whitehouse'的搜索结果"
+		}
 		return ConnectionResult{
 			Success: false,
-			Message: "No search results found for 'whitehouse'",
+			Message: msg,
 		}
 	}
 
@@ -1179,9 +1263,14 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 		errMsg := fmt.Sprintf("[SEARCH-TEST] web_fetch failed: %v", err)
 		a.logger.Log(errMsg)
 		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
+		
+		msg := fmt.Sprintf("web_fetch failed: %v", err)
+		if isChinese {
+			msg = fmt.Sprintf("网页抓取失败：%v", err)
+		}
 		return ConnectionResult{
 			Success: false,
-			Message: fmt.Sprintf("web_fetch failed: %v", err),
+			Message: msg,
 		}
 	}
 
@@ -1189,16 +1278,30 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("web_fetch succeeded, got %d bytes", len(fetchResult)))
 
 	// Success message with details
-	successMsg := fmt.Sprintf(
-		"✓ Search tools test passed!\n\n"+
-		"web_search: Found %d results for 'whitehouse'\n"+
-		"First result: %s\n\n"+
-		"web_fetch: Successfully fetched %d bytes from:\n%s",
-		len(searchResults),
-		searchResults[0].Title,
-		len(fetchResult),
-		firstURL,
-	)
+	var successMsg string
+	if isChinese {
+		successMsg = fmt.Sprintf(
+			"✓ 搜索工具测试通过！\n\n"+
+			"网页搜索：找到 %d 条'whitehouse'的结果\n"+
+			"第一条结果：%s\n\n"+
+			"网页抓取：成功抓取 %d 字节内容：\n%s",
+			len(searchResults),
+			searchResults[0].Title,
+			len(fetchResult),
+			firstURL,
+		)
+	} else {
+		successMsg = fmt.Sprintf(
+			"✓ Search tools test passed!\n\n"+
+			"web_search: Found %d results for 'whitehouse'\n"+
+			"First result: %s\n\n"+
+			"web_fetch: Successfully fetched %d bytes from:\n%s",
+			len(searchResults),
+			searchResults[0].Title,
+			len(fetchResult),
+			firstURL,
+		)
+	}
 
 	a.logger.Log("[SEARCH-TEST] All tests passed successfully")
 	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("Search tools test passed for %s", engineURL))

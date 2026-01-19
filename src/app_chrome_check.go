@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ChromeCheckResult represents the result of Chrome availability check
@@ -56,6 +57,89 @@ func (a *App) CheckChromeAvailability() ChromeCheckResult {
 		Message:   "Chrome/Chromium is available for web search",
 		Path:      chromePath,
 	}
+}
+
+// CheckChromeOnStartup checks Chrome availability and shows dialog if not available
+func (a *App) CheckChromeOnStartup() bool {
+	result := a.CheckChromeAvailability()
+	
+	if !result.Available {
+		a.Log("[CHROME-CHECK] Chrome not available, showing install dialog")
+		
+		// Get config to determine language
+		cfg, _ := a.GetConfig()
+		language := cfg.Language
+		
+		// Show dialog with install prompt
+		go func() {
+			// Wait a bit for UI to be ready
+			time.Sleep(500 * time.Millisecond)
+			
+			var title, message, installButton, cancelButton string
+			var downloadURL string
+			
+			if language == "简体中文" {
+				title = "需要安装Chrome浏览器"
+				message = "Web搜索功能需要Chrome浏览器支持。\n\n是否前往下载页面？"
+				installButton = "前往下载"
+				cancelButton = "稍后安装"
+				downloadURL = "https://www.google.cn/chrome/"
+			} else {
+				title = "Chrome Browser Required"
+				message = "Web search requires Chrome browser.\n\nWould you like to download it now?"
+				installButton = "Download Chrome"
+				cancelButton = "Later"
+				downloadURL = "https://www.google.com/chrome/"
+			}
+			
+			selection, err := wailsRuntime.MessageDialog(a.ctx, wailsRuntime.MessageDialogOptions{
+				Type:          wailsRuntime.QuestionDialog,
+				Title:         title,
+				Message:       message,
+				Buttons:       []string{installButton, cancelButton},
+				DefaultButton: installButton,
+				CancelButton:  cancelButton,
+			})
+			
+			if err == nil && selection == installButton {
+				a.Log("[CHROME-CHECK] User chose to download Chrome")
+				a.OpenURL(downloadURL)
+			} else {
+				a.Log("[CHROME-CHECK] User chose to install Chrome later")
+			}
+		}()
+		
+		return false
+	}
+	
+	a.Log("[CHROME-CHECK] Chrome is available")
+	return true
+}
+
+// OpenURL opens a URL in the default browser
+func (a *App) OpenURL(url string) error {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		a.Log("[OPEN-URL] Unsupported platform: " + runtime.GOOS)
+		return nil
+	}
+	
+	err := cmd.Start()
+	if err != nil {
+		a.Log("[OPEN-URL] Failed to open URL: " + err.Error())
+		return err
+	}
+	
+	a.Log("[OPEN-URL] Opened URL: " + url)
+	return nil
 }
 
 // getChromeInstallMessage returns platform-specific Chrome installation instructions
