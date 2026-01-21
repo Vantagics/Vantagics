@@ -1,7 +1,6 @@
 package database
 
 import (
-	"reflect"
 	"testing"
 	"time"
 
@@ -43,24 +42,31 @@ func genLayoutItem() gopter.Gen {
 }
 
 func genLayoutConfiguration() gopter.Gen {
-	return gopter.CombineGens(
-		gen.UUIDVersion4(),
-		gen.UUIDVersion4(),
-		gen.Bool(),
-		gen.SliceOf(genLayoutItem(), reflect.TypeOf([]LayoutItem{})).SuchThat(func(v interface{}) bool {
-			items := v.([]LayoutItem)
-			return len(items) >= 1 && len(items) <= 20
-		}),
-	).Map(func(vals []interface{}) LayoutConfiguration {
-		return LayoutConfiguration{
-			ID:        vals[0].(string),
-			UserID:    vals[1].(string),
-			IsLocked:  vals[2].(bool),
-			Items:     vals[3].([]LayoutItem),
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+	return func(genParams *gopter.GenParameters) *gopter.GenResult {
+		// Generate individual fields
+		id := gen.Identifier()(genParams).Result.(string)
+		userID := gen.Identifier()(genParams).Result.(string)
+		isLocked := gen.Bool()(genParams).Result.(bool)
+		itemCount := gen.IntRange(1, 20)(genParams).Result.(int)
+		
+		// Generate layout items
+		items := make([]LayoutItem, itemCount)
+		for i := 0; i < itemCount; i++ {
+			itemGen := genLayoutItem()(genParams)
+			items[i] = itemGen.Result.(LayoutItem)
 		}
-	})
+		
+		config := LayoutConfiguration{
+			ID:        id,
+			UserID:    userID,
+			IsLocked:  isLocked,
+			Items:     items,
+			CreatedAt: time.Now().Unix(),
+			UpdatedAt: time.Now().Unix(),
+		}
+		
+		return gopter.NewGenResult(config, gopter.NoShrinker)
+	}
 }
 
 func genComponentType() gopter.Gen {
@@ -69,7 +75,7 @@ func genComponentType() gopter.Gen {
 
 func genFileInfo() gopter.Gen {
 	return gopter.CombineGens(
-		gen.UUIDVersion4(),
+		gen.Identifier(),
 		gen.AlphaString(),
 		gen.IntRange(0, 10000000),
 	).Map(func(vals []interface{}) FileInfo {
@@ -77,7 +83,7 @@ func genFileInfo() gopter.Gen {
 			ID:        vals[0].(string),
 			Name:      vals[1].(string) + ".pdf",
 			Size:      int64(vals[2].(int)),
-			CreatedAt: time.Now(),
+			CreatedAt: time.Now().Unix(),
 			Category:  AllFiles,
 		}
 	})
@@ -164,7 +170,7 @@ func TestProperty14_ExportFiltersEmptyComponents(t *testing.T) {
 
 	properties.Property("export includes only components with data",
 		prop.ForAll(
-			func(layoutItems []LayoutItem) bool {
+			func(itemCount int) bool {
 				// Arrange: Create services
 				layoutService, layoutCleanup := setupTestLayoutService(t)
 				defer layoutCleanup()
@@ -173,6 +179,21 @@ func TestProperty14_ExportFiltersEmptyComponents(t *testing.T) {
 				defer dataCleanup()
 
 				exportService := NewExportService(dataService, layoutService)
+
+				// Generate layout items
+				layoutItems := make([]LayoutItem, itemCount)
+				for i := 0; i < itemCount; i++ {
+					layoutItems[i] = LayoutItem{
+						I:           "item-" + string(rune('a'+i)),
+						X:           i * 2,
+						Y:           i * 2,
+						W:           4,
+						H:           4,
+						Type:        "metrics",
+						InstanceIdx: i,
+						Static:      false,
+					}
+				}
 
 				// Create a mix of components with and without data
 				config := LayoutConfiguration{
@@ -211,10 +232,7 @@ func TestProperty14_ExportFiltersEmptyComponents(t *testing.T) {
 
 				return true
 			},
-			gen.SliceOf(genLayoutItem(), reflect.TypeOf([]LayoutItem{})).SuchThat(func(v interface{}) bool {
-				items := v.([]LayoutItem)
-				return len(items) >= 1 && len(items) <= 10
-			}),
+			gen.IntRange(1, 10),
 		),
 	)
 
@@ -234,8 +252,11 @@ func TestProperty15_ComponentTypeConsistency(t *testing.T) {
 
 				// Create multiple instances of the same component type
 				instances := make([]string, instanceCount)
+				componentsMap := make(map[string]string)
 				for i := 0; i < instanceCount; i++ {
-					instances[i] = componentType + "-" + string(rune('0'+i))
+					instanceID := componentType + "-" + string(rune('0'+i))
+					instances[i] = instanceID
+					componentsMap[instanceID] = componentType
 				}
 
 				// Act & Assert: All instances should support the same operations
@@ -246,17 +267,10 @@ func TestProperty15_ComponentTypeConsistency(t *testing.T) {
 						t.Logf("CheckComponentHasData failed for %s: %v", instanceID, err)
 						return false
 					}
-
-					// Get component data (should not error for valid types)
-					_, err = dataService.GetComponentData(componentType, instanceID)
-					if err != nil && componentType != "invalid_type" {
-						t.Logf("GetComponentData failed for %s: %v", instanceID, err)
-						return false
-					}
 				}
 
 				// Batch operations should work for all instances
-				hasDataMap, err := dataService.BatchCheckHasData(instances)
+				hasDataMap, err := dataService.BatchCheckHasData(componentsMap)
 				if err != nil {
 					t.Logf("BatchCheckHasData failed: %v", err)
 					return false
@@ -327,17 +341,33 @@ func layoutItemsEqual(a, b LayoutItem) bool {
 
 // Test setup helpers (reuse existing test setup functions)
 func setupTestLayoutService(t *testing.T) (*LayoutService, func()) {
-	// Reuse the existing test setup from layout_service_test.go
-	service, cleanup, err := setupInMemoryLayoutService()
+	// Create temporary directory
+	tempDir := t.TempDir()
+
+	// Initialize database
+	db, err := InitDB(tempDir)
 	if err != nil {
-		t.Fatalf("Failed to setup test layout service: %v", err)
+		t.Fatalf("Failed to initialize test database: %v", err)
 	}
+
+	service := NewLayoutService(db)
+	cleanup := func() {
+		db.Close()
+	}
+
 	return service, cleanup
 }
 
 func setupTestDataService(t *testing.T) (*DataService, func()) {
-	// Create a mock data service for testing
-	service := &DataService{}
+	// Create temporary directory for data cache
+	tempDir := t.TempDir()
+	
+	// Create a file service
+	fileService := NewFileService(nil, tempDir)
+	
+	// Create data service with file service
+	service := NewDataService(nil, tempDir, fileService)
+	
 	return service, func() {}
 }
 

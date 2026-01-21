@@ -21,6 +21,7 @@ type PythonExecutorTool struct {
 	pool              *PythonPool
 	errorKnowledge    *ErrorKnowledge
 	sessionDir        string // Directory to save session files
+	requestID         string // Request ID for unique file naming
 	onFileSaved       func(fileName, fileType string, fileSize int64) // Callback when file is saved
 	executionRecorder *ExecutionRecorder // Records Python executions for replay
 }
@@ -54,6 +55,11 @@ func (t *PythonExecutorTool) SetExecutionRecorder(recorder *ExecutionRecorder) {
 // SetSessionDirectory sets the directory where session files should be saved
 func (t *PythonExecutorTool) SetSessionDirectory(dir string) {
 	t.sessionDir = dir
+}
+
+// SetRequestID sets the request ID for unique file naming
+func (t *PythonExecutorTool) SetRequestID(requestID string) {
+	t.requestID = requestID
 }
 
 // SetFileSavedCallback sets the callback for when files are saved
@@ -269,12 +275,19 @@ except Exception as e:
 			return "", err
 		}
 
-		// Generate unique filename to prevent overwriting
-		// Format: originalName_timestamp.ext (e.g., chart_1768437302231.png)
+		// Generate unique filename with request ID to prevent overwriting
+		// Format: requestId_originalName.ext (e.g., msg_123_chart.png)
+		// If no request ID, fall back to timestamp
 		ext := filepath.Ext(fileName)
 		baseName := strings.TrimSuffix(fileName, ext)
-		timestamp := time.Now().UnixNano() / 1000000 // milliseconds
-		uniqueFileName := fmt.Sprintf("%s_%d%s", baseName, timestamp, ext)
+		var uniqueFileName string
+		if t.requestID != "" {
+			uniqueFileName = fmt.Sprintf("%s_%s%s", t.requestID, baseName, ext)
+		} else {
+			// Fallback to timestamp if no request ID
+			timestamp := time.Now().UnixNano() / 1000000 // milliseconds
+			uniqueFileName = fmt.Sprintf("%s_%d%s", baseName, timestamp, ext)
+		}
 		
 		destPath := filepath.Join(filesDir, uniqueFileName)
 

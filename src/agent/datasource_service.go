@@ -469,12 +469,32 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 // sanitizeName makes a string safe for use as a table or column name
 func (s *DataSourceService) sanitizeName(name string) string {
 	name = strings.TrimSpace(name)
-	name = strings.Map(func(r rune) rune {
+	
+	// Build a new name, preserving Unicode characters (including Chinese)
+	// Only replace characters that are problematic for SQL identifiers
+	var result strings.Builder
+	for _, r := range name {
+		// Allow:
+		// - ASCII letters and numbers
+		// - Underscore
+		// - Unicode letters and numbers (including Chinese characters)
+		// Replace only: spaces, quotes, backticks, and other SQL special characters
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-			return r
+			result.WriteRune(r)
+		} else if r > 127 { // Unicode character (including Chinese)
+			// Check if it's a valid Unicode letter or number
+			// This preserves Chinese, Japanese, Korean, etc.
+			result.WriteRune(r)
+		} else if r == ' ' || r == '-' {
+			// Replace spaces and hyphens with underscore
+			result.WriteRune('_')
+		} else {
+			// Replace other special characters with underscore
+			result.WriteRune('_')
 		}
-		return '_'
-	}, name)
+	}
+	
+	name = result.String()
 	if name == "" {
 		return "unknown"
 	}
@@ -483,10 +503,73 @@ func (s *DataSourceService) sanitizeName(name string) string {
 
 // processSheet handles the schema inference and data import for a single sheet
 func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]string, headerGen func(string) (string, error)) error {
+	if len(rows) == 0 {
+		return fmt.Errorf("no rows to process")
+	}
+
+	// Determine the maximum number of columns
+	maxCols := 0
+	for _, row := range rows {
+		if len(row) > maxCols {
+			maxCols = len(row)
+		}
+	}
+
+	// Identify valid columns (columns with meaningful data)
+	// A column is considered valid if:
+	// 1. It has a non-empty header (if hasHeader is true), OR
+	// 2. It has at least one non-empty data value
+	hasHeader := s.isHeaderRow(rows[0])
+	validColumns := make([]bool, maxCols)
+	
+	for colIdx := 0; colIdx < maxCols; colIdx++ {
+		hasData := false
+		
+		// Check header row if it exists
+		if hasHeader && colIdx < len(rows[0]) {
+			header := strings.TrimSpace(rows[0][colIdx])
+			if header != "" {
+				hasData = true
+			}
+		}
+		
+		// Check data rows for non-empty values
+		startRow := 0
+		if hasHeader {
+			startRow = 1
+		}
+		
+		for rowIdx := startRow; rowIdx < len(rows) && rowIdx < startRow+20; rowIdx++ {
+			if colIdx < len(rows[rowIdx]) {
+				cellValue := strings.TrimSpace(rows[rowIdx][colIdx])
+				if cellValue != "" {
+					hasData = true
+					break
+				}
+			}
+		}
+		
+		validColumns[colIdx] = hasData
+	}
+	
+	// Filter rows to only include valid columns
+	filteredRows := make([][]string, len(rows))
+	for rowIdx, row := range rows {
+		filteredRow := []string{}
+		for colIdx := 0; colIdx < len(row); colIdx++ {
+			if colIdx < len(validColumns) && validColumns[colIdx] {
+				filteredRow = append(filteredRow, row[colIdx])
+			}
+		}
+		filteredRows[rowIdx] = filteredRow
+	}
+	
+	// Update rows to use filtered data
+	rows = filteredRows
+	
 	// Schema Inference and Table Creation
 	var headers []string
 	var dataStartRow int
-	hasHeader := s.isHeaderRow(rows[0])
 
 	// Determine column types using the first few data rows
 	numCols := 0
@@ -494,6 +577,10 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		if len(row) > numCols {
 			numCols = len(row)
 		}
+	}
+	
+	if numCols == 0 {
+		return fmt.Errorf("no valid columns found in sheet")
 	}
 
 	colTypes := make([]string, numCols)
@@ -1884,4 +1971,440 @@ func (s *DataSourceService) RenameDataSource(id string, newName string) error {
 	s.InvalidateCache(id)
 
 	return s.SaveDataSources(sources)
+}
+
+// DeleteTable removes a table from a data source and updates the schema information
+func (s *DataSourceService) DeleteTable(id string, tableName string) error {
+	s.log(fmt.Sprintf("DeleteTable: DataSource=%s, Table=%s", id, tableName))
+	
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	var target *DataSource
+	for i := range sources {
+		if sources[i].ID == id {
+			target = &sources[i]
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+
+	// Connect to the database
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %v", err)
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return fmt.Errorf("failed to connect to database: %v", err)
+		}
+	} else {
+		return fmt.Errorf("unsupported data source type for table deletion")
+	}
+	defer db.Close()
+
+	// Drop the table
+	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`", tableName)
+	s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
+	if _, err := db.Exec(dropSQL); err != nil {
+		return fmt.Errorf("failed to drop table: %v", err)
+	}
+
+	// Update the schema information in the data source analysis
+	if target.Analysis != nil && target.Analysis.Schema != nil {
+		newSchema := []TableSchema{}
+		for _, table := range target.Analysis.Schema {
+			if table.TableName != tableName {
+				newSchema = append(newSchema, table)
+			}
+		}
+		target.Analysis.Schema = newSchema
+		
+		// Save the updated data source
+		if err := s.SaveDataSources(sources); err != nil {
+			return fmt.Errorf("failed to update data source schema: %v", err)
+		}
+	}
+
+	// Invalidate cache
+	s.InvalidateCache(id)
+
+	s.log(fmt.Sprintf("Table %s deleted successfully from data source %s", tableName, id))
+	return nil
+}
+
+// GetTables 获取数据源的所有表名（别名方法）
+func (s *DataSourceService) GetTables(id string) ([]string, error) {
+	return s.GetDataSourceTables(id)
+}
+
+// GetTableColumns 获取表的列信息
+func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]ColumnSchema, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var ds *DataSource
+	for _, source := range sources {
+		if source.ID == id {
+			ds = &source
+			break
+		}
+	}
+
+	if ds == nil {
+		return nil, fmt.Errorf("data source not found: %s", id)
+	}
+
+	var db *sql.DB
+	if ds.Type == "mysql" || ds.Type == "postgresql" || ds.Type == "doris" {
+		// Remote database - build connection string
+		var connStr string
+		if ds.Type == "mysql" {
+			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true",
+				ds.Config.User, ds.Config.Password, ds.Config.Host, ds.Config.Port, ds.Config.Database)
+		} else if ds.Type == "postgresql" {
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				ds.Config.Host, ds.Config.Port, ds.Config.User, ds.Config.Password, ds.Config.Database)
+		} else {
+			return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
+		}
+		db, err = sql.Open(ds.Type, connStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+		defer db.Close()
+	} else {
+		// SQLite
+		dbPath := ds.Config.DBPath
+		if dbPath == "" {
+			return nil, fmt.Errorf("database path not found in config")
+		}
+		// Use full path by joining with dataCacheDir
+		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
+		db, err = sql.Open("sqlite", fullDBPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
+		defer db.Close()
+	}
+
+	// Query column information
+	var rows *sql.Rows
+	if ds.Type == "sqlite" {
+		rows, err = db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	} else if ds.Type == "mysql" {
+		rows, err = db.Query(fmt.Sprintf("DESCRIBE `%s`", tableName))
+	} else {
+		return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query table info: %w", err)
+	}
+	defer rows.Close()
+
+	var columns []ColumnSchema
+	if ds.Type == "sqlite" {
+		for rows.Next() {
+			var cid int
+			var name, colType string
+			var notNull int
+			var dfltValue sql.NullString
+			var pk int
+
+			err = rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk)
+			if err != nil {
+				return nil, err
+			}
+
+			columns = append(columns, ColumnSchema{
+				Name:     name,
+				Type:     colType,
+				Nullable: notNull == 0,
+			})
+		}
+	} else if ds.Type == "mysql" {
+		for rows.Next() {
+			var field, colType, null, key, extra string
+			var dflt sql.NullString
+
+			err = rows.Scan(&field, &colType, &null, &key, &dflt, &extra)
+			if err != nil {
+				return nil, err
+			}
+
+			columns = append(columns, ColumnSchema{
+				Name:     field,
+				Type:     colType,
+				Nullable: null == "YES",
+			})
+		}
+	}
+
+	return columns, nil
+}
+
+// ColumnSchema 列结构信息
+type ColumnSchema struct {
+	Name     string
+	Type     string
+	Nullable bool
+}
+
+// ExecuteQuery 执行查询并返回结果
+func (s *DataSourceService) ExecuteQuery(id string, query string) ([]map[string]any, error) {
+	return s.ExecuteSQL(id, query)
+}
+
+// GetConnection 获取数据库连接
+func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var ds *DataSource
+	for _, source := range sources {
+		if source.ID == id {
+			ds = &source
+			break
+		}
+	}
+
+	if ds == nil {
+		return nil, fmt.Errorf("data source not found: %s", id)
+	}
+
+	var db *sql.DB
+	if ds.Type == "mysql" || ds.Type == "postgresql" || ds.Type == "doris" {
+		// Remote database - build connection string
+		var connStr string
+		if ds.Type == "mysql" {
+			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true",
+				ds.Config.User, ds.Config.Password, ds.Config.Host, ds.Config.Port, ds.Config.Database)
+		} else if ds.Type == "postgresql" {
+			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+				ds.Config.Host, ds.Config.Port, ds.Config.User, ds.Config.Password, ds.Config.Database)
+		} else {
+			return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
+		}
+		db, err = sql.Open(ds.Type, connStr)
+	} else {
+		dbPath := ds.Config.DBPath
+		if dbPath == "" {
+			return nil, fmt.Errorf("database path not found in config")
+		}
+		// Use full path by joining with dataCacheDir, and use "sqlite" driver (modernc.org/sqlite)
+		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
+		s.log(fmt.Sprintf("[GetConnection] Opening SQLite database: %s", fullDBPath))
+		db, err = sql.Open("sqlite", fullDBPath)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	return db, nil
+}
+
+// CreateOptimizedDatabase 创建优化后的数据库文件
+func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, newName string) (string, error) {
+	// 生成新的数据库文件路径
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s.db", sanitizeFilename(newName), timestamp)
+	newDBPath := filepath.Join(s.dataCacheDir, filename)
+
+	// 创建空数据库
+	db, err := sql.Open("sqlite", newDBPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create database: %w", err)
+	}
+	db.Close()
+
+	return newDBPath, nil
+}
+
+// SaveDataSource 保存单个数据源
+func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	// 检查是否已存在
+	found := false
+	for i, source := range sources {
+		if source.ID == ds.ID {
+			sources[i] = *ds
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		sources = append(sources, *ds)
+	}
+
+	return s.SaveDataSources(sources)
+}
+
+// sanitizeFilename 清理文件名
+func sanitizeFilename(name string) string {
+	// 移除或替换不安全的字符
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, ":", "_")
+	name = strings.ReplaceAll(name, "*", "_")
+	name = strings.ReplaceAll(name, "?", "_")
+	name = strings.ReplaceAll(name, "\"", "_")
+	name = strings.ReplaceAll(name, "<", "_")
+	name = strings.ReplaceAll(name, ">", "_")
+	name = strings.ReplaceAll(name, "|", "_")
+	return name
+}
+
+// RenameColumn renames a column in a table and updates the schema information
+func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnName string, newColumnName string) error {
+	s.log(fmt.Sprintf("RenameColumn: DataSource=%s, Table=%s, OldColumn=%s, NewColumn=%s", id, tableName, oldColumnName, newColumnName))
+
+	// Validate new column name
+	if newColumnName == "" {
+		return fmt.Errorf("column name cannot be empty")
+	}
+
+	// Check for invalid characters in column name
+	invalidChars := []string{" ", "'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r"}
+	for _, char := range invalidChars {
+		if strings.Contains(newColumnName, char) {
+			return fmt.Errorf("column name contains invalid character: %s", char)
+		}
+	}
+
+	// Check if column name starts with a number
+	if len(newColumnName) > 0 && newColumnName[0] >= '0' && newColumnName[0] <= '9' {
+		return fmt.Errorf("column name cannot start with a number")
+	}
+
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	var target *DataSource
+	var targetIndex int
+	for i := range sources {
+		if sources[i].ID == id {
+			target = &sources[i]
+			targetIndex = i
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Errorf("data source not found")
+	}
+
+	// Check if new column name already exists in the table schema
+	if target.Analysis != nil && target.Analysis.Schema != nil {
+		for _, table := range target.Analysis.Schema {
+			if table.TableName == tableName {
+				for _, col := range table.Columns {
+					if col == newColumnName && col != oldColumnName {
+						return fmt.Errorf("column name '%s' already exists in table '%s'", newColumnName, tableName)
+					}
+				}
+				break
+			}
+		}
+	}
+
+	var db *sql.DB
+
+	// Connect to the database
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %v", err)
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return fmt.Errorf("failed to connect to database: %v", err)
+		}
+	} else {
+		return fmt.Errorf("unsupported data source type for column rename")
+	}
+	defer db.Close()
+
+	// Rename the column based on database type
+	if target.Type == "mysql" || target.Type == "doris" {
+		// For MySQL/Doris, we need to get the column type first
+		var colType string
+		query := fmt.Sprintf("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", tableName, oldColumnName)
+		err = db.QueryRow(query).Scan(&colType)
+		if err != nil {
+			return fmt.Errorf("failed to get column type: %v", err)
+		}
+		renameSQL := fmt.Sprintf("ALTER TABLE `%s` CHANGE `%s` `%s` %s", tableName, oldColumnName, newColumnName, colType)
+		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
+		if _, err := db.Exec(renameSQL); err != nil {
+			return fmt.Errorf("failed to rename column: %v", err)
+		}
+	} else {
+		// For SQLite, use ALTER TABLE RENAME COLUMN (SQLite 3.25.0+)
+		renameSQL := fmt.Sprintf("ALTER TABLE `%s` RENAME COLUMN `%s` TO `%s`", tableName, oldColumnName, newColumnName)
+		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
+		if _, err := db.Exec(renameSQL); err != nil {
+			return fmt.Errorf("failed to rename column: %v", err)
+		}
+	}
+
+	// Update the schema information in the data source analysis
+	if target.Analysis != nil && target.Analysis.Schema != nil {
+		for i, table := range target.Analysis.Schema {
+			if table.TableName == tableName {
+				for j, col := range table.Columns {
+					if col == oldColumnName {
+						sources[targetIndex].Analysis.Schema[i].Columns[j] = newColumnName
+						break
+					}
+				}
+				break
+			}
+		}
+
+		// Save the updated data source
+		if err := s.SaveDataSources(sources); err != nil {
+			return fmt.Errorf("failed to update data source schema: %v", err)
+		}
+	}
+
+	// Invalidate cache
+	s.InvalidateCache(id)
+
+	s.log(fmt.Sprintf("Column %s renamed to %s in table %s of data source %s", oldColumnName, newColumnName, tableName, id))
+	return nil
 }

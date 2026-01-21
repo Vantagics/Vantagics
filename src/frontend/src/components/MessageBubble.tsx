@@ -97,6 +97,35 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 };
 
                 loadImage();
+            } else if (src.startsWith('sandbox:')) {
+                // Handle sandbox: paths (OpenAI code interpreter format)
+                // Format: sandbox:/mnt/data/chart.png
+                const loadImage = async () => {
+                    try {
+                        // Extract filename from sandbox: path
+                        const pathParts = src.replace('sandbox:', '').split('/');
+                        const filename = pathParts[pathParts.length - 1];
+                        
+                        if (!threadId) {
+                            console.error('[MessageImage] No threadId available for sandbox path:', src);
+                            setError(true);
+                            setLoading(false);
+                            return;
+                        }
+
+                        console.log('[MessageImage] Loading image from sandbox path:', { threadId, filename, src });
+
+                        const base64Data = await GetSessionFileAsBase64(threadId, filename);
+                        setImageSrc(base64Data);
+                        setLoading(false);
+                    } catch (err) {
+                        console.error('[MessageImage] Failed to load image from sandbox path:', err);
+                        setError(true);
+                        setLoading(false);
+                    }
+                };
+
+                loadImage();
             } else if (src.startsWith('files/') || src.match(/^[^:\/]+\.(png|jpg|jpeg|gif|svg)$/i)) {
                 // Handle relative paths like "files/chart_xxx.png" or "chart_xxx.png"
                 const loadImage = async () => {
@@ -141,8 +170,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         if (error || !imageSrc) {
             return (
-                <div className="relative group my-4 bg-red-50 border border-red-200 rounded-lg p-8 flex items-center justify-center">
-                    <div className="text-red-600 text-sm">Failed to load image</div>
+                <div className="relative group my-4 bg-blue-50 border border-blue-200 rounded-lg p-8 flex items-center justify-center">
+                    <div className="text-blue-600 text-sm">Failed to load image</div>
                 </div>
             );
         }
@@ -531,8 +560,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // Hide: json:echarts, json:table, json:metrics (shown on dashboard instead), SQL queries, Python code
     // Hide: Raw base64 data URLs that aren't part of markdown images
 
-    // First, preserve markdown images by replacing them with placeholders
-    const imageRegex = /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)\)/g;
+    // First, preserve ALL markdown images by replacing them with placeholders
+    // This regex matches markdown images with various URL formats:
+    // - data:image/...;base64,... (inline base64)
+    // - sandbox:/mnt/data/... (OpenAI code interpreter format)
+    // - file://... (local file paths)
+    // - files/... (relative paths)
+    // - http(s)://... (remote URLs)
+    // - any other path format
+    const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
     const preservedImages: string[] = [];
     let contentWithPlaceholders = content.replace(imageRegex, (match) => {
         preservedImages.push(match);

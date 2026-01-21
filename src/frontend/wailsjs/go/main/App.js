@@ -10,16 +10,12 @@ export function ApplyOptimizeSuggestions(arg1, arg2) {
   return window['go']['main']['App']['ApplyOptimizeSuggestions'](arg1, arg2);
 }
 
+export function CanStartNewAnalysis() {
+  return window['go']['main']['App']['CanStartNewAnalysis']();
+}
+
 export function CancelAnalysis() {
   return window['go']['main']['App']['CancelAnalysis']();
-}
-
-export function CheckChromeAvailability() {
-  return window['go']['main']['App']['CheckChromeAvailability']();
-}
-
-export function CheckChromeOnStartup() {
-  return window['go']['main']['App']['CheckChromeOnStartup']();
 }
 
 export function CheckComponentHasData(arg1, arg2) {
@@ -52,6 +48,14 @@ export function DeleteDataSource(arg1) {
 
 export function DeleteSessionFile(arg1, arg2) {
   return window['go']['main']['App']['DeleteSessionFile'](arg1, arg2);
+}
+
+export function DeleteSkill(arg1) {
+  return window['go']['main']['App']['DeleteSkill'](arg1);
+}
+
+export function DeleteTable(arg1, arg2) {
+  return window['go']['main']['App']['DeleteTable'](arg1, arg2);
 }
 
 export function DeleteThread(arg1) {
@@ -90,12 +94,16 @@ export function ExportDashboard(arg1) {
   return window['go']['main']['App']['ExportDashboard'](arg1);
 }
 
+export function ExportDashboardToExcel(arg1) {
+  return window['go']['main']['App']['ExportDashboardToExcel'](arg1);
+}
+
 export function ExportDashboardToPDF(arg1) {
   return window['go']['main']['App']['ExportDashboardToPDF'](arg1);
 }
 
-export function ExportMessageToPDF(arg1, arg2) {
-  return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
+export function ExportDashboardToPPT(arg1) {
+  return window['go']['main']['App']['ExportDashboardToPPT'](arg1);
 }
 
 export function ExportSessionFilesToZip(arg1, arg2) {
@@ -104,6 +112,10 @@ export function ExportSessionFilesToZip(arg1, arg2) {
 
 export function ExportSessionHTML(arg1) {
   return window['go']['main']['App']['ExportSessionHTML'](arg1);
+}
+
+export function ExportTableToExcel(arg1, arg2) {
+  return window['go']['main']['App']['ExportTableToExcel'](arg1, arg2);
 }
 
 export function ExportToCSV(arg1, arg2, arg3) {
@@ -132,6 +144,18 @@ export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
 
 export function GenerateCSVThumbnail(arg1, arg2) {
   return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
+}
+
+export function GenerateIntentSuggestions(arg1, arg2) {
+  return window['go']['main']['App']['GenerateIntentSuggestions'](arg1, arg2);
+}
+
+export function GenerateIntentSuggestionsWithExclusions(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GenerateIntentSuggestionsWithExclusions'](arg1, arg2, arg3);
+}
+
+export function GetActiveAnalysisCount() {
+  return window['go']['main']['App']['GetActiveAnalysisCount']();
 }
 
 export function GetActiveThreadID() {
@@ -250,8 +274,16 @@ export function InstallPythonPackages(arg1, arg2) {
   return window['go']['main']['App']['InstallPythonPackages'](arg1, arg2);
 }
 
+export function InstallSkillsFromZip() {
+  return window['go']['main']['App']['InstallSkillsFromZip']();
+}
+
 export function IsCancelRequested() {
   return window['go']['main']['App']['IsCancelRequested']();
+}
+
+export function ListSkills() {
+  return window['go']['main']['App']['ListSkills']();
 }
 
 export function LoadLayout(arg1) {
@@ -282,10 +314,6 @@ export function OpenSessionResultsDirectory(arg1) {
   return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
 }
 
-export function OpenURL(arg1) {
-  return window['go']['main']['App']['OpenURL'](arg1);
-}
-
 export function PrepareImportAnalysis() {
   return window['go']['main']['App']['PrepareImportAnalysis']();
 }
@@ -296,6 +324,10 @@ export function ReadChartDataFile(arg1, arg2) {
 
 export function ReloadSkills() {
   return window['go']['main']['App']['ReloadSkills']();
+}
+
+export function RenameColumn(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RenameColumn'](arg1, arg2, arg3, arg4);
 }
 
 export function RenameDataSource(arg1, arg2) {
@@ -350,8 +382,12 @@ export function SelectSaveFile(arg1, arg2) {
   return window['go']['main']['App']['SelectSaveFile'](arg1, arg2);
 }
 
-export function SendMessage(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3);
+export function SemanticOptimizeDataSource(arg1) {
+  return window['go']['main']['App']['SemanticOptimizeDataSource'](arg1);
+}
+
+export function SendMessage(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
 
 export function SetChatOpen(arg1) {
@@ -382,12 +418,20 @@ export function TestProxy(arg1) {
   return window['go']['main']['App']['TestProxy'](arg1);
 }
 
+export function TestSearchAPI(arg1) {
+  return window['go']['main']['App']['TestSearchAPI'](arg1);
+}
+
 export function TestSearchEngine(arg1) {
   return window['go']['main']['App']['TestSearchEngine'](arg1);
 }
 
 export function TestSearchTools(arg1) {
   return window['go']['main']['App']['TestSearchTools'](arg1);
+}
+
+export function TestUAPIConnection(arg1, arg2) {
+  return window['go']['main']['App']['TestUAPIConnection'](arg1, arg2);
 }
 
 export function UpdateMySQLExportConfig(arg1, arg2, arg3, arg4, arg5, arg6) {

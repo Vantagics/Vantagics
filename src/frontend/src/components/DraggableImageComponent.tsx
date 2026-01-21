@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { DraggableComponent } from './DraggableComponent';
+import DraggableComponent from './DraggableComponent';
 import ImageModal from './ImageModal';
 import { ComponentInstance } from '../utils/ComponentManager';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
+import { convertImageData } from '../utils/ImageConverter';
 
 export interface DraggableImageComponentProps {
   instance: ComponentInstance;
@@ -62,44 +63,15 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
         setLoading(true);
         setError(false);
 
-        // If it's already a data URL, use it directly
-        if (imageData.src.startsWith('data:')) {
-          setImageSrc(imageData.src);
-          setLoading(false);
-          return;
-        }
+        // Use the centralized image conversion function
+        const convertedImageData = await convertImageData(
+          imageData.src,
+          threadId,
+          GetSessionFileAsBase64
+        );
 
-        // If it's a file:// URL or relative path, load via API
-        if (imageData.src.startsWith('file://') || 
-            imageData.src.startsWith('files/') || 
-            imageData.src.match(/^[^:\/]+\.(png|jpg|jpeg|gif|svg)$/i)) {
-          
-          // Extract filename
-          let filename = imageData.src;
-          if (filename.startsWith('file://')) {
-            const match = filename.match(/files[\/\\]([^\/\\]+)$/);
-            if (match) {
-              filename = match[1];
-            }
-          } else if (filename.startsWith('files/')) {
-            filename = filename.replace(/^files[\/\\]/, '');
-          }
-
-          if (!threadId) {
-            console.error('[DraggableImageComponent] No threadId available');
-            setError(true);
-            setLoading(false);
-            return;
-          }
-
-          const base64Data = await GetSessionFileAsBase64(threadId, filename);
-          setImageSrc(base64Data);
-          setLoading(false);
-        } else {
-          // For HTTP URLs, use directly
-          setImageSrc(imageData.src);
-          setLoading(false);
-        }
+        setImageSrc(convertedImageData);
+        setLoading(false);
       } catch (err) {
         console.error('[DraggableImageComponent] Failed to load image:', err);
         setError(true);
@@ -112,8 +84,8 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
 
   // Render empty state in edit mode when no data
   const renderEmptyState = () => (
-    <div className="w-full h-full bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-4 text-gray-500 min-h-[200px]">
-      <div className="text-4xl mb-2">🖼️</div>
+    <div className="w-full h-full bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-8 text-gray-500 min-h-[600px]">
+      <div className="text-4xl mb-3">🖼️</div>
       <div className="text-sm font-medium text-center">
         Image Component
       </div>
@@ -123,7 +95,7 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
       {isEditMode && onRemove && (
         <button
           onClick={() => onRemove(instance.id)}
-          className="mt-3 px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
+          className="mt-4 px-4 py-2 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
           data-testid="remove-component-button"
         >
           Remove
@@ -134,26 +106,26 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
 
   // Render loading state
   const renderLoadingState = () => (
-    <div className="w-full h-full bg-gray-50 rounded-xl flex flex-col items-center justify-center p-4 text-gray-500 min-h-[200px]">
-      <div className="animate-spin text-2xl mb-2">⏳</div>
+    <div className="w-full h-full bg-gray-50 rounded-xl flex flex-col items-center justify-center p-8 text-gray-500 min-h-[600px]">
+      <div className="animate-spin text-3xl mb-3">⏳</div>
       <div className="text-sm">Loading image...</div>
     </div>
   );
 
   // Render error state
   const renderErrorState = () => (
-    <div className="w-full h-full bg-red-50 border-2 border-dashed border-red-300 rounded-xl flex flex-col items-center justify-center p-4 text-red-500 min-h-[200px]">
-      <div className="text-4xl mb-2">❌</div>
+    <div className="w-full h-full bg-blue-50 border-2 border-dashed border-blue-300 rounded-xl flex flex-col items-center justify-center p-8 text-blue-500 min-h-[600px]">
+      <div className="text-4xl mb-3">❌</div>
       <div className="text-sm font-medium text-center">
         Failed to load image
       </div>
-      <div className="text-xs text-center mt-1">
+      <div className="text-xs text-center mt-1 break-all px-4">
         {imageData?.src}
       </div>
       {isEditMode && onRemove && (
         <button
           onClick={() => onRemove(instance.id)}
-          className="mt-3 px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
+          className="mt-4 px-4 py-2 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
           data-testid="remove-component-button"
         >
           Remove

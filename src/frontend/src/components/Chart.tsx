@@ -91,8 +91,8 @@ const Chart: React.FC<ChartProps> = ({ options, height = '400px' }) => {
     if (!options || typeof options !== 'object') {
         console.error('Chart: Invalid options provided', options);
         return (
-            <div className="w-full rounded-xl border border-red-200 bg-red-50 p-4 shadow-sm my-4">
-                <div className="text-red-600 text-sm">
+            <div className="w-full rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm my-4">
+                <div className="text-blue-600 text-sm">
                     图表数据格式错误，无法显示图表
                 </div>
             </div>

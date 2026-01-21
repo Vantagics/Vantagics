@@ -135,7 +135,7 @@ func TestGetFilesByCategory_AllFiles(t *testing.T) {
 		if file.DownloadURL == "" {
 			t.Error("DownloadURL should not be empty")
 		}
-		if file.CreatedAt.IsZero() {
+		if file.CreatedAt == 0 {
 			t.Error("CreatedAt should not be zero")
 		}
 	}
@@ -450,12 +450,12 @@ func TestFileMetadataTracking(t *testing.T) {
 		}
 
 		// Check CreatedAt is tracked
-		if file.CreatedAt.IsZero() {
+		if file.CreatedAt == 0 {
 			t.Error("File CreatedAt should be tracked")
 		}
 
 		// Check CreatedAt is reasonable (not in the future)
-		if file.CreatedAt.After(time.Now().Add(time.Minute)) {
+		if file.CreatedAt > time.Now().Add(time.Minute).Unix() {
 			t.Error("File CreatedAt should not be in the future")
 		}
 

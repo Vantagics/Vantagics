@@ -924,12 +924,12 @@ func TestLoadLayout_Timestamps(t *testing.T) {
 	}
 
 	// Save the layout
-	beforeSave := time.Now()
+	beforeSave := time.Now().Unix()
 	err := service.SaveLayout(config)
 	if err != nil {
 		t.Fatalf("SaveLayout failed: %v", err)
 	}
-	afterSave := time.Now()
+	afterSave := time.Now().Unix()
 
 	// Load the layout
 	loadedConfig, err := service.LoadLayout(config.UserID)
@@ -938,11 +938,11 @@ func TestLoadLayout_Timestamps(t *testing.T) {
 	}
 
 	// Verify timestamps are within expected range
-	if loadedConfig.CreatedAt.Before(beforeSave) || loadedConfig.CreatedAt.After(afterSave) {
+	if loadedConfig.CreatedAt < beforeSave || loadedConfig.CreatedAt > afterSave {
 		t.Errorf("CreatedAt timestamp out of expected range: %v", loadedConfig.CreatedAt)
 	}
 
-	if loadedConfig.UpdatedAt.Before(beforeSave) || loadedConfig.UpdatedAt.After(afterSave) {
+	if loadedConfig.UpdatedAt < beforeSave || loadedConfig.UpdatedAt > afterSave {
 		t.Errorf("UpdatedAt timestamp out of expected range: %v", loadedConfig.UpdatedAt)
 	}
 
@@ -1041,11 +1041,11 @@ func TestGetDefaultLayout(t *testing.T) {
 	}
 
 	// Verify timestamps are set
-	if defaultConfig.CreatedAt.IsZero() {
+	if defaultConfig.CreatedAt == 0 {
 		t.Error("Expected CreatedAt to be set")
 	}
 
-	if defaultConfig.UpdatedAt.IsZero() {
+	if defaultConfig.UpdatedAt == 0 {
 		t.Error("Expected UpdatedAt to be set")
 	}
 

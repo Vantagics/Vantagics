@@ -1,23 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateRapidBIEnvironment, CheckRapidBIEnvironmentExists, DiagnosePythonInstallation } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateRapidBIEnvironment, CheckRapidBIEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
 import MCPServiceModal from './MCPServiceModal';
-import SearchEngineModal from './SearchEngineModal';
-import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X } from 'lucide-react';
 
-type Tab = 'llm' | 'system' | 'mcp' | 'search' | 'network' | 'runenv';
+type Tab = 'llm' | 'system' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills';
+
+// Skill types
+interface SkillInfo {
+    id: string;
+    name: string;
+    description: string;
+    version: string;
+    author: string;
+    category: string;
+    keywords: string[];
+    required_columns: string[];
+    tools: string[];
+    enabled: boolean;
+    icon: string;
+    tags: string[];
+}
 
 // Use Wails generated type
 type MCPService = configModel.MCPService;
 
-// Search Engine type
-interface SearchEngine {
+// Search API Config type
+interface SearchAPIConfig {
     id: string;
     name: string;
-    url: string;
+    description: string;
+    apiKey?: string;
+    customId?: string;
     enabled: boolean;
     tested: boolean;
 }
@@ -25,9 +42,10 @@ interface SearchEngine {
 interface PreferenceModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onOpenSkills?: () => void;
 }
 
-const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) => {
+const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOpenSkills }) => {
     const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>('system');
     const [config, setConfig] = useState<configModel.Config>(configModel.Config.createFrom({
@@ -37,12 +55,16 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         modelName: '',
         maxTokens: 4096,
         darkMode: false,
+        enableMemory: false,
+        autoAnalysisSuggestions: true,
+        autoIntentUnderstanding: true,
         localCache: true,
         language: 'English',
         claudeHeaderStyle: 'Anthropic',
         dataCacheDir: '',
         pythonPath: '',
         maxPreviewRows: 100,
+        maxConcurrentAnalysis: 5,
         detailedLog: false,
         mcpServices: []
     }));
@@ -51,10 +73,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
     const [mcpModalOpen, setMcpModalOpen] = useState(false);
     const [editingMcpService, setEditingMcpService] = useState<MCPService | null>(null);
-    const [searchEngineModalOpen, setSearchEngineModalOpen] = useState(false);
-    const [editingSearchEngine, setEditingSearchEngine] = useState<SearchEngine | null>(null);
-    const [testingSearchEngine, setTestingSearchEngine] = useState<string | null>(null); // Track which engine is being tested
-    const [testingSearchEngineConnection, setTestingSearchEngineConnection] = useState<string | null>(null); // Track connection test
+    const [testingSearchAPI, setTestingSearchAPI] = useState<string | null>(null); // Track which API is being tested
+    const [searchAPITestResults, setSearchAPITestResults] = useState<{ [key: string]: { success: boolean; message: string } | null }>({});
 
     // Helper function to update config while maintaining Config class instance
     const updateConfig = (updates: Partial<configModel.Config>) => {
@@ -64,6 +84,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     useEffect(() => {
         if (isOpen) {
             GetConfig().then(data => {
+                // Set default activeSearchAPI to 'duckduckgo' if not set
+                if (!data.activeSearchAPI) {
+                    data.activeSearchAPI = 'duckduckgo';
+                }
                 setConfig(data);
             }).catch(console.error);
             setTestResult(null);
@@ -112,55 +136,81 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         }
     };
 
-    const handleTestSearchTools = async (engineId: string, engineURL: string) => {
-        setTestingSearchEngine(engineId);
+    const handleTestSearchAPI = async (apiId: string) => {
+        const searchAPIs = config.searchAPIs || getDefaultSearchAPIs();
+        const apiConfig = searchAPIs.find((api: SearchAPIConfig) => api.id === apiId);
+        if (!apiConfig) return;
+
+        // Validation - only Serper requires API key
+        if (apiConfig.id === 'serper' && !apiConfig.apiKey) {
+            setSearchAPITestResults(prev => ({
+                ...prev,
+                [apiId]: {
+                    success: false,
+                    message: 'Serper.dev requires an API key'
+                }
+            }));
+            return;
+        }
+
+        setTestingSearchAPI(apiId);
+        setSearchAPITestResults(prev => ({ ...prev, [apiId]: null }));
+
         try {
-            // @ts-ignore - TestSearchTools is defined in App.go
-            const result = await window.go.main.App.TestSearchTools(engineURL);
-            
+            // @ts-ignore - TestSearchAPI is defined in App.go
+            const result = await window.go.main.App.TestSearchAPI(apiConfig);
+            setSearchAPITestResults(prev => ({ ...prev, [apiId]: result }));
             if (result.success) {
-                // Update the engine's tested status
-                const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
-                    e.id === engineId ? { ...e, tested: true } : e
+                // Update tested status
+                const updatedAPIs = searchAPIs.map((api: SearchAPIConfig) =>
+                    api.id === apiId ? { ...api, tested: true } : api
                 );
-                updateConfig({ searchEngines: updatedEngines });
-                setToast({ message: t('search_tools_test_success') || 'Search tools test passed!', type: 'success' });
-            } else {
-                // Mark as not tested if search test fails
-                const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
-                    e.id === engineId ? { ...e, tested: false } : e
-                );
-                updateConfig({ searchEngines: updatedEngines });
-                setToast({ message: result.message, type: 'error' });
+                updateConfig({ searchAPIs: updatedAPIs });
             }
         } catch (err) {
-            // Mark as not tested on error
-            const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
-                e.id === engineId ? { ...e, tested: false } : e
-            );
-            updateConfig({ searchEngines: updatedEngines });
-            setToast({ message: String(err), type: 'error' });
+            setSearchAPITestResults(prev => ({
+                ...prev,
+                [apiId]: { success: false, message: String(err) }
+            }));
         } finally {
-            setTestingSearchEngine(null);
+            setTestingSearchAPI(null);
         }
     };
 
-    const handleTestSearchEngineConnection = async (engineId: string, engineURL: string) => {
-        setTestingSearchEngineConnection(engineId);
-        try {
-            // @ts-ignore - TestSearchEngine is defined in App.go
-            const result = await window.go.main.App.TestSearchEngine(engineURL);
-            
-            if (result.success) {
-                setToast({ message: t('connection_test_success') || 'Connection test passed!', type: 'success' });
-            } else {
-                setToast({ message: result.message, type: 'error' });
-            }
-        } catch (err) {
-            setToast({ message: String(err), type: 'error' });
-        } finally {
-            setTestingSearchEngineConnection(null);
+    const getDefaultSearchAPIs = (): SearchAPIConfig[] => [
+        {
+            id: 'duckduckgo',
+            name: 'DuckDuckGo',
+            description: 'Free search API with no API key required',
+            enabled: true,
+            tested: false
+        },
+        {
+            id: 'serper',
+            name: 'Serper (Google Search)',
+            description: 'Google Search API via Serper.dev (requires API key)',
+            apiKey: '',
+            enabled: false,
+            tested: false
+        },
+        {
+            id: 'uapi_pro',
+            name: 'UAPI Pro',
+            description: 'UAPI Pro search service with structured data (API key optional)',
+            apiKey: '',
+            enabled: false,
+            tested: false
         }
+    ];
+
+    const updateSearchAPIConfig = (id: string, field: string, value: any) => {
+        const searchAPIs = config.searchAPIs || getDefaultSearchAPIs();
+        const updatedAPIs = searchAPIs.map((api: SearchAPIConfig) =>
+            api.id === id ? { ...api, [field]: value, tested: false } : api
+        );
+        updateConfig({ searchAPIs: updatedAPIs });
+        // Clear test result for this API when config changes
+        setSearchAPITestResults(prev => ({ ...prev, [id]: null }));
     };
 
     if (!isOpen) return null;
@@ -176,7 +226,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
-                        {(['system', 'llm', 'search', 'network', 'mcp', 'runenv'] as const).map((tab) => (
+                        {(['system', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -189,6 +239,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 {tab === 'network' && t('network_settings')}
                                 {tab === 'mcp' && t('mcp_services')}
                                 {tab === 'runenv' && t('run_env')}
+                                {tab === 'skills' && (t('skills_management') || 'Skills管理')}
                             </button>
                         ))}
                     </nav>
@@ -362,6 +413,58 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             onChange={(e) => updateConfig({ detailedLog: e.target.checked })}
                                         />
                                     </div>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="block text-sm font-medium text-slate-700">{t('enable_memory')}</span>
+                                            <span className="block text-xs text-slate-500">启用上下文记忆管理（可能影响简单查询速度）</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.enableMemory}
+                                            onChange={(e) => updateConfig({ enableMemory: e.target.checked })}
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="block text-sm font-medium text-slate-700">{t('auto_analysis_suggestions')}</span>
+                                            <span className="block text-xs text-slate-500">创建新会话时自动进行数据源分析建议</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.autoAnalysisSuggestions !== false}
+                                            onChange={(e) => updateConfig({ autoAnalysisSuggestions: e.target.checked })}
+                                        />
+                                    </div>
+                                    
+                                    {/* Auto Intent Understanding */}
+                                    <div className="flex items-center justify-between py-3 border-b border-slate-200">
+                                        <div className="flex-1">
+                                            <label className="text-sm font-medium text-slate-700">
+                                                {t('auto_intent_understanding') || '自动意图理解'}
+                                            </label>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                {t('auto_intent_understanding_desc') || '在分析前生成多个意图理解供选择，避免理解偏差'}
+                                            </p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.autoIntentUnderstanding !== false}
+                                            onChange={(e) => {
+                                                const newValue = e.target.checked;
+                                                updateConfig({ autoIntentUnderstanding: newValue });
+                                                
+                                                // Show warning toast when user disables intent understanding
+                                                if (!newValue) {
+                                                    setToast({
+                                                        message: t('intent_understanding_disabled_warning') || '建议仅专业用户关闭意图理解功能',
+                                                        type: 'warning'
+                                                    });
+                                                }
+                                            }}
+                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                                        />
+                                    </div>
+                                    
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
                                         <select
@@ -386,6 +489,25 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         />
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             Number of rows to display in the data preview window (default 100).
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label htmlFor="maxConcurrentAnalysis" className="block text-sm font-medium text-slate-700 mb-1">{t('max_concurrent_analysis')}</label>
+                                        <input
+                                            id="maxConcurrentAnalysis"
+                                            type="number"
+                                            value={config.maxConcurrentAnalysis || 5}
+                                            onChange={(e) => {
+                                                const value = parseInt(e.target.value) || 5;
+                                                const clampedValue = Math.max(1, Math.min(10, value));
+                                                updateConfig({ maxConcurrentAnalysis: clampedValue });
+                                            }}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            min="1"
+                                            max="10"
+                                        />
+                                        <p className="mt-1 text-[10px] text-slate-400 italic">
+                                            {t('max_concurrent_analysis_hint')}
                                         </p>
                                     </div>
                                     <div>
@@ -421,149 +543,130 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                             <div className="space-y-6">
                                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                                     <div>
-                                        <h3 className="text-lg font-semibold text-slate-800">{t('search_engine_settings')}</h3>
-                                        <p className="text-sm text-slate-500 mt-1">{t('search_engine_description')}</p>
+                                        <h3 className="text-lg font-semibold text-slate-800">搜索API配置</h3>
+                                        <p className="text-sm text-slate-500 mt-1">配置用于网络搜索的API服务</p>
                                     </div>
                                 </div>
 
-                                {/* Active Search Engine Selection */}
+                                {/* Search API Selection */}
                                 <div className="space-y-4">
-                                    {/* Available Search Engines with Radio Selection */}
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-3">
-                                            {t('active_search_engine')}
+                                            选择搜索API
                                         </label>
-                                        <p className="text-xs text-slate-500 mb-3">
-                                            {t('search_engine_hint')}
-                                        </p>
-                                        <div className="space-y-2">
-                                            {config.searchEngines?.map((engine: SearchEngine, index: number) => (
-                                                <div
-                                                    key={engine.id}
-                                                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                                                >
-                                                    <div className="flex items-center gap-3 flex-1">
-                                                        <input
-                                                            type="radio"
-                                                            name="activeSearchEngine"
-                                                            checked={config.activeSearchEngine === engine.id}
-                                                            onChange={() => {
-                                                                updateConfig({ activeSearchEngine: engine.id });
-                                                            }}
-                                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500"
-                                                        />
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-sm font-medium text-slate-800">
-                                                                    {engine.name}
-                                                                </span>
-                                                                {engine.tested && (
-                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
-                                                                        <CheckCircle className="w-3 h-3" />
-                                                                        {t('tested')}
-                                                                    </span>
-                                                                )}
-                                                                {config.activeSearchEngine === engine.id && (
-                                                                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
-                                                                        {t('active')}
-                                                                    </span>
-                                                                )}
+                                        <div className="space-y-3">
+                                            {(config.searchAPIs || getDefaultSearchAPIs()).map((api: SearchAPIConfig) => {
+                                                const isTestingThis = testingSearchAPI === api.id;
+                                                const testResult = searchAPITestResults[api.id];
+                                                const isActive = config.activeSearchAPI === api.id;
+                                                
+                                                return (
+                                                    <div key={api.id} className={`border-2 rounded-lg p-4 ${
+                                                        isActive ? 'border-blue-500 bg-blue-50' : 'border-slate-200'
+                                                    }`}>
+                                                        <div className="flex items-start justify-between">
+                                                            <div className="flex items-start gap-3 flex-1">
+                                                                <input
+                                                                    type="radio"
+                                                                    name="activeSearchAPI"
+                                                                    checked={isActive}
+                                                                    onChange={() => updateConfig({ activeSearchAPI: api.id })}
+                                                                    className="mt-1 w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                                                                />
+                                                                <div className="flex-1">
+                                                                    <div className="flex items-center gap-2 mb-1">
+                                                                        <h4 className="text-sm font-semibold text-slate-900">{api.name}</h4>
+                                                                        {api.tested && (
+                                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                                                                <CheckCircle className="w-3 h-3" />
+                                                                                已测试
+                                                                            </span>
+                                                                        )}
+                                                                        {isActive && (
+                                                                            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
+                                                                                活动
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-xs text-slate-500 mb-3">{api.description}</p>
+                                                                    
+                                                                    {/* API Key Input for Serper and UAPI Pro */}
+                                                                    {(api.id === 'serper' || api.id === 'uapi_pro') && (
+                                                                        <div className="mb-3">
+                                                                            <label className="block text-xs font-medium text-slate-700 mb-1">
+                                                                                API Key {api.id === 'serper' && <span className="text-red-500">*</span>}
+                                                                                {api.id === 'uapi_pro' && <span className="text-slate-400">(可选)</span>}
+                                                                            </label>
+                                                                            <div className="flex gap-2">
+                                                                                <input
+                                                                                    type="password"
+                                                                                    value={api.apiKey || ''}
+                                                                                    onChange={(e) => updateSearchAPIConfig(api.id, 'apiKey', e.target.value)}
+                                                                                    placeholder={`输入 ${api.name} API Key${api.id === 'uapi_pro' ? '（可选）' : ''}`}
+                                                                                    className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                                                                                />
+                                                                                <a
+                                                                                    href={api.id === 'serper' ? 'https://serper.dev' : 'https://uapis.cn'}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors whitespace-nowrap"
+                                                                                    title="获取API Key"
+                                                                                >
+                                                                                    获取Key
+                                                                                </a>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                    
+                                                                    {/* Test Button */}
+                                                                    <button
+                                                                        onClick={() => handleTestSearchAPI(api.id)}
+                                                                        disabled={isTestingThis}
+                                                                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
+                                                                    >
+                                                                        {isTestingThis ? '测试中...' : '测试连接'}
+                                                                    </button>
+                                                                    
+                                                                    {/* Test Result */}
+                                                                    {testResult && (
+                                                                        <div className={`mt-2 p-2 rounded text-xs ${
+                                                                            testResult.success ? 'bg-green-50' : 'bg-red-50'
+                                                                        }`}>
+                                                                            <div className="flex items-start gap-2">
+                                                                                {testResult.success ? (
+                                                                                    <CheckCircle className="text-green-600 flex-shrink-0 mt-0.5" size={14} />
+                                                                                ) : (
+                                                                                    <AlertCircle className="text-red-600 flex-shrink-0 mt-0.5" size={14} />
+                                                                                )}
+                                                                                <span className={testResult.success ? 'text-green-800' : 'text-red-800'}>
+                                                                                    {testResult.message}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                            <span className="text-xs text-slate-500">{engine.url}</span>
                                                         </div>
                                                     </div>
-                                                    <div className="flex items-center gap-1">
-                                                        {/* Connection Test button */}
-                                                        <button
-                                                            onClick={() => handleTestSearchEngineConnection(engine.id, engine.url)}
-                                                            disabled={testingSearchEngineConnection === engine.id}
-                                                            className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                                                                testingSearchEngineConnection === engine.id
-                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                                            }`}
-                                                            title={t('test_connection') || 'Test Connection'}
-                                                        >
-                                                            {testingSearchEngineConnection === engine.id ? (
-                                                                <span className="flex items-center gap-1">
-                                                                    <div className="w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
-                                                                    {t('testing_mcp_service')}
-                                                                </span>
-                                                            ) : (
-                                                                t('test_connection')
-                                                            )}
-                                                        </button>
-                                                        {/* Search Test button */}
-                                                        <button
-                                                            onClick={() => handleTestSearchTools(engine.id, engine.url)}
-                                                            disabled={testingSearchEngine === engine.id}
-                                                            className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                                                                testingSearchEngine === engine.id
-                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                                                    : 'bg-green-50 text-green-600 hover:bg-green-100'
-                                                            }`}
-                                                            title={t('test_search_tools') || 'Test Search Tools'}
-                                                        >
-                                                            {testingSearchEngine === engine.id ? (
-                                                                <span className="flex items-center gap-1">
-                                                                    <div className="w-3 h-3 border-2 border-slate-300 border-t-green-600 rounded-full animate-spin" />
-                                                                    {t('testing_search_tools')}
-                                                                </span>
-                                                            ) : (
-                                                                t('test_search_tools')
-                                                            )}
-                                                        </button>
-                                                        {/* Edit button for custom engines */}
-                                                        {!['google', 'bing', 'baidu'].includes(engine.id) && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    setEditingSearchEngine(engine);
-                                                                    setSearchEngineModalOpen(true);
-                                                                }}
-                                                                className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                                                                title={t('edit_mcp_service')}
-                                                            >
-                                                                <Edit2 className="w-4 h-4" />
-                                                            </button>
-                                                        )}
-                                                        {/* Delete button for custom engines */}
-                                                        {!['google', 'bing', 'baidu'].includes(engine.id) && (
-                                                            <button
-                                                                onClick={() => {
-                                                                    const newEngines = config.searchEngines?.filter((e: SearchEngine) => e.id !== engine.id);
-                                                                    // If deleting active engine, switch to first available
-                                                                    if (config.activeSearchEngine === engine.id && newEngines && newEngines.length > 0) {
-                                                                        updateConfig({ 
-                                                                            searchEngines: newEngines,
-                                                                            activeSearchEngine: newEngines[0].id
-                                                                        });
-                                                                    } else {
-                                                                        updateConfig({ searchEngines: newEngines });
-                                                                    }
-                                                                }}
-                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                                title={t('delete')}
-                                                            >
-                                                                <Trash2 className="w-4 h-4" />
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
 
-                                    {/* Add Custom Engine Button */}
-                                    <button
-                                        onClick={() => {
-                                            setEditingSearchEngine(null);
-                                            setSearchEngineModalOpen(true);
-                                        }}
-                                        className="w-full px-4 py-3 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center justify-center gap-2"
-                                    >
-                                        <Plus className="w-4 h-4" />
-                                        {t('add_custom_engine')}
-                                    </button>
+                                    {/* Info Box */}
+                                    <div className="bg-blue-50 p-4 rounded-lg">
+                                        <div className="flex items-start gap-3">
+                                            <AlertCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
+                                            <div className="text-sm text-blue-800">
+                                                <p className="font-medium mb-1">关于搜索API</p>
+                                                <ul className="list-disc list-inside space-y-1 text-xs">
+                                                    <li>DuckDuckGo: 免费，无需API密钥，搜索整个互联网</li>
+                                                    <li>Serper: 通过API获取Google搜索结果，需要API密钥</li>
+                                                    <li>UAPI Pro: 提供结构化数据和稳定的模式，需要API密钥</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -696,6 +799,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                             </div>
                         )}
                         {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} updateConfig={updateConfig} />}
+                        {activeTab === 'skills' && <SkillsSettings onOpenSkills={onOpenSkills} />}
                     </div>
 
                     {/* Footer */}
@@ -737,27 +841,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                         const newServices = [...(config.mcpServices || []), service];
                         console.log('[MCP] Added service, new list:', newServices);
                         updateConfig({ mcpServices: newServices });
-                    }
-                }}
-            />
-            <SearchEngineModal
-                isOpen={searchEngineModalOpen}
-                engine={editingSearchEngine}
-                onClose={() => {
-                    setSearchEngineModalOpen(false);
-                    setEditingSearchEngine(null);
-                }}
-                onSave={(engine: SearchEngine) => {
-                    if (editingSearchEngine) {
-                        // Update existing engine
-                        const newEngines = config.searchEngines?.map((e: SearchEngine) =>
-                            e.id === engine.id ? engine : e
-                        );
-                        updateConfig({ searchEngines: newEngines });
-                    } else {
-                        // Add new engine
-                        const newEngines = [...(config.searchEngines || []), engine];
-                        updateConfig({ searchEngines: newEngines });
                     }
                 }}
             />
@@ -1455,6 +1538,379 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                         </div>
                     </div>
                 )}
+            </div>
+        </div>
+    );
+};
+
+// Skills Settings Component
+const SkillsSettings: React.FC<{ onOpenSkills?: () => void }> = ({ onOpenSkills }) => {
+    const { t } = useLanguage();
+    const [skills, setSkills] = useState<SkillInfo[]>([]);
+    const [filteredSkills, setFilteredSkills] = useState<SkillInfo[]>([]);
+    const [selectedCategory, setSelectedCategory] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [selectedSkill, setSelectedSkill] = useState<SkillInfo | null>(null);
+
+    useEffect(() => {
+        loadSkills();
+    }, []);
+
+    useEffect(() => {
+        filterSkills();
+    }, [skills, selectedCategory, searchQuery]);
+
+    const loadSkills = async () => {
+        setIsLoading(true);
+        try {
+            const loadedSkills = await GetSkills() as unknown as SkillInfo[];
+            setSkills(loadedSkills || []);
+        } catch (error) {
+            console.error('Failed to load skills:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const filterSkills = () => {
+        let filtered = [...(skills || [])];
+
+        if (selectedCategory !== 'all') {
+            filtered = filtered.filter(s => s.category === selectedCategory);
+        }
+
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase();
+            filtered = filtered.filter(s =>
+                s.name.toLowerCase().includes(query) ||
+                s.description.toLowerCase().includes(query) ||
+                s.keywords.some(k => k.toLowerCase().includes(query)) ||
+                s.tags.some(t => t.toLowerCase().includes(query))
+            );
+        }
+
+        setFilteredSkills(filtered);
+    };
+
+    const handleToggleSkill = async (skillId: string, currentlyEnabled: boolean) => {
+        try {
+            if (currentlyEnabled) {
+                await DisableSkill(skillId);
+            } else {
+                await EnableSkill(skillId);
+            }
+            await loadSkills();
+        } catch (error) {
+            console.error('Failed to toggle skill:', error);
+        }
+    };
+
+    const handleReloadSkills = async () => {
+        setIsLoading(true);
+        try {
+            await ReloadSkills();
+            await loadSkills();
+        } catch (error) {
+            console.error('Failed to reload skills:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const categories = ['all', ...Array.from(new Set((skills || []).map(s => s.category)))];
+    const enabledCount = (skills || []).filter(s => s.enabled).length;
+
+    const getCategoryIcon = (category: string) => {
+        const icons: { [key: string]: string } = {
+            user_analytics: '👥',
+            sales_analytics: '💰',
+            marketing: '📢',
+            product: '📦',
+            custom: '🔧',
+            all: '📚'
+        };
+        return icons[category] || '📊';
+    };
+
+    const getIconComponent = (iconName: string) => {
+        const icons: { [key: string]: React.ReactNode } = {
+            users: <Tag className="w-5 h-5" />,
+            filter: <Filter className="w-5 h-5" />,
+            zap: <Zap className="w-5 h-5" />,
+            chart: <BookOpen className="w-5 h-5" />,
+        };
+        return icons[iconName] || <BookOpen className="w-5 h-5" />;
+    };
+
+    return (
+        <div className="space-y-4 h-full flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-slate-800">Skills 插件管理</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                        {skills.length} 个插件 · {enabledCount} 个已启用
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={onOpenSkills}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        title="打开 Skills 管理页面"
+                    >
+                        <Plus className="w-4 h-4" />
+                        Skills 管理
+                    </button>
+                    <button
+                        onClick={handleReloadSkills}
+                        disabled={isLoading}
+                        className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-600 hover:text-blue-600"
+                        title="重新加载Skills"
+                    >
+                        <RefreshCw className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                </div>
+            </div>
+
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row gap-3">
+                {/* Search */}
+                <div className="flex-1 relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="搜索 Skills..."
+                        className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    />
+                </div>
+
+                {/* Category Filter */}
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+                    {categories.map(cat => (
+                        <button
+                            key={cat}
+                            onClick={() => setSelectedCategory(cat)}
+                            className={`px-3 py-2 rounded-lg text-xs font-medium transition-all whitespace-nowrap flex items-center gap-1.5 ${
+                                selectedCategory === cat
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                            }`}
+                        >
+                            <span>{getCategoryIcon(cat)}</span>
+                            <span className="capitalize">{cat === 'all' ? '全部' : cat}</span>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* Skills List */}
+            <div className="flex-1 overflow-y-auto">
+                {isLoading ? (
+                    <div className="flex items-center justify-center h-32">
+                        <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
+                    </div>
+                ) : filteredSkills.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-32 text-slate-400">
+                        <Zap className="w-12 h-12 mb-2 opacity-20" />
+                        <p className="text-sm font-medium">未找到匹配的 Skills</p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {filteredSkills.map(skill => (
+                            <div
+                                key={skill.id}
+                                className={`group bg-white border rounded-lg p-3 hover:shadow-md transition-all cursor-pointer ${
+                                    skill.enabled
+                                        ? 'border-blue-200 hover:border-blue-300'
+                                        : 'border-slate-200 hover:border-slate-300 opacity-60'
+                                }`}
+                                onClick={() => setSelectedSkill(skill)}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                                        <div className={`p-2 rounded-lg flex-shrink-0 ${
+                                            skill.enabled ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'
+                                        }`}>
+                                            {getIconComponent(skill.icon)}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="font-semibold text-slate-900 text-sm truncate">
+                                                    {skill.name}
+                                                </h4>
+                                                <span className="text-xs text-slate-400">v{skill.version}</span>
+                                            </div>
+                                            <p className="text-xs text-slate-500 truncate mt-0.5">
+                                                {skill.description}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleToggleSkill(skill.id, skill.enabled);
+                                        }}
+                                        className={`p-2 rounded-lg transition-all flex-shrink-0 ${
+                                            skill.enabled
+                                                ? 'bg-green-100 text-green-600 hover:bg-green-200'
+                                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                                        }`}
+                                        title={skill.enabled ? '禁用' : '启用'}
+                                    >
+                                        {skill.enabled ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Skill Detail Modal */}
+            {selectedSkill && (
+                <SkillDetailModalInSettings
+                    skill={selectedSkill}
+                    onClose={() => setSelectedSkill(null)}
+                    onToggle={(enabled) => handleToggleSkill(selectedSkill.id, enabled)}
+                />
+            )}
+        </div>
+    );
+};
+
+// Skill Detail Modal for Settings
+interface SkillDetailModalInSettingsProps {
+    skill: SkillInfo;
+    onClose: () => void;
+    onToggle: (currentlyEnabled: boolean) => void;
+}
+
+const SkillDetailModalInSettings: React.FC<SkillDetailModalInSettingsProps> = ({ skill, onClose, onToggle }) => {
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+                {/* Header */}
+                <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                    <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${
+                                skill.enabled ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-600'
+                            }`}>
+                                <Zap className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-bold text-slate-900">{skill.name}</h2>
+                                <p className="text-xs text-slate-600">
+                                    v{skill.version} · by {skill.author}
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            className="p-1.5 hover:bg-white/80 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {/* Description */}
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-900 mb-1 uppercase tracking-wider">描述</h3>
+                        <p className="text-sm text-slate-700">{skill.description}</p>
+                    </div>
+
+                    {/* Required Columns */}
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-900 mb-2 uppercase tracking-wider">数据要求</h3>
+                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                            <div className="flex flex-wrap gap-1.5">
+                                {skill.required_columns.map(col => (
+                                    <span
+                                        key={col}
+                                        className="px-2 py-1 bg-white border border-slate-300 rounded text-xs font-mono text-slate-700"
+                                    >
+                                        {col}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Keywords */}
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-900 mb-2 uppercase tracking-wider">触发关键词</h3>
+                        <div className="flex flex-wrap gap-1.5">
+                            {skill.keywords.map(keyword => (
+                                <span
+                                    key={keyword}
+                                    className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-200"
+                                >
+                                    "{keyword}"
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Tags */}
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-900 mb-2 uppercase tracking-wider">标签</h3>
+                        <div className="flex flex-wrap gap-1.5">
+                            {skill.tags.map(tag => (
+                                <span
+                                    key={tag}
+                                    className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs"
+                                >
+                                    #{tag}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Tools */}
+                    <div>
+                        <h3 className="text-xs font-bold text-slate-900 mb-2 uppercase tracking-wider">使用工具</h3>
+                        <div className="flex gap-2">
+                            {skill.tools.map(tool => (
+                                <span
+                                    key={tool}
+                                    className="px-3 py-1.5 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 rounded text-xs font-bold border border-blue-200"
+                                >
+                                    {tool.toUpperCase()}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer */}
+                <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-600">状态:</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                            skill.enabled
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-slate-200 text-slate-600'
+                        }`}>
+                            {skill.enabled ? '✓ 已启用' : '✗ 已禁用'}
+                        </span>
+                    </div>
+                    <button
+                        onClick={() => onToggle(skill.enabled)}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            skill.enabled
+                                ? 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                                : 'bg-green-600 text-white hover:bg-green-700'
+                        }`}
+                    >
+                        {skill.enabled ? '禁用' : '启用'}
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -4,27 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/chromedp/chromedp"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"rapidbi/config"
 )
 
-// WebFetchTool provides web page fetching and parsing capabilities
+// WebFetchTool provides web page fetching and parsing capabilities using HTTP client
 type WebFetchTool struct {
 	logger      func(string)
 	proxyConfig *config.ProxyConfig
+	httpClient  *http.Client
 }
 
 // WebFetchInput represents the input for web fetch
 type WebFetchInput struct {
 	URL      string `json:"url" jsonschema:"description=URL of the web page to fetch"`
 	Selector string `json:"selector,omitempty" jsonschema:"description=CSS selector to extract specific content (optional)"`
-	WaitFor  string `json:"wait_for,omitempty" jsonschema:"description=CSS selector to wait for before extracting (optional)"`
 }
 
 // WebPageContent represents structured web page content
@@ -59,11 +61,39 @@ type TableData struct {
 	Rows    [][]string `json:"rows"`
 }
 
-// NewWebFetchTool creates a new web fetch tool
+// NewWebFetchTool creates a new web fetch tool using HTTP client
 func NewWebFetchTool(logger func(string), proxyConfig *config.ProxyConfig) *WebFetchTool {
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow up to 10 redirects
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	// Configure proxy if enabled
+	if proxyConfig != nil && proxyConfig.Enabled && proxyConfig.Tested &&
+		proxyConfig.Host != "" && proxyConfig.Port > 0 {
+		proxyURL, err := url.Parse(fmt.Sprintf("%s://%s:%d",
+			proxyConfig.Protocol, proxyConfig.Host, proxyConfig.Port))
+		if err == nil {
+			client.Transport = &http.Transport{
+				Proxy: http.ProxyURL(proxyURL),
+			}
+			if logger != nil {
+				logger(fmt.Sprintf("[WEB-FETCH] Using proxy: %s", proxyURL.String()))
+			}
+		}
+	}
+
 	return &WebFetchTool{
 		logger:      logger,
 		proxyConfig: proxyConfig,
+		httpClient:  client,
 	}
 }
 
@@ -86,6 +116,8 @@ The tool returns structured content including:
 - Links and images
 - Metadata
 
+Note: This tool fetches static HTML content. JavaScript-rendered content may not be available.
+
 Examples:
 - Fetch competitor pricing page
 - Extract product specifications table
@@ -104,11 +136,6 @@ Examples:
 			"selector": {
 				Type:     schema.String,
 				Desc:     "CSS selector to extract specific content (e.g., 'article', '.pricing-table', '#main-content')",
-				Required: false,
-			},
-			"wait_for": {
-				Type:     schema.String,
-				Desc:     "CSS selector to wait for before extracting (useful for dynamic content)",
 				Required: false,
 			},
 		}),
@@ -137,7 +164,7 @@ func (t *WebFetchTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}
 
 	// Fetch and parse the page
-	content, err := t.fetchPage(ctx, input.URL, input.Selector, input.WaitFor)
+	content, err := t.fetchPage(ctx, input.URL, input.Selector)
 	if err != nil {
 		if t.logger != nil {
 			t.logger(fmt.Sprintf("[WEB-FETCH] Fetch failed: %v", err))
@@ -146,7 +173,7 @@ func (t *WebFetchTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	}
 
 	if t.logger != nil {
-		t.logger(fmt.Sprintf("[WEB-FETCH] Successfully fetched: %s (content length: %d)", 
+		t.logger(fmt.Sprintf("[WEB-FETCH] Successfully fetched: %s (content length: %d)",
 			content.Title, len(content.MainContent)))
 	}
 
@@ -159,82 +186,65 @@ func (t *WebFetchTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	return string(resultJSON), nil
 }
 
-// fetchPage fetches and parses a web page
-func (t *WebFetchTool) fetchPage(ctx context.Context, url, selector, waitFor string) (*WebPageContent, error) {
-	// Create chromedp context with proxy support
-	opts := []chromedp.ExecAllocatorOption{
-		chromedp.NoFirstRun,
-		chromedp.NoDefaultBrowserCheck,
-		chromedp.Headless,
-		// Add User-Agent to avoid bot detection
-		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
-		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-	}
-
-	// Add proxy configuration if enabled
-	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
-	if t.proxyConfig != nil && 
-	   t.proxyConfig.Enabled && 
-	   t.proxyConfig.Tested && 
-	   t.proxyConfig.Host != "" && 
-	   t.proxyConfig.Port > 0 {
-		proxyURL := fmt.Sprintf("%s://%s:%d", 
-			t.proxyConfig.Protocol, t.proxyConfig.Host, t.proxyConfig.Port)
-		opts = append(opts, chromedp.ProxyServer(proxyURL))
-		
-		if t.logger != nil {
-			t.logger(fmt.Sprintf("[WEB-FETCH] Using proxy: %s", proxyURL))
-		}
-	} else if t.logger != nil {
-		t.logger("[WEB-FETCH] Using direct connection (no proxy)")
-	}
-
-	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
-	defer cancel()
-
-	// Create chromedp context
-	ctxWithCancel, cancel := chromedp.NewContext(allocCtx)
-	defer cancel()
-
-	// Set timeout for the entire operation (increased to 60s for slow networks)
-	timeoutCtx, timeoutCancel := context.WithTimeout(ctxWithCancel, 60*time.Second)
-	defer timeoutCancel()
-
-	// Navigate to URL and wait for content
-	var htmlContent string
-	tasks := []chromedp.Action{
-		chromedp.Navigate(url),
-	}
-
-	// Wait for specific element if specified
-	if waitFor != "" {
-		tasks = append(tasks, chromedp.WaitVisible(waitFor, chromedp.ByQuery))
-	} else {
-		// Default wait for body
-		tasks = append(tasks, chromedp.WaitVisible(`body`, chromedp.ByQuery))
-	}
-
-	// Extract HTML
-	if selector != "" {
-		tasks = append(tasks, chromedp.OuterHTML(selector, &htmlContent, chromedp.ByQuery))
-	} else {
-		tasks = append(tasks, chromedp.OuterHTML(`html`, &htmlContent, chromedp.ByQuery))
-	}
-
-	err := chromedp.Run(timeoutCtx, tasks...)
+// fetchPage fetches and parses a web page using HTTP client
+func (t *WebFetchTool) fetchPage(ctx context.Context, pageURL, selector string) (*WebPageContent, error) {
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", pageURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load page: %v", err)
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	// Set headers to mimic a real browser
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,zh-CN,zh;q=0.8")
+	req.Header.Set("Accept-Encoding", "gzip, deflate")
+	req.Header.Set("Connection", "keep-alive")
+
+	// Fetch the page
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch page: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP error: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
 
 	// Parse HTML with goquery
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(string(body)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML: %v", err)
 	}
 
+	// If selector is provided, narrow down to that element
+	if selector != "" {
+		selection := doc.Find(selector)
+		if selection.Length() == 0 {
+			return nil, fmt.Errorf("selector '%s' not found in page", selector)
+		}
+		// Create a new document from the selection
+		html, err := selection.Html()
+		if err != nil {
+			return nil, fmt.Errorf("failed to extract selection HTML: %v", err)
+		}
+		doc, err = goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse selection: %v", err)
+		}
+	}
+
 	// Extract structured content
 	content := &WebPageContent{
-		URL:      url,
+		URL:      pageURL,
 		Metadata: make(map[string]string),
 	}
 
@@ -286,6 +296,13 @@ func (t *WebFetchTool) fetchPage(ctx context.Context, url, selector, waitFor str
 		text := strings.TrimSpace(s.Text())
 		href, _ := s.Attr("href")
 		if text != "" && href != "" {
+			// Convert relative URLs to absolute
+			if strings.HasPrefix(href, "/") {
+				parsedURL, err := url.Parse(pageURL)
+				if err == nil {
+					href = fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, href)
+				}
+			}
 			content.Links = append(content.Links, Link{
 				Text: text,
 				URL:  href,
@@ -301,6 +318,13 @@ func (t *WebFetchTool) fetchPage(ctx context.Context, url, selector, waitFor str
 		alt, _ := s.Attr("alt")
 		src, _ := s.Attr("src")
 		if src != "" {
+			// Convert relative URLs to absolute
+			if strings.HasPrefix(src, "/") {
+				parsedURL, err := url.Parse(pageURL)
+				if err == nil {
+					src = fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, src)
+				}
+			}
 			content.Images = append(content.Images, Image{
 				Alt: alt,
 				Src: src,

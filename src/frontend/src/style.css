@@ -16,3 +16,282 @@ input, textarea {
 .animate-progress-indeterminate {
   animation: progress-indeterminate 2s infinite ease-in-out;
 }
+
+/* Dark mode base styles - 深蓝灰色调 */
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
+/* Dark mode for common elements */
+.dark .bg-white {
+  background-color: #1e293b !important;
+}
+
+.dark .bg-slate-50 {
+  background-color: #0f172a !important;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+
+.dark .bg-slate-200 {
+  background-color: #334155 !important;
+}
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: #f1f5f9 !important;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+
+/* Dark mode for inputs */
+.dark input,
+.dark textarea,
+.dark select {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Dark mode for modals */
+.dark .bg-black\/50 {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Dark mode for cards and panels */
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Dark mode for hover states */
+.dark .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+
+.dark .hover\:bg-slate-200:hover {
+  background-color: #475569 !important;
+}
+
+/* ========== 仪表盘组件深色配色 ========== */
+
+/* 关键指标 - 蓝色调 */
+.dark .bg-blue-50 {
+  background-color: #172554 !important;
+}
+
+.dark .bg-blue-100 {
+  background-color: #1e3a8a !important;
+}
+
+.dark .text-blue-700,
+.dark .text-blue-600 {
+  color: #60a5fa !important;
+}
+
+.dark .border-blue-200,
+.dark .border-blue-100 {
+  border-color: #1e40af !important;
+}
+
+/* 数据图表 - 青绿色调 */
+.dark .bg-green-50 {
+  background-color: #042f2e !important;
+}
+
+.dark .bg-green-100 {
+  background-color: #134e4a !important;
+}
+
+.dark .text-green-700,
+.dark .text-green-600 {
+  color: #2dd4bf !important;
+}
+
+.dark .border-green-200,
+.dark .border-green-100 {
+  border-color: #115e59 !important;
+}
+
+/* 自动洞察 - 改为青蓝色调（替代紫色） */
+.dark .bg-purple-50 {
+  background-color: #164e63 !important;
+}
+
+.dark .bg-purple-100 {
+  background-color: #155e75 !important;
+}
+
+.dark .text-purple-700,
+.dark .text-purple-600 {
+  color: #67e8f9 !important;
+}
+
+.dark .border-purple-200,
+.dark .border-purple-100 {
+  border-color: #0e7490 !important;
+}
+
+/* 数据表格 - 琥珀/暖色调 */
+.dark .bg-amber-50,
+.dark .bg-orange-50 {
+  background-color: #292524 !important;
+}
+
+.dark .bg-amber-100,
+.dark .bg-orange-100 {
+  background-color: #44403c !important;
+}
+
+.dark .text-amber-700,
+.dark .text-amber-600,
+.dark .text-orange-700,
+.dark .text-orange-600 {
+  color: #fbbf24 !important;
+}
+
+.dark .border-amber-200,
+.dark .border-orange-200 {
+  border-color: #78716c !important;
+}
+
+/* 图片展示 - 青色调 */
+.dark .bg-cyan-50 {
+  background-color: #083344 !important;
+}
+
+.dark .bg-cyan-100 {
+  background-color: #164e63 !important;
+}
+
+.dark .text-cyan-700,
+.dark .text-cyan-600 {
+  color: #22d3ee !important;
+}
+
+.dark .border-cyan-200,
+.dark .border-cyan-100 {
+  border-color: #0e7490 !important;
+}
+
+/* 文件下载 - 改为灰蓝色调（替代橙色） */
+.dark .bg-indigo-50 {
+  background-color: #1e1b4b !important;
+}
+
+.dark .bg-indigo-100 {
+  background-color: #312e81 !important;
+}
+
+.dark .text-indigo-700,
+.dark .text-indigo-600 {
+  color: #a5b4fc !important;
+}
+
+.dark .border-indigo-200,
+.dark .border-indigo-100 {
+  border-color: #4338ca !important;
+}
+
+/* 错误/警告 - 改为暗橙色调（替代红色） */
+.dark .bg-red-50 {
+  background-color: #431407 !important;
+}
+
+.dark .bg-red-100 {
+  background-color: #7c2d12 !important;
+}
+
+.dark .text-red-700,
+.dark .text-red-600 {
+  color: #fb923c !important;
+}
+
+.dark .border-red-200,
+.dark .border-red-100 {
+  border-color: #9a3412 !important;
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* 仪表盘特定组件深色样式 */
+.dark .rounded-xl {
+  border-color: #334155;
+}
+
+/* 编辑模式提示条 */
+.dark .bg-blue-600 {
+  background-color: #1d4ed8 !important;
+}
+
+/* 按钮深色样式 */
+.dark .hover\:bg-blue-100:hover {
+  background-color: #1e3a8a !important;
+}
+
+.dark .hover\:bg-green-100:hover {
+  background-color: #134e4a !important;
+}
+
+.dark .hover\:bg-purple-100:hover {
+  background-color: #155e75 !important;
+}
+
+.dark .hover\:bg-amber-100:hover {
+  background-color: #44403c !important;
+}
+
+.dark .hover\:bg-cyan-100:hover {
+  background-color: #164e63 !important;
+}
+
+.dark .hover\:bg-indigo-100:hover {
+  background-color: #312e81 !important;
+}

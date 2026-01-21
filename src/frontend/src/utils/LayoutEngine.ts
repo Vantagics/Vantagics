@@ -97,7 +97,7 @@ export interface CompactionResult {
  */
 export const DEFAULT_GRID_CONFIG: GridConfig = {
   columns: 24,
-  rowHeight: 30,
+  rowHeight: 90,  // 从 30 增加到 90 (3倍)，这样每个网格单元高度更大
   margin: [10, 10],
   containerPadding: [10, 10],
 };

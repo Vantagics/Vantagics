@@ -111,33 +111,33 @@ export interface ComponentDataUpdate {
  */
 export const DEFAULT_COMPONENT_CONFIGS: Record<ComponentType, ComponentConfig> = {
   [ComponentType.METRICS]: {
-    defaultSize: { w: 6, h: 4 },
-    minSize: { w: 3, h: 2 },
-    maxSize: { w: 12, h: 8 },
+    defaultSize: { w: 6, h: 12 },  // 高度从 4 增加到 12 (3倍)
+    minSize: { w: 3, h: 6 },       // 最小高度从 2 增加到 6 (3倍)
+    maxSize: { w: 12, h: 24 },     // 最大高度从 8 增加到 24 (3倍)
     supportsPagination: true,
   },
   [ComponentType.TABLE]: {
-    defaultSize: { w: 12, h: 6 },
-    minSize: { w: 6, h: 4 },
-    maxSize: { w: 24, h: 12 },
+    defaultSize: { w: 12, h: 18 }, // 高度从 6 增加到 18 (3倍)
+    minSize: { w: 6, h: 12 },      // 最小高度从 4 增加到 12 (3倍)
+    maxSize: { w: 24, h: 36 },     // 最大高度从 12 增加到 36 (3倍)
     supportsPagination: true,
   },
   [ComponentType.IMAGE]: {
-    defaultSize: { w: 8, h: 6 },
-    minSize: { w: 4, h: 3 },
-    maxSize: { w: 16, h: 12 },
+    defaultSize: { w: 8, h: 18 },  // 高度从 6 增加到 18 (3倍)
+    minSize: { w: 4, h: 9 },       // 最小高度从 3 增加到 9 (3倍)
+    maxSize: { w: 16, h: 36 },     // 最大高度从 12 增加到 36 (3倍)
     supportsPagination: true,
   },
   [ComponentType.INSIGHTS]: {
-    defaultSize: { w: 10, h: 8 },
-    minSize: { w: 6, h: 4 },
-    maxSize: { w: 18, h: 16 },
+    defaultSize: { w: 10, h: 24 }, // 高度从 8 增加到 24 (3倍)
+    minSize: { w: 6, h: 12 },      // 最小高度从 4 增加到 12 (3倍)
+    maxSize: { w: 18, h: 48 },     // 最大高度从 16 增加到 48 (3倍)
     supportsPagination: true,
   },
   [ComponentType.FILE_DOWNLOAD]: {
-    defaultSize: { w: 8, h: 10 },
-    minSize: { w: 6, h: 6 },
-    maxSize: { w: 12, h: 16 },
+    defaultSize: { w: 8, h: 30 },  // 高度从 10 增加到 30 (3倍)
+    minSize: { w: 6, h: 18 },      // 最小高度从 6 增加到 18 (3倍)
+    maxSize: { w: 12, h: 48 },     // 最大高度从 16 增加到 48 (3倍)
     supportsPagination: false,
   },
 };

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 // FileCategory represents the category of a file

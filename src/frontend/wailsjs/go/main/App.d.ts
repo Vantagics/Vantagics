@@ -9,11 +9,9 @@ export function AddDataSource(arg1:string,arg2:string,arg3:Record<string, string
 
 export function ApplyOptimizeSuggestions(arg1:string,arg2:Array<main.IndexSuggestion>):Promise<main.OptimizeDataSourceResult>;
 
+export function CanStartNewAnalysis():Promise<boolean|string>;
+
 export function CancelAnalysis():Promise<void>;
-
-export function CheckChromeAvailability():Promise<main.ChromeCheckResult>;
-
-export function CheckChromeOnStartup():Promise<boolean>;
 
 export function CheckComponentHasData(arg1:string,arg2:string):Promise<boolean>;
 
@@ -30,6 +28,10 @@ export function CreateRapidBIEnvironment():Promise<string>;
 export function DeleteDataSource(arg1:string):Promise<void>;
 
 export function DeleteSessionFile(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteSkill(arg1:string):Promise<void>;
+
+export function DeleteTable(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteThread(arg1:string):Promise<void>;
 
@@ -49,13 +51,17 @@ export function ExportAnalysisProcess(arg1:string):Promise<void>;
 
 export function ExportDashboard(arg1:database.ExportRequest):Promise<database.ExportResult>;
 
+export function ExportDashboardToExcel(arg1:main.DashboardExportData):Promise<void>;
+
 export function ExportDashboardToPDF(arg1:main.DashboardExportData):Promise<void>;
 
-export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
+export function ExportDashboardToPPT(arg1:main.DashboardExportData):Promise<void>;
 
 export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
 
 export function ExportSessionHTML(arg1:string):Promise<void>;
+
+export function ExportTableToExcel(arg1:main.TableData,arg2:string):Promise<void>;
 
 export function ExportToCSV(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
 
@@ -70,6 +76,12 @@ export function ExtractMetricsFromAnalysis(arg1:string,arg2:string,arg3:string):
 export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function GenerateCSVThumbnail(arg1:string,arg2:string):Promise<string>;
+
+export function GenerateIntentSuggestions(arg1:string,arg2:string):Promise<Array<main.IntentSuggestion>>;
+
+export function GenerateIntentSuggestionsWithExclusions(arg1:string,arg2:string,arg3:Array<main.IntentSuggestion>):Promise<Array<main.IntentSuggestion>>;
+
+export function GetActiveAnalysisCount():Promise<number>;
 
 export function GetActiveThreadID():Promise<string>;
 
@@ -129,7 +141,11 @@ export function ImportJSONDataSource(arg1:string,arg2:string):Promise<agent.Data
 
 export function InstallPythonPackages(arg1:string,arg2:Array<string>):Promise<void>;
 
+export function InstallSkillsFromZip():Promise<Array<string>>;
+
 export function IsCancelRequested():Promise<boolean>;
+
+export function ListSkills():Promise<Array<agent.Skill>>;
 
 export function LoadLayout(arg1:string):Promise<database.LayoutConfiguration>;
 
@@ -145,13 +161,13 @@ export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
 
-export function OpenURL(arg1:string):Promise<void>;
-
 export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
 export function ReloadSkills():Promise<void>;
+
+export function RenameColumn(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function RenameDataSource(arg1:string,arg2:string):Promise<void>;
 
@@ -179,7 +195,9 @@ export function SelectJSONFile():Promise<string>;
 
 export function SelectSaveFile(arg1:string,arg2:string):Promise<string>;
 
-export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<string>;
+export function SemanticOptimizeDataSource(arg1:string):Promise<void>;
+
+export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
@@ -195,9 +213,13 @@ export function TestMySQLConnection(arg1:string,arg2:string,arg3:string,arg4:str
 
 export function TestProxy(arg1:config.ProxyConfig):Promise<main.ConnectionResult>;
 
+export function TestSearchAPI(arg1:config.SearchAPIConfig):Promise<main.ConnectionResult>;
+
 export function TestSearchEngine(arg1:string):Promise<main.ConnectionResult>;
 
 export function TestSearchTools(arg1:string):Promise<main.ConnectionResult>;
+
+export function TestUAPIConnection(arg1:string,arg2:string):Promise<main.ConnectionResult>;
 
 export function UpdateMySQLExportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 

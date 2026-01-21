@@ -1,106 +1,112 @@
 package config
 
-// GetDefaultSearchEngines returns the default search engines
-func GetDefaultSearchEngines() []SearchEngine {
-	return []SearchEngine{
+// GetDefaultSearchAPIs returns the default search API services
+func GetDefaultSearchAPIs() []SearchAPIConfig {
+	return []SearchAPIConfig{
 		{
-			ID:      "google",
-			Name:    "Google",
-			URL:     "www.google.com",
-			Enabled: true,  // Available but not necessarily active
-			Tested:  true,  // Pre-tested
+			ID:          "duckduckgo",
+			Name:        "DuckDuckGo",
+			Description: "Free search API with no API key required",
+			Enabled:     true,
+			Tested:      false,
 		},
 		{
-			ID:      "bing",
-			Name:    "Bing",
-			URL:     "www.bing.com",
-			Enabled: true,  // Available but not necessarily active
-			Tested:  true,  // Pre-tested
+			ID:          "serper",
+			Name:        "Serper (Google Search)",
+			Description: "Google Search API via Serper.dev (requires API key)",
+			APIKey:      "",
+			Enabled:     false,
+			Tested:      false,
 		},
 		{
-			ID:      "baidu",
-			Name:    "Baidu (百度)",
-			URL:     "www.baidu.com",
-			Enabled: false, // Disabled by default
-			Tested:  true,  // Pre-tested
+			ID:          "uapi_pro",
+			Name:        "UAPI Pro",
+			Description: "UAPI Pro search service with structured data (requires API key)",
+			APIKey:      "",
+			Enabled:     false,
+			Tested:      false,
 		},
 	}
 }
 
-// InitializeSearchEngines initializes search engines if not present
-func (c *Config) InitializeSearchEngines() {
-	if len(c.SearchEngines) == 0 {
-		c.SearchEngines = GetDefaultSearchEngines()
+// InitializeSearchAPIs initializes search API services if not present
+func (c *Config) InitializeSearchAPIs() {
+	if len(c.SearchAPIs) == 0 {
+		c.SearchAPIs = GetDefaultSearchAPIs()
 	}
 	
-	// If user hasn't made a choice (ActiveSearchEngine is empty), set default based on language
-	if c.ActiveSearchEngine == "" {
-		if c.Language == "简体中文" {
-			// Chinese users default to Bing
-			c.ActiveSearchEngine = "bing"
-			// Enable Bing, disable others
-			for i := range c.SearchEngines {
-				c.SearchEngines[i].Enabled = (c.SearchEngines[i].ID == "bing")
-			}
-		} else {
-			// English users default to Google
-			c.ActiveSearchEngine = "google"
-			// Enable Google, disable others
-			for i := range c.SearchEngines {
-				c.SearchEngines[i].Enabled = (c.SearchEngines[i].ID == "google")
+	// Migrate from old UAPIConfig if present
+	if c.UAPIConfig != nil && c.UAPIConfig.Enabled && c.UAPIConfig.APIToken != "" {
+		for i := range c.SearchAPIs {
+			if c.SearchAPIs[i].ID == "uapi_pro" {
+				c.SearchAPIs[i].APIKey = c.UAPIConfig.APIToken
+				c.SearchAPIs[i].Enabled = c.UAPIConfig.Enabled
+				c.SearchAPIs[i].Tested = c.UAPIConfig.Tested
+				break
 			}
 		}
-	} else {
-		// User has made a choice, ensure the selected engine is enabled
-		for i := range c.SearchEngines {
-			if c.SearchEngines[i].ID == c.ActiveSearchEngine {
-				c.SearchEngines[i].Enabled = true
+		// Clear old config
+		c.UAPIConfig = nil
+	}
+	
+	// Set default active search API if not set
+	if c.ActiveSearchAPI == "" {
+		// Default to DuckDuckGo (free, no API key required)
+		c.ActiveSearchAPI = "duckduckgo"
+		for i := range c.SearchAPIs {
+			if c.SearchAPIs[i].ID == "duckduckgo" {
+				c.SearchAPIs[i].Enabled = true
 			}
 		}
 	}
 	
-	// Ensure at least one engine is enabled (fallback)
+	// Ensure at least one API is enabled
 	hasEnabled := false
-	for _, engine := range c.SearchEngines {
-		if engine.Enabled {
+	for _, api := range c.SearchAPIs {
+		if api.Enabled {
 			hasEnabled = true
 			break
 		}
 	}
 	
-	if !hasEnabled && len(c.SearchEngines) > 0 {
-		// Enable the first engine as fallback
-		c.SearchEngines[0].Enabled = true
-		c.ActiveSearchEngine = c.SearchEngines[0].ID
+	if !hasEnabled && len(c.SearchAPIs) > 0 {
+		// Enable DuckDuckGo as fallback
+		for i := range c.SearchAPIs {
+			if c.SearchAPIs[i].ID == "duckduckgo" {
+				c.SearchAPIs[i].Enabled = true
+				c.ActiveSearchAPI = "duckduckgo"
+				break
+			}
+		}
 	}
 }
 
-// GetActiveSearchEngine returns the currently active search engine
-func (c *Config) GetActiveSearchEngine() *SearchEngine {
-	for i := range c.SearchEngines {
-		if c.SearchEngines[i].ID == c.ActiveSearchEngine {
-			return &c.SearchEngines[i]
+// GetActiveSearchAPI returns the currently active search API
+func (c *Config) GetActiveSearchAPI() *SearchAPIConfig {
+	for i := range c.SearchAPIs {
+		if c.SearchAPIs[i].ID == c.ActiveSearchAPI {
+			return &c.SearchAPIs[i]
 		}
 	}
 	
-	// Fallback to first enabled engine
-	for i := range c.SearchEngines {
-		if c.SearchEngines[i].Enabled {
-			return &c.SearchEngines[i]
+	// Fallback to first enabled API
+	for i := range c.SearchAPIs {
+		if c.SearchAPIs[i].Enabled {
+			return &c.SearchAPIs[i]
 		}
 	}
 	
 	return nil
 }
 
-// SetActiveSearchEngine sets the active search engine (user choice)
-func (c *Config) SetActiveSearchEngine(engineID string) bool {
-	// Find and enable the selected engine
+// SetActiveSearchAPI sets the active search API (user choice)
+func (c *Config) SetActiveSearchAPI(apiID string) bool {
+	// Find and enable the selected API
 	found := false
-	for i := range c.SearchEngines {
-		if c.SearchEngines[i].ID == engineID {
-			c.SearchEngines[i].Enabled = true
-			c.ActiveSearchEngine = engineID
+	for i := range c.SearchAPIs {
+		if c.SearchAPIs[i].ID == apiID {
+			c.SearchAPIs[i].Enabled = true
+			c.ActiveSearchAPI = apiID
 			found = true
 			break
 		}
@@ -109,17 +115,78 @@ func (c *Config) SetActiveSearchEngine(engineID string) bool {
 	return found
 }
 
-// IsUserSelectedEngine returns true if user has explicitly selected a search engine
+// UpdateSearchAPIConfig updates a search API configuration
+func (c *Config) UpdateSearchAPIConfig(apiID string, apiKey string, customID string, enabled bool, tested bool) bool {
+	for i := range c.SearchAPIs {
+		if c.SearchAPIs[i].ID == apiID {
+			if apiKey != "" {
+				c.SearchAPIs[i].APIKey = apiKey
+			}
+			if customID != "" {
+				c.SearchAPIs[i].CustomID = customID
+			}
+			c.SearchAPIs[i].Enabled = enabled
+			c.SearchAPIs[i].Tested = tested
+			return true
+		}
+	}
+	return false
+}
+
+// Legacy functions for backward compatibility
+
+// GetDefaultSearchEngines returns the default search engines (DEPRECATED)
+func GetDefaultSearchEngines() []SearchEngine {
+	return []SearchEngine{
+		{
+			ID:      "google",
+			Name:    "Google",
+			URL:     "www.google.com",
+			Enabled: true,
+			Tested:  true,
+		},
+		{
+			ID:      "bing",
+			Name:    "Bing",
+			URL:     "www.bing.com",
+			Enabled: true,
+			Tested:  true,
+		},
+		{
+			ID:      "baidu",
+			Name:    "Baidu (百度)",
+			URL:     "www.baidu.com",
+			Enabled: false,
+			Tested:  true,
+		},
+	}
+}
+
+// InitializeSearchEngines initializes search engines if not present (DEPRECATED)
+func (c *Config) InitializeSearchEngines() {
+	// Migrate to new SearchAPIs if old SearchEngines exist
+	if len(c.SearchEngines) > 0 && len(c.SearchAPIs) == 0 {
+		c.SearchAPIs = GetDefaultSearchAPIs()
+		c.SearchEngines = nil
+	}
+	
+	// Use new API-based initialization
+	c.InitializeSearchAPIs()
+}
+
+// GetActiveSearchEngine returns the currently active search engine (DEPRECATED)
+func (c *Config) GetActiveSearchEngine() *SearchEngine {
+	// Return nil to force migration to new API system
+	return nil
+}
+
+// SetActiveSearchEngine sets the active search engine (DEPRECATED)
+func (c *Config) SetActiveSearchEngine(engineID string) bool {
+	// Redirect to new API system
+	return c.SetActiveSearchAPI(engineID)
+}
+
+// IsUserSelectedEngine returns true if user has explicitly selected a search engine (DEPRECATED)
 func (c *Config) IsUserSelectedEngine() bool {
-	// If ActiveSearchEngine is set and doesn't match language default, user has made a choice
-	if c.ActiveSearchEngine == "" {
-		return false
-	}
-	
-	// Check if it matches the language default
-	if c.Language == "简体中文" {
-		return c.ActiveSearchEngine != "bing"
-	}
-	
-	return c.ActiveSearchEngine != "google"
+	return c.ActiveSearchAPI != ""
 }

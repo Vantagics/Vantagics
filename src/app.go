@@ -42,6 +42,15 @@ type Insight struct {
 	SourceName   string `json:"source_name,omitempty"`
 }
 
+// IntentSuggestion represents a possible interpretation of user's intent
+type IntentSuggestion struct {
+	ID          string `json:"id"`          // Unique identifier
+	Title       string `json:"title"`       // Short title (10 chars max)
+	Description string `json:"description"` // Detailed description (30 chars max)
+	Icon        string `json:"icon"`        // Icon (emoji or icon name)
+	Query       string `json:"query"`       // Actual query/analysis request to execute
+}
+
 // DashboardData structure
 type DashboardData struct {
 	Metrics  []Metric  `json:"metrics"`
@@ -59,10 +68,12 @@ type App struct {
 	analysisPathManager   *agent.AnalysisPathManager
 	preferenceLearner     *agent.PreferenceLearner
 	einoService           *agent.EinoService
+	skillService          *agent.SkillService
 	db                    *sql.DB
 	storageDir            string
 	logger                *logger.Logger
-	isChatGenerating      bool
+	activeThreads         map[string]bool // Track active analysis sessions by thread ID
+	activeThreadsMutex    sync.RWMutex    // Protect activeThreads map
 	isChatOpen            bool
 	cancelAnalysisMutex   sync.Mutex
 	cancelAnalysis        bool
@@ -94,7 +105,7 @@ func NewApp() *App {
 	return &App{
 		pythonService:    agent.NewPythonService(),
 		logger:           logger.NewLogger(),
-		isChatGenerating: false,
+		activeThreads:    make(map[string]bool),
 		isChatOpen:       false,
 	}
 }
@@ -167,7 +178,11 @@ func (a *App) OpenDevTools() {
 // onBeforeClose is called when the application is about to close
 func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 	// Only prevent close if there's an active analysis running
-	if a.isChatGenerating {
+	a.activeThreadsMutex.RLock()
+	hasActiveAnalysis := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if hasActiveAnalysis {
 		// Get current language configuration
 		cfg, _ := a.GetConfig()
 		
@@ -292,6 +307,10 @@ func (a *App) startup(ctx context.Context) {
 		// Initialize preference learner for user behavior tracking
 		a.preferenceLearner = agent.NewPreferenceLearner(dataDir)
 		a.Log("[STARTUP] Preference learner initialized")
+		
+		// Initialize skill service for skills management
+		a.skillService = agent.NewSkillService(dataDir, a.Log)
+		a.Log("[STARTUP] Skill service initialized")
 		
 		a.Log(fmt.Sprintf("[STARTUP] Initializing EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
 		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.memoryService, a.workingContextManager, a.Log)
@@ -766,6 +785,35 @@ func (a *App) GetConfig() (config.Config, error) {
 		cfg.MaxPreviewRows = 100
 	}
 
+	// Initialize SearchAPIs with defaults if empty or nil
+	if cfg.SearchAPIs == nil || len(cfg.SearchAPIs) == 0 {
+		cfg.SearchAPIs = []config.SearchAPIConfig{
+			{
+				ID:          "duckduckgo",
+				Name:        "DuckDuckGo",
+				Description: "Free search API with no API key required",
+				Enabled:     true,
+				Tested:      false,
+			},
+			{
+				ID:          "serper",
+				Name:        "Serper (Google Search)",
+				Description: "Google Search API via Serper.dev (requires API key)",
+				APIKey:      "",
+				Enabled:     false,
+				Tested:      false,
+			},
+			{
+				ID:          "uapi_pro",
+				Name:        "UAPI Pro",
+				Description: "UAPI Pro search service with structured data (API key optional)",
+				APIKey:      "",
+				Enabled:     false,
+				Tested:      false,
+			},
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -1048,308 +1096,23 @@ func (a *App) TestSearchEngine(url string) ConnectionResult {
 }
 
 // TestSearchTools tests web_search and web_fetch tools with a sample query
+// DEPRECATED: This function used chromedp-based tools which have been removed.
+// Search functionality now uses Search API (search_api_tool.go)
+// Web fetch functionality now uses HTTP client (web_fetch_tool.go)
 func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	// Get user's language preference
 	cfg, _ := a.GetConfig()
 	lang := cfg.Language
 	isChinese := lang == "简体中文"
 	
-	if engineURL == "" {
-		msg := "Search engine URL is required"
-		if isChinese {
-			msg = "搜索引擎URL不能为空"
-		}
-		return ConnectionResult{
-			Success: false,
-			Message: msg,
-		}
-	}
-
-	a.logger.Log("[SEARCH-TEST] Starting search tools test with query: whitehouse")
-
-	// Create search engine config
-	searchEngine := &config.SearchEngine{
-		ID:      "test-engine",
-		Name:    "Test Engine",
-		URL:     engineURL,
-		Enabled: true,
-		Tested:  true,
-	}
-
-	// Get proxy config from eino service if available
-	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
-	var proxyConfig *config.ProxyConfig
-	if a.einoService != nil {
-		cfg := a.einoService.GetConfig()
-		if cfg.ProxyConfig != nil && 
-		   cfg.ProxyConfig.Enabled && 
-		   cfg.ProxyConfig.Tested && 
-		   cfg.ProxyConfig.Host != "" && 
-		   cfg.ProxyConfig.Port > 0 {
-			proxyConfig = cfg.ProxyConfig
-			a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Using proxy: %s://%s:%d", 
-				cfg.ProxyConfig.Protocol, cfg.ProxyConfig.Host, cfg.ProxyConfig.Port))
-		} else {
-			a.logger.Log("[SEARCH-TEST] No valid proxy configured, using direct connection")
-		}
-	}
-
-	// Test 1: Web Search
-	a.logger.Log("[SEARCH-TEST] Step 1: Testing web_search tool...")
-	searchTool := agent.NewWebSearchTool(a.logger.Log, searchEngine, proxyConfig)
-	
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	searchInput := `{"query": "whitehouse", "max_results": 3}`
-	searchResult, err := searchTool.InvokableRun(ctx, searchInput)
-	if err != nil {
-		errMsg := fmt.Sprintf("[SEARCH-TEST] web_search failed: %v", err)
-		a.logger.Log(errMsg)
-		
-		// Also log to system.log for user visibility
-		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
-		
-		// Provide helpful error message based on the error type
-		var errorMsg string
-		
-		// Check for specific error patterns
-		if strings.Contains(err.Error(), "no search results found") {
-			// This means page loaded but results couldn't be extracted
-			a.logger.Log("[SEARCH-TEST] Page loaded but no results extracted - likely redirected or HTML structure changed")
-			a.WriteSystemLog("WARNING", "SearchTest", "Search engine may be redirected or blocked. Check debug HTML files in dist/ folder.")
-			
-			if strings.Contains(strings.ToLower(engineURL), "google") {
-				if isChinese {
-					errorMsg = "搜索失败：未找到结果。\n\n" +
-						"⚠️ Google似乎被重定向或屏蔽。\n\n" +
-						"常见原因：\n" +
-						"1. DNS劫持（被重定向到360搜索或其他搜索引擎）\n" +
-						"2. 网络防火墙屏蔽Google\n" +
-						"3. 地区限制\n\n" +
-						"解决方案：\n" +
-						"1. ✅ 使用Bing (www.bing.com) - 在大多数地区可用\n" +
-						"2. ✅ 使用百度 (www.baidu.com) - 最适合中文内容\n" +
-						"3. 在网络设置中配置代理服务器\n\n" +
-						"调试：检查 dist/debug_google_*.html 查看实际页面内容"
-				} else {
-					errorMsg = "Search failed: No results found.\n\n" +
-						"⚠️ Google appears to be redirected or blocked.\n\n" +
-						"Common causes:\n" +
-						"1. DNS hijacking (redirected to 360搜索 or other search engines)\n" +
-						"2. Network firewall blocking Google\n" +
-						"3. Regional restrictions\n\n" +
-						"Solutions:\n" +
-						"1. ✅ Use Bing (www.bing.com) - Works in most regions\n" +
-						"2. ✅ Use Baidu (www.baidu.com) - Best for Chinese content\n" +
-						"3. Configure a proxy server in Network Settings\n\n" +
-						"Debug: Check dist/debug_google_*.html to see actual page content"
-				}
-			} else {
-				if isChinese {
-					errorMsg = "搜索失败：未找到结果。\n\n" +
-						"页面已加载但无法提取搜索结果。\n\n" +
-						"可能原因：\n" +
-						"1. 搜索引擎HTML结构已更改\n" +
-						"2. 页面被重定向\n" +
-						"3. 反机器人检测\n\n" +
-						"解决方案：\n" +
-						"1. 尝试其他搜索引擎\n" +
-						"2. 检查 dist/ 文件夹中的调试HTML文件\n" +
-						"3. 将调试HTML文件报告此问题"
-				} else {
-					errorMsg = "Search failed: No results found.\n\n" +
-						"The page loaded but search results couldn't be extracted.\n\n" +
-						"Possible causes:\n" +
-						"1. Search engine HTML structure changed\n" +
-						"2. Page was redirected\n" +
-						"3. Anti-bot detection\n\n" +
-						"Solutions:\n" +
-						"1. Try a different search engine\n" +
-						"2. Check debug HTML files in dist/ folder\n" +
-						"3. Report this issue with the debug HTML file"
-				}
-			}
-		} else if strings.Contains(err.Error(), "context deadline exceeded") {
-			// Timeout error
-			a.WriteSystemLog("ERROR", "SearchTest", "Search timeout after 90 seconds")
-			
-			if strings.Contains(strings.ToLower(engineURL), "google") {
-				if isChinese {
-					errorMsg = "搜索超时（超过90秒）。\n\n" +
-						"⚠️ Google可能在您的地区被屏蔽。\n\n" +
-						"建议：\n" +
-						"1. 尝试Bing (www.bing.com) 或百度 (www.baidu.com)\n" +
-						"2. 在网络设置中配置代理\n" +
-						"3. 使用VPN\n\n" +
-						"注意：连接测试通过，但实际搜索超时。" +
-						"这通常意味着搜索引擎在您的网络中被屏蔽或非常慢。"
-				} else {
-					errorMsg = "Search timeout (90s exceeded).\n\n" +
-						"⚠️ Google may be blocked in your region.\n\n" +
-						"Suggestions:\n" +
-						"1. Try Bing (www.bing.com) or Baidu (www.baidu.com)\n" +
-						"2. Configure a proxy in Network Settings\n" +
-						"3. Use a VPN\n\n" +
-						"Note: The connection test passed, but actual search timed out. " +
-						"This usually means the search engine is blocked or very slow in your network."
-				}
-			} else {
-				if isChinese {
-					errorMsg = "搜索超时（超过90秒）。\n\n" +
-						"搜索引擎响应时间过长。\n\n" +
-						"可能原因：\n" +
-						"1. 网络缓慢或不稳定\n" +
-						"2. 搜索引擎可能被屏蔽\n" +
-						"3. 需要配置代理\n\n" +
-						"建议：\n" +
-						"1. 尝试其他搜索引擎\n" +
-						"2. 在网络设置中配置代理\n" +
-						"3. 检查您的网络连接"
-				} else {
-					errorMsg = "Search timeout (90s exceeded).\n\n" +
-						"The search engine is taking too long to respond.\n\n" +
-						"Possible causes:\n" +
-						"1. Network is slow or unstable\n" +
-						"2. Search engine may be blocked\n" +
-						"3. Proxy configuration needed\n\n" +
-						"Suggestions:\n" +
-						"1. Try a different search engine\n" +
-						"2. Configure a proxy in Network Settings\n" +
-						"3. Check your network connection"
-				}
-			}
-		} else if strings.Contains(strings.ToLower(err.Error()), "captcha") {
-			// Captcha detected
-			a.WriteSystemLog("WARNING", "SearchTest", "Captcha or bot detection encountered")
-			if isChinese {
-				errorMsg = "搜索失败：检测到机器人。\n\n" +
-					"搜索引擎检测到自动化访问。\n\n" +
-					"解决方案：\n" +
-					"1. 等待几分钟后重试\n" +
-					"2. 使用其他搜索引擎\n" +
-					"3. 配置代理以更改IP地址"
-			} else {
-				errorMsg = "Search failed: Bot detection.\n\n" +
-					"The search engine detected automated access.\n\n" +
-					"Solutions:\n" +
-					"1. Wait a few minutes and try again\n" +
-					"2. Use a different search engine\n" +
-					"3. Configure a proxy to change IP address"
-			}
-		} else {
-			// Generic error
-			a.WriteSystemLog("ERROR", "SearchTest", fmt.Sprintf("Unexpected error: %v", err))
-			if isChinese {
-				errorMsg = fmt.Sprintf("搜索失败：%v", err)
-			} else {
-				errorMsg = fmt.Sprintf("web_search failed: %v", err)
-			}
-		}
-		
-		return ConnectionResult{
-			Success: false,
-			Message: errorMsg,
-		}
-	}
-
-	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_search succeeded, got %d bytes of results", len(searchResult)))
-	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("web_search succeeded, got %d bytes of results", len(searchResult)))
-
-	// Parse search results to get first URL
-	var searchResults []agent.SearchResult
-	if err := json.Unmarshal([]byte(searchResult), &searchResults); err != nil {
-		errMsg := fmt.Sprintf("[SEARCH-TEST] Failed to parse search results: %v", err)
-		a.logger.Log(errMsg)
-		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
-		
-		msg := fmt.Sprintf("Failed to parse search results: %v", err)
-		if isChinese {
-			msg = fmt.Sprintf("解析搜索结果失败：%v", err)
-		}
-		return ConnectionResult{
-			Success: false,
-			Message: msg,
-		}
-	}
-
-	if len(searchResults) == 0 {
-		errMsg := "[SEARCH-TEST] No search results found after parsing"
-		a.logger.Log(errMsg)
-		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
-		
-		msg := "No search results found for 'whitehouse'"
-		if isChinese {
-			msg = "未找到'whitehouse'的搜索结果"
-		}
-		return ConnectionResult{
-			Success: false,
-			Message: msg,
-		}
-	}
-
-	// Test 2: Web Fetch
-	firstURL := searchResults[0].URL
-	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Step 2: Testing web_fetch tool with URL: %s", firstURL))
-	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("Testing web_fetch with URL: %s", firstURL))
-	
-	fetchTool := agent.NewWebFetchTool(a.logger.Log, proxyConfig)
-	
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel2()
-
-	fetchInput := fmt.Sprintf(`{"url": "%s", "mode": "truncated"}`, firstURL)
-	fetchResult, err := fetchTool.InvokableRun(ctx2, fetchInput)
-	if err != nil {
-		errMsg := fmt.Sprintf("[SEARCH-TEST] web_fetch failed: %v", err)
-		a.logger.Log(errMsg)
-		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
-		
-		msg := fmt.Sprintf("web_fetch failed: %v", err)
-		if isChinese {
-			msg = fmt.Sprintf("网页抓取失败：%v", err)
-		}
-		return ConnectionResult{
-			Success: false,
-			Message: msg,
-		}
-	}
-
-	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_fetch succeeded, got %d bytes of content", len(fetchResult)))
-	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("web_fetch succeeded, got %d bytes", len(fetchResult)))
-
-	// Success message with details
-	var successMsg string
+	msg := "Search tools test is deprecated. Please use Search API configuration instead."
 	if isChinese {
-		successMsg = fmt.Sprintf(
-			"✓ 搜索工具测试通过！\n\n"+
-			"网页搜索：找到 %d 条'whitehouse'的结果\n"+
-			"第一条结果：%s\n\n"+
-			"网页抓取：成功抓取 %d 字节内容：\n%s",
-			len(searchResults),
-			searchResults[0].Title,
-			len(fetchResult),
-			firstURL,
-		)
-	} else {
-		successMsg = fmt.Sprintf(
-			"✓ Search tools test passed!\n\n"+
-			"web_search: Found %d results for 'whitehouse'\n"+
-			"First result: %s\n\n"+
-			"web_fetch: Successfully fetched %d bytes from:\n%s",
-			len(searchResults),
-			searchResults[0].Title,
-			len(fetchResult),
-			firstURL,
-		)
+		msg = "搜索工具测试已弃用。请改用搜索API配置。"
 	}
-
-	a.logger.Log("[SEARCH-TEST] All tests passed successfully")
-	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("Search tools test passed for %s", engineURL))
-
+	
 	return ConnectionResult{
-		Success: true,
-		Message: successMsg,
+		Success: false,
+		Message: msg,
 	}
 }
 
@@ -1422,6 +1185,89 @@ func (a *App) TestProxy(proxyConfig config.ProxyConfig) ConnectionResult {
 	return ConnectionResult{
 		Success: true,
 		Message: fmt.Sprintf("Proxy connected but returned HTTP %d", resp.StatusCode),
+	}
+}
+
+// TestUAPIConnection tests the connection to UAPI service
+func (a *App) TestUAPIConnection(apiToken, baseURL string) ConnectionResult {
+	if apiToken == "" {
+		return ConnectionResult{
+			Success: false,
+			Message: "API Token is required",
+		}
+	}
+
+	a.logger.Log("[UAPI-TEST] Starting UAPI connection test...")
+
+	// Create UAPI search tool
+	uapiTool, err := agent.NewUAPISearchTool(a.logger.Log, apiToken)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create UAPI tool: %v", err)
+		a.logger.Log(fmt.Sprintf("[UAPI-TEST] %s", errMsg))
+		return ConnectionResult{
+			Success: false,
+			Message: errMsg,
+		}
+	}
+
+	// Test with a simple search query
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	testInput := `{"query": "test", "max_results": 1, "source": "general"}`
+	result, err := uapiTool.InvokableRun(ctx, testInput)
+	if err != nil {
+		errMsg := fmt.Sprintf("UAPI search test failed: %v", err)
+		a.logger.Log(fmt.Sprintf("[UAPI-TEST] %s", errMsg))
+		return ConnectionResult{
+			Success: false,
+			Message: errMsg,
+		}
+	}
+
+	a.logger.Log(fmt.Sprintf("[UAPI-TEST] Test successful, result: %s", result))
+
+	return ConnectionResult{
+		Success: true,
+		Message: "UAPI connection successful",
+	}
+}
+
+// TestSearchAPI tests a search API configuration
+func (a *App) TestSearchAPI(apiConfig config.SearchAPIConfig) ConnectionResult {
+	a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] Testing %s...", apiConfig.Name))
+
+	// Create search API tool
+	searchTool, err := agent.NewSearchAPITool(a.logger.Log, &apiConfig)
+	if err != nil {
+		errMsg := fmt.Sprintf("Failed to create search tool: %v", err)
+		a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s", errMsg))
+		return ConnectionResult{
+			Success: false,
+			Message: errMsg,
+		}
+	}
+
+	// Test with a simple search query
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	testInput := `{"query": "test search", "max_results": 3}`
+	result, err := searchTool.InvokableRun(ctx, testInput)
+	if err != nil {
+		errMsg := fmt.Sprintf("%s test failed: %v", apiConfig.Name, err)
+		a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s", errMsg))
+		return ConnectionResult{
+			Success: false,
+			Message: errMsg,
+		}
+	}
+
+	a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s test successful, result: %s", apiConfig.Name, result))
+
+	return ConnectionResult{
+		Success: true,
+		Message: fmt.Sprintf("%s connection successful", apiConfig.Name),
 	}
 }
 
@@ -1529,8 +1375,224 @@ func (a *App) getLangPrompt(cfg config.Config) string {
 	return "English"
 }
 
+// GenerateIntentSuggestions generates possible interpretations of user's intent
+func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentSuggestion, error) {
+	return a.GenerateIntentSuggestionsWithExclusions(threadID, userMessage, nil)
+}
+
+// GenerateIntentSuggestionsWithExclusions generates possible interpretations of user's intent,
+// excluding previously generated suggestions
+func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage string, excludedSuggestions []IntentSuggestion) ([]IntentSuggestion, error) {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get data source information for context
+	var dataSourceID string
+	var tableName string
+	var columns []string
+	
+	if threadID != "" && a.chatService != nil {
+		threads, _ := a.chatService.LoadThreads()
+		for _, t := range threads {
+			if t.ID == threadID {
+				dataSourceID = t.DataSourceID
+				break
+			}
+		}
+	}
+	
+	if dataSourceID != "" && a.dataSourceService != nil {
+		// Get data source
+		dataSources, err := a.dataSourceService.LoadDataSources()
+		if err == nil {
+			for _, ds := range dataSources {
+				if ds.ID == dataSourceID {
+					if ds.Analysis != nil && len(ds.Analysis.Schema) > 0 {
+						tableName = ds.Analysis.Schema[0].TableName
+						columns = ds.Analysis.Schema[0].Columns
+					}
+					break
+				}
+			}
+		}
+		
+		// If no analysis available, try to get table info directly
+		if tableName == "" {
+			tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
+			if err == nil && len(tables) > 0 {
+				tableName = tables[0]
+				cols, err := a.dataSourceService.GetDataSourceTableColumns(dataSourceID, tableName)
+				if err == nil {
+					columns = cols
+				}
+			}
+		}
+	}
+
+	// Build prompt for LLM
+	prompt := a.buildIntentUnderstandingPrompt(userMessage, tableName, columns, cfg.Language, excludedSuggestions)
+
+	// Call LLM
+	llm := agent.NewLLMService(cfg, a.Log)
+	response, err := llm.Chat(a.ctx, prompt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate intent suggestions: %v", err)
+	}
+
+	// Parse response
+	suggestions, err := a.parseIntentSuggestions(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse intent suggestions: %v", err)
+	}
+
+	return suggestions, nil
+}
+
+func (a *App) buildIntentUnderstandingPrompt(userMessage, tableName string, columns []string, language string, excludedSuggestions []IntentSuggestion) string {
+	outputLangInstruction := "Respond in English"
+	if language == "简体中文" {
+		outputLangInstruction = "用简体中文回复"
+	}
+
+	columnsStr := strings.Join(columns, ", ")
+	if columnsStr == "" {
+		columnsStr = "No schema information available"
+	}
+	if tableName == "" {
+		tableName = "Unknown"
+	}
+	
+	// Build excluded suggestions section
+	excludedSection := ""
+	retryGuidance := ""
+	if len(excludedSuggestions) > 0 {
+		excludedSection = "\n\n## Previously Rejected Interpretations\n"
+		excludedSection += "The user has indicated that the following interpretations DO NOT match their intent:\n\n"
+		for i, suggestion := range excludedSuggestions {
+			excludedSection += fmt.Sprintf("%d. **%s**: %s\n", i+1, suggestion.Title, suggestion.Description)
+		}
+		retryGuidance = `
+
+## Critical Instruction for Retry
+The user rejected ALL previous suggestions. This means:
+1. Your previous interpretations were off-target
+2. You need to think from COMPLETELY DIFFERENT angles
+3. Consider alternative meanings, contexts, or analysis approaches
+4. Avoid similar patterns or themes from rejected suggestions
+5. Be more creative and explore edge cases or unconventional interpretations`
+	}
+	
+	prompt := fmt.Sprintf(`# Role
+You are an expert data analysis intent interpreter. Your task is to understand ambiguous user requests and generate multiple plausible interpretations.
+
+# User's Request
+"%s"
+
+# Available Data Context
+- **Table**: %s
+- **Columns**: %s%s%s
+
+# Task
+Generate 3-5 distinct interpretations of the user's intent. Each interpretation should:
+1. Represent a different analytical perspective or approach
+2. Be specific and actionable
+3. Align with the available data structure
+4. Be sorted by likelihood (most probable first)
+
+# Interpretation Dimensions to Consider
+- **Temporal Analysis**: Trends over time, period comparisons, seasonality
+- **Segmentation**: By category, region, product, customer type, etc.
+- **Aggregation Level**: Summary statistics, detailed breakdowns, rankings
+- **Comparison**: Year-over-year, benchmarking, A/B testing
+- **Correlation**: Relationships between variables, cause-effect analysis
+- **Anomaly Detection**: Outliers, unusual patterns, exceptions
+- **Forecasting**: Predictions, projections, what-if scenarios
+
+# Output Format
+Return a JSON array with 3-5 interpretations. Each object must include:
+
+[
+  {
+    "title": "Short descriptive title (max 10 words)",
+    "description": "Clear explanation of what this interpretation means (max 30 words)",
+    "icon": "Relevant emoji (📊, 📈, 📉, 🔍, 💡, 📅, 🎯, etc.)",
+    "query": "Specific, detailed analysis request that can be executed (be explicit about metrics, dimensions, and filters)"
+  }
+]
+
+# Quality Requirements
+- **Specificity**: Each query should be detailed enough to execute without ambiguity
+- **Diversity**: Interpretations should cover different analytical angles
+- **Feasibility**: Only suggest analyses that can be performed with the available columns
+- **Clarity**: Descriptions should be clear and jargon-free
+- **Language**: %s
+
+# Output Rules
+- Return ONLY the JSON array
+- No markdown code blocks, no explanations, no additional text
+- Ensure valid JSON syntax
+- Start with [ and end with ]
+
+Generate the interpretations now:`, userMessage, tableName, columnsStr, excludedSection, retryGuidance, outputLangInstruction)
+
+	return prompt
+}
+
+func (a *App) parseIntentSuggestions(response string) ([]IntentSuggestion, error) {
+	// Extract JSON from response
+	start := strings.Index(response, "[")
+	end := strings.LastIndex(response, "]")
+	
+	if start == -1 || end == -1 || start >= end {
+		return nil, fmt.Errorf("no valid JSON array found in response")
+	}
+	
+	jsonStr := response[start : end+1]
+	
+	// Parse JSON
+	var rawSuggestions []map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &rawSuggestions); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+	}
+	
+	// Convert to IntentSuggestion
+	suggestions := make([]IntentSuggestion, 0, len(rawSuggestions))
+	for i, raw := range rawSuggestions {
+		suggestion := IntentSuggestion{
+			ID:          fmt.Sprintf("intent_%d_%d", time.Now().Unix(), i),
+			Title:       a.getString(raw, "title"),
+			Description: a.getString(raw, "description"),
+			Icon:        a.getString(raw, "icon"),
+			Query:       a.getString(raw, "query"),
+		}
+		
+		// Validate
+		if suggestion.Title != "" && suggestion.Query != "" {
+			suggestions = append(suggestions, suggestion)
+		}
+	}
+	
+	if len(suggestions) == 0 {
+		return nil, fmt.Errorf("no valid suggestions generated")
+	}
+	
+	return suggestions, nil
+}
+
+func (a *App) getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
 // SendMessage sends a message to the AI
-func (a *App) SendMessage(threadID, message, userMessageID string) (string, error) {
+// Task 3.1: Added requestId parameter for request tracking (Requirements 1.3, 4.3, 4.4)
+func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (string, error) {
 	if a.chatService == nil {
 		return "", fmt.Errorf("chat service not initialized")
 	}
@@ -1547,8 +1609,71 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 		a.logChatToFile(threadID, "USER REQUEST", message)
 	}
 
-	a.isChatGenerating = true
-	defer func() { a.isChatGenerating = false }()
+	// Save user message to thread file BEFORE processing
+	// This ensures the message is visible when frontend reloads the thread
+	// Check if message already exists to prevent duplicates
+	if threadID != "" && userMessageID != "" {
+		// Load thread to check if message already exists
+		threads, err := a.chatService.LoadThreads()
+		if err == nil {
+			messageExists := false
+			for _, t := range threads {
+				if t.ID == threadID {
+					for _, m := range t.Messages {
+						if m.ID == userMessageID {
+							messageExists = true
+							a.Log(fmt.Sprintf("[CHAT] User message already exists in thread: %s", userMessageID))
+							break
+						}
+					}
+					break
+				}
+			}
+			
+			// Only add message if it doesn't exist
+			if !messageExists {
+				userMsg := ChatMessage{
+					ID:        userMessageID,
+					Role:      "user",
+					Content:   message,
+					Timestamp: time.Now().Unix(),
+				}
+				if err := a.chatService.AddMessage(threadID, userMsg); err != nil {
+					a.Log(fmt.Sprintf("[ERROR] Failed to save user message: %v", err))
+					// Continue anyway - this is not a fatal error
+				} else {
+					a.Log(fmt.Sprintf("[CHAT] Saved user message to thread: %s", userMessageID))
+				}
+			}
+		}
+	}
+
+	// Mark this thread as having active analysis
+	a.activeThreadsMutex.Lock()
+	a.activeThreads[threadID] = true
+	a.activeThreadsMutex.Unlock()
+	
+	// Notify frontend that loading has started
+	if threadID != "" {
+		runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+			"loading":  true,
+			"threadId": threadID,
+		})
+	}
+	
+	defer func() {
+		a.activeThreadsMutex.Lock()
+		delete(a.activeThreads, threadID)
+		a.activeThreadsMutex.Unlock()
+		
+		// Notify frontend that loading is complete
+		if threadID != "" {
+			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+				"loading":  false,
+				"threadId": threadID,
+			})
+		}
+	}()
 
 	// Set active thread and reset cancel flag
 	a.cancelAnalysisMutex.Lock()
@@ -1660,6 +1785,23 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				if cfg.DetailedLog {
 					a.logChatToFile(threadID, "SYSTEM ERROR", resp)
 				}
+				
+				// Check if this was a cancellation
+				if strings.Contains(err.Error(), "cancelled by user") {
+					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
+					// Emit cancellation event to frontend
+					runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
+						"threadId": threadID,
+						"message":  "分析已取消",
+					})
+				} else {
+					// Emit error event to frontend for other errors
+					runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
+						"threadId": threadID,
+						"error":    resp,
+					})
+				}
+				
 				return "", err
 			}
 			resp = respMsg.Content
@@ -1677,6 +1819,9 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			if cfg.DetailedLog {
 				a.logChatToFile(threadID, "LLM RESPONSE", resp)
 			}
+
+			// Detect and emit images from the response
+			a.detectAndEmitImages(resp, threadID)
 
 			startPost := time.Now()
 			// Detect and store chart data
@@ -1776,11 +1921,9 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				}
 			}
 			
-			// Create ChartData with all collected charts
-			if len(chartItems) > 0 {
-				chartData = &ChartData{Charts: chartItems}
-				a.Log(fmt.Sprintf("[CHART] Total charts collected: %d (ECharts + Images)", len(chartItems)))
-			}
+			// NOTE: Don't create chartData here yet - wait until all chart types are collected
+			// Table and CSV data are processed below and need to be included
+			a.Log(fmt.Sprintf("[CHART] Charts collected so far (ECharts + Images): %d", len(chartItems)))
 
 			// 4. Dashboard Data Update (Metrics & Insights)
 			// Match until closing ``` to handle nested objects (same fix as echarts/table)
@@ -1855,8 +1998,9 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 				})
 			}
 			
-			// Update chartData with all collected items (if not already set)
-			if chartData == nil && len(chartItems) > 0 {
+			// Create chartData with ALL collected items (ECharts, Images, Tables, CSV)
+			// This is done AFTER all chart types are processed to ensure nothing is missed
+			if len(chartItems) > 0 {
 				chartData = &ChartData{Charts: chartItems}
 				a.Log(fmt.Sprintf("[CHART] Final total charts: %d (ECharts + Images + Tables + CSV)", len(chartItems)))
 			}
@@ -1876,8 +2020,7 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 			// This ensures chart_data is available when frontend reloads the thread
 			if threadID != "" {
 				// Prepare timing data with stage breakdown
-				// Note: These are estimates based on typical analysis patterns
-				// In future, we can collect actual timing from eino service
+				// Use the same analysisDuration that was used for the response timing info
 				totalSecs := analysisDuration.Seconds()
 				
 				// Estimate stage durations (rough approximation)
@@ -1892,7 +2035,7 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 					"total_minutes":            minutes,
 					"total_seconds_remainder":  seconds,
 					"analysis_type":            "eino_service",
-					"timestamp":                time.Now().Unix(),
+					"timestamp":                analysisStartTime.Add(analysisDuration).Unix(), // Use analysis end time, not current time
 					"stages": []map[string]interface{}{
 						{
 							"name":       "AI 分析",
@@ -1948,13 +2091,15 @@ func (a *App) SendMessage(threadID, message, userMessageID string) (string, erro
 					}
 					
 					// Emit analysis-completed event to trigger automatic dashboard update
+					// Task 3.1: Added requestId to event payload (Requirements 1.3, 4.3, 4.4)
 					runtime.EventsEmit(a.ctx, "analysis-completed", map[string]interface{}{
 						"threadId":       threadID,
 						"userMessageId":  userMessageID,
 						"assistantMsgId": assistantMsg.ID,
 						"hasChartData":   chartData != nil,
+						"requestId":      requestID, // Task 3.1: Include requestId for frontend validation
 					})
-					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s", userMessageID))
+					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s with requestId %s", userMessageID, requestID))
 				}
 			}
 
@@ -2059,7 +2204,12 @@ func (a *App) CancelAnalysis() error {
 	a.cancelAnalysisMutex.Lock()
 	defer a.cancelAnalysisMutex.Unlock()
 
-	if !a.isChatGenerating {
+	// Check if there's any active analysis
+	a.activeThreadsMutex.RLock()
+	hasActiveAnalysis := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if !hasActiveAnalysis {
 		return fmt.Errorf("no analysis is currently running")
 	}
 
@@ -2080,6 +2230,42 @@ func (a *App) GetActiveThreadID() string {
 	a.cancelAnalysisMutex.Lock()
 	defer a.cancelAnalysisMutex.Unlock()
 	return a.activeThreadID
+}
+
+// GetActiveAnalysisCount returns the current number of active analysis sessions
+func (a *App) GetActiveAnalysisCount() int {
+	a.activeThreadsMutex.RLock()
+	defer a.activeThreadsMutex.RUnlock()
+	return len(a.activeThreads)
+}
+
+// CanStartNewAnalysis checks if a new analysis can be started based on concurrent limit
+func (a *App) CanStartNewAnalysis() (bool, string) {
+	cfg, _ := a.GetConfig()
+	maxConcurrent := cfg.MaxConcurrentAnalysis
+	if maxConcurrent <= 0 {
+		maxConcurrent = 5 // Default to 5
+	}
+	if maxConcurrent > 10 {
+		maxConcurrent = 10 // Cap at 10
+	}
+
+	a.activeThreadsMutex.RLock()
+	activeCount := len(a.activeThreads)
+	a.activeThreadsMutex.RUnlock()
+	
+	if activeCount >= maxConcurrent {
+		// Get current language configuration
+		var errorMessage string
+		if cfg.Language == "简体中文" {
+			errorMessage = fmt.Sprintf("当前已有 %d 个分析会话进行中（最大并发数：%d）。请等待部分分析完成后再开始新的分析，或在设置中增加最大并发分析任务数。", activeCount, maxConcurrent)
+		} else {
+			errorMessage = fmt.Sprintf("There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before starting a new analysis, or increase the max concurrent analysis limit in settings.", activeCount, maxConcurrent)
+		}
+		return false, errorMessage
+	}
+	
+	return true, ""
 }
 
 // attachChartToUserMessage attaches chart data to a specific user message in a thread
@@ -2191,6 +2377,80 @@ func (a *App) attachChartToLastAssistantMessage(threadID string, chartData *Char
 	}
 }
 
+// detectAndEmitImages detects images in the response and emits dashboard-update events
+// It uses the ImageDetector to find images in various formats (base64, markdown, file references)
+// and emits separate events for each detected image
+func (a *App) detectAndEmitImages(response string, threadID string) {
+	if response == "" || threadID == "" {
+		return
+	}
+
+	// Create a new ImageDetector
+	detector := agent.NewImageDetector()
+
+	// Detect all images in the response
+	images := detector.DetectAllImages(response)
+
+	if len(images) == 0 {
+		a.Log("[CHART] No images detected in response")
+		return
+	}
+
+	a.Log(fmt.Sprintf("[CHART] Detected %d image(s) in response", len(images)))
+
+	// Emit separate events for each detected image
+	for i, img := range images {
+		// Extract the image data based on type
+		var imageData string
+
+		switch img.Type {
+		case "base64":
+			// For base64 images, use the full data URL
+			imageData = img.Data
+			a.Log(fmt.Sprintf("[CHART] Detected inline base64 image (%d/%d)", i+1, len(images)))
+
+		case "markdown":
+			// For markdown images, the data is the path
+			// Check if it's already a data URL or needs conversion
+			if strings.HasPrefix(img.Data, "data:") {
+				imageData = img.Data
+			} else if strings.HasPrefix(img.Data, "http://") || strings.HasPrefix(img.Data, "https://") {
+				// HTTP URL - use directly
+				imageData = img.Data
+				a.Log(fmt.Sprintf("[CHART] Detected markdown image with HTTP URL (%d/%d)", i+1, len(images)))
+			} else {
+				// File path - will be handled by frontend
+				imageData = img.Data
+				a.Log(fmt.Sprintf("[CHART] Detected markdown image with file path (%d/%d): %s", i+1, len(images), img.Data))
+			}
+
+		case "file_reference":
+			// For file references, the data is the filename
+			// Construct a file reference that the frontend can use
+			imageData = "files/" + img.Data
+			a.Log(fmt.Sprintf("[CHART] Detected file reference image (%d/%d): %s", i+1, len(images), img.Data))
+
+		case "sandbox":
+			// For sandbox paths (OpenAI code interpreter format), the data is the filename
+			// Construct a file reference that the frontend can use
+			imageData = "files/" + img.Data
+			a.Log(fmt.Sprintf("[CHART] Detected sandbox path image (%d/%d): %s", i+1, len(images), img.Data))
+
+		default:
+			a.Log(fmt.Sprintf("[CHART] Unknown image type: %s", img.Type))
+			continue
+		}
+
+		// Emit dashboard-update event with the image data
+		runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
+			"sessionId": threadID,
+			"type":      "image",
+			"data":      imageData,
+		})
+
+		a.Log(fmt.Sprintf("[CHART] Emitted dashboard-update event for image (%d/%d)", i+1, len(images)))
+	}
+}
 
 func (a *App) logChatToFile(threadID, role, content string) {
 	// Use DataCacheDir for logs
@@ -2302,7 +2562,11 @@ func (a *App) DeleteThread(threadID string) error {
 	// Check if this thread is currently running analysis
 	a.cancelAnalysisMutex.Lock()
 	isActiveThread := a.activeThreadID == threadID
-	isGenerating := a.isChatGenerating
+	
+	a.activeThreadsMutex.RLock()
+	isGenerating := a.activeThreads[threadID]
+	a.activeThreadsMutex.RUnlock()
+	
 	if isActiveThread && isGenerating {
 		// Cancel the ongoing analysis for this thread
 		a.cancelAnalysis = true
@@ -2340,16 +2604,28 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 		return ChatThread{}, fmt.Errorf("chat service not initialized")
 	}
 
-	// Check if there's an active analysis session running
-	if a.isChatGenerating {
+	// Get current config to check max concurrent analysis limit
+	cfg, _ := a.GetConfig()
+	maxConcurrent := cfg.MaxConcurrentAnalysis
+	if maxConcurrent <= 0 {
+		maxConcurrent = 5 // Default to 5
+	}
+	if maxConcurrent > 10 {
+		maxConcurrent = 10 // Cap at 10
+	}
+
+	// Check if we've reached the concurrent analysis limit
+	a.activeThreadsMutex.RLock()
+	activeCount := len(a.activeThreads)
+	a.activeThreadsMutex.RUnlock()
+	
+	if activeCount >= maxConcurrent {
 		// Get current language configuration
-		cfg, _ := a.GetConfig()
-		
 		var errorMessage string
 		if cfg.Language == "简体中文" {
-			errorMessage = "当前有分析会话进行中，创建新的会话将影响现有分析会话。请等待当前分析完成后再创建新会话。"
+			errorMessage = fmt.Sprintf("当前已有 %d 个分析会话进行中（最大并发数：%d）。请等待部分分析完成后再创建新会话，或在设置中增加最大并发分析任务数。", activeCount, maxConcurrent)
 		} else {
-			errorMessage = "An analysis session is currently in progress. Creating a new session will affect the existing analysis session. Please wait for the current analysis to complete before creating a new session."
+			errorMessage = fmt.Sprintf("There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before creating a new session, or increase the max concurrent analysis limit in settings.", activeCount, maxConcurrent)
 		}
 		
 		return ChatThread{}, fmt.Errorf(errorMessage)
@@ -2602,8 +2878,11 @@ func (a *App) ClearHistory() error {
 	
 	// Check if there's an ongoing analysis and cancel it
 	a.cancelAnalysisMutex.Lock()
-	isGenerating := a.isChatGenerating
-	if isGenerating {
+	a.activeThreadsMutex.RLock()
+	hasActiveAnalysis := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if hasActiveAnalysis {
 		// Cancel any ongoing analysis
 		a.cancelAnalysis = true
 		a.Log("[CLEAR-HISTORY] Cancelling ongoing analysis before clearing history")
@@ -2611,7 +2890,7 @@ func (a *App) ClearHistory() error {
 	a.cancelAnalysisMutex.Unlock()
 	
 	// Wait for cancellation to take effect if needed
-	if isGenerating {
+	if hasActiveAnalysis {
 		time.Sleep(100 * time.Millisecond)
 		a.Log("[CLEAR-HISTORY] Waited for analysis cancellation")
 	}
@@ -2648,7 +2927,7 @@ func (a *App) ImportExcelDataSource(name string, filePath string) (*agent.DataSo
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "")
+		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
 	}
 
 	ds, err := a.dataSourceService.ImportExcel(name, filePath, headerGen)
@@ -2665,7 +2944,7 @@ func (a *App) ImportCSVDataSource(name string, dirPath string) (*agent.DataSourc
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "")
+		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
 	}
 
 	ds, err := a.dataSourceService.ImportCSV(name, dirPath, headerGen)
@@ -2682,7 +2961,7 @@ func (a *App) ImportJSONDataSource(name string, filePath string) (*agent.DataSou
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "")
+		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
 	}
 
 	ds, err := a.dataSourceService.ImportJSON(name, filePath, headerGen)
@@ -2709,7 +2988,7 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 	}
 
 	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "")
+		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
 	}
 
 	ds, err := a.dataSourceService.ImportDataSource(name, driverType, dsConfig, headerGen)
@@ -2733,6 +3012,22 @@ func (a *App) RenameDataSource(id string, newName string) error {
 		return fmt.Errorf("data source service not initialized")
 	}
 	return a.dataSourceService.RenameDataSource(id, newName)
+}
+
+// DeleteTable removes a table from a data source
+func (a *App) DeleteTable(id string, tableName string) error {
+	if a.dataSourceService == nil {
+		return fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.DeleteTable(id, tableName)
+}
+
+// RenameColumn renames a column in a table
+func (a *App) RenameColumn(id string, tableName string, oldColumnName string, newColumnName string) error {
+	if a.dataSourceService == nil {
+		return fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.RenameColumn(id, tableName, oldColumnName, newColumnName)
 }
 
 // UpdateMySQLExportConfig updates the MySQL export configuration for a data source
@@ -3274,8 +3569,27 @@ func (a *App) GetSkillCategories() ([]string, error) {
 
 // EnableSkill enables a skill by ID
 func (a *App) EnableSkill(skillID string) error {
+	// Check if analysis is in progress
+	a.activeThreadsMutex.RLock()
+	hasActiveAnalysis := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if hasActiveAnalysis {
+		return fmt.Errorf("cannot enable skill while analysis is in progress")
+	}
+	
+	// Use skillService if available (for new skill management)
+	if a.skillService != nil {
+		if err := a.skillService.EnableSkill(skillID); err != nil {
+			return err
+		}
+		// Reload skills in agent after enabling
+		return a.ReloadSkills()
+	}
+	
+	// Fallback to einoService for backward compatibility
 	if a.einoService == nil {
-		return fmt.Errorf("eino service not initialized")
+		return fmt.Errorf("skill service not initialized")
 	}
 
 	skillManager := a.einoService.GetSkillManager()
@@ -3288,8 +3602,27 @@ func (a *App) EnableSkill(skillID string) error {
 
 // DisableSkill disables a skill by ID
 func (a *App) DisableSkill(skillID string) error {
+	// Check if analysis is in progress
+	a.activeThreadsMutex.RLock()
+	hasActiveAnalysis := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if hasActiveAnalysis {
+		return fmt.Errorf("cannot disable skill while analysis is in progress")
+	}
+	
+	// Use skillService if available (for new skill management)
+	if a.skillService != nil {
+		if err := a.skillService.DisableSkill(skillID); err != nil {
+			return err
+		}
+		// Reload skills in agent after disabling
+		return a.ReloadSkills()
+	}
+	
+	// Fallback to einoService for backward compatibility
 	if a.einoService == nil {
-		return fmt.Errorf("eino service not initialized")
+		return fmt.Errorf("skill service not initialized")
 	}
 
 	skillManager := a.einoService.GetSkillManager()
@@ -3298,6 +3631,32 @@ func (a *App) DisableSkill(skillID string) error {
 	}
 
 	return skillManager.DisableSkill(skillID)
+}
+
+// DeleteSkill deletes a skill by ID (removes directory and config)
+func (a *App) DeleteSkill(skillID string) error {
+	// Check if analysis is in progress
+	a.activeThreadsMutex.RLock()
+	isGenerating := len(a.activeThreads) > 0
+	a.activeThreadsMutex.RUnlock()
+	
+	if isGenerating {
+		return fmt.Errorf("cannot delete skill while analysis is in progress")
+	}
+	
+	// Use skillService if available (for new skill management)
+	if a.skillService != nil {
+		if err := a.skillService.DeleteSkill(skillID); err != nil {
+			return err
+		}
+		// Try to reload skills in agent after deleting, but don't fail if it errors
+		if err := a.ReloadSkills(); err != nil {
+			a.Log(fmt.Sprintf("[SKILLS] Warning: Failed to reload skills after deletion: %v", err))
+		}
+		return nil
+	}
+	
+	return fmt.Errorf("skill service not initialized")
 }
 
 // ReloadSkills reloads all skills from disk
@@ -4018,4 +4377,51 @@ func (a *App) ExportDashboard(req database.ExportRequest) (*database.ExportResul
 	a.Log(fmt.Sprintf("[EXPORT] Included components: %d, Excluded components: %d", 
 		len(result.IncludedComponents), len(result.ExcludedComponents)))
 	return result, nil
+}
+
+// ListSkills returns all installed skills
+func (a *App) ListSkills() ([]agent.Skill, error) {
+	if a.skillService == nil {
+		return nil, fmt.Errorf("skill service not initialized")
+	}
+	return a.skillService.ListSkills()
+}
+
+// InstallSkillsFromZip installs skills from a ZIP file
+// Opens a file dialog for the user to select a ZIP file
+func (a *App) InstallSkillsFromZip() ([]string, error) {
+	if a.skillService == nil {
+		return nil, fmt.Errorf("skill service not initialized")
+	}
+	
+	// Open file dialog to select ZIP file
+	zipPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select Skills ZIP Package",
+		Filters: []runtime.FileFilter{
+			{
+				DisplayName: "ZIP Files (*.zip)",
+				Pattern:     "*.zip",
+			},
+		},
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file dialog: %v", err)
+	}
+	
+	if zipPath == "" {
+		return nil, fmt.Errorf("no file selected")
+	}
+	
+	a.Log(fmt.Sprintf("[SKILLS] Installing from: %s", zipPath))
+	
+	// Install skills from ZIP
+	installed, err := a.skillService.InstallFromZip(zipPath)
+	if err != nil {
+		a.Log(fmt.Sprintf("[SKILLS] Installation failed: %v", err))
+		return nil, err
+	}
+	
+	a.Log(fmt.Sprintf("[SKILLS] Successfully installed: %v", installed))
+	return installed, nil
 }

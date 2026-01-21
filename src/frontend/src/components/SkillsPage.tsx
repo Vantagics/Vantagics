@@ -423,7 +423,7 @@ const SkillDetailModal: React.FC<SkillDetailModalProps> = ({ skill, onClose, onT
                             {skill.tools.map(tool => (
                                 <span
                                     key={tool}
-                                    className="px-4 py-2 bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 rounded-lg text-sm font-bold border border-purple-200"
+                                    className="px-4 py-2 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 rounded-lg text-sm font-bold border border-blue-200"
                                 >
                                     {tool.toUpperCase()}
                                 </span>

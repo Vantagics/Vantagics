@@ -1,5 +1,5 @@
 import React from 'react';
-import { DraggableComponent } from './DraggableComponent';
+import DraggableComponent from './DraggableComponent';
 import { ComponentInstance } from '../utils/ComponentManager';
 import { Download, File, Calendar, HardDrive } from 'lucide-react';
 
@@ -134,8 +134,8 @@ export const DraggableFileDownloadComponent: React.FC<DraggableFileDownloadCompo
 
   // Render empty state in edit mode when no data
   const renderEmptyState = () => (
-    <div className="w-full h-full bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-4 text-gray-500 min-h-[200px]">
-      <div className="text-4xl mb-2">📁</div>
+    <div className="w-full h-full bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-8 text-gray-500 min-h-[600px]">
+      <div className="text-4xl mb-3">📁</div>
       <div className="text-sm font-medium text-center">
         File Download Component
       </div>
@@ -145,7 +145,7 @@ export const DraggableFileDownloadComponent: React.FC<DraggableFileDownloadCompo
       {isEditMode && onRemove && (
         <button
           onClick={() => onRemove(instance.id)}
-          className="mt-3 px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
+          className="mt-4 px-4 py-2 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
           data-testid="remove-component-button"
         >
           Remove

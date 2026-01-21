@@ -10,13 +10,24 @@ type MCPService struct {
 	Tested      bool   `json:"tested"`      // Whether the service has been tested successfully
 }
 
-// SearchEngine represents a search engine configuration
+// SearchEngine represents a search engine configuration (DEPRECATED - use SearchAPIConfig)
 type SearchEngine struct {
 	ID      string `json:"id"`      // Unique identifier
 	Name    string `json:"name"`    // Display name (e.g., "Google", "Bing")
 	URL     string `json:"url"`     // Base URL (e.g., "www.google.com")
 	Enabled bool   `json:"enabled"` // Whether this engine is enabled
 	Tested  bool   `json:"tested"`  // Whether the engine has been tested successfully
+}
+
+// SearchAPIConfig represents a search API service configuration
+type SearchAPIConfig struct {
+	ID          string `json:"id"`          // Unique identifier: "duckduckgo", "google_custom", "uapi_pro"
+	Name        string `json:"name"`        // Display name
+	Description string `json:"description"` // Service description
+	APIKey      string `json:"apiKey,omitempty"`      // API key (required for Google Custom Search and UAPI Pro)
+	CustomID    string `json:"customId,omitempty"`    // Custom Search Engine ID (for Google)
+	Enabled     bool   `json:"enabled"`     // Whether this service is enabled
+	Tested      bool   `json:"tested"`      // Whether the service has been tested successfully
 }
 
 // ProxyConfig represents proxy server configuration
@@ -30,25 +41,40 @@ type ProxyConfig struct {
 	Tested   bool   `json:"tested"`   // Whether the proxy has been tested successfully
 }
 
+// UAPIConfig represents UAPI service configuration
+type UAPIConfig struct {
+	Enabled  bool   `json:"enabled"`  // Whether UAPI is enabled
+	APIToken string `json:"apiToken"` // UAPI API token
+	BaseURL  string `json:"baseUrl,omitempty"` // Optional custom base URL
+	Tested   bool   `json:"tested"`   // Whether UAPI has been tested successfully
+}
+
 // Config structure
 type Config struct {
-	LLMProvider       string       `json:"llmProvider"`
-	APIKey            string       `json:"apiKey"`
-	BaseURL           string       `json:"baseUrl"`
-	ModelName         string       `json:"modelName"`
-	MaxTokens         int          `json:"maxTokens"`
-	DarkMode          bool         `json:"darkMode"`
-	LocalCache        bool         `json:"localCache"`
+	LLMProvider            string       `json:"llmProvider"`
+	APIKey                 string       `json:"apiKey"`
+	BaseURL                string       `json:"baseUrl"`
+	ModelName              string       `json:"modelName"`
+	MaxTokens              int          `json:"maxTokens"`
+	DarkMode               bool         `json:"darkMode"`
+	EnableMemory           bool         `json:"enableMemory"`           // 启用记忆功能
+	AutoAnalysisSuggestions bool        `json:"autoAnalysisSuggestions"` // 自动分析建议
+	LocalCache             bool         `json:"localCache"`
 	Language          string       `json:"language"`
 	ClaudeHeaderStyle string       `json:"claudeHeaderStyle"`
 	DataCacheDir      string       `json:"dataCacheDir"`
 	PythonPath        string         `json:"pythonPath"`
 	MaxPreviewRows    int            `json:"maxPreviewRows"`
+	MaxConcurrentAnalysis int        `json:"maxConcurrentAnalysis"` // Maximum concurrent analysis tasks (1-10, default 5)
 	DetailedLog       bool           `json:"detailedLog"`
+	AutoIntentUnderstanding bool     `json:"autoIntentUnderstanding"` // Enable automatic intent understanding before analysis
 	MCPServices       []MCPService   `json:"mcpServices"`     // Generic MCP services configuration
-	SearchEngines     []SearchEngine `json:"searchEngines"`   // Search engines configuration
-	ActiveSearchEngine string        `json:"activeSearchEngine,omitempty"` // ID of active search engine
+	SearchEngines     []SearchEngine `json:"searchEngines,omitempty"`   // DEPRECATED: Legacy search engines
+	SearchAPIs        []SearchAPIConfig `json:"searchAPIs"`   // Search API services configuration
+	ActiveSearchEngine string        `json:"activeSearchEngine,omitempty"` // DEPRECATED: ID of active search engine
+	ActiveSearchAPI   string        `json:"activeSearchAPI,omitempty"` // ID of active search API
 	ProxyConfig       *ProxyConfig   `json:"proxyConfig,omitempty"` // Proxy server configuration
+	UAPIConfig        *UAPIConfig    `json:"uapiConfig,omitempty"` // DEPRECATED: Use SearchAPIs instead
 	
 	// Deprecated: Legacy web search fields (kept for backward compatibility)
 	WebSearchProvider string `json:"webSearchProvider,omitempty"`

@@ -253,12 +253,12 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                     {step === 'complete' && (
                         <div className="space-y-3">
                             {error && (
-                                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                                     <div className="flex items-start gap-2">
-                                        <XCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                                        <XCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
                                         <div>
-                                            <h3 className="font-semibold text-sm text-red-800 mb-0.5">优化失败</h3>
-                                            <p className="text-xs text-red-600">{error}</p>
+                                            <h3 className="font-semibold text-sm text-blue-800 mb-0.5">优化失败</h3>
+                                            <p className="text-xs text-blue-600">{error}</p>
                                         </div>
                                     </div>
                                 </div>

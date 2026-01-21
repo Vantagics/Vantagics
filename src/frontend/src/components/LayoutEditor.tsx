@@ -25,7 +25,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
       className={`layout-editor bg-white border-b border-gray-200 shadow-sm ${className}`}
       data-testid="layout-editor"
     >
-      <div className="flex items-center justify-between px-4 py-3">
+      <div className="flex items-center justify-between px-4 py-4">
         {/* Left side - Lock/Unlock toggle */}
         <div className="flex items-center space-x-3">
           <button
@@ -67,52 +67,57 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
 
         {/* Right side - Add component buttons (only visible when unlocked) */}
         {!isLocked && (
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
             <span className="text-sm text-gray-600 mr-2">Add Component:</span>
             
             <button
               onClick={() => handleAddComponent(ComponentType.METRICS)}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium"
+              className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-metrics-button"
               aria-label="Add metrics component"
             >
-              📊 Metrics
+              <span className="text-2xl">📊</span>
+              <span>Metrics</span>
             </button>
 
             <button
               onClick={() => handleAddComponent(ComponentType.TABLE)}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium"
+              className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-table-button"
               aria-label="Add table component"
             >
-              📋 Table
+              <span className="text-2xl">📋</span>
+              <span>Table</span>
             </button>
 
             <button
               onClick={() => handleAddComponent(ComponentType.IMAGE)}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium"
+              className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-image-button"
               aria-label="Add image component"
             >
-              🖼️ Image
+              <span className="text-2xl">🖼️</span>
+              <span>Image</span>
             </button>
 
             <button
               onClick={() => handleAddComponent(ComponentType.INSIGHTS)}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium"
+              className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-insights-button"
               aria-label="Add insights component"
             >
-              💡 Insights
+              <span className="text-2xl">💡</span>
+              <span>Insights</span>
             </button>
 
             <button
               onClick={() => handleAddComponent(ComponentType.FILE_DOWNLOAD)}
-              className="px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium"
+              className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-file-download-button"
               aria-label="Add file download component"
             >
-              📁 Files
+              <span className="text-2xl">📁</span>
+              <span>Files</span>
             </button>
           </div>
         )}

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { main, agent } from '../../wailsjs/go/models';
+import { agent } from '../../wailsjs/go/models';
 import { X } from 'lucide-react';
 
 interface DataSourcePropertiesModalProps {
@@ -11,11 +11,17 @@ interface DataSourcePropertiesModalProps {
 
 const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ isOpen, dataSource, onClose }) => {
     const { t } = useLanguage();
+    const [localDataSource, setLocalDataSource] = useState<agent.DataSource | null>(dataSource);
 
-    if (!isOpen || !dataSource) return null;
+    // Update local state when dataSource prop changes
+    useEffect(() => {
+        setLocalDataSource(dataSource);
+    }, [dataSource]);
 
-    const config = dataSource.config || {};
-    const isRemote = ['mysql', 'postgresql', 'doris'].includes(dataSource.type);
+    if (!isOpen || !localDataSource) return null;
+
+    const config = localDataSource.config as any || {};
+    const isRemote = ['mysql', 'postgresql', 'doris'].includes(localDataSource.type);
 
     return (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -27,23 +33,23 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
                     </button>
                 </div>
 
-                <div className="p-6 space-y-4">
+                <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
                     <div className="grid grid-cols-3 gap-4">
                         <div className="text-sm font-medium text-slate-500 text-right">{t('source_name')}:</div>
-                        <div className="col-span-2 text-sm text-slate-800 font-medium">{dataSource.name}</div>
+                        <div className="col-span-2 text-sm text-slate-800 font-medium">{localDataSource.name}</div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
                         <div className="text-sm font-medium text-slate-500 text-right">{t('driver_type')}:</div>
-                        <div className="col-span-2 text-sm text-slate-800 capitalize">{dataSource.type}</div>
+                        <div className="col-span-2 text-sm text-slate-800 capitalize">{localDataSource.type}</div>
                     </div>
 
                     <div className="grid grid-cols-3 gap-4">
                         <div className="text-sm font-medium text-slate-500 text-right">{t('created_at')}:</div>
-                        <div className="col-span-2 text-sm text-slate-800">{new Date(dataSource.created_at).toLocaleString()}</div>
+                        <div className="col-span-2 text-sm text-slate-800">{new Date(localDataSource.created_at).toLocaleString()}</div>
                     </div>
 
-                    {dataSource.analysis?.summary && (
+                    {localDataSource.analysis?.summary && (
                         <>
                             <div className="border-t border-slate-100 my-4"></div>
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -51,23 +57,23 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
                                     <div className="text-sm font-bold text-blue-900 mb-2">{t('data_summary')}</div>
                                 </div>
                                 <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-                                    {dataSource.analysis.summary}
+                                    {localDataSource.analysis.summary}
                                 </div>
                             </div>
                         </>
                     )}
 
-                    {dataSource.analysis?.schema && dataSource.analysis.schema.length > 0 && (
+                    {localDataSource.analysis?.schema && localDataSource.analysis.schema.length > 0 && (
                         <>
                             <div className="border-t border-slate-100 my-4"></div>
                             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
                                 <div className="text-sm font-bold text-slate-900 mb-3">{t('table_schema')}</div>
                                 <div className="space-y-3 max-h-60 overflow-y-auto">
-                                    {dataSource.analysis.schema.map((table, idx) => (
-                                        <div key={idx} className="bg-white border border-slate-200 rounded-md p-3">
+                                    {localDataSource.analysis.schema.map((table, tableIdx) => (
+                                        <div key={tableIdx} className="bg-white border border-slate-200 rounded-md p-3">
                                             <div className="text-xs font-bold text-slate-700 mb-2">{table.table_name}</div>
                                             <div className="flex flex-wrap gap-1.5">
-                                                {table.columns.map((col, colIdx) => (
+                                                {table.columns && table.columns.map((col, colIdx) => (
                                                     <span
                                                         key={colIdx}
                                                         className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded border border-slate-200"

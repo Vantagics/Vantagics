@@ -6,7 +6,23 @@
  */
 
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
-import { LayoutItem, ComponentType } from './ComponentManager';
+import { ComponentType } from './ComponentManager';
+
+// Define LayoutItem interface locally since it's not exported from ComponentManager
+export interface LayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  maxW?: number;
+  maxH?: number;
+  type: ComponentType;
+  instanceIdx: number;
+  static?: boolean;
+}
 
 // ============================================================================
 // MEMOIZATION UTILITIES
@@ -69,17 +85,15 @@ export const createLazyComponent = <T extends React.ComponentType<any>>(
 ) => {
   const LazyComponent = React.lazy(importFn);
   
-  return React.forwardRef<any, React.ComponentProps<T>>((props, ref) => (
-    <React.Suspense 
-      fallback={
-        fallback ? 
+  return React.forwardRef<any, any>((props, ref) => 
+    React.createElement(React.Suspense, {
+      fallback: fallback ? 
         React.createElement(fallback) : 
-        <div className="animate-pulse bg-gray-200 rounded h-32 w-full" />
-      }
-    >
-      <LazyComponent {...props} ref={ref} />
-    </React.Suspense>
-  ));
+        React.createElement('div', { 
+          className: 'animate-pulse bg-gray-200 rounded h-32 w-full' 
+        })
+    }, React.createElement(LazyComponent, props))
+  );
 };
 
 /**
@@ -130,15 +144,14 @@ export const LazyComponentWrapper: React.FC<{
 }> = ({ children, fallback, className = '' }) => {
   const { targetRef, hasIntersected } = useIntersectionObserver();
 
-  return (
-    <div ref={targetRef} className={className}>
-      {hasIntersected ? children : (
-        fallback || (
-          <div className="animate-pulse bg-gray-200 rounded h-32 w-full" />
-        )
-      )}
-    </div>
-  );
+  return React.createElement('div', {
+    ref: targetRef,
+    className
+  }, hasIntersected ? children : (
+    fallback || React.createElement('div', {
+      className: 'animate-pulse bg-gray-200 rounded h-32 w-full'
+    })
+  ));
 };
 
 // ============================================================================
@@ -152,7 +165,7 @@ export const useDebouncedCallback = <T extends (...args: any[]) => any>(
   callback: T,
   delay: number
 ): T => {
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   return useCallback(
     ((...args: Parameters<T>) => {
@@ -176,7 +189,7 @@ export const useThrottledCallback = <T extends (...args: any[]) => any>(
   delay: number
 ): T => {
   const lastCallRef = useRef<number>(0);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   return useCallback(
     ((...args: Parameters<T>) => {
@@ -365,7 +378,7 @@ export const usePerformanceMonitor = (componentName: string) => {
     const timeSinceLastRender = now - lastRenderTimeRef.current;
     lastRenderTimeRef.current = now;
 
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env?.DEV) {
       console.log(`[Performance] ${componentName} render #${renderCountRef.current}, time since last: ${timeSinceLastRender}ms`);
     }
   });
@@ -373,7 +386,7 @@ export const usePerformanceMonitor = (componentName: string) => {
   return {
     renderCount: renderCountRef.current,
     logPerformance: (operation: string, duration: number) => {
-      if (process.env.NODE_ENV === 'development') {
+      if (import.meta.env?.DEV) {
         console.log(`[Performance] ${componentName} ${operation}: ${duration}ms`);
       }
     }
@@ -394,12 +407,12 @@ export const withPerformanceMeasurement = <P extends object>(
       const endTime = performance.now();
       const renderTime = endTime - startTime;
       
-      if (process.env.NODE_ENV === 'development' && renderTime > 16) {
+      if (import.meta.env?.DEV && renderTime > 16) {
         console.warn(`[Performance] ${componentName} slow render: ${renderTime.toFixed(2)}ms`);
       }
     });
 
-    return <Component {...props} />;
+    return React.createElement(Component, props);
   });
 };
 
