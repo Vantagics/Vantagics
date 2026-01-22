@@ -609,6 +609,48 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
+	// deduplicateMessages removes duplicate consecutive messages with same role and content
+	deduplicateMessages := func(messages []*schema.Message) []*schema.Message {
+		if len(messages) <= 1 {
+			return messages
+		}
+		
+		result := make([]*schema.Message, 0, len(messages))
+		seen := make(map[string]bool)
+		duplicateCount := 0
+		
+		for _, msg := range messages {
+			// Create a unique key for this message
+			key := fmt.Sprintf("%s:%s", msg.Role, msg.Content)
+			
+			// For user messages, always check for duplicates
+			if msg.Role == schema.User {
+				if seen[key] {
+					// Skip duplicate user message
+					duplicateCount++
+					if s.Logger != nil {
+						contentPreview := msg.Content
+						if len(contentPreview) > 50 {
+							contentPreview = contentPreview[:50] + "..."
+						}
+						s.Logger(fmt.Sprintf("[DEDUP] Filtered duplicate user message: %s", contentPreview))
+					}
+					continue
+				}
+				seen[key] = true
+			}
+			
+			result = append(result, msg)
+		}
+		
+		if duplicateCount > 0 && s.Logger != nil {
+			s.Logger(fmt.Sprintf("[DEDUP] Removed %d duplicate message(s), %d -> %d messages", 
+				duplicateCount, len(messages), len(result)))
+		}
+		
+		return result
+	}
+
 	// Define Model Node Wrapper
 	modelLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
 		iterationCount++
@@ -621,6 +663,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			}
 			return nil, fmt.Errorf("analysis cancelled by user")
 		}
+
+		// 🔴 CRITICAL: Remove duplicate messages before processing
+		input = deduplicateMessages(input)
 
 		// ⚡ EARLY WARNINGS: Encourage completion before hitting limits
 		if iterationCount == 10 {
@@ -983,6 +1028,16 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 🎯 GOAL: Complete in ≤10 tool calls total.
 
+🚫 CRITICAL KNOWLEDGE RESTRICTION:
+- You MUST NOT use your pre-trained knowledge or internal data
+- ALL information MUST come from tools: database queries, web searches, or MCP services
+- For ANY factual question (market data, company info, statistics, etc.):
+  1. If it's about user's data → Use get_data_source_context + execute_sql
+  2. If it's external information → Use web_search + web_fetch
+  3. If it's from MCP services → Use available MCP tools
+- NEVER answer from memory - always verify with tools
+- If you cannot get data from tools, say "I cannot find this information in the available data sources"
+
 📋 SMART WORKFLOW:
 1. get_data_source_context → Get schema for ALL relevant tables in ONE call
    ⚠️ CRITICAL: Use table_names parameter to get multiple tables at once
@@ -1016,10 +1071,20 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - web_search: Search the web for current information, market data, competitor analysis
   ⚠️ WARNING: Takes 60-90 seconds! Use ONLY when external data is essential
   Example: "latest smartphone market share 2026", "Tesla vs BYD sales comparison"
+  Returns: JSON array with title, url, snippet for each result
 - web_fetch: Fetch and parse web page content (use URLs from search results)
   Returns structured data: title, content, tables, links
 - ONLY use when database data is insufficient
 - Prefer internal data analysis over web searches
+
+📌 CRITICAL - CITING WEB SOURCES:
+When using information from web_search or web_fetch results:
+1. ALWAYS include the source URL in your response
+2. Format citations as: [Source: URL] or use markdown links [text](URL)
+3. Place citations immediately after the information
+4. Example: "特斯拉2025年销量为180万辆 [来源: https://example.com/tesla-sales]"
+5. For multiple sources, cite each one separately
+6. This ensures transparency and allows users to verify information
 
 🇨🇳 LANGUAGE REQUIREMENTS:
 - ALL chart titles, axis labels, and legends MUST be in Chinese

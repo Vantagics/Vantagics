@@ -1,3 +1,6 @@
+//go:build ignore
+// +build ignore
+
 package main
 
 import (
@@ -6,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +18,51 @@ import (
 	"rapidbi/config"
 )
 
+// loadConfig 加载配置文件
+func loadConfig() (config.Config, error) {
+	// 获取用户主目录
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return config.Config{}, fmt.Errorf("failed to get home directory: %v", err)
+	}
+
+	// 配置文件路径
+	configPath := filepath.Join(homeDir, "rapidbi", "config.json")
+
+	// 读取配置文件
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		// 如果配置文件不存在，返回默认配置
+		if os.IsNotExist(err) {
+			return getDefaultConfig(), nil
+		}
+		return config.Config{}, fmt.Errorf("failed to read config: %v", err)
+	}
+
+	// 解析配置
+	var cfg config.Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return config.Config{}, fmt.Errorf("failed to parse config: %v", err)
+	}
+
+	return cfg, nil
+}
+
+// getDefaultConfig 返回默认配置
+func getDefaultConfig() config.Config {
+	return config.Config{
+		SearchEngines: []config.SearchEngine{
+			{
+				ID:      "google",
+				Name:    "Google",
+				URL:     "www.google.com",
+				Enabled: true,
+			},
+		},
+		ActiveSearchEngine: "google",
+	}
+}
+
 func main() {
 	fmt.Println("╔════════════════════════════════════════════════════════════╗")
 	fmt.Println("║        Web搜索工具高级测试程序                              ║")
@@ -21,10 +70,11 @@ func main() {
 	fmt.Println()
 
 	// 加载配置
-	cfg, err := config.LoadConfig()
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Printf("❌ 加载配置失败: %v\n", err)
-		os.Exit(1)
+		fmt.Println("   使用默认配置继续...")
+		cfg = getDefaultConfig()
 	}
 
 	reader := bufio.NewReader(os.Stdin)
