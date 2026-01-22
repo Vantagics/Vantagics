@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,6 +16,31 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"rapidbi/config"
 )
+
+// extractDomainName extracts a clean domain name from URL for file naming
+func extractDomainName(baseURL string) string {
+	// Remove protocol if present
+	domain := strings.TrimPrefix(baseURL, "https://")
+	domain = strings.TrimPrefix(domain, "http://")
+	domain = strings.TrimPrefix(domain, "www.")
+	
+	// Remove path and query
+	if idx := strings.Index(domain, "/"); idx != -1 {
+		domain = domain[:idx]
+	}
+	if idx := strings.Index(domain, "?"); idx != -1 {
+		domain = domain[:idx]
+	}
+	
+	// Replace dots with underscores for filename
+	domain = strings.ReplaceAll(domain, ".", "_")
+	
+	// Remove any invalid filename characters
+	reg := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+	domain = reg.ReplaceAllString(domain, "_")
+	
+	return domain
+}
 
 // WebSearchTool provides web search capabilities using chromedp
 type WebSearchTool struct {
@@ -167,17 +195,28 @@ func (t *WebSearchTool) searchGoogle(ctx context.Context, query string, maxResul
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Headless,
+		// Add User-Agent to avoid bot detection
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+		// Disable automation flags
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 	}
 
 	// Add proxy configuration if enabled
-	if t.proxyConfig != nil && t.proxyConfig.Enabled && t.proxyConfig.Tested {
+	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
+	if t.proxyConfig != nil && 
+	   t.proxyConfig.Enabled && 
+	   t.proxyConfig.Tested && 
+	   t.proxyConfig.Host != "" && 
+	   t.proxyConfig.Port > 0 {
 		proxyURL := fmt.Sprintf("%s://%s:%d", 
 			t.proxyConfig.Protocol, t.proxyConfig.Host, t.proxyConfig.Port)
 		opts = append(opts, chromedp.ProxyServer(proxyURL))
 		
 		if t.logger != nil {
-			t.logger(fmt.Sprintf("[WEB-SEARCH] Using proxy: %s", proxyURL))
+			t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Using proxy: %s", proxyURL))
 		}
+	} else if t.logger != nil {
+		t.logger("[WEB-SEARCH-GOOGLE] Using direct connection (no proxy)")
 	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
@@ -192,18 +231,45 @@ func (t *WebSearchTool) searchGoogle(ctx context.Context, query string, maxResul
 	defer timeoutCancel()
 
 	// Navigate to Google and perform search
+	// Use proper URL encoding for query parameters
 	searchURL := fmt.Sprintf("https://%s/search?q=%s&num=%d", 
-		baseURL, strings.ReplaceAll(query, " ", "+"), maxResults)
+		baseURL, url.QueryEscape(query), maxResults)
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Navigating to: %s", searchURL))
+	}
 
 	var htmlContent string
+	var pageTitle string
+	
+	// Improved waiting strategy: wait for body instead of specific element
 	err := chromedp.Run(timeoutCtx,
 		chromedp.Navigate(searchURL),
-		chromedp.WaitVisible(`#search`, chromedp.ByID),
+		// Wait for body element (always exists)
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		// Extra wait for JavaScript execution
+		chromedp.Sleep(2*time.Second),
+		// Get page title for debugging
+		chromedp.Title(&pageTitle),
 		chromedp.OuterHTML(`html`, &htmlContent, chromedp.ByQuery),
 	)
 
 	if err != nil {
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Navigation failed: %v", err))
+		}
 		return nil, fmt.Errorf("failed to load search results: %v", err)
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Page loaded, title: %s, HTML size: %d bytes", 
+			pageTitle, len(htmlContent)))
+		
+		// Check for captcha or bot detection
+		if strings.Contains(strings.ToLower(htmlContent), "captcha") || 
+		   strings.Contains(strings.ToLower(htmlContent), "unusual traffic") {
+			t.logger("[WEB-SEARCH-GOOGLE] WARNING: Captcha or bot detection page detected")
+		}
 	}
 
 	// Parse HTML with goquery
@@ -212,39 +278,101 @@ func (t *WebSearchTool) searchGoogle(ctx context.Context, query string, maxResul
 		return nil, fmt.Errorf("failed to parse HTML: %v", err)
 	}
 
-	// Extract search results
+	// Try multiple selectors (Google frequently changes structure)
 	results := []SearchResult{}
-	doc.Find("div.g").Each(func(i int, s *goquery.Selection) {
-		if len(results) >= maxResults {
-			return
-		}
+	
+	// Selector priority list
+	selectors := []string{
+		"div.g",           // Traditional selector
+		"div.MjjYud",      // Newer selector
+		"div[data-sokoban-container]", // Another possible selector
+	}
+	
+	var foundSelector string
+	for _, selector := range selectors {
+		found := doc.Find(selector)
+		if found.Length() > 0 {
+			foundSelector = selector
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Using selector: %s (found %d elements)", 
+					selector, found.Length()))
+			}
+			
+			found.Each(func(i int, s *goquery.Selection) {
+				if len(results) >= maxResults {
+					return
+				}
 
-		// Extract title and URL
-		titleElem := s.Find("h3")
-		linkElem := s.Find("a")
-		snippetElem := s.Find("div[data-sncf]")
+				// Extract title and URL
+				titleElem := s.Find("h3")
+				linkElem := s.Find("a")
+				
+				title := strings.TrimSpace(titleElem.Text())
+				resultURL, _ := linkElem.Attr("href")
+				
+				// Extract snippet - try multiple selectors
+				var snippet string
+				snippetSelectors := []string{
+					"div[data-sncf]",
+					"div.VwiC3b",
+					"div[style*='-webkit-line-clamp']",
+				}
+				for _, snippetSel := range snippetSelectors {
+					snippetElem := s.Find(snippetSel)
+					if snippetElem.Length() > 0 {
+						snippet = strings.TrimSpace(snippetElem.First().Text())
+						if snippet != "" {
+							break
+						}
+					}
+				}
 
-		title := strings.TrimSpace(titleElem.Text())
-		url, _ := linkElem.Attr("href")
-		snippet := strings.TrimSpace(snippetElem.Text())
+				// Extract display link
+				displayLink := ""
+				citeLinkElem := s.Find("cite")
+				if citeLinkElem.Length() > 0 {
+					displayLink = strings.TrimSpace(citeLinkElem.Text())
+				}
 
-		// Extract display link
-		displayLink := ""
-		citeLinkElem := s.Find("cite")
-		if citeLinkElem.Length() > 0 {
-			displayLink = strings.TrimSpace(citeLinkElem.Text())
-		}
-
-		// Only add if we have at least title and URL
-		if title != "" && url != "" {
-			results = append(results, SearchResult{
-				Title:       title,
-				URL:         url,
-				Snippet:     snippet,
-				DisplayLink: displayLink,
+				// Only add if we have at least title and URL
+				if title != "" && resultURL != "" {
+					results = append(results, SearchResult{
+						Title:       title,
+						URL:         resultURL,
+						Snippet:     snippet,
+						DisplayLink: displayLink,
+					})
+				}
 			})
+			break
 		}
-	})
+	}
+	
+	if foundSelector == "" && t.logger != nil {
+		t.logger("[WEB-SEARCH-GOOGLE] WARNING: No matching selector found")
+		// Save HTML for debugging
+		domainName := extractDomainName(baseURL)
+		debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+		if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] HTML saved to: %s", debugFile))
+		}
+	}
+
+	if len(results) == 0 {
+		// Save HTML for debugging when no results found
+		if t.logger != nil {
+			domainName := extractDomainName(baseURL)
+			debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+			if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] No results found. HTML saved to: %s", debugFile))
+			}
+		}
+		return nil, fmt.Errorf("no search results found (page loaded but no results extracted)")
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-GOOGLE] Successfully extracted %d results", len(results)))
+	}
 
 	return results, nil
 }
@@ -256,13 +384,27 @@ func (t *WebSearchTool) searchBing(ctx context.Context, query string, maxResults
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Headless,
+		// Add User-Agent to avoid bot detection
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 	}
 
 	// Add proxy configuration if enabled
-	if t.proxyConfig != nil && t.proxyConfig.Enabled && t.proxyConfig.Tested {
+	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
+	if t.proxyConfig != nil && 
+	   t.proxyConfig.Enabled && 
+	   t.proxyConfig.Tested && 
+	   t.proxyConfig.Host != "" && 
+	   t.proxyConfig.Port > 0 {
 		proxyURL := fmt.Sprintf("%s://%s:%d", 
 			t.proxyConfig.Protocol, t.proxyConfig.Host, t.proxyConfig.Port)
 		opts = append(opts, chromedp.ProxyServer(proxyURL))
+		
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Using proxy: %s", proxyURL))
+		}
+	} else if t.logger != nil {
+		t.logger("[WEB-SEARCH-BING] Using direct connection (no proxy)")
 	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
@@ -275,17 +417,34 @@ func (t *WebSearchTool) searchBing(ctx context.Context, query string, maxResults
 	defer timeoutCancel()
 
 	searchURL := fmt.Sprintf("https://%s/search?q=%s&count=%d", 
-		baseURL, strings.ReplaceAll(query, " ", "+"), maxResults)
+		baseURL, url.QueryEscape(query), maxResults)
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Navigating to: %s", searchURL))
+	}
 
 	var htmlContent string
+	var pageTitle string
+	
+	// Improved waiting strategy
 	err := chromedp.Run(timeoutCtx,
 		chromedp.Navigate(searchURL),
-		chromedp.WaitVisible(`#b_results`, chromedp.ByID),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Title(&pageTitle),
 		chromedp.OuterHTML(`html`, &htmlContent, chromedp.ByQuery),
 	)
 
 	if err != nil {
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Navigation failed: %v", err))
+		}
 		return nil, fmt.Errorf("failed to load search results: %v", err)
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Page loaded, title: %s, HTML size: %d bytes", 
+			pageTitle, len(htmlContent)))
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
@@ -294,26 +453,72 @@ func (t *WebSearchTool) searchBing(ctx context.Context, query string, maxResults
 	}
 
 	results := []SearchResult{}
-	doc.Find("li.b_algo").Each(func(i int, s *goquery.Selection) {
-		if len(results) >= maxResults {
-			return
-		}
+	
+	// Try multiple selectors
+	selectors := []string{
+		"li.b_algo",
+		"li.b_algo_group",
+		"div.b_algo",
+	}
+	
+	var foundSelector string
+	for _, selector := range selectors {
+		found := doc.Find(selector)
+		if found.Length() > 0 {
+			foundSelector = selector
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Using selector: %s (found %d elements)", 
+					selector, found.Length()))
+			}
+			
+			found.Each(func(i int, s *goquery.Selection) {
+				if len(results) >= maxResults {
+					return
+				}
 
-		titleElem := s.Find("h2 a")
-		snippetElem := s.Find("p, .b_caption p")
+				titleElem := s.Find("h2 a, h3 a, a")
+				title := strings.TrimSpace(titleElem.First().Text())
+				resultURL, _ := titleElem.First().Attr("href")
 
-		title := strings.TrimSpace(titleElem.Text())
-		url, _ := titleElem.Attr("href")
-		snippet := strings.TrimSpace(snippetElem.First().Text())
+				snippetElem := s.Find("p, .b_caption p, .b_caption, div.b_caption")
+				snippet := strings.TrimSpace(snippetElem.First().Text())
 
-		if title != "" && url != "" {
-			results = append(results, SearchResult{
-				Title:   title,
-				URL:     url,
-				Snippet: snippet,
+				if title != "" && resultURL != "" {
+					results = append(results, SearchResult{
+						Title:   title,
+						URL:     resultURL,
+						Snippet: snippet,
+					})
+				}
 			})
+			break
 		}
-	})
+	}
+	
+	if foundSelector == "" && t.logger != nil {
+		t.logger("[WEB-SEARCH-BING] WARNING: No matching selector found")
+		domainName := extractDomainName(baseURL)
+		debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+		if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BING] HTML saved to: %s", debugFile))
+		}
+	}
+
+	if len(results) == 0 {
+		// Save HTML for debugging when no results found
+		if t.logger != nil {
+			domainName := extractDomainName(baseURL)
+			debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+			if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-BING] No results found. HTML saved to: %s", debugFile))
+			}
+		}
+		return nil, fmt.Errorf("no search results found (page loaded but no results extracted)")
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BING] Successfully extracted %d results", len(results)))
+	}
 
 	return results, nil
 }
@@ -325,13 +530,29 @@ func (t *WebSearchTool) searchBaidu(ctx context.Context, query string, maxResult
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Headless,
+		// Add User-Agent for Baidu
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		// Baidu may need Chinese language support
+		chromedp.Flag("accept-language", "zh-CN,zh;q=0.9,en;q=0.8"),
 	}
 
 	// Add proxy configuration if enabled
-	if t.proxyConfig != nil && t.proxyConfig.Enabled && t.proxyConfig.Tested {
+	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
+	if t.proxyConfig != nil && 
+	   t.proxyConfig.Enabled && 
+	   t.proxyConfig.Tested && 
+	   t.proxyConfig.Host != "" && 
+	   t.proxyConfig.Port > 0 {
 		proxyURL := fmt.Sprintf("%s://%s:%d", 
 			t.proxyConfig.Protocol, t.proxyConfig.Host, t.proxyConfig.Port)
 		opts = append(opts, chromedp.ProxyServer(proxyURL))
+		
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Using proxy: %s", proxyURL))
+		}
+	} else if t.logger != nil {
+		t.logger("[WEB-SEARCH-BAIDU] Using direct connection (no proxy)")
 	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
@@ -344,17 +565,34 @@ func (t *WebSearchTool) searchBaidu(ctx context.Context, query string, maxResult
 	defer timeoutCancel()
 
 	searchURL := fmt.Sprintf("https://%s/s?wd=%s&rn=%d", 
-		baseURL, strings.ReplaceAll(query, " ", "+"), maxResults)
+		baseURL, url.QueryEscape(query), maxResults)
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Navigating to: %s", searchURL))
+	}
 
 	var htmlContent string
+	var pageTitle string
+	
+	// Improved waiting strategy
 	err := chromedp.Run(timeoutCtx,
 		chromedp.Navigate(searchURL),
-		chromedp.WaitVisible(`#content_left`, chromedp.ByID),
+		chromedp.WaitReady("body", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second),
+		chromedp.Title(&pageTitle),
 		chromedp.OuterHTML(`html`, &htmlContent, chromedp.ByQuery),
 	)
 
 	if err != nil {
+		if t.logger != nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Navigation failed: %v", err))
+		}
 		return nil, fmt.Errorf("failed to load search results: %v", err)
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Page loaded, title: %s, HTML size: %d bytes", 
+			pageTitle, len(htmlContent)))
 	}
 
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
@@ -363,26 +601,72 @@ func (t *WebSearchTool) searchBaidu(ctx context.Context, query string, maxResult
 	}
 
 	results := []SearchResult{}
-	doc.Find(".result").Each(func(i int, s *goquery.Selection) {
-		if len(results) >= maxResults {
-			return
-		}
+	
+	// Try multiple selectors for Baidu
+	selectors := []string{
+		".result",
+		".c-container",
+		"div[tpl]",
+	}
+	
+	var foundSelector string
+	for _, selector := range selectors {
+		found := doc.Find(selector)
+		if found.Length() > 0 {
+			foundSelector = selector
+			if t.logger != nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Using selector: %s (found %d elements)", 
+					selector, found.Length()))
+			}
+			
+			found.Each(func(i int, s *goquery.Selection) {
+				if len(results) >= maxResults {
+					return
+				}
 
-		titleElem := s.Find("h3 a")
-		snippetElem := s.Find(".c-abstract")
+				titleElem := s.Find("h3 a, a")
+				title := strings.TrimSpace(titleElem.First().Text())
+				resultURL, _ := titleElem.First().Attr("href")
 
-		title := strings.TrimSpace(titleElem.Text())
-		url, _ := titleElem.Attr("href")
-		snippet := strings.TrimSpace(snippetElem.Text())
+				snippetElem := s.Find(".c-abstract, .c-span9, span")
+				snippet := strings.TrimSpace(snippetElem.First().Text())
 
-		if title != "" && url != "" {
-			results = append(results, SearchResult{
-				Title:   title,
-				URL:     url,
-				Snippet: snippet,
+				if title != "" && resultURL != "" {
+					results = append(results, SearchResult{
+						Title:   title,
+						URL:     resultURL,
+						Snippet: snippet,
+					})
+				}
 			})
+			break
 		}
-	})
+	}
+	
+	if foundSelector == "" && t.logger != nil {
+		t.logger("[WEB-SEARCH-BAIDU] WARNING: No matching selector found")
+		domainName := extractDomainName(baseURL)
+		debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+		if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+			t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] HTML saved to: %s", debugFile))
+		}
+	}
+
+	if len(results) == 0 {
+		// Save HTML for debugging when no results found
+		if t.logger != nil {
+			domainName := extractDomainName(baseURL)
+			debugFile := fmt.Sprintf("debug_%s_%d.html", domainName, time.Now().Unix())
+			if err := os.WriteFile(debugFile, []byte(htmlContent), 0644); err == nil {
+				t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] No results found. HTML saved to: %s", debugFile))
+			}
+		}
+		return nil, fmt.Errorf("no search results found (page loaded but no results extracted)")
+	}
+
+	if t.logger != nil {
+		t.logger(fmt.Sprintf("[WEB-SEARCH-BAIDU] Successfully extracted %d results", len(results)))
+	}
 
 	return results, nil
 }

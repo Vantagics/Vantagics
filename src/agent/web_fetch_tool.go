@@ -166,10 +166,18 @@ func (t *WebFetchTool) fetchPage(ctx context.Context, url, selector, waitFor str
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Headless,
+		// Add User-Agent to avoid bot detection
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 	}
 
 	// Add proxy configuration if enabled
-	if t.proxyConfig != nil && t.proxyConfig.Enabled && t.proxyConfig.Tested {
+	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
+	if t.proxyConfig != nil && 
+	   t.proxyConfig.Enabled && 
+	   t.proxyConfig.Tested && 
+	   t.proxyConfig.Host != "" && 
+	   t.proxyConfig.Port > 0 {
 		proxyURL := fmt.Sprintf("%s://%s:%d", 
 			t.proxyConfig.Protocol, t.proxyConfig.Host, t.proxyConfig.Port)
 		opts = append(opts, chromedp.ProxyServer(proxyURL))
@@ -177,6 +185,8 @@ func (t *WebFetchTool) fetchPage(ctx context.Context, url, selector, waitFor str
 		if t.logger != nil {
 			t.logger(fmt.Sprintf("[WEB-FETCH] Using proxy: %s", proxyURL))
 		}
+	} else if t.logger != nil {
+		t.logger("[WEB-FETCH] Using direct connection (no proxy)")
 	}
 
 	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)

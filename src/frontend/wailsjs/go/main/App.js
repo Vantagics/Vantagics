@@ -14,6 +14,10 @@ export function CancelAnalysis() {
   return window['go']['main']['App']['CancelAnalysis']();
 }
 
+export function CheckChromeAvailability() {
+  return window['go']['main']['App']['CheckChromeAvailability']();
+}
+
 export function CheckRapidBIEnvironmentExists() {
   return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
 }

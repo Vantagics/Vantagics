@@ -228,6 +228,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'test_search_tools': 'Test Search Tools',
         'testing_search_tools': 'Testing Search Tools...',
         'test_search_tools_hint': 'Tests web_search and web_fetch with query "whitehouse" (may take 60-90 seconds)',
+        'search_tools_test_success': 'Search tools test passed! Engine is working correctly.',
+        'connection_test_success': 'Connection test passed! Engine is accessible.',
         'mcp_test_success': 'Service is reachable',
         'mcp_test_failed': 'Connection failed',
         'delete_mcp_service': 'Delete Service',
@@ -279,6 +281,9 @@ export const translations: Record<Language, Record<string, string>> = {
         'data_source_name_required': 'Data source name is required',
         'rename_data_source_note': 'Note: The data source name must be unique.',
         'renaming': 'Renaming...',
+        // Dashboard
+        'analysis_data': 'Analysis Data',
+        'analysis_result': 'Analysis Result',
     },
     '简体中文': {
         'data_sources': '数据源',
@@ -503,6 +508,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'test_search_tools': '测试搜索工具',
         'testing_search_tools': '正在测试搜索工具...',
         'test_search_tools_hint': '使用关键词 "whitehouse" 测试 web_search 和 web_fetch（可能需要 60-90 秒）',
+        'search_tools_test_success': '搜索工具测试通过！引擎工作正常。',
+        'connection_test_success': '连接测试通过！引擎可访问。',
         'mcp_test_success': '服务可访问',
         'mcp_test_failed': '连接失败',
         'delete_mcp_service': '删除服务',
@@ -554,6 +561,9 @@ export const translations: Record<Language, Record<string, string>> = {
         'data_source_name_required': '数据源名称不能为空',
         'rename_data_source_note': '注意：数据源名称必须唯一。',
         'renaming': '重命名中...',
+        // 仪表盘
+        'analysis_data': '分析数据',
+        'analysis_result': '分析结果',
     }
 };
 

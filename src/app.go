@@ -1027,11 +1027,20 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	}
 
 	// Get proxy config from eino service if available
+	// CRITICAL: Only use proxy if it's explicitly enabled, tested, and has valid configuration
 	var proxyConfig *config.ProxyConfig
 	if a.einoService != nil {
 		cfg := a.einoService.GetConfig()
-		if cfg.ProxyConfig != nil && cfg.ProxyConfig.Enabled && cfg.ProxyConfig.Tested {
+		if cfg.ProxyConfig != nil && 
+		   cfg.ProxyConfig.Enabled && 
+		   cfg.ProxyConfig.Tested && 
+		   cfg.ProxyConfig.Host != "" && 
+		   cfg.ProxyConfig.Port > 0 {
 			proxyConfig = cfg.ProxyConfig
+			a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Using proxy: %s://%s:%d", 
+				cfg.ProxyConfig.Protocol, cfg.ProxyConfig.Host, cfg.ProxyConfig.Port))
+		} else {
+			a.logger.Log("[SEARCH-TEST] No valid proxy configured, using direct connection")
 		}
 	}
 
@@ -1045,19 +1054,99 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	searchInput := `{"query": "whitehouse", "max_results": 3}`
 	searchResult, err := searchTool.InvokableRun(ctx, searchInput)
 	if err != nil {
-		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_search failed: %v", err))
+		errMsg := fmt.Sprintf("[SEARCH-TEST] web_search failed: %v", err)
+		a.logger.Log(errMsg)
+		
+		// Also log to system.log for user visibility
+		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
+		
+		// Provide helpful error message based on the error type
+		errorMsg := fmt.Sprintf("web_search failed: %v", err)
+		
+		// Check for specific error patterns
+		if strings.Contains(err.Error(), "no search results found") {
+			// This means page loaded but results couldn't be extracted
+			a.logger.Log("[SEARCH-TEST] Page loaded but no results extracted - likely redirected or HTML structure changed")
+			a.WriteSystemLog("WARNING", "SearchTest", "Search engine may be redirected or blocked. Check debug HTML files in dist/ folder.")
+			
+			if strings.Contains(strings.ToLower(engineURL), "google") {
+				errorMsg = "Search failed: No results found.\n\n" +
+					"⚠️ Google appears to be redirected or blocked.\n\n" +
+					"Common causes:\n" +
+					"1. DNS hijacking (redirected to 360搜索 or other search engines)\n" +
+					"2. Network firewall blocking Google\n" +
+					"3. Regional restrictions\n\n" +
+					"Solutions:\n" +
+					"1. ✅ Use Bing (www.bing.com) - Works in most regions\n" +
+					"2. ✅ Use Baidu (www.baidu.com) - Best for Chinese content\n" +
+					"3. Configure a proxy server in Network Settings\n\n" +
+					"Debug: Check dist/debug_google_*.html to see actual page content"
+			} else {
+				errorMsg = "Search failed: No results found.\n\n" +
+					"The page loaded but search results couldn't be extracted.\n\n" +
+					"Possible causes:\n" +
+					"1. Search engine HTML structure changed\n" +
+					"2. Page was redirected\n" +
+					"3. Anti-bot detection\n\n" +
+					"Solutions:\n" +
+					"1. Try a different search engine\n" +
+					"2. Check debug HTML files in dist/ folder\n" +
+					"3. Report this issue with the debug HTML file"
+			}
+		} else if strings.Contains(err.Error(), "context deadline exceeded") {
+			// Timeout error
+			a.WriteSystemLog("ERROR", "SearchTest", "Search timeout after 90 seconds")
+			
+			if strings.Contains(strings.ToLower(engineURL), "google") {
+				errorMsg = "Search timeout (90s exceeded).\n\n" +
+					"⚠️ Google may be blocked in your region.\n\n" +
+					"Suggestions:\n" +
+					"1. Try Bing (www.bing.com) or Baidu (www.baidu.com)\n" +
+					"2. Configure a proxy in Network Settings\n" +
+					"3. Use a VPN\n\n" +
+					"Note: The connection test passed, but actual search timed out. " +
+					"This usually means the search engine is blocked or very slow in your network."
+			} else {
+				errorMsg = "Search timeout (90s exceeded).\n\n" +
+					"The search engine is taking too long to respond.\n\n" +
+					"Possible causes:\n" +
+					"1. Network is slow or unstable\n" +
+					"2. Search engine may be blocked\n" +
+					"3. Proxy configuration needed\n\n" +
+					"Suggestions:\n" +
+					"1. Try a different search engine\n" +
+					"2. Configure a proxy in Network Settings\n" +
+					"3. Check your network connection"
+			}
+		} else if strings.Contains(strings.ToLower(err.Error()), "captcha") {
+			// Captcha detected
+			a.WriteSystemLog("WARNING", "SearchTest", "Captcha or bot detection encountered")
+			errorMsg = "Search failed: Bot detection.\n\n" +
+				"The search engine detected automated access.\n\n" +
+				"Solutions:\n" +
+				"1. Wait a few minutes and try again\n" +
+				"2. Use a different search engine\n" +
+				"3. Configure a proxy to change IP address"
+		} else {
+			// Generic error
+			a.WriteSystemLog("ERROR", "SearchTest", fmt.Sprintf("Unexpected error: %v", err))
+		}
+		
 		return ConnectionResult{
 			Success: false,
-			Message: fmt.Sprintf("web_search failed: %v", err),
+			Message: errorMsg,
 		}
 	}
 
 	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_search succeeded, got %d bytes of results", len(searchResult)))
+	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("web_search succeeded, got %d bytes of results", len(searchResult)))
 
 	// Parse search results to get first URL
 	var searchResults []agent.SearchResult
 	if err := json.Unmarshal([]byte(searchResult), &searchResults); err != nil {
-		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Failed to parse search results: %v", err))
+		errMsg := fmt.Sprintf("[SEARCH-TEST] Failed to parse search results: %v", err)
+		a.logger.Log(errMsg)
+		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
 		return ConnectionResult{
 			Success: false,
 			Message: fmt.Sprintf("Failed to parse search results: %v", err),
@@ -1065,7 +1154,9 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	}
 
 	if len(searchResults) == 0 {
-		a.logger.Log("[SEARCH-TEST] No search results found")
+		errMsg := "[SEARCH-TEST] No search results found after parsing"
+		a.logger.Log(errMsg)
+		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
 		return ConnectionResult{
 			Success: false,
 			Message: "No search results found for 'whitehouse'",
@@ -1075,6 +1166,7 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	// Test 2: Web Fetch
 	firstURL := searchResults[0].URL
 	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Step 2: Testing web_fetch tool with URL: %s", firstURL))
+	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("Testing web_fetch with URL: %s", firstURL))
 	
 	fetchTool := agent.NewWebFetchTool(a.logger.Log, proxyConfig)
 	
@@ -1084,7 +1176,9 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	fetchInput := fmt.Sprintf(`{"url": "%s", "mode": "truncated"}`, firstURL)
 	fetchResult, err := fetchTool.InvokableRun(ctx2, fetchInput)
 	if err != nil {
-		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_fetch failed: %v", err))
+		errMsg := fmt.Sprintf("[SEARCH-TEST] web_fetch failed: %v", err)
+		a.logger.Log(errMsg)
+		a.WriteSystemLog("ERROR", "SearchTest", errMsg)
 		return ConnectionResult{
 			Success: false,
 			Message: fmt.Sprintf("web_fetch failed: %v", err),
@@ -1092,6 +1186,7 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	}
 
 	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_fetch succeeded, got %d bytes of content", len(fetchResult)))
+	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("web_fetch succeeded, got %d bytes", len(fetchResult)))
 
 	// Success message with details
 	successMsg := fmt.Sprintf(
@@ -1106,6 +1201,7 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	)
 
 	a.logger.Log("[SEARCH-TEST] All tests passed successfully")
+	a.WriteSystemLog("INFO", "SearchTest", fmt.Sprintf("Search tools test passed for %s", engineURL))
 
 	return ConnectionResult{
 		Success: true,

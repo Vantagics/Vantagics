@@ -22,7 +22,6 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
     const [name, setName] = useState('');
     const [url, setUrl] = useState('');
     const [testing, setTesting] = useState(false);
-    const [testingTools, setTestingTools] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
     const [tested, setTested] = useState(false);
 
@@ -54,39 +53,20 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
         setTestResult(null);
 
         try {
-            // @ts-ignore - TestSearchEngine is defined in App.go
-            const result = await window.go.main.App.TestSearchEngine(url);
-            setTestResult(result);
-            if (result.success) {
-                setTested(true);
-            }
-        } catch (err) {
-            setTestResult({ success: false, message: String(err) });
-        } finally {
-            setTesting(false);
-        }
-    };
-
-    const handleTestSearchTools = async () => {
-        if (!url) {
-            setTestResult({ success: false, message: t('mcp_service_url_required') });
-            return;
-        }
-
-        setTestingTools(true);
-        setTestResult(null);
-
-        try {
+            // Use TestSearchTools instead of TestSearchEngine for more thorough testing
             // @ts-ignore - TestSearchTools is defined in App.go
             const result = await window.go.main.App.TestSearchTools(url);
             setTestResult(result);
             if (result.success) {
                 setTested(true);
+            } else {
+                setTested(false);
             }
         } catch (err) {
             setTestResult({ success: false, message: String(err) });
+            setTested(false);
         } finally {
-            setTestingTools(false);
+            setTesting(false);
         }
     };
 
@@ -183,7 +163,7 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
                         </p>
                     </div>
 
-                    {/* Test Button */}
+                    {/* Test Search Tools Button */}
                     <div className="pt-2">
                         <button
                             onClick={handleTest}
@@ -191,25 +171,10 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
                             className={`w-full px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
                                 testing || !url
                                     ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700'
-                            }`}
-                        >
-                            {testing ? t('testing_mcp_service') : t('test_connection')}
-                        </button>
-                    </div>
-
-                    {/* Test Search Tools Button */}
-                    <div className="pt-2">
-                        <button
-                            onClick={handleTestSearchTools}
-                            disabled={testingTools || !url}
-                            className={`w-full px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
-                                testingTools || !url
-                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                                     : 'bg-green-600 text-white hover:bg-green-700'
                             }`}
                         >
-                            {testingTools ? t('testing_search_tools') : t('test_search_tools')}
+                            {testing ? t('testing_search_tools') : t('test_search_tools')}
                         </button>
                         <p className="mt-1 text-xs text-slate-500">
                             {t('test_search_tools_hint')}

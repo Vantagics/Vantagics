@@ -10,6 +10,8 @@ export function ApplyOptimizeSuggestions(arg1:string,arg2:Array<main.IndexSugges
 
 export function CancelAnalysis():Promise<void>;
 
+export function CheckChromeAvailability():Promise<main.ChromeCheckResult>;
+
 export function CheckRapidBIEnvironmentExists():Promise<boolean>;
 
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;

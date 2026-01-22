@@ -53,6 +53,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
     const [editingMcpService, setEditingMcpService] = useState<MCPService | null>(null);
     const [searchEngineModalOpen, setSearchEngineModalOpen] = useState(false);
     const [editingSearchEngine, setEditingSearchEngine] = useState<SearchEngine | null>(null);
+    const [testingSearchEngine, setTestingSearchEngine] = useState<string | null>(null); // Track which engine is being tested
+    const [testingSearchEngineConnection, setTestingSearchEngineConnection] = useState<string | null>(null); // Track connection test
 
     // Helper function to update config while maintaining Config class instance
     const updateConfig = (updates: Partial<configModel.Config>) => {
@@ -107,6 +109,57 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
             setTestResult({ success: false, message: String(err) });
         } finally {
             setIsTesting(false);
+        }
+    };
+
+    const handleTestSearchTools = async (engineId: string, engineURL: string) => {
+        setTestingSearchEngine(engineId);
+        try {
+            // @ts-ignore - TestSearchTools is defined in App.go
+            const result = await window.go.main.App.TestSearchTools(engineURL);
+            
+            if (result.success) {
+                // Update the engine's tested status
+                const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
+                    e.id === engineId ? { ...e, tested: true } : e
+                );
+                updateConfig({ searchEngines: updatedEngines });
+                setToast({ message: t('search_tools_test_success') || 'Search tools test passed!', type: 'success' });
+            } else {
+                // Mark as not tested if search test fails
+                const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
+                    e.id === engineId ? { ...e, tested: false } : e
+                );
+                updateConfig({ searchEngines: updatedEngines });
+                setToast({ message: result.message, type: 'error' });
+            }
+        } catch (err) {
+            // Mark as not tested on error
+            const updatedEngines = config.searchEngines?.map((e: SearchEngine) => 
+                e.id === engineId ? { ...e, tested: false } : e
+            );
+            updateConfig({ searchEngines: updatedEngines });
+            setToast({ message: String(err), type: 'error' });
+        } finally {
+            setTestingSearchEngine(null);
+        }
+    };
+
+    const handleTestSearchEngineConnection = async (engineId: string, engineURL: string) => {
+        setTestingSearchEngineConnection(engineId);
+        try {
+            // @ts-ignore - TestSearchEngine is defined in App.go
+            const result = await window.go.main.App.TestSearchEngine(engineURL);
+            
+            if (result.success) {
+                setToast({ message: t('connection_test_success') || 'Connection test passed!', type: 'success' });
+            } else {
+                setToast({ message: result.message, type: 'error' });
+            }
+        } catch (err) {
+            setToast({ message: String(err), type: 'error' });
+        } finally {
+            setTestingSearchEngineConnection(null);
         }
     };
 
@@ -375,29 +428,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 
                                 {/* Active Search Engine Selection */}
                                 <div className="space-y-4">
+                                    {/* Available Search Engines with Radio Selection */}
                                     <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                                        <label className="block text-sm font-medium text-slate-700 mb-3">
                                             {t('active_search_engine')}
                                         </label>
-                                        <select
-                                            value={config.activeSearchEngine || ''}
-                                            onChange={(e) => updateConfig({ activeSearchEngine: e.target.value })}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                        >
-                                            {config.searchEngines?.map((engine: SearchEngine) => (
-                                                <option key={engine.id} value={engine.id}>
-                                                    {engine.name} ({engine.url})
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <p className="text-xs text-slate-500 mt-1">
+                                        <p className="text-xs text-slate-500 mb-3">
                                             {t('search_engine_hint')}
                                         </p>
-                                    </div>
-
-                                    {/* Available Search Engines */}
-                                    <div>
-                                        <h4 className="text-sm font-medium text-slate-700 mb-3">{t('available_engines')}</h4>
                                         <div className="space-y-2">
                                             {config.searchEngines?.map((engine: SearchEngine, index: number) => (
                                                 <div
@@ -435,6 +473,46 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-1">
+                                                        {/* Connection Test button */}
+                                                        <button
+                                                            onClick={() => handleTestSearchEngineConnection(engine.id, engine.url)}
+                                                            disabled={testingSearchEngineConnection === engine.id}
+                                                            className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                                                testingSearchEngineConnection === engine.id
+                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                                                    : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                                            }`}
+                                                            title={t('test_connection') || 'Test Connection'}
+                                                        >
+                                                            {testingSearchEngineConnection === engine.id ? (
+                                                                <span className="flex items-center gap-1">
+                                                                    <div className="w-3 h-3 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+                                                                    {t('testing_mcp_service')}
+                                                                </span>
+                                                            ) : (
+                                                                t('test_connection')
+                                                            )}
+                                                        </button>
+                                                        {/* Search Test button */}
+                                                        <button
+                                                            onClick={() => handleTestSearchTools(engine.id, engine.url)}
+                                                            disabled={testingSearchEngine === engine.id}
+                                                            className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
+                                                                testingSearchEngine === engine.id
+                                                                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                                                    : 'bg-green-50 text-green-600 hover:bg-green-100'
+                                                            }`}
+                                                            title={t('test_search_tools') || 'Test Search Tools'}
+                                                        >
+                                                            {testingSearchEngine === engine.id ? (
+                                                                <span className="flex items-center gap-1">
+                                                                    <div className="w-3 h-3 border-2 border-slate-300 border-t-green-600 rounded-full animate-spin" />
+                                                                    {t('testing_search_tools')}
+                                                                </span>
+                                                            ) : (
+                                                                t('test_search_tools')
+                                                            )}
+                                                        </button>
                                                         {/* Edit button for custom engines */}
                                                         {!['google', 'bing', 'baidu'].includes(engine.id) && (
                                                             <button

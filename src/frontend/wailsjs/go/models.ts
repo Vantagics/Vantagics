@@ -1040,6 +1040,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ChromeCheckResult {
+	    available: boolean;
+	    message: string;
+	    path?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChromeCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.message = source["message"];
+	        this.path = source["path"];
+	    }
+	}
 	export class ConnectionResult {
 	    success: boolean;
 	    message: string;
