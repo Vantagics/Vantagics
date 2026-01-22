@@ -164,11 +164,21 @@ export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<string>
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
+export function ShowAbout():Promise<void>;
+
 export function ShowMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function TestLLMConnection(arg1:config.Config):Promise<main.ConnectionResult>;
 
+export function TestMCPService(arg1:string):Promise<main.ConnectionResult>;
+
 export function TestMySQLConnection(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function TestProxy(arg1:config.ProxyConfig):Promise<main.ConnectionResult>;
+
+export function TestSearchEngine(arg1:string):Promise<main.ConnectionResult>;
+
+export function TestSearchTools(arg1:string):Promise<main.ConnectionResult>;
 
 export function UpdateMySQLExportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 

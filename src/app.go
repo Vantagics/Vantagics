@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,6 +94,32 @@ func NewApp() *App {
 // SetChatOpen updates the chat open state
 func (a *App) SetChatOpen(isOpen bool) {
 	a.isChatOpen = isOpen
+}
+
+// ShowAbout displays the about dialog
+func (a *App) ShowAbout() {
+	cfg, _ := a.GetConfig()
+	
+	var title, message string
+	if cfg.Language == "简体中文" {
+		title = "关于 观界"
+		message = "观界 (VantageData)\n\n" +
+			"观数据之界，见商业全貌。\n\n" +
+			"版本：1.0.0\n" +
+			"© 2026 VantageData. All rights reserved."
+	} else {
+		title = "About VantageData"
+		message = "VantageData\n\n" +
+			"See Beyond Data. Master Your Vantage.\n\n" +
+			"Version: 1.0.0\n" +
+			"© 2026 VantageData. All rights reserved."
+	}
+	
+	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:    runtime.InfoDialog,
+		Title:   title,
+		Message: message,
+	})
 }
 
 // OpenDevTools opens the developer tools/console
@@ -319,23 +347,34 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		}, nil
 	}
 
-	// Short-term memory: Last 3 messages (what the AI sees in full detail)
+	// Short-term memory: Last 5 messages (what the AI sees in full detail)
 	var shortTerm []string
 	shortStart := 0
-	if len(messages) > 3 {
-		shortStart = len(messages) - 3
+	if len(messages) > 5 {
+		shortStart = len(messages) - 5
 	}
-	for _, msg := range messages[shortStart:] {
+	for i, msg := range messages[shortStart:] {
 		content := msg.Content
-		if len(content) > 500 {
-			content = content[:500] + "..."
+		// Truncate very long messages for display
+		if len(content) > 800 {
+			content = content[:800] + "...\n[内容已截断]"
 		}
-		shortTerm = append(shortTerm, fmt.Sprintf("[%s]: %s", msg.Role, content))
+		
+		// Format with role and index
+		roleIcon := "👤"
+		if msg.Role == "assistant" {
+			roleIcon = "🤖"
+		} else if msg.Role == "system" {
+			roleIcon = "⚙️"
+		}
+		
+		shortTerm = append(shortTerm, fmt.Sprintf("%s %s (消息 #%d):\n%s", 
+			roleIcon, msg.Role, shortStart+i+1, content))
 	}
 
-	// Medium-term memory: Compressed summaries of older messages (messages 4-20)
+	// Medium-term memory: Compressed summaries of older messages (messages beyond short-term)
 	var mediumTerm []string
-	if len(messages) > 3 {
+	if len(messages) > 5 {
 		midEnd := shortStart
 		midStart := 0
 		if midEnd > 20 {
@@ -428,7 +467,18 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 	}
 
 	if len(mediumTerm) == 0 {
-		mediumTerm = []string{"No compressed history yet (conversation is short enough to fit in short-term memory)."}
+		mediumTerm = []string{"暂无压缩历史（对话足够短，全部保留在短期记忆中）"}
+	}
+
+	// Add persisted medium-term memories from MemoryService (AI-generated summaries)
+	if a.memoryService != nil {
+		_, _, _, sessionMedium := a.memoryService.GetMemories(threadID)
+		if len(sessionMedium) > 0 {
+			mediumTerm = append([]string{"📚 AI 自动生成的对话摘要:"}, mediumTerm...)
+			for _, mem := range sessionMedium {
+				mediumTerm = append(mediumTerm, fmt.Sprintf("  📝 %s", mem))
+			}
+		}
 	}
 
 	// Long-term memory: Key facts, entities, and insights extracted from the conversation
@@ -525,18 +575,48 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 
 	// Add any persisted long-term memories from MemoryService
 	if a.memoryService != nil {
-		global, sessionLong, _ := a.memoryService.GetMemories(threadID)
-		for _, mem := range global {
-			longTerm = append(longTerm, fmt.Sprintf("🌐 %s", mem))
+		globalDataSources, globalGoals, sessionLong, _ := a.memoryService.GetMemories(threadID)
+		
+		// Add a header if we have persistent memories
+		if len(globalDataSources) > 0 || len(globalGoals) > 0 || len(sessionLong) > 0 {
+			longTerm = append([]string{"🗄️ 持久化知识库:"}, longTerm...)
 		}
-		for _, mem := range sessionLong {
-			longTerm = append(longTerm, fmt.Sprintf("📌 %s", mem))
+		
+		// Global data sources (cross-session knowledge)
+		if len(globalDataSources) > 0 {
+			longTerm = append(longTerm, "\n📊 全局数据源:")
+			for _, mem := range globalDataSources {
+				longTerm = append(longTerm, fmt.Sprintf("  • %s", mem))
+			}
+		}
+		
+		// Global goals (overall objectives)
+		if len(globalGoals) > 0 {
+			longTerm = append(longTerm, "\n🎯 全局目标:")
+			for _, mem := range globalGoals {
+				longTerm = append(longTerm, fmt.Sprintf("  • %s", mem))
+			}
+		}
+		
+		// Session long-term (persistent facts for this session)
+		if len(sessionLong) > 0 {
+			longTerm = append(longTerm, "\n📌 会话持久化事实:")
+			for _, mem := range sessionLong {
+				longTerm = append(longTerm, fmt.Sprintf("  • %s", mem))
+			}
 		}
 	}
 
 	// If nothing substantive found, show a meaningful message
 	if len(longTerm) == 0 {
-		longTerm = append(longTerm, "暂无提取到的关键信息，继续对话后将自动提取分析主题、涉及表格、关键发现等。")
+		longTerm = append(longTerm, "暂无提取到的持久化知识。")
+		longTerm = append(longTerm, "")
+		longTerm = append(longTerm, "💡 长期记忆会自动从以下内容中提取：")
+		longTerm = append(longTerm, "  • 数据源架构（表名、字段名）")
+		longTerm = append(longTerm, "  • 业务规则和定义")
+		longTerm = append(longTerm, "  • 数据特征（枚举值、状态类型）")
+		longTerm = append(longTerm, "")
+		longTerm = append(longTerm, "继续对话和分析后，系统将自动提取和保存这些知识。")
 	}
 
 	return AgentMemoryView{
@@ -650,19 +730,52 @@ func (a *App) GetConfig() (config.Config, error) {
 
 // SaveConfig saves the config to the ~/rapidbi/config.json
 func (a *App) SaveConfig(cfg config.Config) error {
-	// Compute Web Search MCP URL based on provider and API key
+	// Migrate legacy web search configuration to new MCP services format
 	if cfg.WebSearchProvider != "" && cfg.WebSearchAPIKey != "" {
-		switch cfg.WebSearchProvider {
-		case "Tavily":
-			cfg.WebSearchMCPURL = fmt.Sprintf("https://mcp.tavily.com/mcp/?tavilyApiKey=%s", cfg.WebSearchAPIKey)
-		case "Bright":
-			cfg.WebSearchMCPURL = fmt.Sprintf("https://mcp.brightdata.com/mcp?token=%s", cfg.WebSearchAPIKey)
-		default:
+		// Check if this legacy config has already been migrated
+		migrated := false
+		for _, svc := range cfg.MCPServices {
+			if svc.Name == "Web Search ("+cfg.WebSearchProvider+")" {
+				migrated = true
+				break
+			}
+		}
+
+		// If not migrated, add it to MCPServices
+		if !migrated {
+			var mcpURL string
+			switch cfg.WebSearchProvider {
+			case "Tavily":
+				mcpURL = fmt.Sprintf("https://mcp.tavily.com/mcp/?tavilyApiKey=%s", cfg.WebSearchAPIKey)
+			case "Bright":
+				mcpURL = fmt.Sprintf("https://mcp.brightdata.com/mcp?token=%s", cfg.WebSearchAPIKey)
+			}
+
+			if mcpURL != "" {
+				newService := config.MCPService{
+					ID:          fmt.Sprintf("websearch-%s", strings.ToLower(cfg.WebSearchProvider)),
+					Name:        fmt.Sprintf("Web Search (%s)", cfg.WebSearchProvider),
+					Description: fmt.Sprintf("Web search powered by %s", cfg.WebSearchProvider),
+					URL:         mcpURL,
+					Enabled:     true,
+				}
+				cfg.MCPServices = append(cfg.MCPServices, newService)
+			}
+
+			// Clear legacy fields after migration
+			cfg.WebSearchProvider = ""
+			cfg.WebSearchAPIKey = ""
 			cfg.WebSearchMCPURL = ""
 		}
-	} else {
-		cfg.WebSearchMCPURL = ""
 	}
+
+	// Initialize MCPServices if nil
+	if cfg.MCPServices == nil {
+		cfg.MCPServices = []config.MCPService{}
+	}
+
+	// Initialize SearchEngines if empty
+	cfg.InitializeSearchEngines()
 
 	// Validate DataCacheDir exists if it's set
 	if cfg.DataCacheDir != "" {
@@ -799,6 +912,276 @@ func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
 	return ConnectionResult{
 		Success: true,
 		Message: "Connection successful!",
+	}
+}
+
+// TestMCPService tests the connection to an MCP service
+func (a *App) TestMCPService(url string) ConnectionResult {
+	if url == "" {
+		return ConnectionResult{
+			Success: false,
+			Message: "MCP service URL is required",
+		}
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Try to make a simple GET request to check if the service is reachable
+	resp, err := client.Get(url)
+	if err != nil {
+		return ConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to connect: %v", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return ConnectionResult{
+			Success: true,
+			Message: fmt.Sprintf("MCP service is reachable (HTTP %d)", resp.StatusCode),
+		}
+	}
+
+	// Even if status is not 2xx, if we got a response, the service is reachable
+	return ConnectionResult{
+		Success: true,
+		Message: fmt.Sprintf("MCP service responded (HTTP %d)", resp.StatusCode),
+	}
+}
+
+// TestSearchEngine tests if a search engine is accessible
+func (a *App) TestSearchEngine(url string) ConnectionResult {
+	if url == "" {
+		return ConnectionResult{
+			Success: false,
+			Message: "Search engine URL is required",
+		}
+	}
+
+	// Ensure URL has protocol
+	testURL := url
+	if !strings.HasPrefix(testURL, "http://") && !strings.HasPrefix(testURL, "https://") {
+		testURL = "https://" + testURL
+	}
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow redirects
+			return nil
+		},
+	}
+
+	// Try to make a HEAD request first (faster)
+	resp, err := client.Head(testURL)
+	if err != nil {
+		// Try GET if HEAD fails
+		resp, err = client.Get(testURL)
+		if err != nil {
+			return ConnectionResult{
+				Success: false,
+				Message: fmt.Sprintf("Failed to connect: %v", err),
+			}
+		}
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return ConnectionResult{
+			Success: true,
+			Message: fmt.Sprintf("Search engine is accessible (HTTP %d)", resp.StatusCode),
+		}
+	}
+
+	return ConnectionResult{
+		Success: false,
+		Message: fmt.Sprintf("Search engine returned HTTP %d", resp.StatusCode),
+	}
+}
+
+// TestSearchTools tests web_search and web_fetch tools with a sample query
+func (a *App) TestSearchTools(engineURL string) ConnectionResult {
+	if engineURL == "" {
+		return ConnectionResult{
+			Success: false,
+			Message: "Search engine URL is required",
+		}
+	}
+
+	a.logger.Log("[SEARCH-TEST] Starting search tools test with query: whitehouse")
+
+	// Create search engine config
+	searchEngine := &config.SearchEngine{
+		ID:      "test-engine",
+		Name:    "Test Engine",
+		URL:     engineURL,
+		Enabled: true,
+		Tested:  true,
+	}
+
+	// Get proxy config from eino service if available
+	var proxyConfig *config.ProxyConfig
+	if a.einoService != nil {
+		cfg := a.einoService.GetConfig()
+		if cfg.ProxyConfig != nil && cfg.ProxyConfig.Enabled && cfg.ProxyConfig.Tested {
+			proxyConfig = cfg.ProxyConfig
+		}
+	}
+
+	// Test 1: Web Search
+	a.logger.Log("[SEARCH-TEST] Step 1: Testing web_search tool...")
+	searchTool := agent.NewWebSearchTool(a.logger.Log, searchEngine, proxyConfig)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	searchInput := `{"query": "whitehouse", "max_results": 3}`
+	searchResult, err := searchTool.InvokableRun(ctx, searchInput)
+	if err != nil {
+		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_search failed: %v", err))
+		return ConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("web_search failed: %v", err),
+		}
+	}
+
+	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_search succeeded, got %d bytes of results", len(searchResult)))
+
+	// Parse search results to get first URL
+	var searchResults []agent.SearchResult
+	if err := json.Unmarshal([]byte(searchResult), &searchResults); err != nil {
+		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Failed to parse search results: %v", err))
+		return ConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("Failed to parse search results: %v", err),
+		}
+	}
+
+	if len(searchResults) == 0 {
+		a.logger.Log("[SEARCH-TEST] No search results found")
+		return ConnectionResult{
+			Success: false,
+			Message: "No search results found for 'whitehouse'",
+		}
+	}
+
+	// Test 2: Web Fetch
+	firstURL := searchResults[0].URL
+	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] Step 2: Testing web_fetch tool with URL: %s", firstURL))
+	
+	fetchTool := agent.NewWebFetchTool(a.logger.Log, proxyConfig)
+	
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel2()
+
+	fetchInput := fmt.Sprintf(`{"url": "%s", "mode": "truncated"}`, firstURL)
+	fetchResult, err := fetchTool.InvokableRun(ctx2, fetchInput)
+	if err != nil {
+		a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_fetch failed: %v", err))
+		return ConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("web_fetch failed: %v", err),
+		}
+	}
+
+	a.logger.Log(fmt.Sprintf("[SEARCH-TEST] web_fetch succeeded, got %d bytes of content", len(fetchResult)))
+
+	// Success message with details
+	successMsg := fmt.Sprintf(
+		"✓ Search tools test passed!\n\n"+
+		"web_search: Found %d results for 'whitehouse'\n"+
+		"First result: %s\n\n"+
+		"web_fetch: Successfully fetched %d bytes from:\n%s",
+		len(searchResults),
+		searchResults[0].Title,
+		len(fetchResult),
+		firstURL,
+	)
+
+	a.logger.Log("[SEARCH-TEST] All tests passed successfully")
+
+	return ConnectionResult{
+		Success: true,
+		Message: successMsg,
+	}
+}
+
+// TestProxy tests if a proxy server is accessible
+func (a *App) TestProxy(proxyConfig config.ProxyConfig) ConnectionResult {
+	if proxyConfig.Host == "" {
+		return ConnectionResult{
+			Success: false,
+			Message: "Proxy host is required",
+		}
+	}
+
+	if proxyConfig.Port <= 0 || proxyConfig.Port > 65535 {
+		return ConnectionResult{
+			Success: false,
+			Message: "Invalid proxy port",
+		}
+	}
+
+	// Determine protocol
+	protocol := strings.ToLower(proxyConfig.Protocol)
+	if protocol == "" {
+		protocol = "http"
+	}
+
+	// Test proxy by making a request through it
+	// Use a reliable test URL
+	testURL := "https://www.google.com"
+
+	// Build proxy URL for http.Transport
+	var proxyUser *url.Userinfo
+	if proxyConfig.Username != "" {
+		if proxyConfig.Password != "" {
+			proxyUser = url.UserPassword(proxyConfig.Username, proxyConfig.Password)
+		} else {
+			proxyUser = url.User(proxyConfig.Username)
+		}
+	}
+
+	// Create HTTP client with proxy
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(&url.URL{
+				Scheme: protocol,
+				Host:   fmt.Sprintf("%s:%d", proxyConfig.Host, proxyConfig.Port),
+				User:   proxyUser,
+			}),
+		},
+	}
+
+	// Try to make a HEAD request
+	resp, err := client.Head(testURL)
+	if err != nil {
+		return ConnectionResult{
+			Success: false,
+			Message: fmt.Sprintf("Proxy connection failed: %v", err),
+		}
+	}
+	defer resp.Body.Close()
+
+	// Check status code
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return ConnectionResult{
+			Success: true,
+			Message: fmt.Sprintf("Proxy is working (HTTP %d)", resp.StatusCode),
+		}
+	}
+
+	return ConnectionResult{
+		Success: true,
+		Message: fmt.Sprintf("Proxy connected but returned HTTP %d", resp.StatusCode),
 	}
 }
 

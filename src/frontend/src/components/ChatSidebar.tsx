@@ -1342,6 +1342,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     messageId={msg.id}
                                     userMessageId={userMessageId || undefined}
                                     dataSourceId={activeThread?.data_source_id}
+                                    threadId={activeThreadId || undefined}
                                     onActionClick={(action) => handleSendMessage(action.value || action.label, activeThread?.id)}
                                     onClick={msg.role === 'user' && isUserMessageCompleted ? () => handleUserMessageClick(msg) : undefined}
                                     hasChart={msg.role === 'user' && !!msg.chart_data}

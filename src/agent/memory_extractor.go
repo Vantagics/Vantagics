@@ -11,9 +11,18 @@ import (
 // MemoryItem represents a piece of extractable memory
 type MemoryItem struct {
 	Content  string
-	IsGlobal bool // true for global memory, false for session-specific
-	Category string // "schema", "business_rule", "data_characteristic", "finding"
+	Tier     MemoryTier // LongTerm, MidTerm, or ShortTerm
+	Category string     // "schema", "business_rule", "data_characteristic", "finding"
 }
+
+// MemoryTier defines the memory tier for storage
+type MemoryTier string
+
+const (
+	LongTermTier  MemoryTier = "long_term"  // Persistent facts: data source schemas, business rules
+	MidTermTier   MemoryTier = "mid_term"   // Compressed summaries of past conversations
+	ShortTermTier MemoryTier = "short_term" // Current conversation context (not persisted)
+)
 
 // MemoryExtractor extracts valuable information from analysis results
 type MemoryExtractor struct {
@@ -72,6 +81,7 @@ func (e *MemoryExtractor) ExtractKeyFindings(
 }
 
 // extractSchemaFromSQL extracts table and column information from SQL queries
+// Schema information is LONG-TERM memory (persistent, reusable across sessions)
 func (e *MemoryExtractor) extractSchemaFromSQL(sqlQueries []string) []MemoryItem {
 	var memories []MemoryItem
 	seenTables := make(map[string]bool)
@@ -91,7 +101,7 @@ func (e *MemoryExtractor) extractSchemaFromSQL(sqlQueries []string) []MemoryItem
 					columnList := strings.Join(columns, ", ")
 					memories = append(memories, MemoryItem{
 						Content:  fmt.Sprintf("表 %s 包含字段: %s", table, columnList),
-						IsGlobal: true, // Schema is global knowledge
+						Tier:     LongTermTier, // Schema is long-term knowledge
 						Category: "schema",
 					})
 				}
@@ -111,6 +121,7 @@ func (e *MemoryExtractor) extractSchemaFromSQL(sqlQueries []string) []MemoryItem
 }
 
 // extractDataCharacteristics extracts notable data patterns from results
+// Data characteristics are LONG-TERM memory (persistent facts about the data)
 func (e *MemoryExtractor) extractDataCharacteristics(results []map[string]interface{}, userQuery string) []MemoryItem {
 	var memories []MemoryItem
 	
@@ -143,7 +154,7 @@ func (e *MemoryExtractor) extractDataCharacteristics(results []map[string]interf
 					if len(values) > 0 && len(values) <= 5 {
 						memories = append(memories, MemoryItem{
 							Content:  fmt.Sprintf("字段 %s 的可能值: %s", key, strings.Join(values, ", ")),
-							IsGlobal: true,
+							Tier:     LongTermTier, // Data characteristics are long-term
 							Category: "data_characteristic",
 						})
 					}
@@ -156,6 +167,7 @@ func (e *MemoryExtractor) extractDataCharacteristics(results []map[string]interf
 }
 
 // extractUserRules extracts explicit rules from user statements
+// Business rules are LONG-TERM memory (persistent definitions and conventions)
 func (e *MemoryExtractor) extractUserRules(userQuery string) []MemoryItem {
 	var memories []MemoryItem
 	
@@ -170,7 +182,7 @@ func (e *MemoryExtractor) extractUserRules(userQuery string) []MemoryItem {
 			// User is defining something, this should be remembered
 			memories = append(memories, MemoryItem{
 				Content:  userQuery,
-				IsGlobal: false, // User-specific definitions are session-specific
+				Tier:     LongTermTier, // Business rules are long-term
 				Category: "business_rule",
 			})
 			break // Only add once
@@ -181,6 +193,7 @@ func (e *MemoryExtractor) extractUserRules(userQuery string) []MemoryItem {
 }
 
 // extractFilteredFindings extracts key findings while filtering out suggestions
+// Findings are SHORT-TERM memory (current conversation context, not persisted)
 func (e *MemoryExtractor) extractFilteredFindings(assistantResponse string) []MemoryItem {
 	var memories []MemoryItem
 	
@@ -197,7 +210,7 @@ func (e *MemoryExtractor) extractFilteredFindings(assistantResponse string) []Me
 		if e.isValuableFinding(line) && !e.isSuggestion(line) {
 			memories = append(memories, MemoryItem{
 				Content:  line,
-				IsGlobal: false, // Findings are usually session-specific
+				Tier:     ShortTermTier, // Findings are short-term (current context)
 				Category: "finding",
 			})
 		}

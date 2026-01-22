@@ -1024,7 +1024,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, activeChart, userRequestTex
                             <img 
                                 src={thumbnailUrl} 
                                 alt={file.name}
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-200"
                             />
                         ) : (
                             file.type === 'image' ? (

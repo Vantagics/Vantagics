@@ -322,6 +322,10 @@ export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
 }
 
+export function ShowAbout() {
+  return window['go']['main']['App']['ShowAbout']();
+}
+
 export function ShowMessage(arg1, arg2, arg3) {
   return window['go']['main']['App']['ShowMessage'](arg1, arg2, arg3);
 }
@@ -330,8 +334,24 @@ export function TestLLMConnection(arg1) {
   return window['go']['main']['App']['TestLLMConnection'](arg1);
 }
 
+export function TestMCPService(arg1) {
+  return window['go']['main']['App']['TestMCPService'](arg1);
+}
+
 export function TestMySQLConnection(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['TestMySQLConnection'](arg1, arg2, arg3, arg4);
+}
+
+export function TestProxy(arg1) {
+  return window['go']['main']['App']['TestProxy'](arg1);
+}
+
+export function TestSearchEngine(arg1) {
+  return window['go']['main']['App']['TestSearchEngine'](arg1);
+}
+
+export function TestSearchTools(arg1) {
+  return window['go']['main']['App']['TestSearchTools'](arg1);
 }
 
 export function UpdateMySQLExportConfig(arg1, arg2, arg3, arg4, arg5, arg6) {

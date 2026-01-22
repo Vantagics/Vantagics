@@ -4,8 +4,23 @@ import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
+import MCPServiceModal from './MCPServiceModal';
+import SearchEngineModal from './SearchEngineModal';
+import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle } from 'lucide-react';
 
-type Tab = 'llm' | 'system' | 'mcp' | 'runenv';
+type Tab = 'llm' | 'system' | 'mcp' | 'search' | 'network' | 'runenv';
+
+// Use Wails generated type
+type MCPService = configModel.MCPService;
+
+// Search Engine type
+interface SearchEngine {
+    id: string;
+    name: string;
+    url: string;
+    enabled: boolean;
+    tested: boolean;
+}
 
 interface PreferenceModalProps {
     isOpen: boolean;
@@ -15,7 +30,7 @@ interface PreferenceModalProps {
 const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) => {
     const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>('system');
-    const [config, setConfig] = useState<configModel.Config>({
+    const [config, setConfig] = useState<configModel.Config>(configModel.Config.createFrom({
         llmProvider: 'OpenAI',
         apiKey: '',
         baseUrl: '',
@@ -29,13 +44,20 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         pythonPath: '',
         maxPreviewRows: 100,
         detailedLog: false,
-        webSearchProvider: '',
-        webSearchAPIKey: '',
-        webSearchMCPURL: ''
-    });
+        mcpServices: []
+    }));
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean, message: string } | null>(null);
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+    const [mcpModalOpen, setMcpModalOpen] = useState(false);
+    const [editingMcpService, setEditingMcpService] = useState<MCPService | null>(null);
+    const [searchEngineModalOpen, setSearchEngineModalOpen] = useState(false);
+    const [editingSearchEngine, setEditingSearchEngine] = useState<SearchEngine | null>(null);
+
+    // Helper function to update config while maintaining Config class instance
+    const updateConfig = (updates: Partial<configModel.Config>) => {
+        setConfig(configModel.Config.createFrom({ ...config, ...updates }));
+    };
 
     useEffect(() => {
         if (isOpen) {
@@ -48,6 +70,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 
     const handleSave = async () => {
         try {
+            console.log('[Config] Saving config:', config);
+            console.log('[Config] MCP Services:', config.mcpServices);
             await SaveConfig(config);
             // Show success toast
             setToast({ message: t('settings_save_success') || '配置保存成功', type: 'success' });
@@ -65,7 +89,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
         try {
             const path = await SelectDirectory();
             if (path) {
-                setConfig(prev => ({ ...prev, dataCacheDir: path }));
+                updateConfig({ dataCacheDir: path });
             }
         } catch (err) {
             console.error('Failed to select directory:', err);
@@ -99,7 +123,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
-                        {(['system', 'llm', 'mcp', 'runenv'] as const).map((tab) => (
+                        {(['system', 'llm', 'search', 'network', 'mcp', 'runenv'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -108,6 +132,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                             >
                                 {tab === 'system' && t('system_params')}
                                 {tab === 'llm' && t('llm_config')}
+                                {tab === 'search' && t('search_engine')}
+                                {tab === 'network' && t('network_settings')}
                                 {tab === 'mcp' && t('mcp_services')}
                                 {tab === 'runenv' && t('run_env')}
                             </button>
@@ -127,7 +153,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         <select
                                             id="llmProvider"
                                             value={config.llmProvider}
-                                            onChange={(e) => setConfig({ ...config, llmProvider: e.target.value })}
+                                            onChange={(e) => updateConfig({ llmProvider: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         >
                                             <option value="OpenAI">OpenAI</option>
@@ -146,7 +172,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 id="baseUrl"
                                                 type="text"
                                                 value={config.baseUrl}
-                                                onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
+                                                onChange={(e) => updateConfig({ baseUrl: e.target.value })}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 placeholder={
                                                     isOpenAICompatible ? "http://localhost:11434" :
@@ -172,7 +198,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             <select
                                                 id="headerStyle"
                                                 value={config.claudeHeaderStyle || 'Anthropic'}
-                                                onChange={(e) => setConfig({ ...config, claudeHeaderStyle: e.target.value })}
+                                                onChange={(e) => updateConfig({ claudeHeaderStyle: e.target.value })}
                                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             >
                                                 <option value="Anthropic">Anthropic (x-api-key)</option>
@@ -192,7 +218,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             id="apiKey"
                                             type="password"
                                             value={config.apiKey}
-                                            onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+                                            onChange={(e) => updateConfig({ apiKey: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "sk-ant-..." : "sk-..."}
                                             autoCapitalize="none"
@@ -206,7 +232,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             id="modelName"
                                             type="text"
                                             value={config.modelName}
-                                            onChange={(e) => setConfig({ ...config, modelName: e.target.value })}
+                                            onChange={(e) => updateConfig({ modelName: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
                                             autoCapitalize="none"
@@ -221,7 +247,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             id="maxTokens"
                                             type="number"
                                             value={config.maxTokens}
-                                            onChange={(e) => setConfig({ ...config, maxTokens: parseInt(e.target.value) || 0 })}
+                                            onChange={(e) => updateConfig({ maxTokens: parseInt(e.target.value) || 0 })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         />
                                     </div>
@@ -258,7 +284,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         <input
                                             type="checkbox"
                                             checked={config.darkMode}
-                                            onChange={(e) => setConfig({ ...config, darkMode: e.target.checked })}
+                                            onChange={(e) => updateConfig({ darkMode: e.target.checked })}
                                         />
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -269,7 +295,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         <input
                                             type="checkbox"
                                             checked={config.localCache}
-                                            onChange={(e) => setConfig({ ...config, localCache: e.target.checked })}
+                                            onChange={(e) => updateConfig({ localCache: e.target.checked })}
                                         />
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -280,14 +306,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                         <input
                                             type="checkbox"
                                             checked={config.detailedLog}
-                                            onChange={(e) => setConfig({ ...config, detailedLog: e.target.checked })}
+                                            onChange={(e) => updateConfig({ detailedLog: e.target.checked })}
                                         />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
                                         <select
                                             value={config.language}
-                                            onChange={(e) => setConfig({ ...config, language: e.target.value })}
+                                            onChange={(e) => updateConfig({ language: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm"
                                         >
                                             <option>English</option>
@@ -300,7 +326,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                             id="maxPreviewRows"
                                             type="number"
                                             value={config.maxPreviewRows}
-                                            onChange={(e) => setConfig({ ...config, maxPreviewRows: parseInt(e.target.value) || 100 })}
+                                            onChange={(e) => updateConfig({ maxPreviewRows: parseInt(e.target.value) || 100 })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                             min="1"
                                             max="10000"
@@ -316,7 +342,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                                 id="dataCacheDir"
                                                 type="text"
                                                 value={config.dataCacheDir}
-                                                onChange={(e) => setConfig({ ...config, dataCacheDir: e.target.value })}
+                                                onChange={(e) => updateConfig({ dataCacheDir: e.target.value })}
                                                 className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 placeholder="~/RapidBI"
                                                 autoCapitalize="none"
@@ -338,83 +364,260 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                                 </div>
                             </div>
                         )}
-                        {activeTab === 'mcp' && (
+                        {activeTab === 'search' && (
                             <div className="space-y-6">
-                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('mcp_services')}</h3>
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-800">{t('search_engine_settings')}</h3>
+                                        <p className="text-sm text-slate-500 mt-1">{t('search_engine_description')}</p>
+                                    </div>
+                                </div>
+
+                                {/* Active Search Engine Selection */}
                                 <div className="space-y-4">
                                     <div>
-                                        <h4 className="text-md font-semibold text-slate-800 mb-4">{t('web_search_mcp')}</h4>
-                                        <div className="space-y-4">
-                                            <div>
-                                                <label htmlFor="webSearchProvider" className="block text-sm font-medium text-slate-700 mb-1">{t('web_search_provider')}</label>
-                                                <select
-                                                    id="webSearchProvider"
-                                                    value={config.webSearchProvider}
-                                                    onChange={(e) => setConfig({ ...config, webSearchProvider: e.target.value })}
-                                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                >
-                                                    <option value="">{t('web_search_disabled')}</option>
-                                                    <option value="Tavily">Tavily</option>
-                                                    <option value="Bright">Bright Data</option>
-                                                </select>
-                                                <p className="mt-1 text-[10px] text-slate-400 italic">
-                                                    {t('web_search_description')}
-                                                </p>
-                                            </div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                                            {t('active_search_engine')}
+                                        </label>
+                                        <select
+                                            value={config.activeSearchEngine || ''}
+                                            onChange={(e) => updateConfig({ activeSearchEngine: e.target.value })}
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        >
+                                            {config.searchEngines?.map((engine: SearchEngine) => (
+                                                <option key={engine.id} value={engine.id}>
+                                                    {engine.name} ({engine.url})
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            {t('search_engine_hint')}
+                                        </p>
+                                    </div>
 
-                                            {config.webSearchProvider && (
-                                                <div className="animate-in fade-in slide-in-from-top-1 duration-200">
-                                                    <label htmlFor="webSearchAPIKey" className="block text-sm font-medium text-slate-700 mb-1">{t('web_search_api_key')}</label>
-                                                    <input
-                                                        id="webSearchAPIKey"
-                                                        type="password"
-                                                        value={config.webSearchAPIKey}
-                                                        onChange={(e) => setConfig({ ...config, webSearchAPIKey: e.target.value })}
-                                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        placeholder="Enter your API key..."
-                                                        autoCapitalize="none"
-                                                        autoCorrect="off"
-                                                        spellCheck={false}
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const url = config.webSearchProvider === 'Tavily'
-                                                                ? 'https://app.tavily.com/home'
-                                                                : config.webSearchProvider === 'Bright'
-                                                                    ? 'https://www.bright.cn/?hs_signup=1'
-                                                                    : '';
-                                                            if (url) {
-                                                                window.open(url, '_blank');
-                                                            }
-                                                        }}
-                                                        className="mt-2 px-3 py-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-300 rounded-md transition-colors inline-flex items-center gap-1"
-                                                    >
-                                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                                                        </svg>
-                                                        {t('apply_api_key')}
-                                                    </button>
-                                                    {config.webSearchAPIKey && (
-                                                        <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-200">
-                                                            <label className="block text-xs font-medium text-slate-600 mb-1">{t('web_search_mcp_url_preview')}</label>
-                                                            <code className="text-xs text-slate-700 break-all">
-                                                                {config.webSearchProvider === 'Tavily'
-                                                                    ? `https://mcp.tavily.com/mcp/?tavilyApiKey=${config.webSearchAPIKey}`
-                                                                    : config.webSearchProvider === 'Bright'
-                                                                        ? `https://mcp.brightdata.com/mcp?token=${config.webSearchAPIKey}`
-                                                                        : ''}
-                                                            </code>
+                                    {/* Available Search Engines */}
+                                    <div>
+                                        <h4 className="text-sm font-medium text-slate-700 mb-3">{t('available_engines')}</h4>
+                                        <div className="space-y-2">
+                                            {config.searchEngines?.map((engine: SearchEngine, index: number) => (
+                                                <div
+                                                    key={engine.id}
+                                                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                                                >
+                                                    <div className="flex items-center gap-3 flex-1">
+                                                        <input
+                                                            type="radio"
+                                                            name="activeSearchEngine"
+                                                            checked={config.activeSearchEngine === engine.id}
+                                                            onChange={() => {
+                                                                updateConfig({ activeSearchEngine: engine.id });
+                                                            }}
+                                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                                                        />
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-medium text-slate-800">
+                                                                    {engine.name}
+                                                                </span>
+                                                                {engine.tested && (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                                                        <CheckCircle className="w-3 h-3" />
+                                                                        {t('tested')}
+                                                                    </span>
+                                                                )}
+                                                                {config.activeSearchEngine === engine.id && (
+                                                                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
+                                                                        {t('active')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-xs text-slate-500">{engine.url}</span>
                                                         </div>
-                                                    )}
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        {/* Edit button for custom engines */}
+                                                        {!['google', 'bing', 'baidu'].includes(engine.id) && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingSearchEngine(engine);
+                                                                    setSearchEngineModalOpen(true);
+                                                                }}
+                                                                className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                                title={t('edit_mcp_service')}
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                        {/* Delete button for custom engines */}
+                                                        {!['google', 'bing', 'baidu'].includes(engine.id) && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    const newEngines = config.searchEngines?.filter((e: SearchEngine) => e.id !== engine.id);
+                                                                    // If deleting active engine, switch to first available
+                                                                    if (config.activeSearchEngine === engine.id && newEngines && newEngines.length > 0) {
+                                                                        updateConfig({ 
+                                                                            searchEngines: newEngines,
+                                                                            activeSearchEngine: newEngines[0].id
+                                                                        });
+                                                                    } else {
+                                                                        updateConfig({ searchEngines: newEngines });
+                                                                    }
+                                                                }}
+                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                title={t('delete')}
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            )}
+                                            ))}
                                         </div>
                                     </div>
+
+                                    {/* Add Custom Engine Button */}
+                                    <button
+                                        onClick={() => {
+                                            setEditingSearchEngine(null);
+                                            setSearchEngineModalOpen(true);
+                                        }}
+                                        className="w-full px-4 py-3 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        {t('add_custom_engine')}
+                                    </button>
                                 </div>
                             </div>
                         )}
-                        {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} />}
+                        {activeTab === 'mcp' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-800">{t('mcp_services_title')}</h3>
+                                        <p className="text-sm text-slate-500 mt-1">{t('mcp_services_description')}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => {
+                                            setEditingMcpService(null);
+                                            setMcpModalOpen(true);
+                                        }}
+                                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-sm"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                        {t('add_mcp_service')}
+                                    </button>
+                                </div>
+
+                                {/* MCP Services List */}
+                                <div className="space-y-3">
+                                    {(!config.mcpServices || config.mcpServices.length === 0) ? (
+                                        <div className="text-center py-12 bg-slate-50 rounded-lg border-2 border-dashed border-slate-200">
+                                            <Server className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                            <p className="text-sm text-slate-500">{t('no_mcp_services')}</p>
+                                            <button
+                                                onClick={() => {
+                                                    setEditingMcpService(null);
+                                                    setMcpModalOpen(true);
+                                                }}
+                                                className="mt-4 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                                            >
+                                                {t('add_mcp_service')}
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        config.mcpServices.map((service: MCPService) => (
+                                            <div
+                                                key={service.id}
+                                                className="flex items-start gap-4 p-4 bg-white border border-slate-200 rounded-lg hover:shadow-md transition-shadow"
+                                            >
+                                                <div className={`p-2 rounded-lg ${service.enabled ? 'bg-green-100' : 'bg-slate-100'}`}>
+                                                    {service.enabled ? (
+                                                        <Power className="w-5 h-5 text-green-600" />
+                                                    ) : (
+                                                        <PowerOff className="w-5 h-5 text-slate-400" />
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <h4 className="text-sm font-semibold text-slate-800 truncate">
+                                                                    {service.name}
+                                                                </h4>
+                                                                {/* Test status badge */}
+                                                                {service.tested ? (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                                                        <CheckCircle className="w-3 h-3" />
+                                                                        {t('tested')}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                                                                        <AlertCircle className="w-3 h-3" />
+                                                                        {t('not_tested')}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {service.description && (
+                                                                <p className="text-xs text-slate-500 mt-1">
+                                                                    {service.description}
+                                                                </p>
+                                                            )}
+                                                            <p className="text-xs text-slate-400 mt-2 font-mono truncate">
+                                                                {service.url}
+                                                            </p>
+                                                            {/* Warning if enabled but not tested */}
+                                                            {service.enabled && !service.tested && (
+                                                                <p className="text-xs text-amber-600 mt-2 flex items-center gap-1">
+                                                                    <AlertCircle className="w-3 h-3" />
+                                                                    {t('mcp_not_tested_warning')}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center gap-1 flex-shrink-0">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingMcpService(service);
+                                                                    setMcpModalOpen(true);
+                                                                }}
+                                                                className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                                                title={t('edit_mcp_service')}
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const newServices = config.mcpServices.filter(
+                                                                        (s: MCPService) => s.id !== service.id
+                                                                    );
+                                                                    updateConfig({ mcpServices: newServices });
+                                                                }}
+                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                title={t('delete_mcp_service')}
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'network' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-800">{t('network_settings')}</h3>
+                                        <p className="text-sm text-slate-500 mt-1">{t('network_settings_description')}</p>
+                                    </div>
+                                </div>
+
+                                <NetworkSettings config={config} updateConfig={updateConfig} />
+                            </div>
+                        )}
+                        {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} updateConfig={updateConfig} />}
                     </div>
 
                     {/* Footer */}
@@ -435,6 +638,242 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
                     onClose={() => setToast(null)}
                 />
             )}
+            <MCPServiceModal
+                isOpen={mcpModalOpen}
+                service={editingMcpService}
+                onClose={() => {
+                    setMcpModalOpen(false);
+                    setEditingMcpService(null);
+                }}
+                onSave={(service: MCPService) => {
+                    console.log('[MCP] Saving service:', service);
+                    if (editingMcpService) {
+                        // Update existing service
+                        const newServices = config.mcpServices.map((s: MCPService) =>
+                            s.id === service.id ? service : s
+                        );
+                        console.log('[MCP] Updated services:', newServices);
+                        updateConfig({ mcpServices: newServices });
+                    } else {
+                        // Add new service
+                        const newServices = [...(config.mcpServices || []), service];
+                        console.log('[MCP] Added service, new list:', newServices);
+                        updateConfig({ mcpServices: newServices });
+                    }
+                }}
+            />
+            <SearchEngineModal
+                isOpen={searchEngineModalOpen}
+                engine={editingSearchEngine}
+                onClose={() => {
+                    setSearchEngineModalOpen(false);
+                    setEditingSearchEngine(null);
+                }}
+                onSave={(engine: SearchEngine) => {
+                    if (editingSearchEngine) {
+                        // Update existing engine
+                        const newEngines = config.searchEngines?.map((e: SearchEngine) =>
+                            e.id === engine.id ? engine : e
+                        );
+                        updateConfig({ searchEngines: newEngines });
+                    } else {
+                        // Add new engine
+                        const newEngines = [...(config.searchEngines || []), engine];
+                        updateConfig({ searchEngines: newEngines });
+                    }
+                }}
+            />
+        </div>
+    );
+};
+
+interface NetworkSettingsProps {
+    config: configModel.Config;
+    updateConfig: (updates: Partial<configModel.Config>) => void;
+}
+
+const NetworkSettings: React.FC<NetworkSettingsProps> = ({ config, updateConfig }) => {
+    const { t } = useLanguage();
+    const [testing, setTesting] = useState(false);
+    const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+    // Initialize proxy config if it doesn't exist
+    const proxyConfig = config.proxyConfig || {
+        enabled: false,
+        protocol: 'http',
+        host: '',
+        port: 0,
+        username: '',
+        password: '',
+        tested: false
+    };
+
+    const updateProxyConfig = (updates: Partial<typeof proxyConfig>) => {
+        const newProxyConfig = { ...proxyConfig, ...updates };
+        
+        // Clear tested flag if connection details change
+        if (updates.protocol || updates.host || updates.port || updates.username || updates.password) {
+            newProxyConfig.tested = false;
+        }
+        
+        updateConfig({ proxyConfig: newProxyConfig });
+    };
+
+    const handleTestProxy = async () => {
+        if (!proxyConfig.host || proxyConfig.port <= 0) {
+            setTestResult({ success: false, message: t('proxy_test_failed') + ': Host and port are required' });
+            return;
+        }
+
+        setTesting(true);
+        setTestResult(null);
+        
+        try {
+            // @ts-ignore - TestProxy is defined in App.go
+            const result = await window.go.main.App.TestProxy(proxyConfig);
+            setTestResult(result);
+            
+            if (result.success) {
+                updateProxyConfig({ tested: true });
+            }
+        } catch (err) {
+            setTestResult({ success: false, message: String(err) });
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            {/* Enable Proxy Toggle */}
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-700">{t('proxy_enabled')}</span>
+                        {proxyConfig.tested && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                                <CheckCircle className="w-3 h-3" />
+                                {t('proxy_tested')}
+                            </span>
+                        )}
+                        {!proxyConfig.tested && proxyConfig.host && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                                <AlertCircle className="w-3 h-3" />
+                                {t('proxy_not_tested')}
+                            </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                        {proxyConfig.enabled && !proxyConfig.tested && t('proxy_test_required')}
+                    </p>
+                </div>
+                <input
+                    type="checkbox"
+                    checked={proxyConfig.enabled}
+                    onChange={(e) => updateProxyConfig({ enabled: e.target.checked })}
+                    disabled={!proxyConfig.tested && proxyConfig.host !== ''}
+                    className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+            </div>
+
+            {/* Proxy Configuration */}
+            <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            {t('proxy_protocol')}
+                        </label>
+                        <select
+                            value={proxyConfig.protocol}
+                            onChange={(e) => updateProxyConfig({ protocol: e.target.value })}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="http">HTTP</option>
+                            <option value="https">HTTPS</option>
+                            <option value="socks5">SOCKS5</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            {t('proxy_port')}
+                        </label>
+                        <input
+                            type="number"
+                            value={proxyConfig.port || ''}
+                            onChange={(e) => updateProxyConfig({ port: parseInt(e.target.value) || 0 })}
+                            placeholder="8080"
+                            min="1"
+                            max="65535"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                        {t('proxy_host')}
+                    </label>
+                    <input
+                        type="text"
+                        value={proxyConfig.host}
+                        onChange={(e) => updateProxyConfig({ host: e.target.value })}
+                        placeholder="proxy.example.com or 192.168.1.1"
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            {t('proxy_username')}
+                        </label>
+                        <input
+                            type="text"
+                            value={proxyConfig.username}
+                            onChange={(e) => updateProxyConfig({ username: e.target.value })}
+                            placeholder="username"
+                            autoComplete="off"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            {t('proxy_password')}
+                        </label>
+                        <input
+                            type="password"
+                            value={proxyConfig.password}
+                            onChange={(e) => updateProxyConfig({ password: e.target.value })}
+                            placeholder="password"
+                            autoComplete="off"
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+                </div>
+
+                {/* Test Button */}
+                <div className="pt-2 flex items-center gap-4">
+                    <button
+                        onClick={handleTestProxy}
+                        disabled={testing || !proxyConfig.host || proxyConfig.port <= 0}
+                        className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                            testing || !proxyConfig.host || proxyConfig.port <= 0
+                                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                    >
+                        {testing ? t('testing_proxy') : t('test_proxy')}
+                    </button>
+
+                    {testResult && (
+                        <div className={`text-sm font-medium animate-in fade-in slide-in-from-left-1 ${
+                            testResult.success ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                            {testResult.success ? `✓ ${t('proxy_test_success')}` : `✗ ${testResult.message}`}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
@@ -442,9 +881,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose }) =>
 interface RunEnvSettingsProps {
     config: configModel.Config;
     setConfig: (config: configModel.Config) => void;
+    updateConfig: (updates: Partial<configModel.Config>) => void;
 }
 
-const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) => {
+const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, updateConfig }) => {
     const [envs, setEnvs] = useState<agent.PythonEnvironment[]>([]);
     const [loading, setLoading] = useState(false);
     const [validation, setValidation] = useState<agent.PythonValidationResult | null>(null);
@@ -541,7 +981,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
             await loadEnvironments();
 
             // Auto-select the new environment
-            setConfig({ ...config, pythonPath });
+            updateConfig({ pythonPath });
 
             setNotification({ type: 'success', message: 'RapidBI专用环境创建成功！已自动选择该环境。' });
         } catch (error) {
@@ -754,7 +1194,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig }) =>
                         <select
                             id="pythonPath"
                             value={config.pythonPath}
-                            onChange={(e) => setConfig({ ...config, pythonPath: e.target.value })}
+                            onChange={(e) => updateConfig({ pythonPath: e.target.value })}
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         >
                             <option value="">Select an environment...</option>

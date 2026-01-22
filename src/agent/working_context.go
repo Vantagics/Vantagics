@@ -59,9 +59,11 @@ type OutlierPoint struct {
 
 // WorkingContextManager manages working context per session
 type WorkingContextManager struct {
-	dataDir  string
-	contexts map[string]*WorkingContext // sessionID -> context
-	mu       sync.RWMutex
+	dataDir      string
+	contexts     map[string]*WorkingContext // sessionID -> context
+	schemaCache  map[string]string          // dataSourceID -> cached schema
+	cacheExpiry  map[string]int64           // dataSourceID -> expiry timestamp
+	mu           sync.RWMutex
 }
 
 // NewWorkingContextManager creates a new manager
@@ -70,8 +72,10 @@ func NewWorkingContextManager(dataDir string) *WorkingContextManager {
 	_ = os.MkdirAll(contextDir, 0755)
 
 	return &WorkingContextManager{
-		dataDir:  dataDir,
-		contexts: make(map[string]*WorkingContext),
+		dataDir:     dataDir,
+		contexts:    make(map[string]*WorkingContext),
+		schemaCache: make(map[string]string),
+		cacheExpiry: make(map[string]int64),
 	}
 }
 
@@ -229,6 +233,51 @@ func (m *WorkingContextManager) ClearContext(sessionID string) {
 	// Delete from disk
 	path := m.getContextPath(sessionID)
 	_ = os.Remove(path)
+}
+
+// CacheSchema stores schema information for a data source
+func (m *WorkingContextManager) CacheSchema(dataSourceID string, schema string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.schemaCache[dataSourceID] = schema
+	// Cache expires after 5 minutes
+	m.cacheExpiry[dataSourceID] = time.Now().Add(5 * time.Minute).Unix()
+}
+
+// GetCachedSchema retrieves cached schema if available and not expired
+func (m *WorkingContextManager) GetCachedSchema(dataSourceID string) (string, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	schema, exists := m.schemaCache[dataSourceID]
+	if !exists {
+		return "", false
+	}
+
+	// Check expiry
+	expiry, hasExpiry := m.cacheExpiry[dataSourceID]
+	if hasExpiry && time.Now().Unix() > expiry {
+		// Expired, remove from cache
+		m.mu.RUnlock()
+		m.mu.Lock()
+		delete(m.schemaCache, dataSourceID)
+		delete(m.cacheExpiry, dataSourceID)
+		m.mu.Unlock()
+		m.mu.RLock()
+		return "", false
+	}
+
+	return schema, true
+}
+
+// ClearSchemaCache clears all cached schemas
+func (m *WorkingContextManager) ClearSchemaCache() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.schemaCache = make(map[string]string)
+	m.cacheExpiry = make(map[string]int64)
 }
 
 // Internal helper methods

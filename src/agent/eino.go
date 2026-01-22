@@ -273,6 +273,11 @@ func (s *EinoService) GetSkillManager() *templates.SkillManager {
 	return s.skillManager
 }
 
+// GetConfig returns the configuration
+func (s *EinoService) GetConfig() config.Config {
+	return s.cfg
+}
+
 // RunAnalysis executes the agent with full history and tool support
 func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message, dataSourceID, threadID string) (*schema.Message, error) {
 	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, "", "", nil, nil, nil)
@@ -283,6 +288,11 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	startTotal := time.Now()
 	if s.Logger != nil {
 		s.Logger(fmt.Sprintf("[TIMING] Start RunAnalysis for thread: %s", threadID))
+	}
+
+	// Configure memory manager with memory service for this thread
+	if s.memoryManager != nil && s.memoryService != nil && threadID != "" {
+		s.memoryManager.SetMemoryService(s.memoryService, threadID)
 	}
 
 	// Initialize trajectory tracking for training
@@ -482,6 +492,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	dsTool := NewDataSourceContextTool(s.dsService)
+	// Inject working context manager for schema caching
+	if s.workingContextManager != nil {
+		dsTool.SetWorkingContextManager(s.workingContextManager)
+	}
 	// Inject SQL collector into datasource tool for schema tracking
 	if sqlCollector != nil {
 		dsTool.SetSQLCollector(sqlCollector)
@@ -514,7 +528,36 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	// pythonPlanner := NewPythonPlanner(s.ChatModel, s.Logger)
 	// pythonPlannerTool := NewPythonPlannerTool(pythonPlanner)
 
+	// Initialize tools list
 	tools := []tool.BaseTool{pyTool, dsTool, sqlTool}
+
+	// Add Web Search and Fetch tools with configured search engine and proxy
+	activeEngine := s.cfg.GetActiveSearchEngine()
+	webSearchTool := NewWebSearchTool(s.Logger, activeEngine, s.cfg.ProxyConfig)
+	webFetchTool := NewWebFetchTool(s.Logger, s.cfg.ProxyConfig)
+	tools = append(tools, webSearchTool, webFetchTool)
+	if s.Logger != nil {
+		engineName := "default"
+		if activeEngine != nil {
+			engineName = activeEngine.Name
+		}
+		s.Logger(fmt.Sprintf("[WEB-TOOLS] Web search (engine: %s) and fetch tools loaded", engineName))
+	}
+
+	// Add MCP tool if services are configured
+	mcpTool := NewMCPTool(s.cfg.MCPServices, s.Logger)
+	if mcpTool.HasServices() {
+		tools = append(tools, mcpTool)
+		if s.Logger != nil {
+			services := mcpTool.GetAvailableServices()
+			s.Logger(fmt.Sprintf("[MCP] Loaded %d MCP service(s): %s", 
+				len(services), strings.Join(services, ", ")))
+		}
+	} else {
+		if s.Logger != nil {
+			s.Logger("[MCP] No MCP services configured or enabled")
+		}
+	}
 
 	// 2. Create ToolsNode (Standard Eino ToolsNode takes *Message and returns *Message)
 	toolsNode, err := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{
@@ -650,8 +693,8 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		if s.Logger != nil {
 			s.Logger(fmt.Sprintf("[TIMING] Model Generation step took: %v", time.Since(startModel)))
 		}
-		// Append response to history (use original input to preserve full context for tools)
-		return append(input, resp), nil
+		// Append response to managed history (use managedInput to avoid duplicates)
+		return append(managedInput, resp), nil
 	})
 
 	// Define Tool Node Wrapper
@@ -909,35 +952,81 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
+	// Build MCP tools prompt if services are available
+	var mcpToolsPrompt string
+	if len(s.cfg.MCPServices) > 0 {
+		// Filter enabled and tested services
+		var availableServices []string
+		for _, svc := range s.cfg.MCPServices {
+			if svc.Enabled && svc.Tested {
+				availableServices = append(availableServices, 
+					fmt.Sprintf("  • %s: %s", svc.Name, svc.Description))
+			}
+		}
+		
+		if len(availableServices) > 0 {
+			mcpToolsPrompt = "\n\n🔌 MCP SERVICES (External capabilities):\n"
+			mcpToolsPrompt += strings.Join(availableServices, "\n")
+			mcpToolsPrompt += "\n- Use mcp_service tool to call these services"
+			mcpToolsPrompt += "\n- Specify service_name, method (GET/POST), and endpoint"
+			mcpToolsPrompt += "\n- Useful for accessing external APIs and real-time data"
+			
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[MCP-PROMPT] Added %d MCP service(s) to system prompt", len(availableServices)))
+			}
+		}
+	}
+
 	sysMsg := &schema.Message{
 		Role:    schema.System,
 		Content: `You are RapidBI's data analysis expert. Be FAST and DIRECT.
 
 🎯 GOAL: Complete in ≤10 tool calls total.
 
-📋 WORKFLOW (EXECUTE IMMEDIATELY):
-1. get_data_source_context → Get columns
-2. execute_sql → Query data
-3. python_executor (if needed) → Analyze/visualize
-4. STOP → Present results
+📋 SMART WORKFLOW:
+1. get_data_source_context → Get schema for ALL relevant tables in ONE call
+   ⚠️ CRITICAL: Use table_names parameter to get multiple tables at once
+   Example: {"data_source_id": "xxx", "table_names": ["orders", "customers", "products"]}
+2. execute_sql → Query data (ONE query with JOINs preferred)
+3. python_executor (ONLY if visualization/complex analysis needed)
+4. STOP → Present results immediately
 
-🔴 CRITICAL:
-- EXECUTE tools immediately (not explain first)
-- ONE SQL query if possible (use JOINs, not multiple queries)
+🔴 CRITICAL RULES:
+- EXECUTE tools immediately (NO explanations before tool calls)
+- Get schema for ALL tables you need in ONE get_data_source_context call
+- DON'T call get_data_source_context multiple times - it's SLOW
+- ONE SQL query if possible (use JOINs, subqueries, CTEs)
 - Present results IMMEDIATELY after data ready
-- NO explanatory text before tool calls
+- NO unnecessary tool calls
+
+⚡ EFFICIENCY TIPS:
+- First call: Get table list only (no table_names parameter)
+- Second call: Get schema for ALL relevant tables at once (with table_names)
+- NEVER call get_data_source_context more than twice
+- If SQL error mentions column → Fix it directly, don't re-fetch schema
+- Combine multiple questions into ONE SQL query when possible
+- Skip python_executor for simple queries (just show table)
 
 📊 OUTPUT FORMAT:
 - For charts: ` + "```json:echarts\n{...}\n```" + `
 - For tables: ` + "```json:table\n[...]\n```" + `
 - IMPORTANT: Add newline after json:echarts or json:table
 
+🌐 WEB SEARCH TOOLS (Use sparingly - SLOW operation):
+- web_search: Search the web for current information, market data, competitor analysis
+  ⚠️ WARNING: Takes 60-90 seconds! Use ONLY when external data is essential
+  Example: "latest smartphone market share 2026", "Tesla vs BYD sales comparison"
+- web_fetch: Fetch and parse web page content (use URLs from search results)
+  Returns structured data: title, content, tables, links
+- ONLY use when database data is insufficient
+- Prefer internal data analysis over web searches
+
 🇨🇳 LANGUAGE REQUIREMENTS:
 - ALL chart titles, axis labels, and legends MUST be in Chinese
 - Use descriptive Chinese names for all visualizations (e.g., "销售趋势图", not "Sales Trend")
 - ALL Python code comments and print statements should be in Chinese where user-facing
 
-⚠️ You have LIMITED steps - be efficient!` + contextPrompt + workingContextPrompt,
+⚠️ You have LIMITED steps - be efficient!` + contextPrompt + workingContextPrompt + mcpToolsPrompt,
 	}
 
 	// 7. Apply memory management to history
@@ -1045,25 +1134,34 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						s.Logger(fmt.Sprintf("[MEMORY] Extracted %d valuable memories from analysis", len(memories)))
 					}
 					
-					// Store memories using MemoryService
+					// Store memories using MemoryService based on tier
 					if s.memoryService != nil {
 						for _, mem := range memories {
 							var err error
-							if mem.IsGlobal {
-								err = s.memoryService.AddGlobalMemory(mem.Content)
-								if err != nil && s.Logger != nil {
-									s.Logger(fmt.Sprintf("[MEMORY] Failed to store global memory: %v", err))
-								}
-							} else {
+							
+							// Route to appropriate memory tier
+							switch mem.Tier {
+							case LongTermTier:
+								// Long-term: persistent facts (schemas, rules, data characteristics)
 								err = s.memoryService.AddSessionLongTermMemory(threadID, mem.Content)
 								if err != nil && s.Logger != nil {
-									s.Logger(fmt.Sprintf("[MEMORY] Failed to store session memory: %v", err))
+									s.Logger(fmt.Sprintf("[MEMORY] Failed to store long-term memory: %v", err))
 								}
+							case MidTermTier:
+								// Mid-term: compressed summaries (not used here, managed by MemoryManager)
+								err = s.memoryService.AddSessionMediumTermMemory(threadID, mem.Content)
+								if err != nil && s.Logger != nil {
+									s.Logger(fmt.Sprintf("[MEMORY] Failed to store mid-term memory: %v", err))
+								}
+							case ShortTermTier:
+								// Short-term: current context (not persisted, managed by MemoryManager)
+								// Skip persistence for short-term memories
+								continue
 							}
 							
 							if err == nil && s.Logger != nil {
 								s.Logger(fmt.Sprintf("[MEMORY] ✓ Stored [%s] %s: %s", 
-									map[bool]string{true: "GLOBAL", false: "SESSION"}[mem.IsGlobal],
+									mem.Tier,
 									mem.Category,
 									mem.Content))
 							}
@@ -1072,7 +1170,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						// Log only if memoryService is not available
 						for _, mem := range memories {
 							s.Logger(fmt.Sprintf("[MEMORY] [%s] %s: %s", 
-								map[bool]string{true: "GLOBAL", false: "SESSION"}[mem.IsGlobal],
+								mem.Tier,
 								mem.Category,
 								mem.Content))
 						}

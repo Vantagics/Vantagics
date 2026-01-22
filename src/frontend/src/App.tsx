@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';
+import AboutModal from './components/AboutModal';
 import ChatSidebar from './components/ChatSidebar';
 import ContextMenu from './components/ContextMenu';
 import MessageModal from './components/MessageModal';
@@ -21,6 +22,7 @@ const logger = createLogger('App');
 function App() {
     const { t } = useLanguage();
     const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
+    const [isAboutOpen, setIsAboutOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
@@ -154,6 +156,11 @@ function App() {
         // Listen for menu event
         const unsubscribeSettings = EventsOn("open-settings", () => {
             setIsPreferenceOpen(true);
+        });
+
+        // Listen for about menu event
+        const unsubscribeAbout = EventsOn("open-about", () => {
+            setIsAboutOpen(true);
         });
 
         // Listen for dashboard chart updates (with session ID)
@@ -766,6 +773,7 @@ function App() {
             if (unsubscribeAnalysisWarning) unsubscribeAnalysisWarning();
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeSettings) unsubscribeSettings();
+            if (unsubscribeAbout) unsubscribeAbout();
             if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
             if (unsubscribeSessionSwitch) unsubscribeSessionSwitch();
             if (unsubscribeDashboardDataUpdate) unsubscribeDashboardDataUpdate();
@@ -938,6 +946,11 @@ function App() {
                 <PreferenceModal
                     isOpen={isPreferenceOpen}
                     onClose={() => setIsPreferenceOpen(false)}
+                />
+
+                <AboutModal
+                    isOpen={isAboutOpen}
+                    onClose={() => setIsAboutOpen(false)}
                 />
 
                 <MessageModal

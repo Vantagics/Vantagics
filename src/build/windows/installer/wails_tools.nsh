@@ -5,13 +5,13 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "rapidbi"
+    !define INFO_PROJECTNAME "vantagedata"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "rapidbi"
+    !define INFO_COMPANYNAME "vantagedata"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "rapidbi"
+    !define INFO_PRODUCTNAME "vantagedata"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "1.0.0"

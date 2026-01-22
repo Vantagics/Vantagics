@@ -1,10 +1,10 @@
 @echo off
-REM RapidBI Build Script
+REM VantageData Build Script
 
 set "SRC_DIR=src"
 set "DIST_DIR=dist"
 set "BUILD_DIR=src\build\bin"
-set "OUTPUT_NAME=rapidbi"
+set "OUTPUT_NAME=vantagedata"
 
 REM Parse command line arguments
 set "COMMAND=%~1"
@@ -35,7 +35,12 @@ if errorlevel 1 (
 )
 cd /d ..
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-move /y "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\" >nul 2>nul
+if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
+    copy /y "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\" >nul
+    echo Windows build copied to %DIST_DIR%\%OUTPUT_NAME%.exe
+) else (
+    echo Warning: %BUILD_DIR%\%OUTPUT_NAME%.exe not found
+)
 exit /b 0
 
 :build_macos
@@ -59,7 +64,7 @@ set "ZIG_EXE=%ZIG_EXE%"
 set GOOS=darwin
 set GOARCH=arm64
 echo DEBUG: 4
-go build -o ..\%DIST_DIR%\rapidbi_arm64 -ldflags="-s -w" .
+go build -o ..\%DIST_DIR%\vantagedata_arm64 -ldflags="-s -w" .
 if errorlevel 1 (
     echo Error: macOS arm64 build failed!
     pause
@@ -68,7 +73,7 @@ if errorlevel 1 (
 
 set GOARCH=amd64
 echo DEBUG: 5
-go build -o ..\%DIST_DIR%\rapidbi_amd64 -ldflags="-s -w" .
+go build -o ..\%DIST_DIR%\vantagedata_amd64 -ldflags="-s -w" .
 if errorlevel 1 (
     echo Error: macOS amd64 build failed!
     pause
@@ -77,7 +82,7 @@ if errorlevel 1 (
 
 echo [macOS] Creating Universal...
 cd /d ..\%DIST_DIR%
-makefat rapidbi_universal rapidbi_arm64 rapidbi_amd64
+makefat vantagedata_universal vantagedata_arm64 vantagedata_amd64
 if errorlevel 1 (
     echo Error: Failed to create universal binary!
     pause
@@ -85,17 +90,17 @@ if errorlevel 1 (
 )
 
 echo [macOS] Bundling...
-set "APP_BUNDLE=RapidBI.app"
+set "APP_BUNDLE=VantageData.app"
 if exist "%APP_BUNDLE%" rmdir /s /q "%APP_BUNDLE%"
 mkdir "%APP_BUNDLE%\Contents\MacOS"
 mkdir "%APP_BUNDLE%\Contents\Resources"
-move /y rapidbi_universal "%APP_BUNDLE%\Contents\MacOS\%OUTPUT_NAME%" >nul
+move /y vantagedata_universal "%APP_BUNDLE%\Contents\MacOS\%OUTPUT_NAME%" >nul
 copy /y "..\src\build\Info.plist" "%APP_BUNDLE%\Contents\Info.plist" >nul
 copy /y "..\src\build\appicon.png" "%APP_BUNDLE%\Contents\Resources\iconfile.png" >nul
-del /q rapidbi_arm64 rapidbi_amd64
+del /q vantagedata_arm64 vantagedata_amd64
 
 echo [macOS] Zipping App Bundle...
-powershell -Command "Compress-Archive -Path '%APP_BUNDLE%' -DestinationPath 'RapidBI_macOS_Universal.zip' -Force"
+powershell -Command "Compress-Archive -Path '%APP_BUNDLE%' -DestinationPath 'VantageData_macOS_Universal.zip' -Force"
 if errorlevel 1 (
     echo Error: Failed to create zip archive!
     pause

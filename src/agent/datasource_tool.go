@@ -11,14 +11,22 @@ import (
 )
 
 type DataSourceContextTool struct {
-	dsService    *DataSourceService
-	sqlCollector *SQLCollector // Optional: for tracking schema context
+	dsService             *DataSourceService
+	sqlCollector          *SQLCollector // Optional: for tracking schema context
+	workingContextManager *WorkingContextManager // For schema caching
+	fullSchemaRetrieved   map[string]bool // Track if full schema was retrieved for a data source
 }
 
 func NewDataSourceContextTool(dsService *DataSourceService) *DataSourceContextTool {
 	return &DataSourceContextTool{
-		dsService: dsService,
+		dsService:           dsService,
+		fullSchemaRetrieved: make(map[string]bool),
 	}
+}
+
+// SetWorkingContextManager injects the working context manager for caching
+func (t *DataSourceContextTool) SetWorkingContextManager(manager *WorkingContextManager) {
+	t.workingContextManager = manager
 }
 
 // SetSQLCollector injects the SQL collector for schema context tracking
@@ -59,6 +67,14 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 	var in dataSourceContextInput
 	if err := json.Unmarshal([]byte(input), &in); err != nil {
 		return "", fmt.Errorf("invalid input: %v", err)
+	}
+
+	// Check cache first
+	if t.workingContextManager != nil {
+		if cached, found := t.workingContextManager.GetCachedSchema(in.DataSourceID); found {
+			// Return cached schema with a note
+			return "📋 [Using cached schema - no need to call again]\n\n" + cached, nil
+		}
 	}
 
 	// 0. Get data source info and determine database type
@@ -111,6 +127,12 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 			for _, tbl := range allTables {
 				sb.WriteString(fmt.Sprintf("- %s\n", tbl))
 			}
+			
+			// Add hint to get full schema in one call
+			if t.ShouldGetFullSchema(in.DataSourceID) {
+				sb.WriteString(t.GetFullSchemaHint(in.DataSourceID, allTables))
+			}
+			
 			return sb.String(), nil
 		}
 		targetTables = allTables
@@ -217,6 +239,17 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 	}
 
 	result := sb.String()
+	
+	// Mark that full schema was retrieved if we got detailed table info
+	if len(in.TableNames) > 0 {
+		t.MarkFullSchemaRetrieved(in.DataSourceID)
+	}
+	
+	// Cache the schema result
+	if t.workingContextManager != nil {
+		t.workingContextManager.CacheSchema(in.DataSourceID, result)
+	}
+	
 	// Final safety check: if result is too large, truncate it
 	if len(result) > 15000 {
 		result = result[:15000] + "\n\n[Output truncated - request fewer tables for full details]"
@@ -336,4 +369,31 @@ func (t *DataSourceContextTool) getSQLDialectHints(dbType string) string {
 	default:
 		return ""
 	}
+}
+
+// ShouldGetFullSchema checks if we should suggest getting the full schema
+// Returns true if this is the first call and only table list was returned
+func (t *DataSourceContextTool) ShouldGetFullSchema(dataSourceID string) bool {
+	return !t.fullSchemaRetrieved[dataSourceID]
+}
+
+// MarkFullSchemaRetrieved marks that full schema has been retrieved for a data source
+func (t *DataSourceContextTool) MarkFullSchemaRetrieved(dataSourceID string) {
+	t.fullSchemaRetrieved[dataSourceID] = true
+}
+
+// GetFullSchemaHint returns a hint message suggesting to get full schema
+func (t *DataSourceContextTool) GetFullSchemaHint(dataSourceID string, tableNames []string) string {
+	if len(tableNames) == 0 {
+		return ""
+	}
+	
+	// Suggest getting schema for key tables
+	keyTables := tableNames
+	if len(keyTables) > 8 {
+		keyTables = keyTables[:8]
+	}
+	
+	return fmt.Sprintf("\n💡 TIP: To avoid multiple calls, get schema for all relevant tables at once:\n"+
+		"   Call get_data_source_context with table_names: %v\n", keyTables)
 }

@@ -544,6 +544,72 @@ export namespace agent {
 
 export namespace config {
 	
+	export class ProxyConfig {
+	    enabled: boolean;
+	    protocol: string;
+	    host: string;
+	    port: number;
+	    username?: string;
+	    password?: string;
+	    tested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProxyConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.protocol = source["protocol"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.tested = source["tested"];
+	    }
+	}
+	export class SearchEngine {
+	    id: string;
+	    name: string;
+	    url: string;
+	    enabled: boolean;
+	    tested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchEngine(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.enabled = source["enabled"];
+	        this.tested = source["tested"];
+	    }
+	}
+	export class MCPService {
+	    id: string;
+	    name: string;
+	    description: string;
+	    url: string;
+	    enabled: boolean;
+	    tested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPService(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.url = source["url"];
+	        this.enabled = source["enabled"];
+	        this.tested = source["tested"];
+	    }
+	}
 	export class Config {
 	    llmProvider: string;
 	    apiKey: string;
@@ -558,9 +624,13 @@ export namespace config {
 	    pythonPath: string;
 	    maxPreviewRows: number;
 	    detailedLog: boolean;
-	    webSearchProvider: string;
-	    webSearchAPIKey: string;
-	    webSearchMCPURL: string;
+	    mcpServices: MCPService[];
+	    searchEngines: SearchEngine[];
+	    activeSearchEngine?: string;
+	    proxyConfig?: ProxyConfig;
+	    webSearchProvider?: string;
+	    webSearchAPIKey?: string;
+	    webSearchMCPURL?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -581,11 +651,35 @@ export namespace config {
 	        this.pythonPath = source["pythonPath"];
 	        this.maxPreviewRows = source["maxPreviewRows"];
 	        this.detailedLog = source["detailedLog"];
+	        this.mcpServices = this.convertValues(source["mcpServices"], MCPService);
+	        this.searchEngines = this.convertValues(source["searchEngines"], SearchEngine);
+	        this.activeSearchEngine = source["activeSearchEngine"];
+	        this.proxyConfig = this.convertValues(source["proxyConfig"], ProxyConfig);
 	        this.webSearchProvider = source["webSearchProvider"];
 	        this.webSearchAPIKey = source["webSearchAPIKey"];
 	        this.webSearchMCPURL = source["webSearchMCPURL"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
+	
 
 }
 

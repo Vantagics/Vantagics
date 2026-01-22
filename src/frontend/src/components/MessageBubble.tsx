@@ -7,6 +7,7 @@ import DataTable from './DataTable';
 import TimingAnalysisModal from './TimingAnalysisModal';
 import { User, Bot, ZoomIn } from 'lucide-react';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
+import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
@@ -20,9 +21,10 @@ interface MessageBubbleProps {
     dataSourceId?: string;  // 新增：当前会话的数据源ID
     isDisabled?: boolean;  // 新增：是否禁用点击（用于未完成的用户消息）
     timingData?: any;  // 新增：耗时数据
+    threadId?: string;  // 新增：线程ID用于加载图片
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId }) => {
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     const [clickedActions, setClickedActions] = useState<Set<string>>(new Set());
@@ -31,6 +33,138 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const [exportMenu, setExportMenu] = useState<{ x: number; y: number } | null>(null);
     const [timingModalOpen, setTimingModalOpen] = useState(false);
     const messageContentRef = useRef<HTMLDivElement>(null);
+
+    // Image component that loads base64 data for file:// URLs
+    const MessageImage: React.FC<{ src?: string; alt?: string; threadId?: string; [key: string]: any }> = ({ src, alt, threadId, ...rest }) => {
+        const [imageSrc, setImageSrc] = useState<string | null>(null);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(false);
+
+        useEffect(() => {
+            if (!src) {
+                setLoading(false);
+                return;
+            }
+
+            // If it's already a data URL, use it directly
+            if (src.startsWith('data:')) {
+                setImageSrc(src);
+                setLoading(false);
+                return;
+            }
+
+            // If it's a file:// URL, extract the filename and load via API
+            if (src.startsWith('file://')) {
+                const loadImage = async () => {
+                    try {
+                        // Extract filename from file:// URL
+                        // Format: file:///path/to/sessions/{threadId}/files/{filename}
+                        // Or: file:///path/to/files/{filename} (relative path)
+                        const match = src.match(/files[\/\\]([^\/\\]+)$/);
+                        if (!match) {
+                            console.error('[MessageImage] Could not extract filename from:', src);
+                            setError(true);
+                            setLoading(false);
+                            return;
+                        }
+
+                        const filename = match[1];
+                        
+                        // Try to extract threadId from the path first
+                        let extractedThreadId = threadId; // Use prop as fallback
+                        const threadMatch = src.match(/sessions[\/\\]([^\/\\]+)[\/\\]files/);
+                        if (threadMatch) {
+                            extractedThreadId = threadMatch[1];
+                        }
+
+                        if (!extractedThreadId) {
+                            console.error('[MessageImage] No threadId available (neither in path nor prop)');
+                            setError(true);
+                            setLoading(false);
+                            return;
+                        }
+
+                        console.log('[MessageImage] Loading image:', { threadId: extractedThreadId, filename, src });
+
+                        const base64Data = await GetSessionFileAsBase64(extractedThreadId, filename);
+                        setImageSrc(base64Data);
+                        setLoading(false);
+                    } catch (err) {
+                        console.error('[MessageImage] Failed to load image:', err);
+                        setError(true);
+                        setLoading(false);
+                    }
+                };
+
+                loadImage();
+            } else if (src.startsWith('files/') || src.match(/^[^:\/]+\.(png|jpg|jpeg|gif|svg)$/i)) {
+                // Handle relative paths like "files/chart_xxx.png" or "chart_xxx.png"
+                const loadImage = async () => {
+                    try {
+                        // Extract filename
+                        const filename = src.replace(/^files[\/\\]/, ''); // Remove "files/" prefix if present
+                        
+                        if (!threadId) {
+                            console.error('[MessageImage] No threadId available for relative path:', src);
+                            setError(true);
+                            setLoading(false);
+                            return;
+                        }
+
+                        console.log('[MessageImage] Loading image from relative path:', { threadId, filename, src });
+
+                        const base64Data = await GetSessionFileAsBase64(threadId, filename);
+                        setImageSrc(base64Data);
+                        setLoading(false);
+                    } catch (err) {
+                        console.error('[MessageImage] Failed to load image from relative path:', err);
+                        setError(true);
+                        setLoading(false);
+                    }
+                };
+
+                loadImage();
+            } else {
+                // For other URLs (http, https), use directly
+                setImageSrc(src);
+                setLoading(false);
+            }
+        }, [src, threadId]);
+
+        if (loading) {
+            return (
+                <div className="relative group my-4 bg-slate-100 rounded-lg p-8 flex items-center justify-center">
+                    <div className="animate-pulse text-slate-400 text-sm">Loading image...</div>
+                </div>
+            );
+        }
+
+        if (error || !imageSrc) {
+            return (
+                <div className="relative group my-4 bg-red-50 border border-red-200 rounded-lg p-8 flex items-center justify-center">
+                    <div className="text-red-600 text-sm">Failed to load image</div>
+                </div>
+            );
+        }
+
+        return (
+            <div className="relative group my-4">
+                <img
+                    src={imageSrc}
+                    alt={alt || 'Chart'}
+                    {...rest}
+                    className="rounded-lg shadow-md max-w-full cursor-pointer hover:shadow-xl transition-shadow"
+                    onClick={() => setEnlargedImage(imageSrc)}
+                />
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="bg-black/60 text-white px-2 py-1 rounded text-xs flex items-center gap-1">
+                        <ZoomIn className="w-3 h-3" />
+                        Click to enlarge
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     let parsedPayload: any = null;
 
@@ -474,24 +608,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         <ReactMarkdown
                             components={{
                                 img(props) {
-                                    const { src, alt, ...rest } = props;
-                                    return (
-                                        <div className="relative group my-4">
-                                            <img
-                                                src={src}
-                                                alt={alt || 'Chart'}
-                                                {...rest}
-                                                className="rounded-lg shadow-md max-w-full cursor-pointer hover:shadow-xl transition-shadow"
-                                                onClick={() => setEnlargedImage(src || null)}
-                                            />
-                                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <div className="bg-black/60 text-white px-2 py-1 rounded text-xs flex items-center gap-1">
-                                                    <ZoomIn className="w-3 h-3" />
-                                                    Click to enlarge
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
+                                    return <MessageImage {...props} threadId={threadId} />;
                                 },
                                 code(props) {
                                     const { children, className, node, ...rest } = props;

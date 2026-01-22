@@ -10,15 +10,6 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-// MemoryTier defines different memory tiers for context management
-type MemoryTier int
-
-const (
-	ShortTermMemory  MemoryTier = iota // Recent messages, kept as-is
-	MidTermMemory                       // Older messages, compressed/summarized
-	LongTermMemory                      // Overall session summary
-)
-
 // MemoryConfig holds configuration for memory management
 type MemoryConfig struct {
 	MaxTokens           int // Maximum tokens from config
@@ -29,8 +20,10 @@ type MemoryConfig struct {
 
 // MemoryManager manages hierarchical memory for chat sessions
 type MemoryManager struct {
-	config    MemoryConfig
-	chatModel model.ChatModel
+	config         MemoryConfig
+	chatModel      model.ChatModel
+	memoryService  *MemoryService // Optional: for persisting mid-term summaries
+	currentThreadID string         // Current thread ID for memory persistence
 }
 
 // NewMemoryManager creates a new memory manager
@@ -68,6 +61,12 @@ func NewMemoryManager(maxTokens int, chatModel model.ChatModel) *MemoryManager {
 		},
 		chatModel: chatModel,
 	}
+}
+
+// SetMemoryService sets the memory service for persisting mid-term summaries
+func (m *MemoryManager) SetMemoryService(service *MemoryService, threadID string) {
+	m.memoryService = service
+	m.currentThreadID = threadID
 }
 
 // SetShortTermMessages sets the number of recent messages to keep
@@ -314,6 +313,7 @@ func (m *MemoryManager) applyHierarchicalMemory(ctx context.Context, messages []
 }
 
 // compressMessages summarizes a batch of messages into a condensed form using simple text extraction
+// The summary is also persisted to mid-term memory if MemoryService is available
 func (m *MemoryManager) compressMessages(ctx context.Context, messages []*schema.Message, targetTokens int) ([]*schema.Message, error) {
 	if len(messages) == 0 {
 		return messages, nil
@@ -321,6 +321,16 @@ func (m *MemoryManager) compressMessages(ctx context.Context, messages []*schema
 
 	// Simple compression: create a summary message with key information extracted
 	summary := m.extractKeyInformation(messages, targetTokens)
+
+	// Persist to mid-term memory if service is available
+	if m.memoryService != nil && m.currentThreadID != "" {
+		// Store the compressed summary in mid-term memory
+		err := m.memoryService.AddSessionMediumTermMemory(m.currentThreadID, summary)
+		if err != nil {
+			// Log error but don't fail the compression
+			// (we could add a logger here if needed)
+		}
+	}
 
 	// Create a summary message
 	summaryMessage := &schema.Message{

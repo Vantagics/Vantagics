@@ -82,8 +82,8 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
                             {activeTab === 'short' && (
                                 <>
                                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-                                        <p className="text-xs text-blue-700 font-medium">🧠 Short-Term Memory (Working Memory)</p>
-                                        <p className="text-xs text-blue-600 mt-1">The most recent messages the AI sees in full detail. This is the "active context" used for immediate reasoning.</p>
+                                        <p className="text-xs text-blue-700 font-medium">💭 {t('short_term_memory_title')}</p>
+                                        <p className="text-xs text-blue-600 mt-1">{t('short_term_memory_desc')}</p>
                                     </div>
                                     {memory?.short_term && memory.short_term.length > 0 ? (
                                         memory.short_term.map((item, idx) => (
@@ -92,15 +92,15 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No conversation yet.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_short_term_memory')}</div>
                                     )}
                                 </>
                             )}
                             {activeTab === 'medium' && (
                                 <>
                                     <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-4">
-                                        <p className="text-xs text-purple-700 font-medium">📚 Medium-Term Memory (Compressed History)</p>
-                                        <p className="text-xs text-purple-600 mt-1">Older messages are summarized to save context space. The AI remembers the key topics and findings, not every word.</p>
+                                        <p className="text-xs text-purple-700 font-medium">📝 {t('medium_term_memory_title')}</p>
+                                        <p className="text-xs text-purple-600 mt-1">{t('medium_term_memory_desc')}</p>
                                     </div>
                                     {memory?.medium_term && memory.medium_term.length > 0 ? (
                                         memory.medium_term.map((item, idx) => (
@@ -109,15 +109,15 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No compressed history yet.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_medium_term_memory')}</div>
                                     )}
                                 </>
                             )}
                             {activeTab === 'long' && (
                                 <>
                                     <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
-                                        <p className="text-xs text-green-700 font-medium">🌍 Long-Term Memory (Session Overview)</p>
-                                        <p className="text-xs text-green-600 mt-1">High-level session information and persistent facts that span the entire conversation.</p>
+                                        <p className="text-xs text-green-700 font-medium">🗄️ {t('long_term_memory_title')}</p>
+                                        <p className="text-xs text-green-600 mt-1">{t('long_term_memory_desc')}</p>
                                     </div>
                                     {memory?.long_term && memory.long_term.length > 0 ? (
                                         memory.long_term.map((item, idx) => (
@@ -126,7 +126,7 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-center text-slate-400 text-sm py-10">No session data yet.</div>
+                                        <div className="text-center text-slate-400 text-sm py-10">{t('no_long_term_memory')}</div>
                                     )}
                                 </>
                             )}
