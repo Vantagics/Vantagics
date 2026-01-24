@@ -399,11 +399,47 @@ func (p *AnalysisPlanner) createMultiStepPlan() *AnalysisPlan {
 }
 
 // createFallbackPlan creates a default plan when LLM planning fails
+// Default to including visualization for most analysis requests
 func (p *AnalysisPlanner) createFallbackPlan(query string) *AnalysisPlan {
 	queryLower := strings.ToLower(query)
 
-	// Detect if visualization is likely needed
-	needsChart := containsAny(queryLower, []string{"图", "chart", "可视化", "趋势", "分布", "对比", "visualization"})
+	// Check if this is a simple count/list query (no visualization needed)
+	simpleQueryPatterns := []string{"有多少", "总数", "计数", "列出所有", "显示所有"}
+	isSimpleQuery := false
+	for _, pattern := range simpleQueryPatterns {
+		if strings.Contains(queryLower, pattern) {
+			isSimpleQuery = true
+			break
+		}
+	}
+
+	// Detect if visualization is likely needed (more inclusive)
+	// Most analysis requests benefit from visualization
+	vizKeywords := []string{
+		"图", "chart", "可视化", "趋势", "分布", "对比", "visualization",
+		"分析", "统计", "销售", "收入", "利润", "增长",
+		"按月", "按年", "时间", "周期", "排名", "top", "前",
+		"analysis", "sales", "revenue", "growth", "monthly", "yearly",
+	}
+	needsChart := false
+	for _, keyword := range vizKeywords {
+		if strings.Contains(queryLower, keyword) {
+			needsChart = true
+			break
+		}
+	}
+	
+	// Default to chart for analysis requests unless it's a simple query
+	if !isSimpleQuery && !needsChart {
+		// Check if it mentions data-related terms
+		dataTerms := []string{"数据", "订单", "客户", "产品", "data", "order", "customer", "product"}
+		for _, term := range dataTerms {
+			if strings.Contains(queryLower, term) {
+				needsChart = true
+				break
+			}
+		}
+	}
 
 	plan := &AnalysisPlan{
 		TaskType:       "data_query",
@@ -442,8 +478,8 @@ func (p *AnalysisPlanner) createFallbackPlan(query string) *AnalysisPlan {
 		plan.Steps = append(plan.Steps, PlanStep{
 			StepNum:   3,
 			Tool:      "python_executor",
-			Purpose:   "生成可视化",
-			Input:     "matplotlib代码",
+			Purpose:   "生成可视化图表",
+			Input:     "matplotlib/seaborn代码",
 			DependsOn: []int{2},
 		})
 	}

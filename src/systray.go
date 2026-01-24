@@ -23,7 +23,7 @@ func getTrayText(language string) map[string]string {
 			"hide_tip":    "隐藏应用程序",
 			"quit":        "退出",
 			"quit_tip":    "退出应用程序",
-			"tooltip":     "VantageData - 智能数据分析",
+			"tooltip":     "观界 - 智能数据分析",
 		}
 	}
 	// Default to English

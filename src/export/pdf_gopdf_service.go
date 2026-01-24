@@ -2,6 +2,7 @@ package export
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -75,6 +76,11 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 	// Add insights
 	if len(data.Insights) > 0 {
 		s.addInsights(&pdf, data.Insights, fontName)
+	}
+	
+	// Add chart images
+	if len(data.ChartImages) > 0 {
+		s.addCharts(&pdf, data.ChartImages, fontName)
 	}
 	
 	// Add table
@@ -230,6 +236,68 @@ func (s *GopdfService) addInsights(pdf *gopdf.GoPdf, insights []string, fontName
 	}
 	
 	pdf.SetY(y + 5)
+}
+
+func (s *GopdfService) addCharts(pdf *gopdf.GoPdf, chartImages []string, fontName string) {
+	for i, chartImage := range chartImages {
+		// Check if we need a new page
+		y := pdf.GetY()
+		if y > 200 {
+			pdf.AddPage()
+			y = 20
+		}
+		
+		// Add section title for first chart
+		if i == 0 {
+			pdf.SetFont(fontName, "B", 12)
+			pdf.SetTextColor(0, 0, 0)
+			pdf.SetX(20)
+			pdf.SetY(y)
+			pdf.Cell(nil, "数据可视化")
+			y += 15
+		}
+		
+		// Add chart title
+		pdf.SetFont(fontName, "", 10)
+		pdf.SetTextColor(0, 0, 0)
+		pdf.SetX(20)
+		pdf.SetY(y)
+		pdf.Cell(nil, fmt.Sprintf("图表 %d", i+1))
+		y += 8
+		
+		// Extract base64 data
+		imageData := chartImage
+		if strings.HasPrefix(chartImage, "data:image") {
+			// Remove data URL prefix
+			parts := strings.SplitN(chartImage, ",", 2)
+			if len(parts) == 2 {
+				imageData = parts[1]
+			}
+		}
+		
+		// Decode base64
+		imgBytes, err := base64.StdEncoding.DecodeString(imageData)
+		if err != nil {
+			// Skip invalid images
+			continue
+		}
+		
+		// Create image holder from bytes
+		imgHolder, err := gopdf.ImageHolderByBytes(imgBytes)
+		if err != nil {
+			continue
+		}
+		
+		// Add image to PDF
+		// Calculate image dimensions to fit page width (max width ~170mm, leaving margins)
+		maxWidth := 170.0
+		maxHeight := 120.0
+		
+		pdf.ImageByHolder(imgHolder, 20, y, &gopdf.Rect{W: maxWidth, H: maxHeight})
+		
+		y += maxHeight + 10
+		pdf.SetY(y)
+	}
 }
 
 func (s *GopdfService) addTable(pdf *gopdf.GoPdf, tableData *TableData, fontName string) {

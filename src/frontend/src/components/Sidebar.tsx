@@ -4,6 +4,7 @@ import { GetDataSources, DeleteDataSource, RenameDataSource } from '../../wailsj
 import { EventsEmit, EventsOn } from '../../wailsjs/runtime/runtime';
 import AddDataSourceModal from './AddDataSourceModal';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
+import ConfirmationModal from './ConfirmationModal';
 import NewChatModal from './NewChatModal';
 import SourceContextMenu from './SourceContextMenu';
 import ExportDataSourceModal from './ExportDataSourceModal';
@@ -36,6 +37,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string, sourceName: string, hasLocalDB: boolean, isOptimized: boolean } | null>(null);
     const [isReplayLoading, setIsReplayLoading] = useState(false);
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
+    const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
 
     const fetchSources = async () => {
         try {
@@ -145,15 +147,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
     const handleStartChatAnalysis = () => {
         if (!selectedId) {
-            // 使用非模态提示而不是alert
-            EventsEmit('show-message-modal', {
-                type: 'info',
-                title: t('select_data_source'),
-                message: t('select_data_source_message')
-            });
+            // 显示确认对话框，让用户选择是否进入随意聊模式
+            setShowNoDataSourcePrompt(true);
             return;
         }
         setIsNewChatModalOpen(true);
+    };
+
+    const handleStartFreeChat = () => {
+        // 用户确认进入随意聊模式
+        setShowNoDataSourcePrompt(false);
+        EventsEmit('start-free-chat', {
+            sessionName: t('free_chat'),
+            keepChatOpen: true
+        });
+        // 只在会话区关闭时才打开它
+        if (!isChatOpen) {
+            onToggleChat();
+        }
     };
 
     const handleNewChatSubmit = (sessionName: string) => {
@@ -246,13 +257,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
-                        <button
-                            onClick={onOpenSettings}
-                            aria-label={t('settings')}
-                            className="w-full py-2 px-4 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                        >
-                            <span>⚙️</span> {t('settings')}
-                        </button>
                     </div>
                 </>
             )}
@@ -282,6 +286,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 dataSourceId={selectedId || ''}
                 onClose={() => setIsNewChatModalOpen(false)}
                 onSubmit={handleNewChatSubmit}
+                onStartFreeChat={() => {
+                    // Emit event to start free chat mode with localized title
+                    EventsEmit('start-free-chat', { 
+                        sessionName: t('free_chat'),
+                        openChat: true  // Signal to open chat panel
+                    });
+                }}
             />
 
             <ExportDataSourceModal
@@ -321,6 +332,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 currentName={renameTarget?.name || ''}
                 onClose={() => setRenameTarget(null)}
                 onRename={handleRename}
+            />
+
+            <ConfirmationModal
+                isOpen={showNoDataSourcePrompt}
+                title={t('no_data_source_prompt_title')}
+                message={t('no_data_source_prompt_message')}
+                confirmText={t('start_free_chat')}
+                cancelText={t('cancel')}
+                onClose={() => setShowNoDataSourcePrompt(false)}
+                onConfirm={handleStartFreeChat}
             />
 
             {contextMenu && (

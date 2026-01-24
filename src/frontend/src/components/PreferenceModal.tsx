@@ -5,9 +5,10 @@ import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
 import MCPServiceModal from './MCPServiceModal';
-import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X } from 'lucide-react';
+import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin } from 'lucide-react';
+import { countries, getCityDisplayName, getCountryDisplayName, City, Country } from '../data/cities';
 
-type Tab = 'llm' | 'system' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills';
+type Tab = 'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent';
 
 // Skill types
 interface SkillInfo {
@@ -84,9 +85,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     useEffect(() => {
         if (isOpen) {
             GetConfig().then(data => {
-                // Set default activeSearchAPI to 'duckduckgo' if not set
-                if (!data.activeSearchAPI) {
-                    data.activeSearchAPI = 'duckduckgo';
+                // Filter out DuckDuckGo from search APIs (deprecated)
+                if (data.searchAPIs) {
+                    data.searchAPIs = data.searchAPIs.filter((api: any) => api.id !== 'duckduckgo');
+                }
+                // Reset activeSearchAPI if it was duckduckgo
+                if (data.activeSearchAPI === 'duckduckgo') {
+                    data.activeSearchAPI = '';
                 }
                 setConfig(data);
             }).catch(console.error);
@@ -179,13 +184,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
 
     const getDefaultSearchAPIs = (): SearchAPIConfig[] => [
         {
-            id: 'duckduckgo',
-            name: 'DuckDuckGo',
-            description: 'Free search API with no API key required',
-            enabled: true,
-            tested: false
-        },
-        {
             id: 'serper',
             name: 'Serper (Google Search)',
             description: 'Google Search API via Serper.dev (requires API key)',
@@ -226,7 +224,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     <nav className="space-y-1">
-                        {(['system', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills'] as const).map((tab) => (
+                        {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent'] as const).map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -234,12 +232,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     }`}
                             >
                                 {tab === 'system' && t('system_params')}
+                                {tab === 'session' && t('session_management')}
                                 {tab === 'llm' && t('llm_config')}
                                 {tab === 'search' && t('search_engine')}
                                 {tab === 'network' && t('network_settings')}
                                 {tab === 'mcp' && t('mcp_services')}
                                 {tab === 'runenv' && t('run_env')}
                                 {tab === 'skills' && (t('skills_management') || 'Skills管理')}
+                                {tab === 'intent' && (t('intent_enhancement') || '意图增强')}
                             </button>
                         ))}
                     </nav>
@@ -413,57 +413,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             onChange={(e) => updateConfig({ detailedLog: e.target.checked })}
                                         />
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="block text-sm font-medium text-slate-700">{t('enable_memory')}</span>
-                                            <span className="block text-xs text-slate-500">启用上下文记忆管理（可能影响简单查询速度）</span>
-                                        </div>
-                                        <input
-                                            type="checkbox"
-                                            checked={config.enableMemory}
-                                            onChange={(e) => updateConfig({ enableMemory: e.target.checked })}
-                                        />
-                                    </div>
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <span className="block text-sm font-medium text-slate-700">{t('auto_analysis_suggestions')}</span>
-                                            <span className="block text-xs text-slate-500">创建新会话时自动进行数据源分析建议</span>
-                                        </div>
-                                        <input
-                                            type="checkbox"
-                                            checked={config.autoAnalysisSuggestions !== false}
-                                            onChange={(e) => updateConfig({ autoAnalysisSuggestions: e.target.checked })}
-                                        />
-                                    </div>
-                                    
-                                    {/* Auto Intent Understanding */}
-                                    <div className="flex items-center justify-between py-3 border-b border-slate-200">
-                                        <div className="flex-1">
-                                            <label className="text-sm font-medium text-slate-700">
-                                                {t('auto_intent_understanding') || '自动意图理解'}
-                                            </label>
-                                            <p className="text-xs text-slate-500 mt-1">
-                                                {t('auto_intent_understanding_desc') || '在分析前生成多个意图理解供选择，避免理解偏差'}
-                                            </p>
-                                        </div>
-                                        <input
-                                            type="checkbox"
-                                            checked={config.autoIntentUnderstanding !== false}
-                                            onChange={(e) => {
-                                                const newValue = e.target.checked;
-                                                updateConfig({ autoIntentUnderstanding: newValue });
-                                                
-                                                // Show warning toast when user disables intent understanding
-                                                if (!newValue) {
-                                                    setToast({
-                                                        message: t('intent_understanding_disabled_warning') || '建议仅专业用户关闭意图理解功能',
-                                                        type: 'warning'
-                                                    });
-                                                }
-                                            }}
-                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
-                                        />
-                                    </div>
                                     
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
@@ -492,25 +441,6 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         </p>
                                     </div>
                                     <div>
-                                        <label htmlFor="maxConcurrentAnalysis" className="block text-sm font-medium text-slate-700 mb-1">{t('max_concurrent_analysis')}</label>
-                                        <input
-                                            id="maxConcurrentAnalysis"
-                                            type="number"
-                                            value={config.maxConcurrentAnalysis || 5}
-                                            onChange={(e) => {
-                                                const value = parseInt(e.target.value) || 5;
-                                                const clampedValue = Math.max(1, Math.min(10, value));
-                                                updateConfig({ maxConcurrentAnalysis: clampedValue });
-                                            }}
-                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            min="1"
-                                            max="10"
-                                        />
-                                        <p className="mt-1 text-[10px] text-slate-400 italic">
-                                            {t('max_concurrent_analysis_hint')}
-                                        </p>
-                                    </div>
-                                    <div>
                                         <label htmlFor="dataCacheDir" className="block text-sm font-medium text-slate-700 mb-1">{t('data_cache_dir')}</label>
                                         <div className="flex gap-2">
                                             <input
@@ -534,6 +464,165 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         </div>
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             The directory used to store application data. Must exist on your system.
+                                        </p>
+                                    </div>
+                                    
+                                    {/* Location Settings */}
+                                    <div className="pt-4 border-t border-slate-200">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <MapPin className="w-4 h-4 text-blue-500" />
+                                            <label className="text-sm font-medium text-slate-700">{t('location_settings') || '位置设置'}</label>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mb-3">
+                                            {t('location_settings_desc') || '设置您的位置，用于天气查询、附近地点等位置相关功能'}
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('country') || '国家'}</label>
+                                                <select
+                                                    value={config.location?.country || ''}
+                                                    onChange={(e) => {
+                                                        const selectedCountry = countries.find(c => c.nameEn === e.target.value);
+                                                        updateConfig({
+                                                            location: {
+                                                                country: e.target.value,
+                                                                city: '',
+                                                                latitude: 0,
+                                                                longitude: 0
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                >
+                                                    <option value="">{t('select_country') || '选择国家'}</option>
+                                                    {countries.map(country => (
+                                                        <option key={country.code} value={country.nameEn}>
+                                                            {getCountryDisplayName(country, config.language === '简体中文' ? 'zh' : 'en')}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('city') || '城市'}</label>
+                                                <select
+                                                    value={config.location?.city || ''}
+                                                    onChange={(e) => {
+                                                        const selectedCountry = countries.find(c => c.nameEn === config.location?.country);
+                                                        const selectedCity = selectedCountry?.cities.find(city => city.nameEn === e.target.value);
+                                                        updateConfig({
+                                                            location: {
+                                                                ...config.location,
+                                                                city: e.target.value,
+                                                                latitude: selectedCity?.lat || 0,
+                                                                longitude: selectedCity?.lng || 0
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                    disabled={!config.location?.country}
+                                                >
+                                                    <option value="">{t('select_city') || '选择城市'}</option>
+                                                    {config.location?.country && countries
+                                                        .find(c => c.nameEn === config.location?.country)
+                                                        ?.cities.map(city => (
+                                                            <option key={city.nameEn} value={city.nameEn}>
+                                                                {getCityDisplayName(city, config.language === '简体中文' ? 'zh' : 'en')}
+                                                            </option>
+                                                        ))
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {config.location?.city && (
+                                            <p className="mt-2 text-xs text-green-600 flex items-center gap-1">
+                                                <CheckCircle className="w-3 h-3" />
+                                                {t('location_set') || '位置已设置'}: {config.location.city}, {config.location.country}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {activeTab === 'session' && (
+                            <div className="space-y-6">
+                                <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('session_management')}</h3>
+                                <p className="text-sm text-slate-500">{t('session_management_desc')}</p>
+                                <div className="space-y-4">
+                                    {/* Enable Memory */}
+                                    <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                                        <div className="flex-1">
+                                            <span className="block text-sm font-medium text-slate-700">{t('enable_memory')}</span>
+                                            <span className="block text-xs text-slate-500 mt-1">{t('enable_memory_desc')}</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.enableMemory}
+                                            onChange={(e) => updateConfig({ enableMemory: e.target.checked })}
+                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                                        />
+                                    </div>
+                                    
+                                    {/* Auto Analysis Suggestions */}
+                                    <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                                        <div className="flex-1">
+                                            <span className="block text-sm font-medium text-slate-700">{t('auto_analysis_suggestions')}</span>
+                                            <span className="block text-xs text-slate-500 mt-1">{t('auto_analysis_suggestions_desc')}</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.autoAnalysisSuggestions !== false}
+                                            onChange={(e) => updateConfig({ autoAnalysisSuggestions: e.target.checked })}
+                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                                        />
+                                    </div>
+                                    
+                                    {/* Auto Intent Understanding */}
+                                    <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                                        <div className="flex-1">
+                                            <label className="text-sm font-medium text-slate-700">
+                                                {t('auto_intent_understanding')}
+                                            </label>
+                                            <p className="text-xs text-slate-500 mt-1">
+                                                {t('auto_intent_understanding_desc')}
+                                            </p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.autoIntentUnderstanding !== false}
+                                            onChange={(e) => {
+                                                const newValue = e.target.checked;
+                                                updateConfig({ autoIntentUnderstanding: newValue });
+                                                
+                                                // Show warning toast when user disables intent understanding
+                                                if (!newValue) {
+                                                    setToast({
+                                                        message: t('intent_understanding_disabled_warning') || '建议仅专业用户关闭意图理解功能',
+                                                        type: 'warning'
+                                                    });
+                                                }
+                                            }}
+                                            className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                                        />
+                                    </div>
+                                    
+                                    {/* Max Concurrent Analysis */}
+                                    <div className="py-3 border-b border-slate-100">
+                                        <label htmlFor="maxConcurrentAnalysis" className="block text-sm font-medium text-slate-700 mb-1">{t('max_concurrent_analysis')}</label>
+                                        <input
+                                            id="maxConcurrentAnalysis"
+                                            type="number"
+                                            value={config.maxConcurrentAnalysis || 5}
+                                            onChange={(e) => {
+                                                const value = parseInt(e.target.value) || 5;
+                                                const clampedValue = Math.max(1, Math.min(10, value));
+                                                updateConfig({ maxConcurrentAnalysis: clampedValue });
+                                            }}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            min="1"
+                                            max="10"
+                                        />
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            {t('max_concurrent_analysis_hint')}
                                         </p>
                                     </div>
                                 </div>
@@ -660,9 +749,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             <div className="text-sm text-blue-800">
                                                 <p className="font-medium mb-1">关于搜索API</p>
                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>DuckDuckGo: 免费，无需API密钥，搜索整个互联网</li>
                                                     <li>Serper: 通过API获取Google搜索结果，需要API密钥</li>
-                                                    <li>UAPI Pro: 提供结构化数据和稳定的模式，需要API密钥</li>
+                                                    <li>UAPI Pro: 提供结构化数据和稳定的模式，API密钥可选</li>
                                                 </ul>
                                             </div>
                                         </div>
@@ -800,6 +888,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                         )}
                         {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} updateConfig={updateConfig} />}
                         {activeTab === 'skills' && <SkillsSettings onOpenSkills={onOpenSkills} />}
+                        {activeTab === 'intent' && <IntentEnhancementSettings config={config} updateConfig={updateConfig} />}
                     </div>
 
                     {/* Footer */}
@@ -1910,6 +1999,316 @@ const SkillDetailModalInSettings: React.FC<SkillDetailModalInSettingsProps> = ({
                     >
                         {skill.enabled ? '禁用' : '启用'}
                     </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Intent Enhancement Settings Component
+interface IntentEnhancementSettingsProps {
+    config: configModel.Config;
+    updateConfig: (updates: Partial<configModel.Config>) => void;
+}
+
+const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ config, updateConfig }) => {
+    const { t } = useLanguage();
+
+    // Get or create default intent enhancement config
+    const getIntentConfig = () => {
+        return config.intentEnhancement || configModel.IntentEnhancementConfig.createFrom({
+            enable_context_enhancement: true,
+            enable_preference_learning: true,
+            enable_dynamic_dimensions: true,
+            enable_few_shot_examples: true,
+            enable_caching: true,
+            cache_similarity_threshold: 0.85,
+            cache_expiration_hours: 24,
+            max_cache_entries: 1000,
+            max_history_records: 10,
+        });
+    };
+
+    const intentConfig = getIntentConfig();
+
+    // Update intent enhancement config
+    const updateIntentConfig = (updates: Partial<configModel.IntentEnhancementConfig>) => {
+        const newIntentConfig = configModel.IntentEnhancementConfig.createFrom({
+            ...intentConfig,
+            ...updates,
+        });
+        updateConfig({ intentEnhancement: newIntentConfig });
+    };
+
+    // Reset to defaults
+    const resetToDefaults = () => {
+        const defaultConfig = configModel.IntentEnhancementConfig.createFrom({
+            enable_context_enhancement: true,
+            enable_preference_learning: true,
+            enable_dynamic_dimensions: true,
+            enable_few_shot_examples: true,
+            enable_caching: true,
+            cache_similarity_threshold: 0.85,
+            cache_expiration_hours: 24,
+            max_cache_entries: 1000,
+            max_history_records: 10,
+        });
+        updateConfig({ intentEnhancement: defaultConfig });
+    };
+
+    // Check if all features are enabled
+    const allFeaturesEnabled = intentConfig.enable_context_enhancement &&
+        intentConfig.enable_preference_learning &&
+        intentConfig.enable_dynamic_dimensions &&
+        intentConfig.enable_few_shot_examples &&
+        intentConfig.enable_caching;
+
+    return (
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-4">
+                <div>
+                    <h3 className="text-lg font-semibold text-slate-800">
+                        {t('intent_enhancement_settings') || '意图增强设置'}
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                        {t('intent_enhancement_description') || '配置AI驱动的意图理解增强功能'}
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    {allFeaturesEnabled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
+                            <CheckCircle className="w-3 h-3" />
+                            {t('all_features_enabled') || '所有功能已启用'}
+                        </span>
+                    ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
+                            <AlertCircle className="w-3 h-3" />
+                            {t('some_features_disabled') || '部分功能已禁用'}
+                        </span>
+                    )}
+                </div>
+            </div>
+
+            {/* Feature Toggles */}
+            <div className="space-y-4">
+                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                    {t('intent_enhancement') || '增强功能'}
+                </h4>
+
+                {/* Context Enhancement */}
+                <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                    <div className="flex-1">
+                        <label className="text-sm font-medium text-slate-700">
+                            {t('enable_context_enhancement') || '上下文增强'}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {t('enable_context_enhancement_desc') || '将历史分析记录作为上下文，提供更相关的建议'}
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={intentConfig.enable_context_enhancement}
+                        onChange={(e) => updateIntentConfig({ enable_context_enhancement: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                    />
+                </div>
+
+                {/* Preference Learning */}
+                <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                    <div className="flex-1">
+                        <label className="text-sm font-medium text-slate-700">
+                            {t('enable_preference_learning') || '偏好学习'}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {t('enable_preference_learning_desc') || '从您的意图选择中学习，优化建议排序'}
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={intentConfig.enable_preference_learning}
+                        onChange={(e) => updateIntentConfig({ enable_preference_learning: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                    />
+                </div>
+
+                {/* Dynamic Dimensions */}
+                <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                    <div className="flex-1">
+                        <label className="text-sm font-medium text-slate-700">
+                            {t('enable_dynamic_dimensions') || '动态维度'}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {t('enable_dynamic_dimensions_desc') || '根据数据特征自动调整分析维度建议'}
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={intentConfig.enable_dynamic_dimensions}
+                        onChange={(e) => updateIntentConfig({ enable_dynamic_dimensions: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                    />
+                </div>
+
+                {/* Few-shot Examples */}
+                <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                    <div className="flex-1">
+                        <label className="text-sm font-medium text-slate-700">
+                            {t('enable_few_shot_examples') || 'Few-shot示例'}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {t('enable_few_shot_examples_desc') || '包含领域特定示例以提高建议质量'}
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={intentConfig.enable_few_shot_examples}
+                        onChange={(e) => updateIntentConfig({ enable_few_shot_examples: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                    />
+                </div>
+
+                {/* Caching */}
+                <div className="flex items-center justify-between py-3 border-b border-slate-100">
+                    <div className="flex-1">
+                        <label className="text-sm font-medium text-slate-700">
+                            {t('enable_caching') || '意图缓存'}
+                        </label>
+                        <p className="text-xs text-slate-500 mt-1">
+                            {t('enable_caching_desc') || '缓存相似请求以减少LLM调用并提高响应速度'}
+                        </p>
+                    </div>
+                    <input
+                        type="checkbox"
+                        checked={intentConfig.enable_caching}
+                        onChange={(e) => updateIntentConfig({ enable_caching: e.target.checked })}
+                        className="w-4 h-4 text-blue-600 focus:ring-2 focus:ring-blue-500 rounded"
+                    />
+                </div>
+            </div>
+
+            {/* Cache Settings (only shown when caching is enabled) */}
+            {intentConfig.enable_caching && (
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                        {t('cache_settings') || '缓存设置'}
+                    </h4>
+
+                    {/* Similarity Threshold */}
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-700">
+                            {t('cache_similarity_threshold') || '相似度阈值'}
+                        </label>
+                        <div className="flex items-center gap-4">
+                            <input
+                                type="range"
+                                min="0.5"
+                                max="1.0"
+                                step="0.05"
+                                value={intentConfig.cache_similarity_threshold}
+                                onChange={(e) => updateIntentConfig({ cache_similarity_threshold: parseFloat(e.target.value) })}
+                                className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+                            />
+                            <span className="text-sm font-mono text-slate-600 w-12 text-right">
+                                {intentConfig.cache_similarity_threshold.toFixed(2)}
+                            </span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                            {t('cache_similarity_threshold_desc') || '缓存命中所需的最小相似度分数（0-1）'}
+                        </p>
+                    </div>
+
+                    {/* Cache Expiration */}
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-700">
+                            {t('cache_expiration_hours') || '缓存过期时间（小时）'}
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="168"
+                            value={intentConfig.cache_expiration_hours}
+                            onChange={(e) => updateIntentConfig({ cache_expiration_hours: parseInt(e.target.value) || 24 })}
+                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                        <p className="text-xs text-slate-500">
+                            {t('cache_expiration_hours_desc') || '缓存建议的有效时长'}
+                        </p>
+                    </div>
+
+                    {/* Max Cache Entries */}
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-700">
+                            {t('max_cache_entries') || '最大缓存条目数'}
+                        </label>
+                        <input
+                            type="number"
+                            min="100"
+                            max="10000"
+                            value={intentConfig.max_cache_entries}
+                            onChange={(e) => updateIntentConfig({ max_cache_entries: parseInt(e.target.value) || 1000 })}
+                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                        <p className="text-xs text-slate-500">
+                            {t('max_cache_entries_desc') || '缓存的最大意图建议数量'}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Context Enhancement Settings (only shown when context enhancement is enabled) */}
+            {intentConfig.enable_context_enhancement && (
+                <div className="space-y-4 pt-4 border-t border-slate-200">
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+                        {t('enable_context_enhancement') || '上下文设置'}
+                    </h4>
+
+                    {/* Max History Records */}
+                    <div className="space-y-2">
+                        <label className="block text-sm font-medium text-slate-700">
+                            {t('max_history_records') || '最大历史记录数'}
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="50"
+                            value={intentConfig.max_history_records}
+                            onChange={(e) => updateIntentConfig({ max_history_records: parseInt(e.target.value) || 10 })}
+                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                        <p className="text-xs text-slate-500">
+                            {t('max_history_records_desc') || '上下文中包含的历史分析记录数量'}
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {/* Reset Button */}
+            <div className="pt-4 border-t border-slate-200">
+                <button
+                    onClick={resetToDefaults}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                >
+                    {t('reset_to_defaults') || '恢复默认设置'}
+                </button>
+            </div>
+
+            {/* Info Box */}
+            <div className="bg-blue-50 p-4 rounded-lg">
+                <div className="flex items-start gap-3">
+                    <Zap className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
+                    <div className="text-sm text-blue-800">
+                        <p className="font-medium mb-1">
+                            {config.language === '简体中文' ? '关于意图增强' : 'About Intent Enhancement'}
+                        </p>
+                        <ul className="list-disc list-inside space-y-1 text-xs">
+                            <li>{config.language === '简体中文' ? '上下文增强：利用历史分析记录提供更相关的建议' : 'Context Enhancement: Uses historical analysis records for more relevant suggestions'}</li>
+                            <li>{config.language === '简体中文' ? '偏好学习：根据您的选择习惯优化建议排序' : 'Preference Learning: Optimizes suggestion ranking based on your selection habits'}</li>
+                            <li>{config.language === '简体中文' ? '动态维度：根据数据特征自动推荐分析维度' : 'Dynamic Dimensions: Automatically recommends analysis dimensions based on data characteristics'}</li>
+                            <li>{config.language === '简体中文' ? 'Few-shot示例：使用领域示例提高建议质量' : 'Few-shot Examples: Uses domain examples to improve suggestion quality'}</li>
+                            <li>{config.language === '简体中文' ? '意图缓存：缓存相似请求以加快响应速度' : 'Intent Caching: Caches similar requests for faster response times'}</li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>

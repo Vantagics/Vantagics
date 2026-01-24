@@ -252,7 +252,7 @@ func (a *App) ExecuteImportAnalysis(exportData *AnalysisExport, targetDataSource
 				a.chatService.AddMessage(thread.ID, errorMsg)
 				runtime.EventsEmit(a.ctx, "thread-updated", thread.ID)
 				
-				return fmt.Errorf(errMsg)
+				return fmt.Errorf("%s", errMsg)
 			}
 			
 			stepResults[step.StepID] = result

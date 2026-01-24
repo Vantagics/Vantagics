@@ -190,16 +190,18 @@ func (t *ExportTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 	var err error
 
 	// Route to appropriate export function
+	// Files are saved to the "files" subdirectory within the session directory
+	filesDir := filepath.Join(t.sessionDir, "files")
 	switch format {
 	case "pdf":
 		fileBytes, err = t.exportPDF(input.Data)
-		filePath = filepath.Join(t.sessionDir, fileName+".pdf")
+		filePath = filepath.Join(filesDir, fileName+".pdf")
 	case "excel":
 		fileBytes, err = t.exportExcel(input.Data)
-		filePath = filepath.Join(t.sessionDir, fileName+".xlsx")
+		filePath = filepath.Join(filesDir, fileName+".xlsx")
 	case "ppt":
 		fileBytes, err = t.exportPPT(input.Data)
-		filePath = filepath.Join(t.sessionDir, fileName+".pptx")
+		filePath = filepath.Join(filesDir, fileName+".pptx")
 	}
 
 	if err != nil {
@@ -211,8 +213,8 @@ func (t *ExportTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 
 	// Save file
 	if t.sessionDir != "" {
-		// Ensure directory exists
-		if err := os.MkdirAll(t.sessionDir, 0755); err != nil {
+		// Ensure files directory exists
+		if err := os.MkdirAll(filesDir, 0755); err != nil {
 			return "", fmt.Errorf("failed to create directory: %v", err)
 		}
 

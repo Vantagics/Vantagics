@@ -2073,10 +2073,14 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	}
 
 	var db *sql.DB
+	// Determine if this is a local SQLite-backed data source
+	// Excel, CSV, JSON types are stored locally in SQLite
+	isLocalSQLite := ds.Config.DBPath != "" && (ds.Type == "sqlite" || ds.Type == "excel" || ds.Type == "csv" || ds.Type == "json")
+	
 	if ds.Type == "mysql" || ds.Type == "postgresql" || ds.Type == "doris" {
 		// Remote database - build connection string
 		var connStr string
-		if ds.Type == "mysql" {
+		if ds.Type == "mysql" || ds.Type == "doris" {
 			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true",
 				ds.Config.User, ds.Config.Password, ds.Config.Host, ds.Config.Port, ds.Config.Database)
 		} else if ds.Type == "postgresql" {
@@ -2085,31 +2089,33 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 		} else {
 			return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
 		}
-		db, err = sql.Open(ds.Type, connStr)
+		driverName := ds.Type
+		if ds.Type == "doris" {
+			driverName = "mysql" // Doris uses MySQL protocol
+		}
+		db, err = sql.Open(driverName, connStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
 		defer db.Close()
-	} else {
-		// SQLite
-		dbPath := ds.Config.DBPath
-		if dbPath == "" {
-			return nil, fmt.Errorf("database path not found in config")
-		}
-		// Use full path by joining with dataCacheDir
-		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
+	} else if isLocalSQLite {
+		// Local SQLite-backed data source (sqlite, excel, csv, json)
+		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
 		db, err = sql.Open("sqlite", fullDBPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
 		defer db.Close()
+	} else {
+		return nil, fmt.Errorf("unsupported database type or missing DBPath: %s", ds.Type)
 	}
 
 	// Query column information
 	var rows *sql.Rows
-	if ds.Type == "sqlite" {
+	if isLocalSQLite {
+		// All local SQLite-backed sources use PRAGMA
 		rows, err = db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
-	} else if ds.Type == "mysql" {
+	} else if ds.Type == "mysql" || ds.Type == "doris" {
 		rows, err = db.Query(fmt.Sprintf("DESCRIBE `%s`", tableName))
 	} else {
 		return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
@@ -2121,7 +2127,8 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	defer rows.Close()
 
 	var columns []ColumnSchema
-	if ds.Type == "sqlite" {
+	if isLocalSQLite {
+		// All local SQLite-backed sources (sqlite, excel, csv, json) use PRAGMA format
 		for rows.Next() {
 			var cid int
 			var name, colType string
@@ -2140,7 +2147,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 				Nullable: notNull == 0,
 			})
 		}
-	} else if ds.Type == "mysql" {
+	} else if ds.Type == "mysql" || ds.Type == "doris" {
 		for rows.Next() {
 			var field, colType, null, key, extra string
 			var dflt sql.NullString
@@ -2360,7 +2367,10 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 	defer db.Close()
 
 	// Rename the column based on database type
-	if target.Type == "mysql" || target.Type == "doris" {
+	// Use DBPath to determine if it's SQLite (local file) vs MySQL/Doris (remote)
+	isSQLite := target.Config.DBPath != ""
+	
+	if !isSQLite && (target.Type == "mysql" || target.Type == "doris") {
 		// For MySQL/Doris, we need to get the column type first
 		var colType string
 		query := fmt.Sprintf("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", tableName, oldColumnName)
@@ -2407,4 +2417,331 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 
 	s.log(fmt.Sprintf("Column %s renamed to %s in table %s of data source %s", oldColumnName, newColumnName, tableName, id))
 	return nil
+}
+
+// DeleteColumn deletes a column from a table and updates the schema information
+func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName string) error {
+	s.log(fmt.Sprintf("DeleteColumn: DataSource=%s, Table=%s, Column=%s", id, tableName, columnName))
+
+	if columnName == "" {
+		return fmt.Errorf("column name cannot be empty")
+	}
+
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	var target *DataSource
+	var targetIndex int
+	for i := range sources {
+		if sources[i].ID == id {
+			target = &sources[i]
+			targetIndex = i
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Errorf("data source not found")
+	}
+
+	// Check if column exists in the table schema
+	columnExists := false
+	columnCount := 0
+	if target.Analysis != nil && target.Analysis.Schema != nil {
+		for _, table := range target.Analysis.Schema {
+			if table.TableName == tableName {
+				columnCount = len(table.Columns)
+				for _, col := range table.Columns {
+					if col == columnName {
+						columnExists = true
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if !columnExists {
+		return fmt.Errorf("column '%s' not found in table '%s'", columnName, tableName)
+	}
+
+	// Prevent deleting the last column
+	if columnCount <= 1 {
+		return fmt.Errorf("cannot delete the last column in table '%s'", tableName)
+	}
+
+	var db *sql.DB
+
+	// Connect to the database
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %v", err)
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return fmt.Errorf("failed to connect to database: %v", err)
+		}
+	} else {
+		return fmt.Errorf("unsupported data source type for column deletion")
+	}
+	defer db.Close()
+
+	// Delete the column based on database type
+	isSQLite := target.Config.DBPath != ""
+
+	if !isSQLite && (target.Type == "mysql" || target.Type == "doris") {
+		// For MySQL/Doris, use ALTER TABLE DROP COLUMN
+		dropSQL := fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", tableName, columnName)
+		s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
+		if _, err := db.Exec(dropSQL); err != nil {
+			return fmt.Errorf("failed to delete column: %v", err)
+		}
+	} else {
+		// For SQLite, we need to recreate the table without the column
+		// SQLite doesn't support DROP COLUMN directly (before 3.35.0)
+		// We'll use the table recreation approach for compatibility
+
+		// Get all columns except the one to delete
+		var remainingColumns []string
+		if target.Analysis != nil && target.Analysis.Schema != nil {
+			for _, table := range target.Analysis.Schema {
+				if table.TableName == tableName {
+					for _, col := range table.Columns {
+						if col != columnName {
+							remainingColumns = append(remainingColumns, fmt.Sprintf("`%s`", col))
+						}
+					}
+					break
+				}
+			}
+		}
+
+		if len(remainingColumns) == 0 {
+			return fmt.Errorf("no remaining columns after deletion")
+		}
+
+		// Begin transaction
+		tx, err := db.Begin()
+		if err != nil {
+			return fmt.Errorf("failed to begin transaction: %v", err)
+		}
+		defer tx.Rollback()
+
+		// Create temp table with remaining columns
+		columnsStr := strings.Join(remainingColumns, ", ")
+		tempTableName := tableName + "_temp_delete_col"
+
+		createTempSQL := fmt.Sprintf("CREATE TABLE `%s` AS SELECT %s FROM `%s`", tempTableName, columnsStr, tableName)
+		s.log(fmt.Sprintf("SQL Exec: %s", createTempSQL))
+		if _, err := tx.Exec(createTempSQL); err != nil {
+			return fmt.Errorf("failed to create temp table: %v", err)
+		}
+
+		// Drop original table
+		dropSQL := fmt.Sprintf("DROP TABLE `%s`", tableName)
+		s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
+		if _, err := tx.Exec(dropSQL); err != nil {
+			return fmt.Errorf("failed to drop original table: %v", err)
+		}
+
+		// Rename temp table to original name
+		renameSQL := fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", tempTableName, tableName)
+		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
+		if _, err := tx.Exec(renameSQL); err != nil {
+			return fmt.Errorf("failed to rename temp table: %v", err)
+		}
+
+		// Commit transaction
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("failed to commit transaction: %v", err)
+		}
+	}
+
+	// Update the schema information in the data source analysis
+	if target.Analysis != nil && target.Analysis.Schema != nil {
+		for i, table := range target.Analysis.Schema {
+			if table.TableName == tableName {
+				newColumns := make([]string, 0, len(table.Columns)-1)
+				for _, col := range table.Columns {
+					if col != columnName {
+						newColumns = append(newColumns, col)
+					}
+				}
+				sources[targetIndex].Analysis.Schema[i].Columns = newColumns
+				break
+			}
+		}
+
+		// Save the updated data source
+		if err := s.SaveDataSources(sources); err != nil {
+			return fmt.Errorf("failed to update data source schema: %v", err)
+		}
+	}
+
+	// Invalidate cache
+	s.InvalidateCache(id)
+
+	s.log(fmt.Sprintf("Column %s deleted from table %s of data source %s", columnName, tableName, id))
+	return nil
+}
+
+// ColumnInfoWithType represents column metadata with type information
+type ColumnInfoWithType struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// GetDataSourceTableColumnsWithTypes returns column names and types for a table
+func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableName string) ([]ColumnInfoWithType, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+
+	if target == nil {
+		return nil, fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return nil, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported data source type for columns")
+	}
+	defer db.Close()
+
+	var columns []ColumnInfoWithType
+
+	if target.Config.DBPath != "" {
+		// SQLite: use PRAGMA table_info
+		query := fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
+		rows, err := db.Query(query)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var cid int
+			var name, colType string
+			var notNull, pk int
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+				return nil, err
+			}
+			columns = append(columns, ColumnInfoWithType{
+				Name: name,
+				Type: colType,
+			})
+		}
+	} else {
+		// MySQL: use DESCRIBE
+		query := fmt.Sprintf("DESCRIBE `%s`", tableName)
+		rows, err := db.Query(query)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var field, colType string
+			var null, key, extra string
+			var dflt interface{}
+			if err := rows.Scan(&field, &colType, &null, &key, &dflt, &extra); err != nil {
+				return nil, err
+			}
+			columns = append(columns, ColumnInfoWithType{
+				Name: field,
+				Type: colType,
+			})
+		}
+	}
+
+	return columns, nil
+}
+
+// GetTableRowCount returns the number of rows in a table
+func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return 0, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+
+	if target == nil {
+		return 0, fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return 0, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		return 0, fmt.Errorf("unsupported data source type")
+	}
+	defer db.Close()
+
+	query := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
+	var count int
+	err = db.QueryRow(query).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }

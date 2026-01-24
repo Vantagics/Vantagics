@@ -41,6 +41,14 @@ type ProxyConfig struct {
 	Tested   bool   `json:"tested"`   // Whether the proxy has been tested successfully
 }
 
+// LocationConfig represents user location configuration
+type LocationConfig struct {
+	Country   string  `json:"country"`   // Country name (e.g., "China", "United States")
+	City      string  `json:"city"`      // City name (e.g., "Beijing", "New York")
+	Latitude  float64 `json:"latitude,omitempty"`  // Optional latitude
+	Longitude float64 `json:"longitude,omitempty"` // Optional longitude
+}
+
 // UAPIConfig represents UAPI service configuration
 type UAPIConfig struct {
 	Enabled  bool   `json:"enabled"`  // Whether UAPI is enabled
@@ -80,4 +88,12 @@ type Config struct {
 	WebSearchProvider string `json:"webSearchProvider,omitempty"`
 	WebSearchAPIKey   string `json:"webSearchAPIKey,omitempty"`
 	WebSearchMCPURL   string `json:"webSearchMCPURL,omitempty"`
+	
+	// IntentEnhancement 意图增强配置
+	// 用于控制意图理解增强功能的各项开关和参数
+	IntentEnhancement *IntentEnhancementConfig `json:"intentEnhancement,omitempty"`
+	
+	// Location 用户位置配置
+	// 用于位置相关查询（如天气、附近地点等）
+	Location *LocationConfig `json:"location,omitempty"`
 }

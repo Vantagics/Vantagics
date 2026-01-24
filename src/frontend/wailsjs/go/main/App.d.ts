@@ -5,6 +5,8 @@ import {main} from '../models';
 import {database} from '../models';
 import {config} from '../models';
 
+export function AddAnalysisRecord(arg1:string,arg2:agent.AnalysisRecord):Promise<void>;
+
 export function AddDataSource(arg1:string,arg2:string,arg3:Record<string, string>):Promise<agent.DataSource>;
 
 export function ApplyOptimizeSuggestions(arg1:string,arg2:Array<main.IndexSuggestion>):Promise<main.OptimizeDataSourceResult>;
@@ -24,6 +26,8 @@ export function ClearHistory():Promise<void>;
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
 
 export function CreateRapidBIEnvironment():Promise<string>;
+
+export function DeleteColumn(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DeleteDataSource(arg1:string):Promise<void>;
 
@@ -83,6 +87,8 @@ export function GenerateIntentSuggestionsWithExclusions(arg1:string,arg2:string,
 
 export function GetActiveAnalysisCount():Promise<number>;
 
+export function GetActiveSearchAPIInfo():Promise<string>;
+
 export function GetActiveThreadID():Promise<string>;
 
 export function GetAgentMemory(arg1:string):Promise<main.AgentMemoryView>;
@@ -105,11 +111,15 @@ export function GetDataSourceTables(arg1:string):Promise<Array<string>>;
 
 export function GetDataSources():Promise<Array<agent.DataSource>>;
 
+export function GetDeviceLocation():Promise<Record<string, any>>;
+
 export function GetEnabledSkills():Promise<Array<main.SkillInfo>>;
 
 export function GetErrorKnowledgeSummary():Promise<main.ErrorKnowledgeSummary>;
 
 export function GetFilesByCategory(arg1:string):Promise<Array<database.FileInfo>>;
+
+export function GetMessageAnalysisData(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetMySQLDatabases(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<string>>;
 
@@ -165,6 +175,8 @@ export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
+export function RecordIntentSelection(arg1:string,arg2:main.IntentSuggestion):Promise<void>;
+
 export function ReloadSkills():Promise<void>;
 
 export function RenameColumn(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
@@ -178,6 +190,8 @@ export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
 export function SaveLayout(arg1:database.LayoutConfiguration):Promise<void>;
+
+export function SaveMessageAnalysisResults(arg1:string,arg2:string,arg3:Array<main.AnalysisResultItem>):Promise<void>;
 
 export function SaveMetricsJson(arg1:string,arg2:string):Promise<void>;
 
@@ -196,6 +210,8 @@ export function SelectJSONFile():Promise<string>;
 export function SelectSaveFile(arg1:string,arg2:string):Promise<string>;
 
 export function SemanticOptimizeDataSource(arg1:string):Promise<void>;
+
+export function SendFreeChatMessage(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
@@ -220,6 +236,10 @@ export function TestSearchEngine(arg1:string):Promise<main.ConnectionResult>;
 export function TestSearchTools(arg1:string):Promise<main.ConnectionResult>;
 
 export function TestUAPIConnection(arg1:string,arg2:string):Promise<main.ConnectionResult>;
+
+export function UpdateApplicationMenu(arg1:string):Promise<void>;
+
+export function UpdateDeviceLocation(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:string):Promise<void>;
 
 export function UpdateMySQLExportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 

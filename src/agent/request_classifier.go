@@ -72,7 +72,20 @@ func (c *RequestClassifier) ClassifyRequest(query string, dataSourceInfo string)
 }
 
 // IsConsultationRequest checks if the request is asking for suggestions/advice
+// More strict: only pure consultation requests without actual analysis intent
 func (c *RequestClassifier) IsConsultationRequest(queryLower string) bool {
+	// First check if it's an actual analysis request (should NOT be consultation)
+	analysisIndicators := []string{
+		"分析", "统计", "查询", "计算", "对比", "趋势", "分布", "排名",
+		"销售", "订单", "客户", "产品", "收入", "利润", "数量",
+		"图", "表", "chart", "table", "可视化",
+	}
+	for _, indicator := range analysisIndicators {
+		if strings.Contains(queryLower, indicator) {
+			return false // This is an analysis request, not consultation
+		}
+	}
+	
 	// Check for consultation keywords
 	for _, keyword := range ConsultationPatterns {
 		if strings.Contains(queryLower, strings.ToLower(keyword)) {
@@ -108,7 +121,9 @@ func (c *RequestClassifier) IsWebSearchRequest(queryLower string) bool {
 }
 
 // IsVisualizationRequest checks if the request requires visualization
+// More inclusive: most data analysis benefits from visualization
 func (c *RequestClassifier) IsVisualizationRequest(queryLower string) bool {
+	// Explicit visualization keywords
 	vizKeywords := []string{
 		"图", "图表", "可视化", "趋势", "分布", "对比", "排名",
 		"chart", "visualization", "trend", "distribution", "comparison", "ranking",
@@ -118,7 +133,19 @@ func (c *RequestClassifier) IsVisualizationRequest(queryLower string) bool {
 			return true
 		}
 	}
-	return false
+	
+	// Implicit visualization: analysis requests that benefit from charts
+	analysisKeywords := []string{
+		"分析", "统计", "销售", "收入", "利润", "增长",
+		"按月", "按年", "时间", "周期", "top", "前", "最",
+	}
+	matchCount := 0
+	for _, keyword := range analysisKeywords {
+		if strings.Contains(queryLower, keyword) {
+			matchCount++
+		}
+	}
+	return matchCount >= 2
 }
 
 // IsCalculationRequest checks if the request is a simple calculation

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // UserPreferences stores learned user preferences and behaviors
@@ -42,13 +43,30 @@ type Benchmark struct {
 	CreatedAt   int64   `json:"created_at"`
 }
 
+// IntentSelectionRecord 意图选择记录
+// Records user's intent selection for preference learning
+// Validates: Requirements 2.1
+type IntentSelectionRecord struct {
+	DataSourceID string    `json:"data_source_id"`
+	IntentType   string    `json:"intent_type"`  // trend, comparison, distribution, etc.
+	IntentTitle  string    `json:"intent_title"`
+	SelectCount  int       `json:"select_count"`
+	LastSelected time.Time `json:"last_selected"`
+}
+
+// IntentSelectionsStore stores intent selections by data source
+type IntentSelectionsStore struct {
+	Selections map[string][]IntentSelectionRecord `json:"selections"` // data_source_id -> records
+}
+
 // PreferenceLearner learns and manages user preferences
 type PreferenceLearner struct {
-	dataDir     string
-	preferences UserPreferences
-	rules       []BusinessRule
-	benchmarks  []Benchmark
-	mu          sync.RWMutex
+	dataDir          string
+	preferences      UserPreferences
+	rules            []BusinessRule
+	benchmarks       []Benchmark
+	intentSelections IntentSelectionsStore // Intent selection records for preference learning
+	mu               sync.RWMutex
 }
 
 // NewPreferenceLearner creates a new preference learner
@@ -66,9 +84,13 @@ func NewPreferenceLearner(dataDir string) *PreferenceLearner {
 		},
 		rules:      []BusinessRule{},
 		benchmarks: []Benchmark{},
+		intentSelections: IntentSelectionsStore{
+			Selections: make(map[string][]IntentSelectionRecord),
+		},
 	}
 
 	learner.loadPreferences()
+	learner.loadIntentSelections()
 	return learner
 }
 
@@ -305,4 +327,187 @@ func (p *PreferenceLearner) saveBenchmarks() error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// Intent selection storage methods
+
+func (p *PreferenceLearner) getIntentSelectionsPath() string {
+	return filepath.Join(p.dataDir, "preferences", "intent_selections.json")
+}
+
+func (p *PreferenceLearner) loadIntentSelections() {
+	path := p.getIntentSelectionsPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // File doesn't exist yet
+	}
+
+	_ = json.Unmarshal(data, &p.intentSelections)
+
+	// Ensure the map is initialized
+	if p.intentSelections.Selections == nil {
+		p.intentSelections.Selections = make(map[string][]IntentSelectionRecord)
+	}
+}
+
+func (p *PreferenceLearner) saveIntentSelections() error {
+	path := p.getIntentSelectionsPath()
+	dir := filepath.Dir(path)
+	_ = os.MkdirAll(dir, 0755)
+
+	data, err := json.MarshalIndent(p.intentSelections, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// GetIntentSelections returns all intent selection records for a data source
+// This is used for preference learning and ranking
+func (p *PreferenceLearner) GetIntentSelections(dataSourceID string) []IntentSelectionRecord {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if records, exists := p.intentSelections.Selections[dataSourceID]; exists {
+		// Return a copy to avoid external modification
+		result := make([]IntentSelectionRecord, len(records))
+		copy(result, records)
+		return result
+	}
+	return []IntentSelectionRecord{}
+}
+
+// MinSelectionsForPreference is the minimum number of total selections required
+// before preference-based ranking is applied. Below this threshold, default sorting is used.
+// Validates: Requirements 2.6
+const MinSelectionsForPreference = 5
+
+// TrackIntentSelection records user's intent selection for preference learning
+// This method tracks which intents users select to learn their preferences over time.
+// Selections are tracked per data source to support different analysis patterns for different datasets.
+//
+// Parameters:
+//   - dataSourceID: the ID of the data source where the intent was selected
+//   - intent: the IntentSuggestion that was selected by the user
+//
+// Returns error if saving the selection fails
+//
+// Validates: Requirements 2.1, 2.2, 2.5
+func (p *PreferenceLearner) TrackIntentSelection(dataSourceID string, intent IntentSuggestion) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Ensure the selections map is initialized
+	if p.intentSelections.Selections == nil {
+		p.intentSelections.Selections = make(map[string][]IntentSelectionRecord)
+	}
+
+	// Get existing records for this data source
+	records := p.intentSelections.Selections[dataSourceID]
+
+	// Determine the intent type from the suggestion
+	// Use the Title as the intent type identifier since it represents the analysis type
+	intentType := intent.Title
+	if intentType == "" {
+		intentType = "unknown"
+	}
+
+	// Look for an existing record with the same intent type
+	found := false
+	for i := range records {
+		if records[i].IntentType == intentType {
+			// Increment the selection count (Requirement 2.2)
+			records[i].SelectCount++
+			// Update the last selected timestamp
+			records[i].LastSelected = time.Now()
+			// Update the title in case it changed
+			records[i].IntentTitle = intent.Title
+			found = true
+			break
+		}
+	}
+
+	// If no existing record found, create a new one (Requirement 2.1)
+	if !found {
+		newRecord := IntentSelectionRecord{
+			DataSourceID: dataSourceID,
+			IntentType:   intentType,
+			IntentTitle:  intent.Title,
+			SelectCount:  1,
+			LastSelected: time.Now(),
+		}
+		records = append(records, newRecord)
+	}
+
+	// Update the selections for this data source (Requirement 2.5 - per data source tracking)
+	p.intentSelections.Selections[dataSourceID] = records
+
+	// Persist the selections to disk
+	return p.saveIntentSelections()
+}
+
+
+// GetIntentRankingBoost calculates a ranking boost value for an intent type based on user's selection history.
+// The boost value is used to re-rank intent suggestions, with higher values indicating more preferred intents.
+//
+// The method implements the following logic:
+// 1. If total selections for the data source are less than MinSelectionsForPreference (5),
+//    returns 0.0 to use default sorting (Requirement 2.6)
+// 2. Otherwise, calculates a boost value based on the selection frequency ratio
+//    (Requirement 2.3)
+//
+// Parameters:
+//   - dataSourceID: the ID of the data source to get preferences for
+//   - intentType: the type of intent (typically the intent title) to get boost for
+//
+// Returns:
+//   - float64: boost value between 0.0 and 1.0, where higher values indicate stronger preference
+//     - 0.0 means no boost (insufficient data or intent never selected)
+//     - Values closer to 1.0 indicate higher selection frequency relative to other intents
+//
+// Validates: Requirements 2.3, 2.6
+func (p *PreferenceLearner) GetIntentRankingBoost(dataSourceID string, intentType string) float64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	// Get selections for this data source
+	records, exists := p.intentSelections.Selections[dataSourceID]
+	if !exists || len(records) == 0 {
+		// No selections recorded for this data source
+		return 0.0
+	}
+
+	// Calculate total selections for this data source
+	totalSelections := 0
+	for _, record := range records {
+		totalSelections += record.SelectCount
+	}
+
+	// Check if we have sufficient data (Requirement 2.6)
+	// If total selections are less than threshold, use default sorting (return 0.0)
+	if totalSelections < MinSelectionsForPreference {
+		return 0.0
+	}
+
+	// Find the selection count for the requested intent type
+	intentSelectCount := 0
+	for _, record := range records {
+		if record.IntentType == intentType {
+			intentSelectCount = record.SelectCount
+			break
+		}
+	}
+
+	// If this intent type was never selected, return 0.0
+	if intentSelectCount == 0 {
+		return 0.0
+	}
+
+	// Calculate boost as the ratio of this intent's selections to total selections
+	// This gives a value between 0.0 and 1.0 (Requirement 2.3)
+	// Higher selection frequency results in higher boost value
+	boost := float64(intentSelectCount) / float64(totalSelections)
+
+	return boost
 }

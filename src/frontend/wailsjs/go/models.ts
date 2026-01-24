@@ -122,6 +122,47 @@ export namespace agent {
 		    return a;
 		}
 	}
+	export class AnalysisRecord {
+	    id: string;
+	    data_source_id: string;
+	    analysis_type: string;
+	    target_columns: string[];
+	    key_findings: string;
+	    // Go type: time
+	    timestamp: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.data_source_id = source["data_source_id"];
+	        this.analysis_type = source["analysis_type"];
+	        this.target_columns = source["target_columns"];
+	        this.key_findings = source["key_findings"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConversationTurn {
 	    role: string;
 	    content: string;
@@ -585,6 +626,52 @@ export namespace agent {
 
 export namespace config {
 	
+	export class LocationConfig {
+	    country: string;
+	    city: string;
+	    latitude?: number;
+	    longitude?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocationConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.country = source["country"];
+	        this.city = source["city"];
+	        this.latitude = source["latitude"];
+	        this.longitude = source["longitude"];
+	    }
+	}
+	export class IntentEnhancementConfig {
+	    enable_context_enhancement: boolean;
+	    enable_preference_learning: boolean;
+	    enable_dynamic_dimensions: boolean;
+	    enable_few_shot_examples: boolean;
+	    enable_caching: boolean;
+	    cache_similarity_threshold: number;
+	    cache_expiration_hours: number;
+	    max_cache_entries: number;
+	    max_history_records: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new IntentEnhancementConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enable_context_enhancement = source["enable_context_enhancement"];
+	        this.enable_preference_learning = source["enable_preference_learning"];
+	        this.enable_dynamic_dimensions = source["enable_dynamic_dimensions"];
+	        this.enable_few_shot_examples = source["enable_few_shot_examples"];
+	        this.enable_caching = source["enable_caching"];
+	        this.cache_similarity_threshold = source["cache_similarity_threshold"];
+	        this.cache_expiration_hours = source["cache_expiration_hours"];
+	        this.max_cache_entries = source["max_cache_entries"];
+	        this.max_history_records = source["max_history_records"];
+	    }
+	}
 	export class UAPIConfig {
 	    enabled: boolean;
 	    apiToken: string;
@@ -721,6 +808,8 @@ export namespace config {
 	    webSearchProvider?: string;
 	    webSearchAPIKey?: string;
 	    webSearchMCPURL?: string;
+	    intentEnhancement?: IntentEnhancementConfig;
+	    location?: LocationConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -755,6 +844,8 @@ export namespace config {
 	        this.webSearchProvider = source["webSearchProvider"];
 	        this.webSearchAPIKey = source["webSearchAPIKey"];
 	        this.webSearchMCPURL = source["webSearchMCPURL"];
+	        this.intentEnhancement = this.convertValues(source["intentEnhancement"], IntentEnhancementConfig);
+	        this.location = this.convertValues(source["location"], LocationConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -775,6 +866,8 @@ export namespace config {
 		    return a;
 		}
 	}
+	
+	
 	
 	
 	
@@ -1150,6 +1243,26 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class AnalysisResultItem {
+	    id: string;
+	    type: string;
+	    data: any;
+	    metadata: Record<string, any>;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisResultItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.data = source["data"];
+	        this.metadata = source["metadata"];
+	        this.source = source["source"];
+	    }
+	}
 	export class ChartItem {
 	    type: string;
 	    data: string;
@@ -1202,6 +1315,7 @@ export namespace main {
 	    timestamp: number;
 	    chart_data?: ChartData;
 	    timing_data?: Record<string, any>;
+	    analysis_results?: AnalysisResultItem[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -1215,6 +1329,7 @@ export namespace main {
 	        this.timestamp = source["timestamp"];
 	        this.chart_data = this.convertValues(source["chart_data"], ChartData);
 	        this.timing_data = source["timing_data"];
+	        this.analysis_results = this.convertValues(source["analysis_results"], AnalysisResultItem);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

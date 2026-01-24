@@ -4,13 +4,6 @@ package config
 func GetDefaultSearchAPIs() []SearchAPIConfig {
 	return []SearchAPIConfig{
 		{
-			ID:          "duckduckgo",
-			Name:        "DuckDuckGo",
-			Description: "Free search API with no API key required",
-			Enabled:     true,
-			Tested:      false,
-		},
-		{
 			ID:          "serper",
 			Name:        "Serper (Google Search)",
 			Description: "Google Search API via Serper.dev (requires API key)",
@@ -49,34 +42,35 @@ func (c *Config) InitializeSearchAPIs() {
 		c.UAPIConfig = nil
 	}
 	
-	// Set default active search API if not set
-	if c.ActiveSearchAPI == "" {
-		// Default to DuckDuckGo (free, no API key required)
-		c.ActiveSearchAPI = "duckduckgo"
-		for i := range c.SearchAPIs {
-			if c.SearchAPIs[i].ID == "duckduckgo" {
-				c.SearchAPIs[i].Enabled = true
-			}
-		}
-	}
-	
-	// Ensure at least one API is enabled
-	hasEnabled := false
+	// Remove DuckDuckGo if it exists (deprecated)
+	var filteredAPIs []SearchAPIConfig
 	for _, api := range c.SearchAPIs {
-		if api.Enabled {
-			hasEnabled = true
-			break
+		if api.ID != "duckduckgo" {
+			filteredAPIs = append(filteredAPIs, api)
 		}
 	}
+	c.SearchAPIs = filteredAPIs
 	
-	if !hasEnabled && len(c.SearchAPIs) > 0 {
-		// Enable DuckDuckGo as fallback
+	// Reset active API if it was DuckDuckGo
+	if c.ActiveSearchAPI == "duckduckgo" {
+		c.ActiveSearchAPI = ""
+	}
+	
+	// Set default active search API if not set - prefer first enabled API
+	if c.ActiveSearchAPI == "" {
 		for i := range c.SearchAPIs {
-			if c.SearchAPIs[i].ID == "duckduckgo" {
-				c.SearchAPIs[i].Enabled = true
-				c.ActiveSearchAPI = "duckduckgo"
+			if c.SearchAPIs[i].Enabled {
+				c.ActiveSearchAPI = c.SearchAPIs[i].ID
 				break
 			}
+		}
+	}
+	
+	// Ensure the active API is enabled
+	for i := range c.SearchAPIs {
+		if c.SearchAPIs[i].ID == c.ActiveSearchAPI && !c.SearchAPIs[i].Enabled {
+			c.SearchAPIs[i].Enabled = true
+			break
 		}
 	}
 }

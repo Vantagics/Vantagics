@@ -23,6 +23,8 @@ import (
 	"rapidbi/database"
 	"rapidbi/logger"
 
+	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -43,12 +45,52 @@ type Insight struct {
 }
 
 // IntentSuggestion represents a possible interpretation of user's intent
+// 保持与现有结构完全一致，确保向后兼容
+// Validates: Requirements 7.4
 type IntentSuggestion struct {
 	ID          string `json:"id"`          // Unique identifier
 	Title       string `json:"title"`       // Short title (10 chars max)
 	Description string `json:"description"` // Detailed description (30 chars max)
 	Icon        string `json:"icon"`        // Icon (emoji or icon name)
 	Query       string `json:"query"`       // Actual query/analysis request to execute
+}
+
+// IsValid 检查意图建议是否有效
+// 验证所有必需字段都非空
+// Returns true if all required fields (ID, Title, Description, Icon, Query) are non-empty
+// Validates: Requirements 1.2 (意图建议结构完整性)
+func (s *IntentSuggestion) IsValid() bool {
+	return s.ID != "" &&
+		s.Title != "" &&
+		s.Description != "" &&
+		s.Icon != "" &&
+		s.Query != ""
+}
+
+// Clone 创建意图建议的深拷贝
+// Returns a new IntentSuggestion with the same values
+// Useful for avoiding unintended modifications to the original
+func (s *IntentSuggestion) Clone() *IntentSuggestion {
+	if s == nil {
+		return nil
+	}
+	return &IntentSuggestion{
+		ID:          s.ID,
+		Title:       s.Title,
+		Description: s.Description,
+		Icon:        s.Icon,
+		Query:       s.Query,
+	}
+}
+
+// String 返回意图建议的字符串表示
+// Format: "[Icon] Title: Description (ID: xxx)"
+// Useful for logging and debugging
+func (s *IntentSuggestion) String() string {
+	if s == nil {
+		return "<nil IntentSuggestion>"
+	}
+	return fmt.Sprintf("[%s] %s: %s (ID: %s)", s.Icon, s.Title, s.Description, s.ID)
 }
 
 // DashboardData structure
@@ -59,30 +101,35 @@ type DashboardData struct {
 
 // App struct
 type App struct {
-	ctx                   context.Context
-	chatService           *ChatService
-	pythonService         *agent.PythonService
-	dataSourceService     *agent.DataSourceService
-	memoryService         *agent.MemoryService
-	workingContextManager *agent.WorkingContextManager
-	analysisPathManager   *agent.AnalysisPathManager
-	preferenceLearner     *agent.PreferenceLearner
-	einoService           *agent.EinoService
-	skillService          *agent.SkillService
-	db                    *sql.DB
-	storageDir            string
-	logger                *logger.Logger
-	activeThreads         map[string]bool // Track active analysis sessions by thread ID
-	activeThreadsMutex    sync.RWMutex    // Protect activeThreads map
-	isChatOpen            bool
-	cancelAnalysisMutex   sync.Mutex
-	cancelAnalysis        bool
-	activeThreadID        string
+	ctx                      context.Context
+	chatService              *ChatService
+	pythonService            *agent.PythonService
+	dataSourceService        *agent.DataSourceService
+	memoryService            *agent.MemoryService
+	workingContextManager    *agent.WorkingContextManager
+	analysisPathManager      *agent.AnalysisPathManager
+	preferenceLearner          *agent.PreferenceLearner
+	intentEnhancementService   *agent.IntentEnhancementService
+	intentUnderstandingService *agent.IntentUnderstandingService
+	einoService                *agent.EinoService
+	skillService             *agent.SkillService
+	searchKeywordsManager    *agent.SearchKeywordsManager
+	db                       *sql.DB
+	storageDir               string
+	logger                   *logger.Logger
+	activeThreads            map[string]bool // Track active analysis sessions by thread ID
+	activeThreadsMutex       sync.RWMutex    // Protect activeThreads map
+	isChatOpen               bool
+	cancelAnalysisMutex      sync.Mutex
+	cancelAnalysis           bool
+	activeThreadID           string
 	// Dashboard drag-drop layout services
-	layoutService         *database.LayoutService
-	dataService           *database.DataService
-	fileService           *database.FileService
-	exportService         *database.ExportService
+	layoutService *database.LayoutService
+	dataService   *database.DataService
+	fileService   *database.FileService
+	exportService *database.ExportService
+	// Event aggregator for analysis results
+	eventAggregator *EventAggregator
 }
 
 // AgentMemoryView structure for frontend
@@ -103,10 +150,10 @@ func min(a, b int) int {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		pythonService:    agent.NewPythonService(),
-		logger:           logger.NewLogger(),
-		activeThreads:    make(map[string]bool),
-		isChatOpen:       false,
+		pythonService: agent.NewPythonService(),
+		logger:        logger.NewLogger(),
+		activeThreads: make(map[string]bool),
+		isChatOpen:    false,
 	}
 }
 
@@ -118,7 +165,7 @@ func (a *App) SetChatOpen(isOpen bool) {
 // ShowAbout displays the about dialog
 func (a *App) ShowAbout() {
 	cfg, _ := a.GetConfig()
-	
+
 	var title, message string
 	if cfg.Language == "简体中文" {
 		title = "关于 观界"
@@ -133,7 +180,7 @@ func (a *App) ShowAbout() {
 			"Version: 1.0.0\n" +
 			"© 2026 VantageData. All rights reserved."
 	}
-	
+
 	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
 		Title:   title,
@@ -146,7 +193,7 @@ func (a *App) OpenDevTools() {
 	// Wails v2 doesn't have direct API to open DevTools
 	// Show instructions to the user
 	cfg, _ := a.GetConfig()
-	
+
 	var title, message string
 	if cfg.Language == "简体中文" {
 		title = "打开开发者工具"
@@ -167,7 +214,7 @@ func (a *App) OpenDevTools() {
 			"If none of these work, run in development mode:\n" +
 			"wails dev"
 	}
-	
+
 	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
 		Title:   title,
@@ -177,15 +224,26 @@ func (a *App) OpenDevTools() {
 
 // onBeforeClose is called when the application is about to close
 func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
+	// Check if cancellation was requested - if so, wait a moment for cleanup
+	a.cancelAnalysisMutex.Lock()
+	cancelRequested := a.cancelAnalysis
+	a.cancelAnalysisMutex.Unlock()
+
+	if cancelRequested {
+		// Wait briefly for the cancellation to complete
+		a.Log("[CLOSE-DIALOG] Cancel was requested, waiting for cleanup...")
+		time.Sleep(500 * time.Millisecond)
+	}
+
 	// Only prevent close if there's an active analysis running
 	a.activeThreadsMutex.RLock()
 	hasActiveAnalysis := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if hasActiveAnalysis {
 		// Get current language configuration
 		cfg, _ := a.GetConfig()
-		
+
 		var title, message, yesButton, noButton string
 		if cfg.Language == "简体中文" {
 			title = "确认退出"
@@ -198,7 +256,7 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 			yesButton = "Exit"
 			noButton = "Cancel"
 		}
-		
+
 		dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
 			Title:         title,
@@ -286,7 +344,7 @@ func (a *App) startup(ctx context.Context) {
 		a.chatService = NewChatService(sessionsDir)
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
-		
+
 		// Initialize database with migrations
 		db, err := database.InitDB(dataDir)
 		if err != nil {
@@ -295,23 +353,53 @@ func (a *App) startup(ctx context.Context) {
 			a.db = db
 			a.Log("[STARTUP] Database initialized successfully")
 		}
-		
+
 		// Initialize working context manager for UI state tracking
 		a.workingContextManager = agent.NewWorkingContextManager(dataDir)
 		a.Log("[STARTUP] Working context manager initialized")
-		
+
 		// Initialize analysis path manager for storyline tracking
 		a.analysisPathManager = agent.NewAnalysisPathManager(dataDir)
 		a.Log("[STARTUP] Analysis path manager initialized")
-		
+
 		// Initialize preference learner for user behavior tracking
 		a.preferenceLearner = agent.NewPreferenceLearner(dataDir)
 		a.Log("[STARTUP] Preference learner initialized")
-		
+
+		// Initialize intent enhancement service for improved intent understanding
+		a.intentEnhancementService = agent.NewIntentEnhancementService(
+			dataDir,
+			a.preferenceLearner,
+			a.memoryService,
+			a.Log,
+		)
+		if err := a.intentEnhancementService.Initialize(); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Intent enhancement service initialization warning: %v", err))
+		} else {
+			a.Log("[STARTUP] Intent enhancement service initialized successfully")
+		}
+
+		// Initialize new intent understanding service (simplified architecture)
+		// Validates: Requirements 7.1
+		a.intentUnderstandingService = agent.NewIntentUnderstandingService(
+			dataDir,
+			a.dataSourceService,
+			a.Log,
+		)
+		if err := a.intentUnderstandingService.Initialize(); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Intent understanding service initialization warning: %v", err))
+		} else {
+			a.Log("[STARTUP] Intent understanding service initialized successfully")
+		}
+
 		// Initialize skill service for skills management
 		a.skillService = agent.NewSkillService(dataDir, a.Log)
 		a.Log("[STARTUP] Skill service initialized")
-		
+
+		// Initialize search keywords manager for intelligent web search detection
+		a.searchKeywordsManager = agent.NewSearchKeywordsManager(dataDir, a.Log)
+		a.Log("[STARTUP] Search keywords manager initialized")
+
 		a.Log(fmt.Sprintf("[STARTUP] Initializing EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
 		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.memoryService, a.workingContextManager, a.Log)
 		if err != nil {
@@ -320,25 +408,29 @@ func (a *App) startup(ctx context.Context) {
 			a.einoService = es
 			a.Log("[STARTUP] EinoService initialized successfully")
 		}
-		
+
 		// Initialize dashboard drag-drop layout services after all other services are ready
 		if a.db != nil {
 			a.fileService = database.NewFileService(a.db, dataDir)
 			a.Log("[STARTUP] FileService initialized successfully")
-			
+
 			a.dataService = database.NewDataService(a.db, dataDir, a.fileService)
 			// Set the data source service to avoid circular dependency
 			if a.dataSourceService != nil {
 				a.dataService.SetDataSourceService(a.dataSourceService)
 			}
 			a.Log("[STARTUP] DataService initialized successfully")
-			
+
 			a.layoutService = database.NewLayoutService(a.db)
 			a.Log("[STARTUP] LayoutService initialized successfully")
-			
+
 			a.exportService = database.NewExportService(a.dataService, a.layoutService)
 			a.Log("[STARTUP] ExportService initialized successfully")
 		}
+
+		// Initialize event aggregator for analysis results
+		a.eventAggregator = NewEventAggregator(ctx)
+		a.Log("[STARTUP] EventAggregator initialized successfully")
 	}
 
 	// Initialize Logging if enabled
@@ -353,7 +445,7 @@ func (a *App) UpdateWorkingContext(sessionID string, updates map[string]interfac
 	if a.workingContextManager == nil {
 		return fmt.Errorf("working context manager not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[WORKING-CONTEXT] Update for session %s", sessionID))
 	return a.workingContextManager.UpdateContext(sessionID, updates)
 }
@@ -371,13 +463,13 @@ func (a *App) MarkAsFinding(sessionID, content string, importance int) error {
 	if a.analysisPathManager == nil {
 		return fmt.Errorf("analysis path manager not initialized")
 	}
-	
+
 	finding := agent.ConfirmedFinding{
 		Content:     content,
 		Importance:  importance,
 		ConfirmedBy: "user_marked",
 	}
-	
+
 	a.Log(fmt.Sprintf("[ANALYSIS-PATH] Marked finding with importance %d for session %s", importance, sessionID))
 	return a.analysisPathManager.AddFinding(sessionID, finding)
 }
@@ -419,7 +511,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		if len(content) > 800 {
 			content = content[:800] + "...\n[内容已截断]"
 		}
-		
+
 		// Format with role and index
 		roleIcon := "👤"
 		if msg.Role == "assistant" {
@@ -427,8 +519,8 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		} else if msg.Role == "system" {
 			roleIcon = "⚙️"
 		}
-		
-		shortTerm = append(shortTerm, fmt.Sprintf("%s %s (消息 #%d):\n%s", 
+
+		shortTerm = append(shortTerm, fmt.Sprintf("%s %s (消息 #%d):\n%s",
 			roleIcon, msg.Role, shortStart+i+1, content))
 	}
 
@@ -455,23 +547,23 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 			} else if msg.Role == "assistant" {
 				// Extract meaningful content, filtering out incomplete/meaningless fragments
 				content := msg.Content
-				
+
 				// Skip if content is too short to be meaningful
 				if len(content) < 50 {
 					continue
 				}
-				
+
 				// Skip if it's just a prompt or question back to user
 				lowerContent := strings.ToLower(content)
-				if strings.HasPrefix(lowerContent, "请") || 
-				   strings.HasPrefix(lowerContent, "您") ||
-				   strings.HasPrefix(lowerContent, "what") ||
-				   strings.HasPrefix(lowerContent, "how") ||
-				   strings.HasPrefix(lowerContent, "could you") ||
-				   strings.HasPrefix(lowerContent, "can you") {
+				if strings.HasPrefix(lowerContent, "请") ||
+					strings.HasPrefix(lowerContent, "您") ||
+					strings.HasPrefix(lowerContent, "what") ||
+					strings.HasPrefix(lowerContent, "how") ||
+					strings.HasPrefix(lowerContent, "could you") ||
+					strings.HasPrefix(lowerContent, "can you") {
 					continue
 				}
-				
+
 				// Skip incomplete JSON blocks
 				if strings.HasPrefix(content, "```json") && !strings.Contains(content, "```\n") {
 					continue
@@ -479,10 +571,10 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				if strings.HasPrefix(content, "```") && strings.Count(content, "```") < 2 {
 					continue
 				}
-				
+
 				// Extract a meaningful summary (first complete sentence or paragraph)
 				summary := content
-				
+
 				// Try to find first complete paragraph or sentence
 				if idx := strings.Index(content, "\n\n"); idx > 0 && idx < 500 {
 					summary = content[:idx]
@@ -493,12 +585,12 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				} else if len(content) > 400 {
 					summary = content[:400] + "..."
 				}
-				
+
 				// Final check: skip if summary is still too short or meaningless
 				if len(summary) < 50 || strings.HasPrefix(summary, "```") {
 					continue
 				}
-				
+
 				assistantFindings = append(assistantFindings, summary)
 			}
 		}
@@ -567,7 +659,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				tableName := strings.ToLower(match[1])
 				// Filter out common SQL keywords
 				if tableName != "select" && tableName != "where" && tableName != "group" &&
-				   tableName != "order" && tableName != "limit" && !seenTables[tableName] {
+					tableName != "order" && tableName != "limit" && !seenTables[tableName] {
 					seenTables[tableName] = true
 					mentionedTables = append(mentionedTables, match[1])
 				}
@@ -636,12 +728,12 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 	// Add any persisted long-term memories from MemoryService
 	if a.memoryService != nil {
 		globalDataSources, globalGoals, sessionLong, _ := a.memoryService.GetMemories(threadID)
-		
+
 		// Add a header if we have persistent memories
 		if len(globalDataSources) > 0 || len(globalGoals) > 0 || len(sessionLong) > 0 {
 			longTerm = append([]string{"🗄️ 持久化知识库:"}, longTerm...)
 		}
-		
+
 		// Global data sources (cross-session knowledge)
 		if len(globalDataSources) > 0 {
 			longTerm = append(longTerm, "\n📊 全局数据源:")
@@ -649,7 +741,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				longTerm = append(longTerm, fmt.Sprintf("  • %s", mem))
 			}
 		}
-		
+
 		// Global goals (overall objectives)
 		if len(globalGoals) > 0 {
 			longTerm = append(longTerm, "\n🎯 全局目标:")
@@ -657,7 +749,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				longTerm = append(longTerm, fmt.Sprintf("  • %s", mem))
 			}
 		}
-		
+
 		// Session long-term (persistent facts for this session)
 		if len(sessionLong) > 0 {
 			longTerm = append(longTerm, "\n📌 会话持久化事实:")
@@ -698,26 +790,26 @@ func (a *App) WriteSystemLog(level, source, message string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Get log file path
 	logPath := filepath.Join(cfg.DataCacheDir, "system.log")
-	
+
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		return err
 	}
-	
+
 	// Open file in append mode
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	
+
 	// Format: [timestamp] [level] [source] message
 	timestamp := time.Now().Format("2006-01-02 15:04:05.000")
 	logEntry := fmt.Sprintf("[%s] [%s] [%s] %s\n", timestamp, level, source, message)
-	
+
 	_, err = f.WriteString(logEntry)
 	return err
 }
@@ -754,15 +846,16 @@ func (a *App) GetConfig() (config.Config, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
 		return config.Config{
-			LLMProvider:  "OpenAI",
-			ModelName:    "gpt-4o",
-			MaxTokens:    8192, // Safe default, will be adjusted per provider
-			LocalCache:   true,
-			Language:     "English",
-			DataCacheDir: defaultDataDir,
-			MaxPreviewRows: 100,
-		},
-		nil
+				LLMProvider:       "OpenAI",
+				ModelName:         "gpt-4o",
+				MaxTokens:         8192, // Safe default, will be adjusted per provider
+				LocalCache:        true,
+				Language:          "English",
+				DataCacheDir:      defaultDataDir,
+				MaxPreviewRows:    100,
+				IntentEnhancement: config.DefaultIntentEnhancementConfig(),
+			},
+			nil
 	}
 
 	data, err := os.ReadFile(path)
@@ -789,13 +882,6 @@ func (a *App) GetConfig() (config.Config, error) {
 	if cfg.SearchAPIs == nil || len(cfg.SearchAPIs) == 0 {
 		cfg.SearchAPIs = []config.SearchAPIConfig{
 			{
-				ID:          "duckduckgo",
-				Name:        "DuckDuckGo",
-				Description: "Free search API with no API key required",
-				Enabled:     true,
-				Tested:      false,
-			},
-			{
 				ID:          "serper",
 				Name:        "Serper (Google Search)",
 				Description: "Google Search API via Serper.dev (requires API key)",
@@ -812,9 +898,83 @@ func (a *App) GetConfig() (config.Config, error) {
 				Tested:      false,
 			},
 		}
+	} else {
+		// Remove DuckDuckGo if it exists (deprecated)
+		var filteredAPIs []config.SearchAPIConfig
+		for _, api := range cfg.SearchAPIs {
+			if api.ID != "duckduckgo" {
+				filteredAPIs = append(filteredAPIs, api)
+			}
+		}
+		cfg.SearchAPIs = filteredAPIs
+		// Reset active API if it was DuckDuckGo
+		if cfg.ActiveSearchAPI == "duckduckgo" {
+			cfg.ActiveSearchAPI = ""
+		}
+	}
+
+	// Initialize IntentEnhancement with defaults if nil (backward compatibility)
+	if cfg.IntentEnhancement == nil {
+		cfg.IntentEnhancement = config.DefaultIntentEnhancementConfig()
+	} else {
+		// Validate existing configuration
+		cfg.IntentEnhancement.Validate()
 	}
 
 	return cfg, nil
+}
+
+// GetActiveSearchAPIInfo returns information about the currently active search API
+// Returns: apiName, apiID, isEnabled, error
+func (a *App) GetActiveSearchAPIInfo() (string, string, bool, error) {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return "", "", false, err
+	}
+
+	cfg.InitializeSearchAPIs()
+	activeAPI := cfg.GetActiveSearchAPI()
+
+	if activeAPI == nil {
+		return "", "", false, nil
+	}
+
+	return activeAPI.Name, activeAPI.ID, activeAPI.Enabled, nil
+}
+
+// UpdateDeviceLocation updates the device location from frontend Geolocation API
+// This is called by the frontend when it gets a location update
+func (a *App) UpdateDeviceLocation(latitude, longitude, accuracy float64, timestamp int64, city, country, address string, available bool, errorMsg string) {
+	a.Log(fmt.Sprintf("[LOCATION] Updating device location: lat=%.6f, lng=%.6f, city=%s, country=%s, available=%v",
+		latitude, longitude, city, country, available))
+
+	agent.UpdateLocation(agent.LocationData{
+		Latitude:  latitude,
+		Longitude: longitude,
+		Accuracy:  accuracy,
+		Timestamp: timestamp,
+		City:      city,
+		Country:   country,
+		Address:   address,
+		Available: available,
+		Error:     errorMsg,
+	})
+}
+
+// GetDeviceLocation returns the current stored device location
+func (a *App) GetDeviceLocation() map[string]interface{} {
+	loc := agent.GetCurrentLocation()
+	return map[string]interface{}{
+		"latitude":  loc.Latitude,
+		"longitude": loc.Longitude,
+		"accuracy":  loc.Accuracy,
+		"timestamp": loc.Timestamp,
+		"city":      loc.City,
+		"country":   loc.Country,
+		"address":   loc.Address,
+		"available": loc.Available,
+		"error":     loc.Error,
+	}
 }
 
 // SaveConfig saves the config to the ~/rapidbi/config.json
@@ -919,11 +1079,45 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	// Reinitialize services that depend on configuration
 	a.reinitializeServices(cfg)
 
+	// Update window title based on language
+	a.updateWindowTitle(cfg.Language)
+
+	// Update application menu based on language
+	a.UpdateApplicationMenu(cfg.Language)
+
 	// Notify frontend that configuration has been updated
 	runtime.EventsEmit(a.ctx, "config-updated")
 
 	a.Log("Configuration saved and services reinitialized")
 	return nil
+}
+
+// updateWindowTitle updates the window title based on language
+func (a *App) updateWindowTitle(language string) {
+	var title string
+	if language == "简体中文" {
+		title = "观界 - 智能数据分析"
+	} else {
+		title = "VantageData - Smart Data Analysis"
+	}
+	runtime.WindowSetTitle(a.ctx, title)
+	a.Log(fmt.Sprintf("Window title updated to: %s", title))
+}
+
+// UpdateApplicationMenu updates the application menu based on language
+// This is called from SaveConfig when language changes
+func (a *App) UpdateApplicationMenu(language string) {
+	// Rebuild the menu with new language
+	newMenu := createApplicationMenu(a, language)
+	
+	// Update the global menu reference
+	appMenu = newMenu
+	
+	// Apply the new menu to the application
+	runtime.MenuSetApplicationMenu(a.ctx, newMenu)
+	runtime.MenuUpdateApplicationMenu(a.ctx)
+	
+	a.Log(fmt.Sprintf("Application menu updated to language: %s", language))
 }
 
 // reinitializeServices reinitializes services that depend on configuration
@@ -951,8 +1145,8 @@ func (a *App) reinitializeServices(cfg config.Config) {
 			}
 			// Emit configuration error event to frontend
 			runtime.EventsEmit(a.ctx, "config-error", map[string]interface{}{
-				"type":    "eino_service",
-				"message": fmt.Sprintf("Failed to initialize analysis service: %v", err),
+				"type":       "eino_service",
+				"message":    fmt.Sprintf("Failed to initialize analysis service: %v", err),
 				"suggestion": "Please check your LLM configuration, especially the model name field",
 			})
 		} else {
@@ -982,19 +1176,11 @@ type ConnectionResult struct {
 // TestLLMConnection tests the connection to an LLM provider
 func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
 	llm := agent.NewLLMService(cfg, a.Log)
-	resp, err := llm.Chat(a.ctx, "hi LLM, I'm just test the connection. Just answer ok to me without other infor.")
+	_, err := llm.Chat(a.ctx, "hi LLM, I'm just test the connection. Just answer ok to me without other infor.")
 	if err != nil {
 		return ConnectionResult{
 			Success: false,
 			Message: err.Error(),
-		}
-	}
-
-	// If it returns the "Please set your API key" message, it's a soft failure
-	if resp == "Please set your API key in settings." {
-		return ConnectionResult{
-			Success: false,
-			Message: "API key is missing",
 		}
 	}
 
@@ -1104,12 +1290,12 @@ func (a *App) TestSearchTools(engineURL string) ConnectionResult {
 	cfg, _ := a.GetConfig()
 	lang := cfg.Language
 	isChinese := lang == "简体中文"
-	
+
 	msg := "Search tools test is deprecated. Please use Search API configuration instead."
 	if isChinese {
 		msg = "搜索工具测试已弃用。请改用搜索API配置。"
 	}
-	
+
 	return ConnectionResult{
 		Success: false,
 		Message: msg,
@@ -1382,6 +1568,7 @@ func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentS
 
 // GenerateIntentSuggestionsWithExclusions generates possible interpretations of user's intent,
 // excluding previously generated suggestions
+// Validates: Requirements 5.1, 5.2, 5.3, 2.3, 6.5, 2.2, 7.1
 func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage string, excludedSuggestions []IntentSuggestion) ([]IntentSuggestion, error) {
 	cfg, err := a.GetConfig()
 	if err != nil {
@@ -1392,7 +1579,7 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 	var dataSourceID string
 	var tableName string
 	var columns []string
-	
+
 	if threadID != "" && a.chatService != nil {
 		threads, _ := a.chatService.LoadThreads()
 		for _, t := range threads {
@@ -1402,7 +1589,7 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 			}
 		}
 	}
-	
+
 	if dataSourceID != "" && a.dataSourceService != nil {
 		// Get data source
 		dataSources, err := a.dataSourceService.LoadDataSources()
@@ -1417,7 +1604,7 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 				}
 			}
 		}
-		
+
 		// If no analysis available, try to get table info directly
 		if tableName == "" {
 			tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
@@ -1431,8 +1618,123 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 		}
 	}
 
-	// Build prompt for LLM
-	prompt := a.buildIntentUnderstandingPrompt(userMessage, tableName, columns, cfg.Language, excludedSuggestions)
+	// Try to use the new IntentUnderstandingService if available and enabled
+	// Validates: Requirements 7.1, 7.2 - Use new service with fallback to old implementation
+	if a.intentUnderstandingService != nil && a.intentUnderstandingService.IsEnabled() {
+		a.Log("[INTENT] Using new IntentUnderstandingService")
+
+		// Convert language setting
+		language := "en"
+		if cfg.Language == "简体中文" {
+			language = "zh"
+		}
+
+		// Convert excluded suggestions to agent.IntentSuggestion
+		agentExclusions := convertToAgentSuggestions(excludedSuggestions)
+
+		// Create LLM call function
+		llmCall := func(ctx context.Context, prompt string) (string, error) {
+			llm := agent.NewLLMService(cfg, a.Log)
+			return llm.Chat(ctx, prompt)
+		}
+
+		// Generate suggestions using the new service
+		agentSuggestions, err := a.intentUnderstandingService.GenerateSuggestions(
+			a.ctx,
+			threadID,
+			userMessage,
+			dataSourceID,
+			language,
+			agentExclusions,
+			llmCall,
+		)
+		if err != nil {
+			a.Log(fmt.Sprintf("[INTENT] IntentUnderstandingService failed: %v, falling back to old implementation", err))
+			// Fall through to old implementation
+		} else {
+			// Convert agent.IntentSuggestion to IntentSuggestion
+			suggestions := convertAgentSuggestions(agentSuggestions)
+			a.Log(fmt.Sprintf("[INTENT] Generated %d suggestions using new service", len(suggestions)))
+			return suggestions, nil
+		}
+	}
+
+	// Fallback to old implementation using IntentEnhancementService
+	// Validates: Requirements 7.2 - Fallback when new service is disabled or fails
+	a.Log("[INTENT] Using legacy IntentEnhancementService")
+
+	// Check cache for similar requests (Requirement 5.1, 5.2, 5.3)
+	// IMPORTANT: Skip cache when there are exclusions - we need fresh suggestions from LLM
+	// This ensures "Retry Understanding" actually generates new suggestions
+	if a.intentEnhancementService != nil && dataSourceID != "" && len(excludedSuggestions) == 0 {
+		cachedSuggestions, cacheHit := a.intentEnhancementService.GetCachedSuggestions(dataSourceID, userMessage)
+		if cacheHit && len(cachedSuggestions) > 0 {
+			a.Log("[INTENT] Cache hit for intent suggestions (no exclusions)")
+			// Convert agent.IntentSuggestion to IntentSuggestion
+			suggestions := make([]IntentSuggestion, len(cachedSuggestions))
+			for i, s := range cachedSuggestions {
+				suggestions[i] = IntentSuggestion{
+					ID:          s.ID,
+					Title:       s.Title,
+					Description: s.Description,
+					Icon:        s.Icon,
+					Query:       s.Query,
+				}
+			}
+			// Apply preference ranking even for cached results (Requirement 2.3)
+			agentSuggestions := make([]agent.IntentSuggestion, len(suggestions))
+			for i, s := range suggestions {
+				agentSuggestions[i] = agent.IntentSuggestion{
+					ID:          s.ID,
+					Title:       s.Title,
+					Description: s.Description,
+					Icon:        s.Icon,
+					Query:       s.Query,
+				}
+			}
+			rankedSuggestions := a.intentEnhancementService.RankSuggestions(dataSourceID, agentSuggestions)
+			for i, s := range rankedSuggestions {
+				suggestions[i] = IntentSuggestion{
+					ID:          s.ID,
+					Title:       s.Title,
+					Description: s.Description,
+					Icon:        s.Icon,
+					Query:       s.Query,
+				}
+			}
+			return suggestions, nil
+		}
+	} else if len(excludedSuggestions) > 0 {
+		a.Log(fmt.Sprintf("[INTENT] Skipping cache - retry with %d exclusions, will call LLM for fresh suggestions", len(excludedSuggestions)))
+	}
+
+	// Create ExclusionSummarizer and check if summarization is needed
+	// Validates: Requirements 6.5, 2.2 - Use summary when exclusions exceed threshold
+	summarizer := agent.NewExclusionSummarizer()
+	var exclusionSummary string
+
+	// Convert IntentSuggestion to ExclusionIntentSuggestion for the summarizer
+	exclusionIntents := make([]agent.ExclusionIntentSuggestion, len(excludedSuggestions))
+	for i, s := range excludedSuggestions {
+		exclusionIntents[i] = agent.ExclusionIntentSuggestion{
+			ID:          s.ID,
+			Title:       s.Title,
+			Description: s.Description,
+			Icon:        s.Icon,
+			Query:       s.Query,
+		}
+	}
+
+	if summarizer.NeedsSummarization(exclusionIntents) {
+		// Generate summary when exclusions exceed threshold (Requirement 6.5)
+		exclusionSummary = summarizer.SummarizeExclusions(exclusionIntents)
+		a.Log(fmt.Sprintf("[INTENT] Using exclusion summary for %d excluded suggestions (threshold: %d)",
+			len(excludedSuggestions), summarizer.GetThreshold()))
+	}
+
+	// Build prompt for LLM - pass summary if available, otherwise pass full list
+	// Validates: Requirement 2.2 - Pass exclusion list to LLM
+	prompt := a.buildIntentUnderstandingPrompt(userMessage, tableName, columns, cfg.Language, excludedSuggestions, dataSourceID, exclusionSummary)
 
 	// Call LLM
 	llm := agent.NewLLMService(cfg, a.Log)
@@ -1447,13 +1749,83 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 		return nil, fmt.Errorf("failed to parse intent suggestions: %v", err)
 	}
 
+	// Apply preference ranking (Requirement 2.3)
+	if a.intentEnhancementService != nil && dataSourceID != "" && len(suggestions) > 0 {
+		// Convert to agent.IntentSuggestion for ranking
+		agentSuggestions := make([]agent.IntentSuggestion, len(suggestions))
+		for i, s := range suggestions {
+			agentSuggestions[i] = agent.IntentSuggestion{
+				ID:          s.ID,
+				Title:       s.Title,
+				Description: s.Description,
+				Icon:        s.Icon,
+				Query:       s.Query,
+			}
+		}
+
+		// Rank suggestions based on user preferences
+		rankedSuggestions := a.intentEnhancementService.RankSuggestions(dataSourceID, agentSuggestions)
+
+		// Convert back to IntentSuggestion
+		for i, s := range rankedSuggestions {
+			suggestions[i] = IntentSuggestion{
+				ID:          s.ID,
+				Title:       s.Title,
+				Description: s.Description,
+				Icon:        s.Icon,
+				Query:       s.Query,
+			}
+		}
+
+		// Cache the suggestions for future similar requests
+		a.intentEnhancementService.CacheSuggestions(dataSourceID, userMessage, agentSuggestions)
+	}
+
 	return suggestions, nil
 }
 
-func (a *App) buildIntentUnderstandingPrompt(userMessage, tableName string, columns []string, language string, excludedSuggestions []IntentSuggestion) string {
+// convertAgentSuggestions converts agent.IntentSuggestion to IntentSuggestion
+// Used for converting suggestions from the new IntentUnderstandingService
+// Validates: Requirements 7.1, 7.4 - Maintain API compatibility
+func convertAgentSuggestions(agentSuggestions []agent.IntentSuggestion) []IntentSuggestion {
+	suggestions := make([]IntentSuggestion, len(agentSuggestions))
+	for i, s := range agentSuggestions {
+		suggestions[i] = IntentSuggestion{
+			ID:          s.ID,
+			Title:       s.Title,
+			Description: s.Description,
+			Icon:        s.Icon,
+			Query:       s.Query,
+		}
+	}
+	return suggestions
+}
+
+// convertToAgentSuggestions converts IntentSuggestion to agent.IntentSuggestion
+// Used for passing exclusions to the new IntentUnderstandingService
+// Validates: Requirements 7.1, 7.4 - Maintain API compatibility
+func convertToAgentSuggestions(suggestions []IntentSuggestion) []agent.IntentSuggestion {
+	agentSuggestions := make([]agent.IntentSuggestion, len(suggestions))
+	for i, s := range suggestions {
+		agentSuggestions[i] = agent.IntentSuggestion{
+			ID:          s.ID,
+			Title:       s.Title,
+			Description: s.Description,
+			Icon:        s.Icon,
+			Query:       s.Query,
+		}
+	}
+	return agentSuggestions
+}
+
+// buildIntentUnderstandingPrompt builds the prompt for intent understanding
+// Validates: Requirements 6.5, 2.2 - Use summary when available to prevent context overload
+func (a *App) buildIntentUnderstandingPrompt(userMessage, tableName string, columns []string, language string, excludedSuggestions []IntentSuggestion, dataSourceID string, exclusionSummary string) string {
 	outputLangInstruction := "Respond in English"
+	langCode := "en"
 	if language == "简体中文" {
 		outputLangInstruction = "用简体中文回复"
+		langCode = "zh"
 	}
 
 	columnsStr := strings.Join(columns, ", ")
@@ -1463,15 +1835,25 @@ func (a *App) buildIntentUnderstandingPrompt(userMessage, tableName string, colu
 	if tableName == "" {
 		tableName = "Unknown"
 	}
-	
+
 	// Build excluded suggestions section
+	// Validates: Requirement 6.5 - Use summary when available to prevent context overload
 	excludedSection := ""
 	retryGuidance := ""
 	if len(excludedSuggestions) > 0 {
 		excludedSection = "\n\n## Previously Rejected Interpretations\n"
 		excludedSection += "The user has indicated that the following interpretations DO NOT match their intent:\n\n"
-		for i, suggestion := range excludedSuggestions {
-			excludedSection += fmt.Sprintf("%d. **%s**: %s\n", i+1, suggestion.Title, suggestion.Description)
+
+		// Use summary if available (when exclusions exceed threshold), otherwise use full list
+		// Validates: Requirement 6.5 - Use summarized exclusion description instead of full list
+		if exclusionSummary != "" {
+			// Use the compressed summary to prevent context overload
+			excludedSection += exclusionSummary + "\n"
+		} else {
+			// Use full list when under threshold (Requirement 2.2)
+			for i, suggestion := range excludedSuggestions {
+				excludedSection += fmt.Sprintf("%d. **%s**: %s\n", i+1, suggestion.Title, suggestion.Description)
+			}
 		}
 		retryGuidance = `
 
@@ -1483,8 +1865,31 @@ The user rejected ALL previous suggestions. This means:
 4. Avoid similar patterns or themes from rejected suggestions
 5. Be more creative and explore edge cases or unconventional interpretations`
 	}
-	
-	prompt := fmt.Sprintf(`# Role
+
+	// Build "stick to original" guidance based on language
+	// Validates: Requirements 1.4, 9.1 - Bilingual support for prompt guidance
+	stickToOriginalGuidance := ""
+	if language == "简体中文" {
+		stickToOriginalGuidance = `
+
+# 关于"坚持我的请求"选项
+用户可以选择"坚持我的请求"来直接使用他们的原始输入进行分析。因此：
+1. 你的建议应该提供与原始请求不同的分析角度
+2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方向
+3. 不要简单地重复或轻微改写用户的原始请求
+4. 每个建议都应该为用户提供独特的价值`
+	} else {
+		stickToOriginalGuidance = `
+
+# About "Stick to My Request" Option
+The user can choose "Stick to My Request" to use their original input directly for analysis. Therefore:
+1. Your suggestions should offer different analytical angles from the original request
+2. If the original request is already specific, your suggestions should explore related but different analysis directions
+3. Do not simply repeat or slightly rephrase the user's original request
+4. Each suggestion should provide unique value to the user`
+	}
+
+	basePrompt := fmt.Sprintf(`# Role
 You are an expert data analysis intent interpreter. Your task is to understand ambiguous user requests and generate multiple plausible interpretations.
 
 # User's Request
@@ -1492,7 +1897,7 @@ You are an expert data analysis intent interpreter. Your task is to understand a
 
 # Available Data Context
 - **Table**: %s
-- **Columns**: %s%s%s
+- **Columns**: %s%s%s%s
 
 # Task
 Generate 3-5 distinct interpretations of the user's intent. Each interpretation should:
@@ -1535,28 +1940,53 @@ Return a JSON array with 3-5 interpretations. Each object must include:
 - Ensure valid JSON syntax
 - Start with [ and end with ]
 
-Generate the interpretations now:`, userMessage, tableName, columnsStr, excludedSection, retryGuidance, outputLangInstruction)
+Generate the interpretations now:`, userMessage, tableName, columnsStr, excludedSection, retryGuidance, stickToOriginalGuidance, outputLangInstruction)
 
-	return prompt
+	// Enhance prompt with context, dimensions, and examples using IntentEnhancementService
+	// Validates: Requirements 6.1, 6.4 - backward compatibility maintained
+	if a.intentEnhancementService != nil && dataSourceID != "" {
+		// Convert columns to ColumnSchema for enhanced analysis
+		columnSchemas := make([]agent.ColumnSchema, len(columns))
+		for i, col := range columns {
+			columnSchemas[i] = agent.ColumnSchema{Name: col}
+		}
+
+		enhancedPrompt, err := a.intentEnhancementService.EnhancePromptWithColumns(
+			a.ctx,
+			basePrompt,
+			dataSourceID,
+			userMessage,
+			langCode,
+			columnSchemas,
+			tableName,
+		)
+		if err != nil {
+			a.Log(fmt.Sprintf("[INTENT] Failed to enhance prompt: %v, using base prompt", err))
+			return basePrompt
+		}
+		return enhancedPrompt
+	}
+
+	return basePrompt
 }
 
 func (a *App) parseIntentSuggestions(response string) ([]IntentSuggestion, error) {
 	// Extract JSON from response
 	start := strings.Index(response, "[")
 	end := strings.LastIndex(response, "]")
-	
+
 	if start == -1 || end == -1 || start >= end {
 		return nil, fmt.Errorf("no valid JSON array found in response")
 	}
-	
+
 	jsonStr := response[start : end+1]
-	
+
 	// Parse JSON
 	var rawSuggestions []map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &rawSuggestions); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %v", err)
 	}
-	
+
 	// Convert to IntentSuggestion
 	suggestions := make([]IntentSuggestion, 0, len(rawSuggestions))
 	for i, raw := range rawSuggestions {
@@ -1567,17 +1997,17 @@ func (a *App) parseIntentSuggestions(response string) ([]IntentSuggestion, error
 			Icon:        a.getString(raw, "icon"),
 			Query:       a.getString(raw, "query"),
 		}
-		
+
 		// Validate
 		if suggestion.Title != "" && suggestion.Query != "" {
 			suggestions = append(suggestions, suggestion)
 		}
 	}
-	
+
 	if len(suggestions) == 0 {
 		return nil, fmt.Errorf("no valid suggestions generated")
 	}
-	
+
 	return suggestions, nil
 }
 
@@ -1629,7 +2059,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					break
 				}
 			}
-			
+
 			// Only add message if it doesn't exist
 			if !messageExists {
 				userMsg := ChatMessage{
@@ -1648,26 +2078,152 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		}
 	}
 
+	// Wait for concurrent analysis slot if needed
+	// This implements queuing behavior instead of rejecting requests
+	// Re-fetch config to get latest maxConcurrentAnalysis setting
+	cfg, _ = a.GetConfig()
+	maxConcurrent := cfg.MaxConcurrentAnalysis
+	if maxConcurrent <= 0 {
+		maxConcurrent = 5 // Default to 5
+	}
+	if maxConcurrent > 10 {
+		maxConcurrent = 10 // Cap at 10
+	}
+
+	// Check if we need to wait for a slot
+	waitStartTime := time.Now()
+	maxWaitTime := 5 * time.Minute // Maximum wait time before giving up
+	checkInterval := 500 * time.Millisecond
+	notifiedWaiting := false
+
+	// First check if we need to wait
+	a.activeThreadsMutex.RLock()
+	activeCount := len(a.activeThreads)
+	a.activeThreadsMutex.RUnlock()
+
+	if activeCount >= maxConcurrent {
+		// Immediately notify frontend that we're entering waiting state
+		// This ensures the loading indicator shows up right away
+		a.Log(fmt.Sprintf("[CONCURRENT] Need to wait for slot. Active: %d, Max: %d, Thread: %s", activeCount, maxConcurrent, threadID))
+
+		// First, emit chat-loading to show the loading indicator
+		if threadID != "" {
+			a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading true (waiting) for threadId: %s", threadID))
+			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+				"loading":  true,
+				"threadId": threadID,
+			})
+		}
+
+		// Then emit the queue status with waiting message
+		var waitMessage string
+		if cfg.Language == "简体中文" {
+			waitMessage = fmt.Sprintf("等待分析队列中...（当前 %d/%d 个任务进行中）", activeCount, maxConcurrent)
+		} else {
+			waitMessage = fmt.Sprintf("Waiting in analysis queue... (%d/%d tasks in progress)", activeCount, maxConcurrent)
+		}
+		runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
+			"threadId": threadID,
+			"status":   "waiting",
+			"message":  waitMessage,
+			"position": activeCount - maxConcurrent + 1,
+		})
+		notifiedWaiting = true
+	}
+
+	for {
+		a.activeThreadsMutex.RLock()
+		activeCount = len(a.activeThreads)
+		a.activeThreadsMutex.RUnlock()
+
+		if activeCount < maxConcurrent {
+			// Slot available, proceed
+			if notifiedWaiting {
+				a.Log(fmt.Sprintf("[CONCURRENT] Slot available after waiting, proceeding with analysis for thread: %s", threadID))
+				// Notify frontend that waiting is over
+				runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
+					"threadId": threadID,
+					"status":   "starting",
+					"message":  "开始分析",
+				})
+			}
+			break
+		}
+
+		// Check if we've waited too long
+		if time.Since(waitStartTime) > maxWaitTime {
+			a.Log(fmt.Sprintf("[CONCURRENT] Timeout waiting for analysis slot for thread: %s", threadID))
+			// Clear loading state on timeout
+			if threadID != "" {
+				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+					"loading":  false,
+					"threadId": threadID,
+				})
+			}
+			var errorMessage string
+			if cfg.Language == "简体中文" {
+				errorMessage = fmt.Sprintf("等待分析队列超时（已等待 %v）。当前有 %d 个分析任务进行中。请稍后重试。", time.Since(waitStartTime).Round(time.Second), activeCount)
+			} else {
+				errorMessage = fmt.Sprintf("Timeout waiting for analysis queue (waited %v). There are currently %d analysis tasks in progress. Please try again later.", time.Since(waitStartTime).Round(time.Second), activeCount)
+			}
+			return "", fmt.Errorf("%s", errorMessage)
+		}
+
+		// Check if cancellation was requested
+		if a.IsCancelRequested() {
+			a.Log(fmt.Sprintf("[CONCURRENT] Cancellation requested while waiting for slot, aborting for thread: %s", threadID))
+			// Clear loading state on cancellation
+			if threadID != "" {
+				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+					"loading":  false,
+					"threadId": threadID,
+				})
+			}
+			return "", fmt.Errorf("analysis cancelled while waiting in queue")
+		}
+
+		// Update waiting message periodically (every 5 seconds)
+		if notifiedWaiting && int(time.Since(waitStartTime).Seconds())%5 == 0 {
+			var waitMessage string
+			waitedTime := time.Since(waitStartTime).Round(time.Second)
+			if cfg.Language == "简体中文" {
+				waitMessage = fmt.Sprintf("等待分析队列中...（已等待 %v，当前 %d/%d 个任务进行中）", waitedTime, activeCount, maxConcurrent)
+			} else {
+				waitMessage = fmt.Sprintf("Waiting in analysis queue... (waited %v, %d/%d tasks in progress)", waitedTime, activeCount, maxConcurrent)
+			}
+			runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
+				"threadId": threadID,
+				"status":   "waiting",
+				"message":  waitMessage,
+				"position": activeCount - maxConcurrent + 1,
+			})
+		}
+
+		time.Sleep(checkInterval)
+	}
+
 	// Mark this thread as having active analysis
 	a.activeThreadsMutex.Lock()
 	a.activeThreads[threadID] = true
 	a.activeThreadsMutex.Unlock()
-	
+
 	// Notify frontend that loading has started
 	if threadID != "" {
+		a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading true for threadId: %s", threadID))
 		runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
 			"loading":  true,
 			"threadId": threadID,
 		})
 	}
-	
+
 	defer func() {
 		a.activeThreadsMutex.Lock()
 		delete(a.activeThreads, threadID)
 		a.activeThreadsMutex.Unlock()
-		
+
 		// Notify frontend that loading is complete
 		if threadID != "" {
+			a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading false for threadId: %s", threadID))
 			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
 				"loading":  false,
 				"threadId": threadID,
@@ -1728,9 +2284,20 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		// Add current message (Eino expects the new user message in the input list for the chain we built)
 		history = append(history, &schema.Message{Role: schema.User, Content: message})
 
-		// Create progress callback to emit events to frontend
+		// Create progress callback to emit events to frontend with threadId
 		progressCallback := func(update agent.ProgressUpdate) {
-			runtime.EventsEmit(a.ctx, "analysis-progress", update)
+			// Include threadId in progress events for multi-session support
+			progressWithThread := map[string]interface{}{
+				"threadId":    threadID,
+				"stage":       update.Stage,
+				"progress":    update.Progress,
+				"message":     update.Message,
+				"step":        update.Step,
+				"total":       update.Total,
+				"tool_name":   update.ToolName,
+				"tool_output": update.ToolOutput,
+			}
+			runtime.EventsEmit(a.ctx, "analysis-progress", progressWithThread)
 		}
 
 		// Get session directory for file storage
@@ -1768,24 +2335,24 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Fall through to standard LLM processing
 		} else {
 			a.Log(fmt.Sprintf("[EINO-CHECK] EinoService is available, proceeding with analysis for thread: %s, dataSource: %s", threadID, dataSourceID))
-			
+
 			// Start timing for analysis
 			analysisStartTime := time.Now()
-			
+
 			respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, userMessageID, progressCallback, fileSavedCallback, a.IsCancelRequested)
-			
+
 			// Calculate analysis duration
 			analysisDuration := time.Since(analysisStartTime)
 			minutes := int(analysisDuration.Minutes())
 			seconds := int(analysisDuration.Seconds()) % 60
-			
+
 			var resp string
 			if err != nil {
 				resp = fmt.Sprintf("Error: %v", err)
 				if cfg.DetailedLog {
 					a.logChatToFile(threadID, "SYSTEM ERROR", resp)
 				}
-				
+
 				// Check if this was a cancellation
 				if strings.Contains(err.Error(), "cancelled by user") {
 					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
@@ -1794,6 +2361,21 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						"threadId": threadID,
 						"message":  "分析已取消",
 					})
+					// Emit chat-loading false to update App.tsx loading state
+					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+						"loading":  false,
+						"threadId": threadID,
+					})
+					// Also emit loading state change to update dashboard
+					if a.eventAggregator != nil {
+						a.eventAggregator.SetLoading(threadID, false, requestID)
+					} else {
+						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
+							"sessionId": threadID,
+							"loading":   false,
+							"requestId": requestID,
+						})
+					}
 				} else {
 					// Emit error event to frontend for other errors
 					runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
@@ -1801,11 +2383,11 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						"error":    resp,
 					})
 				}
-				
+
 				return "", err
 			}
 			resp = respMsg.Content
-			
+
 			// Check if timing information is already present before adding
 			if !strings.Contains(resp, "⏱️ 分析耗时:") {
 				// Append timing information to response
@@ -1821,7 +2403,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			}
 
 			// Detect and emit images from the response
-			a.detectAndEmitImages(resp, threadID)
+			a.detectAndEmitImages(resp, threadID, userMessageID, requestID)
 
 			startPost := time.Now()
 			// Detect and store chart data
@@ -1830,7 +2412,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 
 			// Collect all chart types (ECharts, Images, Tables, CSV)
 			// Changed from priority-based to collection-based approach
-			
+
 			// 1. ECharts JSON
 			// Match until closing ``` to handle deeply nested objects
 			// Allow optional newline after json:echarts
@@ -1843,7 +2425,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				if err := json.Unmarshal([]byte(jsonStr), &testJSON); err == nil {
 					// Check if data is large and should be saved to file
 					fileRef, saveErr := a.saveChartDataToFile(threadID, "echarts", jsonStr)
-					
+
 					var chartDataStr string
 					if saveErr != nil {
 						// Log error but continue with inline storage as fallback
@@ -1857,14 +2439,13 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						// Small data, use inline storage
 						chartDataStr = jsonStr
 					}
-					
+
 					chartItems = append(chartItems, ChartItem{Type: "echarts", Data: chartDataStr})
 					a.Log("[CHART] Detected ECharts JSON")
-					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-						"sessionId": threadID,
-						"type":      "echarts",
-						"data":      jsonStr, // Always send full data for real-time display
-					})
+					// Use event aggregator for new unified event system
+					if a.eventAggregator != nil {
+						a.eventAggregator.AddECharts(threadID, userMessageID, requestID, jsonStr)
+					}
 				} else {
 					maxLen := 500
 					if len(jsonStr) < maxLen {
@@ -1880,11 +2461,10 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			if len(matchImage) > 1 {
 				chartItems = append(chartItems, ChartItem{Type: "image", Data: matchImage[1]})
 				a.Log("[CHART] Detected inline base64 image")
-				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-					"sessionId": threadID,
-					"type":      "image",
-					"data":      matchImage[1],
-				})
+				// Use event aggregator for new unified event system
+				if a.eventAggregator != nil {
+					a.eventAggregator.AddImage(threadID, userMessageID, requestID, matchImage[1], "")
+				}
 			}
 
 			// 3. Check for saved chart files (e.g., chart_timestamp.png from Python tool)
@@ -1900,7 +2480,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						if existingFiles[file.Name] {
 							continue
 						}
-						
+
 						if file.Type == "image" && (file.Name == "chart.png" || strings.HasPrefix(file.Name, "chart")) {
 							// Read the image file and encode as base64
 							filePath := filepath.Join(sessionDir, "files", file.Name)
@@ -1920,7 +2500,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					}
 				}
 			}
-			
+
 			// NOTE: Don't create chartData here yet - wait until all chart types are collected
 			// Table and CSV data are processed below and need to be included
 			a.Log(fmt.Sprintf("[CHART] Charts collected so far (ECharts + Images): %d", len(chartItems)))
@@ -1933,7 +2513,15 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				jsonStr := strings.TrimSpace(matchDashboard[1])
 				var data DashboardData
 				if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
-					runtime.EventsEmit(a.ctx, "dashboard-data-update", data)
+					// Use event aggregator for new unified event system
+					if a.eventAggregator != nil {
+						for _, metric := range data.Metrics {
+							a.eventAggregator.AddMetric(threadID, userMessageID, requestID, metric)
+						}
+						for _, insight := range data.Insights {
+							a.eventAggregator.AddInsight(threadID, userMessageID, requestID, insight)
+						}
+					}
 				} else {
 					a.Log(fmt.Sprintf("[DASHBOARD] Failed to unmarshal dashboard data: %v\nJSON (first 500 chars): %s", err, jsonStr[:min(500, len(jsonStr))]))
 				}
@@ -1950,10 +2538,10 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				if err := json.Unmarshal([]byte(jsonStr), &tableData); err == nil {
 					tableDataJSON, _ := json.Marshal(tableData)
 					tableDataStr := string(tableDataJSON)
-					
+
 					// Check if table data is large and should be saved to file
 					fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
-					
+
 					var finalTableData string
 					if saveErr != nil {
 						// Log error but continue with inline storage as fallback
@@ -1967,15 +2555,14 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						// Small data, use inline storage
 						finalTableData = tableDataStr
 					}
-					
+
 					chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
 					a.Log("[CHART] Detected table data")
-					
-					runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-						"sessionId": threadID,
-						"type":      "table",
-						"data":      tableData, // Always send full data for real-time display
-					})
+
+					// Use event aggregator for new unified event system
+					if a.eventAggregator != nil {
+						a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableData)
+					}
 				} else {
 					maxLen := 500
 					if len(jsonStr) < maxLen {
@@ -1991,13 +2578,12 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			if len(matchCSV) > 1 {
 				chartItems = append(chartItems, ChartItem{Type: "csv", Data: matchCSV[1]})
 				a.Log("[CHART] Detected CSV data")
-				runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-					"sessionId": threadID,
-					"type":      "csv",
-					"data":      matchCSV[1],
-				})
+				// Use event aggregator for new unified event system
+				if a.eventAggregator != nil {
+					a.eventAggregator.AddCSV(threadID, userMessageID, requestID, matchCSV[1], "")
+				}
 			}
-			
+
 			// Create chartData with ALL collected items (ECharts, Images, Tables, CSV)
 			// This is done AFTER all chart types are processed to ensure nothing is missed
 			if len(chartItems) > 0 {
@@ -2015,69 +2601,69 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					a.attachChartToUserMessage(threadID, "", chartData)
 				}
 			}
-			
+
 			// Create and save assistant message with chart data BEFORE returning
 			// This ensures chart_data is available when frontend reloads the thread
 			if threadID != "" {
 				// Prepare timing data with stage breakdown
 				// Use the same analysisDuration that was used for the response timing info
 				totalSecs := analysisDuration.Seconds()
-				
+
 				// Estimate stage durations (rough approximation)
 				// Typical breakdown: AI ~60%, SQL ~20%, Python ~15%, Other ~5%
 				aiTime := totalSecs * 0.60
 				sqlTime := totalSecs * 0.20
 				pythonTime := totalSecs * 0.15
 				otherTime := totalSecs * 0.05
-				
+
 				timingData := map[string]interface{}{
-					"total_seconds":            totalSecs,
-					"total_minutes":            minutes,
-					"total_seconds_remainder":  seconds,
-					"analysis_type":            "eino_service",
-					"timestamp":                analysisStartTime.Add(analysisDuration).Unix(), // Use analysis end time, not current time
+					"total_seconds":           totalSecs,
+					"total_minutes":           minutes,
+					"total_seconds_remainder": seconds,
+					"analysis_type":           "eino_service",
+					"timestamp":               analysisStartTime.Add(analysisDuration).Unix(), // Use analysis end time, not current time
 					"stages": []map[string]interface{}{
 						{
-							"name":       "AI 分析",
-							"duration":   aiTime,
-							"percentage": 60.0,
+							"name":        "AI 分析",
+							"duration":    aiTime,
+							"percentage":  60.0,
 							"description": "LLM 理解需求、生成代码和分析结果",
 						},
 						{
-							"name":       "SQL 查询",
-							"duration":   sqlTime,
-							"percentage": 20.0,
+							"name":        "SQL 查询",
+							"duration":    sqlTime,
+							"percentage":  20.0,
 							"description": "数据库查询和数据提取",
 						},
 						{
-							"name":       "Python 处理",
-							"duration":   pythonTime,
-							"percentage": 15.0,
+							"name":        "Python 处理",
+							"duration":    pythonTime,
+							"percentage":  15.0,
 							"description": "数据处理和图表生成",
 						},
 						{
-							"name":       "其他",
-							"duration":   otherTime,
-							"percentage": 5.0,
+							"name":        "其他",
+							"duration":    otherTime,
+							"percentage":  5.0,
 							"description": "初始化和后处理",
 						},
 					},
 				}
-				
+
 				assistantMsg := ChatMessage{
 					ID:         strconv.FormatInt(time.Now().UnixNano(), 10),
 					Role:       "assistant",
 					Content:    resp,
 					Timestamp:  time.Now().Unix(),
-					ChartData:  chartData, // Attach chart data to assistant message
+					ChartData:  chartData,  // Attach chart data to assistant message
 					TimingData: timingData, // Attach timing data
 				}
-				
+
 				if err := a.chatService.AddMessage(threadID, assistantMsg); err != nil {
 					a.Log(fmt.Sprintf("[CHART] Failed to save assistant message: %v", err))
 				} else {
 					a.Log(fmt.Sprintf("[CHART] Saved assistant message with chart_data: %v, timing_data: %v", chartData != nil, timingData != nil))
-					
+
 					// Associate newly created files with the USER message (not assistant message)
 					// This makes more sense as files are generated in response to the user's analysis request
 					if userMessageID != "" {
@@ -2089,9 +2675,25 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					} else {
 						a.Log("[WARNING] No userMessageID available, cannot associate files")
 					}
-					
+
 					// Emit analysis-completed event to trigger automatic dashboard update
 					// Task 3.1: Added requestId to event payload (Requirements 1.3, 4.3, 4.4)
+
+					// Flush all pending analysis results before emitting completion
+					var flushedItems []AnalysisResultItem
+					if a.eventAggregator != nil {
+						flushedItems = a.eventAggregator.FlushNow(threadID, true)
+					}
+
+					// Save analysis results to the user message for persistence
+					if len(flushedItems) > 0 && userMessageID != "" {
+						if err := a.chatService.SaveAnalysisResults(threadID, userMessageID, flushedItems); err != nil {
+							a.Log(fmt.Sprintf("[PERSISTENCE] Failed to save analysis results: %v", err))
+						} else {
+							a.Log(fmt.Sprintf("[PERSISTENCE] Saved %d analysis results to message %s", len(flushedItems), userMessageID))
+						}
+					}
+
 					runtime.EventsEmit(a.ctx, "analysis-completed", map[string]interface{}{
 						"threadId":       threadID,
 						"userMessageId":  userMessageID,
@@ -2100,6 +2702,40 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						"requestId":      requestID, // Task 3.1: Include requestId for frontend validation
 					})
 					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s with requestId %s", userMessageID, requestID))
+
+					// Record analysis completion for intent enhancement (Requirement 1.1)
+					if a.intentEnhancementService != nil && dataSourceID != "" {
+						go func(dsID string, respContent string) {
+							// Get available columns from the data source
+							var availableColumns []string
+							if a.dataSourceService != nil {
+								// Get all tables for the data source
+								if tables, err := a.dataSourceService.GetDataSourceTables(dsID); err == nil {
+									// Get columns from all tables
+									for _, tableName := range tables {
+										if cols, err := a.dataSourceService.GetDataSourceTableColumns(dsID, tableName); err == nil {
+											availableColumns = append(availableColumns, cols...)
+										}
+									}
+								}
+							}
+
+							// Extract analysis type and key findings from the response
+							analysisType := a.detectAnalysisType(respContent)
+							keyFindings := a.extractKeyFindings(respContent)
+							targetColumns := a.extractTargetColumns(respContent, availableColumns)
+
+							record := agent.AnalysisRecord{
+								DataSourceID:  dsID,
+								AnalysisType:  analysisType,
+								TargetColumns: targetColumns,
+								KeyFindings:   keyFindings,
+							}
+
+							// Record the analysis history
+							a.recordAnalysisHistory(dsID, record)
+						}(dataSourceID, resp)
+					}
 				}
 			}
 
@@ -2111,10 +2747,10 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				go func() {
 					// Small delay to ensure frontend has processed the response
 					time.Sleep(1 * time.Second)
-					
+
 					// Notify frontend that metrics extraction is starting
 					runtime.EventsEmit(a.ctx, "metrics-extracting", userMessageID)
-					
+
 					if err := a.ExtractMetricsFromAnalysis(threadID, userMessageID, resp); err != nil {
 						a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
 					}
@@ -2138,19 +2774,19 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
 
 	llm := agent.NewLLMService(cfg, a.Log)
-	
+
 	// Start timing for standard LLM chat
 	chatStartTime := time.Now()
 	startChat := time.Now()
 	resp, err := llm.Chat(a.ctx, fullMessage)
-	
+
 	// Calculate chat duration
 	chatDuration := time.Since(chatStartTime)
 	minutes := int(chatDuration.Minutes())
 	seconds := int(chatDuration.Seconds()) % 60
-	
+
 	a.Log(fmt.Sprintf("[TIMING] LLM Chat (Standard) took: %v", time.Since(startChat)))
-	
+
 	// Append timing information to response if successful
 	if err == nil && resp != "" {
 		// Check if timing information is already present (from EinoService fallback)
@@ -2177,13 +2813,13 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		go func() {
 			// Small delay to ensure frontend has processed the response
 			time.Sleep(1 * time.Second)
-			
+
 			// Generate a message ID based on timestamp and thread
 			messageID := fmt.Sprintf("%s_%d", threadID, time.Now().UnixNano())
-			
+
 			// Notify frontend that metrics extraction is starting
 			runtime.EventsEmit(a.ctx, "metrics-extracting", messageID)
-			
+
 			if err := a.ExtractMetricsFromAnalysis(threadID, messageID, resp); err != nil {
 				a.Log(fmt.Sprintf("Failed to extract metrics for standard LLM response: %v", err))
 			}
@@ -2199,23 +2835,866 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 	return resp, err
 }
 
+// SendFreeChatMessage sends a message to the LLM without data source context (free chat mode)
+// This allows users to have a direct conversation with the LLM like web ChatGPT
+// Uses streaming for better user experience
+// Supports web search and fetch tools for information retrieval (e.g., weather queries)
+func (a *App) SendFreeChatMessage(threadID, message, userMessageID string) (string, error) {
+	if a.chatService == nil {
+		return "", fmt.Errorf("chat service not initialized")
+	}
+
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return "", err
+	}
+
+	startTotal := time.Now()
+
+	// Log user message if threadID provided
+	if threadID != "" && cfg.DetailedLog {
+		a.logChatToFile(threadID, "FREE CHAT USER", message)
+	}
+
+	// Save user message to thread file BEFORE processing
+	if threadID != "" && userMessageID != "" {
+		threads, err := a.chatService.LoadThreads()
+		if err == nil {
+			messageExists := false
+			for _, t := range threads {
+				if t.ID == threadID {
+					for _, m := range t.Messages {
+						if m.ID == userMessageID {
+							messageExists = true
+							break
+						}
+					}
+					break
+				}
+			}
+
+			if !messageExists {
+				userMsg := ChatMessage{
+					ID:        userMessageID,
+					Role:      "user",
+					Content:   message,
+					Timestamp: time.Now().Unix(),
+				}
+				if err := a.chatService.AddMessage(threadID, userMsg); err != nil {
+					a.Log(fmt.Sprintf("[ERROR] Failed to save free chat user message: %v", err))
+				}
+			}
+		}
+	}
+
+	// NOTE: For free chat with streaming, we don't emit chat-loading events
+	// because the streaming output itself serves as progress feedback
+
+	// Build conversation history for context
+	var historyContext strings.Builder
+	if threadID != "" {
+		threads, _ := a.chatService.LoadThreads()
+		for _, t := range threads {
+			if t.ID == threadID {
+				// Include last 10 messages for context
+				startIdx := 0
+				if len(t.Messages) > 10 {
+					startIdx = len(t.Messages) - 10
+				}
+				for _, m := range t.Messages[startIdx:] {
+					if m.Role == "user" {
+						historyContext.WriteString(fmt.Sprintf("User: %s\n", m.Content))
+					} else if m.Role == "assistant" {
+						// Truncate long assistant responses
+						content := m.Content
+						if len(content) > 500 {
+							content = content[:500] + "..."
+						}
+						historyContext.WriteString(fmt.Sprintf("Assistant: %s\n", content))
+					}
+				}
+				break
+			}
+		}
+	}
+
+	// Use smart tool router to determine if tools are needed
+	toolRouter := agent.NewToolRouter(a.Log)
+	routerResult := toolRouter.Route(message)
+	
+	// Also check legacy keyword detection as fallback
+	legacyNeedsSearch := a.detectWebSearchNeed(message)
+	
+	// Combine both methods: use tools if either method suggests it
+	needsTools := routerResult.NeedsTools || legacyNeedsSearch
+	
+	a.Log(fmt.Sprintf("[FREE-CHAT] Tool routing: router=%v (confidence=%.2f, reason=%s), legacy=%v, final=%v",
+		routerResult.NeedsTools, routerResult.Confidence, routerResult.Reason, legacyNeedsSearch, needsTools))
+
+	// Build the prompt with conversation history
+	langPrompt := a.getLangPrompt(cfg)
+	var fullMessage string
+	if historyContext.Len() > 0 {
+		fullMessage = fmt.Sprintf("Previous conversation:\n%s\nUser: %s\n\n(Please answer in %s)", historyContext.String(), message, langPrompt)
+	} else {
+		fullMessage = fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
+	}
+
+	// Create assistant message ID for streaming updates
+	assistantMsgID := fmt.Sprintf("assistant_%d", time.Now().UnixNano())
+
+	// Emit initial empty message for streaming
+	if threadID != "" {
+		runtime.EventsEmit(a.ctx, "free-chat-stream-start", map[string]interface{}{
+			"threadId":  threadID,
+			"messageId": assistantMsgID,
+		})
+	}
+
+	chatStartTime := time.Now()
+
+	// Stream callback to emit chunks to frontend
+	onChunk := func(content string) {
+		if threadID != "" {
+			runtime.EventsEmit(a.ctx, "free-chat-stream-chunk", map[string]interface{}{
+				"threadId":  threadID,
+				"messageId": assistantMsgID,
+				"content":   content,
+			})
+		}
+	}
+
+	var resp string
+
+	// Two-path approach for optimal user experience:
+	// 1. For queries needing tools: Use agent mode with tools (slower, no real streaming, but can use tools)
+	// 2. For general conversation: Use streaming LLM chat (fast, real streaming)
+	if needsTools && a.einoService != nil {
+		// Path 1: Agent mode with tools for queries that need external information
+		a.Log("[FREE-CHAT] Tool router detected tool need, using agent with tools (non-streaming)")
+		
+		// Emit chat-loading event to show loading indicator in chat area
+		if threadID != "" {
+			a.Log(fmt.Sprintf("[LOADING-DEBUG] Free chat emitting chat-loading true for threadId: %s", threadID))
+			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+				"loading":  true,
+				"threadId": threadID,
+			})
+		}
+		
+		// Emit search status event to frontend (will show spinner)
+		if threadID != "" {
+			runtime.EventsEmit(a.ctx, "free-chat-search-status", map[string]interface{}{
+				"threadId":  threadID,
+				"messageId": assistantMsgID,
+				"searching": true,
+			})
+			// Also emit progress update for the loading indicator
+			runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
+				"threadId": threadID,
+				"stage":    "analyzing",
+				"progress": 0,
+				"message":  "正在搜索网络信息...",
+				"step":     1,
+				"total":    1,
+			})
+		}
+		resp, err = a.runFreeChatWithTools(a.ctx, message, historyContext.String(), langPrompt, onChunk)
+		
+		// If tool-based chat failed, try falling back to simple streaming chat
+		if err != nil {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Tool-based chat failed: %v, falling back to streaming chat", err))
+			llm := agent.NewLLMService(cfg, a.Log)
+			resp, err = llm.ChatStream(a.ctx, fullMessage, onChunk)
+		}
+		
+		// Emit search complete event
+		if threadID != "" {
+			runtime.EventsEmit(a.ctx, "free-chat-search-status", map[string]interface{}{
+				"threadId":  threadID,
+				"messageId": assistantMsgID,
+				"searching": false,
+			})
+			// Emit chat-loading false to hide loading indicator
+			a.Log(fmt.Sprintf("[LOADING-DEBUG] Free chat emitting chat-loading false for threadId: %s", threadID))
+			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+				"loading":  false,
+				"threadId": threadID,
+			})
+		}
+	} else {
+		// Path 2: Streaming LLM chat for general conversation (fast, real streaming)
+		a.Log("[FREE-CHAT] No search keyword detected, using streaming LLM chat for better UX")
+		llm := agent.NewLLMService(cfg, a.Log)
+		resp, err = llm.ChatStream(a.ctx, fullMessage, onChunk)
+	}
+
+	chatDuration := time.Since(chatStartTime)
+
+	// Emit stream end
+	if threadID != "" {
+		runtime.EventsEmit(a.ctx, "free-chat-stream-end", map[string]interface{}{
+			"threadId":  threadID,
+			"messageId": assistantMsgID,
+		})
+	}
+
+	if err != nil {
+		if threadID != "" && cfg.DetailedLog {
+			a.logChatToFile(threadID, "FREE CHAT ERROR", fmt.Sprintf("Error: %v", err))
+		}
+		return "", err
+	}
+
+	// Save assistant response to thread
+	if threadID != "" && resp != "" {
+		assistantMsg := ChatMessage{
+			ID:        assistantMsgID,
+			Role:      "assistant",
+			Content:   resp,
+			Timestamp: time.Now().Unix(),
+		}
+		if err := a.chatService.AddMessage(threadID, assistantMsg); err != nil {
+			a.Log(fmt.Sprintf("[ERROR] Failed to save free chat assistant message: %v", err))
+		}
+
+		// Emit thread-updated event to refresh the UI
+		runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+	}
+
+	// Log response
+	if threadID != "" && cfg.DetailedLog {
+		a.logChatToFile(threadID, "FREE CHAT RESPONSE", resp)
+	}
+
+	a.Log(fmt.Sprintf("[FREE-CHAT] Completed in %v", chatDuration))
+	a.Log(fmt.Sprintf("[TIMING] Total SendFreeChatMessage took: %v", time.Since(startTotal)))
+
+	return resp, nil
+}
+
+// detectWebSearchNeed checks if the user's message requires web search
+func (a *App) detectWebSearchNeed(message string) bool {
+	// Use the search keywords manager if available
+	if a.searchKeywordsManager != nil {
+		needsSearch, keyword := a.searchKeywordsManager.DetectSearchNeed(message)
+		if needsSearch {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Detected search keyword: %s", keyword))
+			// Record keyword usage for learning
+			a.searchKeywordsManager.RecordKeywordUsage(keyword)
+			return true
+		}
+		return false
+	}
+
+	// Fallback to hardcoded keywords if manager not initialized
+	searchKeywords := []string{
+		// Chinese keywords
+		"天气", "气温", "温度", "下雨", "下雪", "晴天", "阴天",
+		"新闻", "最新", "今天", "现在", "实时", "当前",
+		"股票", "股价", "汇率", "价格", "多少钱",
+		"搜索", "查询", "查一下", "帮我查", "帮我搜",
+		"网上", "网络", "互联网",
+		// English keywords
+		"weather", "temperature", "rain", "snow", "sunny", "cloudy",
+		"news", "latest", "today", "now", "current", "real-time",
+		"stock", "price", "exchange rate", "how much",
+		"search", "look up", "find", "google",
+		"online", "internet", "web",
+	}
+
+	lowerMessage := strings.ToLower(message)
+	for _, keyword := range searchKeywords {
+		if strings.Contains(lowerMessage, strings.ToLower(keyword)) {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Detected search keyword: %s", keyword))
+			return true
+		}
+	}
+	return false
+}
+
+// formatToolResultsForUser formats raw tool results into a user-friendly message
+func (a *App) formatToolResultsForUser(results []string, langPrompt string) string {
+	if len(results) == 0 {
+		return "抱歉，未能获取到有效信息。"
+	}
+
+	var formatted strings.Builder
+	isChinese := strings.Contains(langPrompt, "中文") || strings.Contains(langPrompt, "Chinese")
+
+	if isChinese {
+		formatted.WriteString("根据查询，获取到以下信息：\n\n")
+	} else {
+		formatted.WriteString("Based on the query, here's what I found:\n\n")
+	}
+
+	for i, result := range results {
+		// Try to parse as JSON and extract meaningful content
+		var jsonData map[string]interface{}
+		if err := json.Unmarshal([]byte(result), &jsonData); err == nil {
+			// It's JSON, try to extract meaningful fields
+			if city, ok := jsonData["city"].(string); ok {
+				if isChinese {
+					formatted.WriteString(fmt.Sprintf("📍 位置: %s", city))
+				} else {
+					formatted.WriteString(fmt.Sprintf("📍 Location: %s", city))
+				}
+				if country, ok := jsonData["country"].(string); ok {
+					formatted.WriteString(fmt.Sprintf(", %s", country))
+				}
+				formatted.WriteString("\n")
+			}
+			if title, ok := jsonData["title"].(string); ok {
+				formatted.WriteString(fmt.Sprintf("📄 %s\n", title))
+			}
+			if mainContent, ok := jsonData["main_content"].(string); ok {
+				if mainContent != "" && mainContent != "You need to enable JavaScript to run this app." {
+					formatted.WriteString(fmt.Sprintf("%s\n", mainContent))
+				}
+			}
+			if url, ok := jsonData["url"].(string); ok {
+				formatted.WriteString(fmt.Sprintf("🔗 %s\n", url))
+			}
+		} else {
+			// Not JSON, just include the text
+			if len(result) > 500 {
+				result = result[:500] + "..."
+			}
+			formatted.WriteString(fmt.Sprintf("%d. %s\n", i+1, result))
+		}
+		formatted.WriteString("\n")
+	}
+
+	return formatted.String()
+}
+
+// runFreeChatWithTools runs free chat with web search and fetch tools using Eino agent
+func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyContext, langPrompt string, onChunk func(string)) (string, error) {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return "", err
+	}
+
+	// Initialize tools
+	var webSearchTool *agent.SearchAPITool
+	var webFetchTool *agent.WebFetchTool
+	var timeTool *agent.TimeTool
+	var locationTool *agent.LocationTool
+
+	// Initialize time tool (always available - no external dependencies)
+	timeTool = agent.NewTimeTool(a.Log)
+	a.Log("[FREE-CHAT] Initialized local time tool")
+
+	// Initialize location tool with configured fallback location
+	var configLoc *agent.ConfiguredLocation
+	if cfg.Location != nil && cfg.Location.City != "" {
+		configLoc = &agent.ConfiguredLocation{
+			Country:   cfg.Location.Country,
+			City:      cfg.Location.City,
+			Latitude:  cfg.Location.Latitude,
+			Longitude: cfg.Location.Longitude,
+		}
+		a.Log(fmt.Sprintf("[FREE-CHAT] Using configured location: %s, %s", cfg.Location.City, cfg.Location.Country))
+	}
+	locationTool = agent.NewLocationToolWithConfig(a.Log, configLoc)
+	a.Log("[FREE-CHAT] Initialized device location tool")
+
+	// Initialize search API
+	cfg.InitializeSearchAPIs()
+	activeAPI := cfg.GetActiveSearchAPI()
+
+	a.Log(fmt.Sprintf("[FREE-CHAT] Search API check: activeAPI=%v, SearchAPIs count=%d, ActiveSearchAPI=%s",
+		activeAPI != nil, len(cfg.SearchAPIs), cfg.ActiveSearchAPI))
+
+	if activeAPI != nil {
+		a.Log(fmt.Sprintf("[FREE-CHAT] Active API details: ID=%s, Name=%s, Enabled=%v",
+			activeAPI.ID, activeAPI.Name, activeAPI.Enabled))
+	}
+
+	if activeAPI != nil && activeAPI.Enabled {
+		searchTool, err := agent.NewSearchAPITool(a.Log, activeAPI)
+		if err != nil {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Failed to initialize search tool: %v", err))
+		} else {
+			webSearchTool = searchTool
+			a.Log(fmt.Sprintf("[FREE-CHAT] Initialized %s search API", activeAPI.Name))
+		}
+	} else {
+		a.Log("[FREE-CHAT] No active search API available or not enabled")
+	}
+
+	// Initialize web fetch tool
+	webFetchTool = agent.NewWebFetchTool(a.Log, cfg.ProxyConfig)
+
+	// Build tools list - time tool first (local, fast), then location, then search, then fetch
+	var tools []tool.BaseTool
+	if timeTool != nil {
+		tools = append(tools, timeTool)
+	}
+	if locationTool != nil {
+		tools = append(tools, locationTool)
+	}
+	if webSearchTool != nil {
+		tools = append(tools, webSearchTool)
+	}
+	if webFetchTool != nil {
+		tools = append(tools, webFetchTool)
+	}
+
+	// If no tools available, fall back to simple chat
+	if len(tools) == 0 {
+		a.Log("[FREE-CHAT] No tools available, using simple LLM chat")
+		llm := agent.NewLLMService(cfg, a.Log)
+		var fullMessage string
+		if historyContext != "" {
+			fullMessage = fmt.Sprintf("Previous conversation:\n%s\nUser: %s\n\n(Please answer in %s)", historyContext, userMessage, langPrompt)
+		} else {
+			fullMessage = fmt.Sprintf("%s\n\n(Please answer in %s)", userMessage, langPrompt)
+		}
+		return llm.ChatStream(ctx, fullMessage, onChunk)
+	}
+
+	a.Log(fmt.Sprintf("[FREE-CHAT] Running with %d tools", len(tools)))
+
+	// Build system prompt for agent based on available tools
+	var toolDescriptions strings.Builder
+	hasTimeTool := timeTool != nil
+	hasLocationTool := locationTool != nil
+	hasSearchTool := webSearchTool != nil
+	hasFetchTool := webFetchTool != nil
+
+	if hasTimeTool {
+		toolDescriptions.WriteString("- get_local_time: Get current local time, date, weekday, or timezone. Use this for time/date questions - NO internet needed!\n")
+	}
+	if hasLocationTool {
+		toolDescriptions.WriteString("- get_device_location: Get user's current location (city, country, coordinates). Use this for location-based queries like local weather, nearby places, etc.\n")
+	}
+	if hasSearchTool {
+		toolDescriptions.WriteString("- web_search: Search the web for current information. Returns search results with titles, snippets, and URLs.\n")
+	}
+	if hasFetchTool {
+		toolDescriptions.WriteString("- web_fetch: Fetch full content from a specific URL. Use this to get detailed information from URLs found in search results.\n")
+	}
+
+	var systemPrompt string
+	if hasSearchTool {
+		systemPrompt = fmt.Sprintf(`You are a helpful AI assistant with web search capability. You MUST use tools to get real-time information.
+
+🔧 AVAILABLE TOOLS:
+%s
+
+⚡ CRITICAL: TOOL SELECTION RULES
+
+🌤️ WEATHER → web_fetch with wttr.in (NOT web_search!)
+   - "天气怎样?" → get_device_location → web_fetch("https://wttr.in/{city}?format=3")
+   - "北京天气" → web_fetch("https://wttr.in/Beijing?format=3")
+
+✈️ FLIGHTS/机票 → web_search (MUST use web_search, NOT web_fetch!)
+   - "去成都的机票" → get_device_location → web_search("{出发城市} 到 成都 机票")
+   - "北京到上海航班" → web_search("北京 到 上海 航班 机票")
+   - "flights to Tokyo" → web_search("flights to Tokyo from {city}")
+
+📰 NEWS/新闻 → web_search
+   - "最新新闻" → web_search("今日新闻 头条")
+
+📈 STOCKS/股票 → web_search
+   - "苹果股价" → web_search("苹果股票价格 AAPL")
+
+💱 EXCHANGE/汇率 → web_search
+   - "美元汇率" → web_search("美元 人民币 汇率")
+
+🏨 HOTELS/酒店 → web_search
+   - "附近酒店" → get_device_location → web_search("{city} 酒店推荐")
+
+⏰ TIME/时间 → get_local_time (NO internet needed!)
+   - "现在几点?" → get_local_time(query_type="current_time")
+
+📍 LOCATION/位置 → get_device_location
+   - "我在哪?" → get_device_location()
+
+🚨 CRITICAL RULES:
+1. ⚠️ web_fetch is ONLY for:
+   - Weather via wttr.in API
+   - Reading full content from URLs found in web_search results
+2. ⚠️ web_fetch CANNOT be used for flights, stocks, news, hotels - these sites need JavaScript!
+3. ✅ For flights/stocks/news/hotels → ALWAYS use web_search first!
+4. NEVER say "I cannot search" - YOU HAVE web_search!
+5. NEVER tell user to visit websites - get the info yourself!
+
+📋 WORKFLOW EXAMPLES:
+
+Example 1: "天气怎样?" / "今天几度?"
+→ Step 1: get_device_location (get city)
+→ Step 2: web_fetch(url="https://wttr.in/{city}?format=3")
+→ Step 3: Analyze and answer
+
+Example 2: "去成都的机票" / "今天还有去成都的机票吗?"
+→ Step 1: get_device_location (get departure city, e.g., "San Jose")
+→ Step 2: web_search("San Jose 到 成都 机票 航班") ← MUST use web_search!
+→ Step 3: Summarize flight options from search results
+
+Example 3: "北京到上海航班"
+→ Step 1: web_search("北京 到 上海 航班 机票 今天")
+→ Step 2: Summarize flight options
+
+Example 4: "苹果股价"
+→ Step 1: web_search("苹果股票价格 AAPL 实时")
+→ Step 2: Report stock price from results
+
+Example 5: "最新新闻"
+→ Step 1: web_search("今日新闻 头条 最新")
+→ Step 2: Summarize top news
+
+🎯 SUMMARY:
+- Weather → web_fetch with wttr.in
+- Flights/Stocks/News/Hotels → web_search (NEVER web_fetch!)
+- Time → get_local_time
+- Location → get_device_location
+
+Please respond in %s.`, toolDescriptions.String(), langPrompt)
+	} else {
+		// No web search available - but time and location tools are always available
+		systemPrompt = fmt.Sprintf(`You are a helpful AI assistant with local tools and limited web access.
+
+⚠️ IMPORTANT: No search API is configured. You CANNOT search the web for real-time information.
+
+CRITICAL RULES:
+1. For TIME/DATE questions → Use get_local_time tool (instant, accurate!)
+2. For LOCATION questions → Use get_device_location tool
+3. For WEATHER questions → Use web_fetch with wttr.in API (FREE, works without search API!)
+4. For other real-time info (news, stocks, flights, etc.) → Politely explain search API is needed
+5. ⚠️ DO NOT try to use web_fetch for flights, stocks, news - these sites require JavaScript and won't work!
+
+Available tools:
+%s
+
+=== WHAT YOU CAN DO (NO SEARCH API NEEDED) ===
+
+✅ TIME/DATE: Use get_local_time
+   - "现在几点?" → get_local_time(query_type="current_time")
+   - "今天星期几?" → get_local_time(query_type="weekday")
+   - "今天几号?" → get_local_time(query_type="current_date")
+
+✅ LOCATION: Use get_device_location
+   - "我在哪?" → get_device_location()
+
+✅ WEATHER: Use web_fetch with wttr.in (FREE API - plain text, no JavaScript!)
+   WORKFLOW:
+   1. get_device_location → get city
+   2. If unavailable, use Beijing as default
+   3. web_fetch(url="https://wttr.in/{city}?format=3")
+   
+   Examples:
+   - "天气怎样?" → get_device_location, then web_fetch("https://wttr.in/{city}?format=3")
+   - "北京天气" → web_fetch("https://wttr.in/Beijing?format=3")
+   - "上海今天几度?" → web_fetch("https://wttr.in/Shanghai?format=3")
+
+=== WHAT YOU CANNOT DO (NEEDS SEARCH API) ===
+
+❌ The following queries require a search API to be configured:
+   - 航班/Flights: "北京到上海的航班", "明天飞深圳", "去成都的机票"
+   - 股票/Stocks: "苹果股价", "茅台股票多少钱"
+   - 新闻/News: "最新新闻", "今天有什么新闻"
+   - 酒店/Hotels: "附近酒店", "三亚酒店推荐"
+   - 比赛/Sports: "今天有什么比赛", "NBA比分"
+   - 汇率/Exchange: "美元汇率", "人民币兑日元"
+
+⚠️ DO NOT try to use web_fetch for these queries! Most flight/stock/news websites require JavaScript to render content, and web_fetch can only read static HTML.
+
+When user asks for flights, stocks, news, etc., respond like this:
+- Chinese: "抱歉，查询航班/股票/新闻等实时信息需要配置搜索引擎。请在「设置」→「搜索API」中启用 Serper 或 UAPI Pro 后再试。目前我只能帮您查询天气、时间和位置信息。"
+- English: "Sorry, querying flights/stocks/news requires a search API. Please enable Serper or UAPI Pro in Settings → Search API. Currently I can only help with weather, time, and location queries."
+
+Please respond in %s.`, toolDescriptions.String(), langPrompt)
+	}
+
+	// Build messages
+	messages := []*schema.Message{
+		{
+			Role:    schema.System,
+			Content: systemPrompt,
+		},
+	}
+
+	// Add history if available
+	if historyContext != "" {
+		messages = append(messages, &schema.Message{
+			Role:    schema.User,
+			Content: "Previous conversation context:\n" + historyContext,
+		})
+		messages = append(messages, &schema.Message{
+			Role:    schema.Assistant,
+			Content: "I understand the context. How can I help you?",
+		})
+	}
+
+	// Add current user message
+	messages = append(messages, &schema.Message{
+		Role:    schema.User,
+		Content: userMessage,
+	})
+
+	// Create tools node
+	toolsNode, err := compose.NewToolNode(ctx, &compose.ToolsNodeConfig{
+		Tools: tools,
+	})
+	if err != nil {
+		a.Log(fmt.Sprintf("[FREE-CHAT] Failed to create tools node: %v", err))
+		// Fallback to simple chat
+		llm := agent.NewLLMService(cfg, a.Log)
+		fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", userMessage, langPrompt)
+		return llm.ChatStream(ctx, fullMessage, onChunk)
+	}
+
+	// Bind tools to chat model
+	var toolInfos []*schema.ToolInfo
+	for _, t := range tools {
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		toolInfos = append(toolInfos, info)
+		a.Log(fmt.Sprintf("[FREE-CHAT] Tool registered: %s", info.Name))
+	}
+
+	if err := a.einoService.ChatModel.BindTools(toolInfos); err != nil {
+		a.Log(fmt.Sprintf("[FREE-CHAT] Failed to bind tools: %v", err))
+		// Fallback to simple chat
+		llm := agent.NewLLMService(cfg, a.Log)
+		fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", userMessage, langPrompt)
+		return llm.ChatStream(ctx, fullMessage, onChunk)
+	}
+
+	// Run agent loop (max 5 iterations to prevent infinite loops)
+	maxIterations := 5
+	var finalResponse strings.Builder
+	var lastToolResults []string // Track last tool results for fallback
+
+	for i := 0; i < maxIterations; i++ {
+		a.Log(fmt.Sprintf("[FREE-CHAT] Agent iteration %d", i+1))
+
+		// Call LLM
+		resp, err := a.einoService.ChatModel.Generate(ctx, messages)
+		if err != nil {
+			a.Log(fmt.Sprintf("[FREE-CHAT] LLM generation failed at iteration %d: %v", i+1, err))
+			// If we have tool results, try to summarize them
+			if len(lastToolResults) > 0 {
+				summaryPrompt := fmt.Sprintf("Based on the following tool results, provide a helpful summary in %s:\n\n%s\n\nUser's original question: %s",
+					langPrompt, strings.Join(lastToolResults, "\n\n"), userMessage)
+				llm := agent.NewLLMService(cfg, a.Log)
+				summaryResp, summaryErr := llm.ChatStream(ctx, summaryPrompt, onChunk)
+				if summaryErr == nil && summaryResp != "" {
+					finalResponse.WriteString(summaryResp)
+				} else {
+					summary := a.formatToolResultsForUser(lastToolResults, langPrompt)
+					onChunk(summary)
+					finalResponse.WriteString(summary)
+				}
+				a.einoService.ChatModel.BindTools(nil)
+				return finalResponse.String(), nil
+			}
+			// Unbind tools and fallback to simple chat
+			a.einoService.ChatModel.BindTools(nil)
+			a.Log("[FREE-CHAT] Falling back to simple streaming chat")
+			llm := agent.NewLLMService(cfg, a.Log)
+			fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", userMessage, langPrompt)
+			return llm.ChatStream(ctx, fullMessage, onChunk)
+		}
+
+		a.Log(fmt.Sprintf("[FREE-CHAT] LLM response: content=%d chars, tool_calls=%d", len(resp.Content), len(resp.ToolCalls)))
+
+		// Check if there are tool calls
+		if len(resp.ToolCalls) == 0 {
+			// No tool calls, this is the final response
+			if resp.Content != "" {
+				// Stream the final response
+				onChunk(resp.Content)
+				finalResponse.WriteString(resp.Content)
+			} else if len(lastToolResults) > 0 {
+				// LLM returned empty but we have tool results, summarize them
+				summaryPrompt := fmt.Sprintf("Based on the following tool results, provide a helpful summary in %s:\n\n%s\n\nUser's original question: %s",
+					langPrompt, strings.Join(lastToolResults, "\n\n"), userMessage)
+				llm := agent.NewLLMService(cfg, a.Log)
+				summaryResp, summaryErr := llm.ChatStream(ctx, summaryPrompt, onChunk)
+				if summaryErr == nil && summaryResp != "" {
+					finalResponse.WriteString(summaryResp)
+				} else {
+					summary := a.formatToolResultsForUser(lastToolResults, langPrompt)
+					onChunk(summary)
+					finalResponse.WriteString(summary)
+				}
+			}
+			break
+		}
+
+		// If this is the last iteration and we still have tool calls,
+		// we need to get a final response without tools
+		if i == maxIterations-1 {
+			a.Log("[FREE-CHAT] Max iterations reached, getting final response without tools")
+			// Unbind tools to force a text response
+			a.einoService.ChatModel.BindTools(nil)
+
+			// Add the tool call response to messages
+			messages = append(messages, resp)
+
+			// Add a message indicating tools are no longer available
+			messages = append(messages, &schema.Message{
+				Role:    schema.User,
+				Content: "Please provide a summary based on the information gathered so far. Do not use any tools.",
+			})
+
+			// Get final response
+			finalResp, err := a.einoService.ChatModel.Generate(ctx, messages)
+			if err != nil {
+				a.Log(fmt.Sprintf("[FREE-CHAT] Failed to get final response: %v", err))
+				// If we have tool results, try to summarize them using LLM
+				if len(lastToolResults) > 0 {
+					summaryPrompt := fmt.Sprintf("Based on the following tool results, provide a helpful summary in %s:\n\n%s\n\nUser's original question: %s",
+						langPrompt, strings.Join(lastToolResults, "\n\n"), userMessage)
+					llm := agent.NewLLMService(cfg, a.Log)
+					summaryResp, summaryErr := llm.ChatStream(ctx, summaryPrompt, onChunk)
+					if summaryErr == nil && summaryResp != "" {
+						finalResponse.WriteString(summaryResp)
+					} else {
+						// Fallback to formatted tool results
+						summary := a.formatToolResultsForUser(lastToolResults, langPrompt)
+						onChunk(summary)
+						finalResponse.WriteString(summary)
+					}
+				} else {
+					// Fallback to simple chat
+					a.Log("[FREE-CHAT] No tool results, falling back to simple chat")
+					llm := agent.NewLLMService(cfg, a.Log)
+					fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", userMessage, langPrompt)
+					streamResp, streamErr := llm.ChatStream(ctx, fullMessage, onChunk)
+					if streamErr == nil {
+						finalResponse.WriteString(streamResp)
+					} else {
+						errorMsg := "抱歉，处理请求时遇到问题。请稍后重试。"
+						onChunk(errorMsg)
+						finalResponse.WriteString(errorMsg)
+					}
+				}
+			} else if finalResp.Content != "" {
+				onChunk(finalResp.Content)
+				finalResponse.WriteString(finalResp.Content)
+			} else {
+				// LLM returned empty content
+				a.Log("[FREE-CHAT] LLM returned empty content in final response")
+				if len(lastToolResults) > 0 {
+					// Try to generate a summary using LLM
+					summaryPrompt := fmt.Sprintf("Based on the following tool results, provide a helpful summary in %s:\n\n%s\n\nUser's original question: %s",
+						langPrompt, strings.Join(lastToolResults, "\n\n"), userMessage)
+					llm := agent.NewLLMService(cfg, a.Log)
+					summaryResp, summaryErr := llm.ChatStream(ctx, summaryPrompt, onChunk)
+					if summaryErr == nil && summaryResp != "" {
+						finalResponse.WriteString(summaryResp)
+					} else {
+						// Fallback to formatted tool results
+						summary := a.formatToolResultsForUser(lastToolResults, langPrompt)
+						onChunk(summary)
+						finalResponse.WriteString(summary)
+					}
+				} else {
+					errorMsg := "抱歉，无法生成回复。请尝试重新提问。"
+					onChunk(errorMsg)
+					finalResponse.WriteString(errorMsg)
+				}
+			}
+			break
+		}
+
+		// Process tool calls
+		messages = append(messages, resp)
+
+		// Log tool calls (only to backend log, not to user)
+		for _, toolCall := range resp.ToolCalls {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Executing tool: %s with args: %s", toolCall.Function.Name, toolCall.Function.Arguments))
+		}
+
+		// Execute all tools at once
+		toolResults, err := toolsNode.Invoke(ctx, resp)
+		if err != nil {
+			a.Log(fmt.Sprintf("[FREE-CHAT] Tool execution failed: %v", err))
+			// Add error as tool result for each tool call
+			for _, toolCall := range resp.ToolCalls {
+				messages = append(messages, &schema.Message{
+					Role:       schema.Tool,
+					Content:    fmt.Sprintf("Tool execution failed: %v", err),
+					ToolCallID: toolCall.ID,
+				})
+			}
+			// Don't show error to user, let LLM handle it gracefully
+		} else {
+			// Add all tool results to messages and track them
+			for _, result := range toolResults {
+				if result != nil {
+					messages = append(messages, result)
+					a.Log(fmt.Sprintf("[FREE-CHAT] Tool result received (length: %d)", len(result.Content)))
+					// Track tool results for fallback
+					if len(result.Content) > 0 && len(result.Content) < 2000 {
+						lastToolResults = append(lastToolResults, result.Content)
+					}
+				}
+			}
+		}
+	}
+
+	// Unbind tools after use to avoid affecting other operations
+	a.einoService.ChatModel.BindTools(nil)
+
+	return finalResponse.String(), nil
+}
+
 // CancelAnalysis cancels the ongoing analysis for the active thread
+// It sets the cancel flag and waits for the analysis to actually stop
 func (a *App) CancelAnalysis() error {
 	a.cancelAnalysisMutex.Lock()
-	defer a.cancelAnalysisMutex.Unlock()
 
 	// Check if there's any active analysis
 	a.activeThreadsMutex.RLock()
 	hasActiveAnalysis := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if !hasActiveAnalysis {
+		a.cancelAnalysisMutex.Unlock()
 		return fmt.Errorf("no analysis is currently running")
 	}
 
 	a.cancelAnalysis = true
 	a.Log(fmt.Sprintf("[CANCEL] Analysis cancellation requested for thread: %s", a.activeThreadID))
-	return nil
+	a.cancelAnalysisMutex.Unlock()
+
+	// Wait for the analysis to actually stop (with timeout)
+	// This ensures activeThreads is properly cleaned up before returning
+	maxWaitTime := 5 * time.Second
+	checkInterval := 100 * time.Millisecond
+	startTime := time.Now()
+
+	for {
+		a.activeThreadsMutex.RLock()
+		stillActive := len(a.activeThreads) > 0
+		a.activeThreadsMutex.RUnlock()
+
+		if !stillActive {
+			a.Log("[CANCEL] Analysis successfully cancelled and cleaned up")
+			return nil
+		}
+
+		if time.Since(startTime) > maxWaitTime {
+			a.Log("[CANCEL] Timeout waiting for analysis to stop, forcing cleanup")
+			// Force cleanup of activeThreads
+			a.activeThreadsMutex.Lock()
+			for threadID := range a.activeThreads {
+				delete(a.activeThreads, threadID)
+				a.Log(fmt.Sprintf("[CANCEL] Force removed thread from activeThreads: %s", threadID))
+			}
+			a.activeThreadsMutex.Unlock()
+			return nil
+		}
+
+		time.Sleep(checkInterval)
+	}
 }
 
 // IsCancelRequested checks if analysis cancellation has been requested
@@ -2253,7 +3732,7 @@ func (a *App) CanStartNewAnalysis() (bool, string) {
 	a.activeThreadsMutex.RLock()
 	activeCount := len(a.activeThreads)
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if activeCount >= maxConcurrent {
 		// Get current language configuration
 		var errorMessage string
@@ -2264,7 +3743,7 @@ func (a *App) CanStartNewAnalysis() (bool, string) {
 		}
 		return false, errorMessage
 	}
-	
+
 	return true, ""
 }
 
@@ -2377,10 +3856,10 @@ func (a *App) attachChartToLastAssistantMessage(threadID string, chartData *Char
 	}
 }
 
-// detectAndEmitImages detects images in the response and emits dashboard-update events
+// detectAndEmitImages detects images in the response and emits analysis-result-update events
 // It uses the ImageDetector to find images in various formats (base64, markdown, file references)
 // and emits separate events for each detected image
-func (a *App) detectAndEmitImages(response string, threadID string) {
+func (a *App) detectAndEmitImages(response string, threadID string, userMessageID string, requestID string) {
 	if response == "" || threadID == "" {
 		return
 	}
@@ -2441,24 +3920,22 @@ func (a *App) detectAndEmitImages(response string, threadID string) {
 			continue
 		}
 
-		// Emit dashboard-update event with the image data
-		runtime.EventsEmit(a.ctx, "dashboard-update", map[string]interface{}{
-			"sessionId": threadID,
-			"type":      "image",
-			"data":      imageData,
-		})
+		// Use event aggregator for new unified event system
+		if a.eventAggregator != nil {
+			a.eventAggregator.AddImage(threadID, userMessageID, requestID, imageData, "")
+		}
 
-		a.Log(fmt.Sprintf("[CHART] Emitted dashboard-update event for image (%d/%d)", i+1, len(images)))
+		a.Log(fmt.Sprintf("[CHART] Emitted analysis-result-update event for image (%d/%d)", i+1, len(images)))
 	}
 }
 
 func (a *App) logChatToFile(threadID, role, content string) {
 	// Use DataCacheDir for logs
 	cfg, _ := a.GetConfig()
-	
+
 	// Construct path: sessions/<threadID>/chat.log
 	logPath := filepath.Join(cfg.DataCacheDir, "sessions", threadID, "chat.log")
-	
+
 	// Ensure dir exists
 	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
 		a.Log(fmt.Sprintf("logChatToFile: Failed to create log directory: %v", err))
@@ -2558,43 +4035,43 @@ func (a *App) DeleteThread(threadID string) error {
 	if a.chatService == nil {
 		return fmt.Errorf("chat service not initialized")
 	}
-	
+
 	// Check if this thread is currently running analysis
 	a.cancelAnalysisMutex.Lock()
 	isActiveThread := a.activeThreadID == threadID
-	
+
 	a.activeThreadsMutex.RLock()
 	isGenerating := a.activeThreads[threadID]
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if isActiveThread && isGenerating {
 		// Cancel the ongoing analysis for this thread
 		a.cancelAnalysis = true
 		a.Log(fmt.Sprintf("[DELETE-THREAD] Cancelling ongoing analysis for thread: %s", threadID))
 	}
 	a.cancelAnalysisMutex.Unlock()
-	
+
 	// Wait a moment for cancellation to take effect if needed
 	if isActiveThread && isGenerating {
 		time.Sleep(100 * time.Millisecond)
 		a.Log(fmt.Sprintf("[DELETE-THREAD] Waited for analysis cancellation"))
 	}
-	
+
 	// Delete the thread
 	err := a.chatService.DeleteThread(threadID)
 	if err != nil {
 		return err
 	}
-	
+
 	// If the deleted thread was active, clear dashboard data
 	if isActiveThread {
 		a.Log(fmt.Sprintf("[DELETE-THREAD] Clearing dashboard data for deleted active thread: %s", threadID))
-		runtime.EventsEmit(a.ctx, "clear-dashboard-data", map[string]interface{}{
-			"reason": "thread_deleted",
-			"threadID": threadID,
-		})
+		// Use new unified event system
+		if a.eventAggregator != nil {
+			a.eventAggregator.Clear(threadID)
+		}
 	}
-	
+
 	return nil
 }
 
@@ -2604,32 +4081,10 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 		return ChatThread{}, fmt.Errorf("chat service not initialized")
 	}
 
-	// Get current config to check max concurrent analysis limit
-	cfg, _ := a.GetConfig()
-	maxConcurrent := cfg.MaxConcurrentAnalysis
-	if maxConcurrent <= 0 {
-		maxConcurrent = 5 // Default to 5
-	}
-	if maxConcurrent > 10 {
-		maxConcurrent = 10 // Cap at 10
-	}
-
-	// Check if we've reached the concurrent analysis limit
-	a.activeThreadsMutex.RLock()
-	activeCount := len(a.activeThreads)
-	a.activeThreadsMutex.RUnlock()
-	
-	if activeCount >= maxConcurrent {
-		// Get current language configuration
-		var errorMessage string
-		if cfg.Language == "简体中文" {
-			errorMessage = fmt.Sprintf("当前已有 %d 个分析会话进行中（最大并发数：%d）。请等待部分分析完成后再创建新会话，或在设置中增加最大并发分析任务数。", activeCount, maxConcurrent)
-		} else {
-			errorMessage = fmt.Sprintf("There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before creating a new session, or increase the max concurrent analysis limit in settings.", activeCount, maxConcurrent)
-		}
-		
-		return ChatThread{}, fmt.Errorf(errorMessage)
-	}
+	// Note: We no longer check concurrent analysis limit here.
+	// The limit is enforced in SendMessage, where the analysis will wait in queue
+	// if the limit is reached. This allows users to create sessions freely,
+	// and the waiting indicator will be shown in the chat area.
 
 	thread, err := a.chatService.CreateThread(dataSourceID, title)
 	if err != nil {
@@ -2638,21 +4093,21 @@ func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
 
 	// If data source is selected, check for existing analysis and inject into memory
 	/*
-	if dataSourceID != "" {
-		sources, _ := a.dataSourceService.LoadDataSources()
-		var target *agent.DataSource
-		for _, ds := range sources {
-			if ds.ID == dataSourceID {
-				target = &ds
-				break
+		if dataSourceID != "" {
+			sources, _ := a.dataSourceService.LoadDataSources()
+			var target *agent.DataSource
+			for _, ds := range sources {
+				if ds.ID == dataSourceID {
+					target = &ds
+					break
+				}
+			}
+
+			if target != nil && target.Analysis != nil {
+				// Generate suggestions based on this analysis
+				go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
 			}
 		}
-
-		if target != nil && target.Analysis != nil {
-			// Generate suggestions based on this analysis
-			go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
-		}
-	}
 	*/
 
 	return thread, nil
@@ -2687,7 +4142,7 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 
 	prompt := sb.String()
 	llm := agent.NewLLMService(cfg, a.Log)
-	
+
 	resp, err := llm.Chat(context.Background(), prompt)
 	if err != nil {
 		a.Log(fmt.Sprintf("Failed to generate suggestions: %v", err))
@@ -2712,9 +4167,13 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 	insights := a.parseSuggestionsToInsights(resp, "", "")
 	if len(insights) > 0 {
 		a.Log(fmt.Sprintf("Emitting %d suggestions to dashboard insights", len(insights)))
-		runtime.EventsEmit(a.ctx, "dashboard-data-update", DashboardData{
-			Insights: insights,
-		})
+		// Use event aggregator for new unified event system
+		if a.eventAggregator != nil {
+			for _, insight := range insights {
+				a.eventAggregator.AddInsight(threadID, msg.ID, "", insight)
+			}
+			a.eventAggregator.FlushNow(threadID, true)
+		}
 	}
 
 	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
@@ -2724,10 +4183,10 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 func (a *App) parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceName string) []Insight {
 	var insights []Insight
 	lines := strings.Split(llmResponse, "\n")
-	
+
 	// Match lines starting with "1.", "2.", etc
 	numberPattern := regexp.MustCompile(`^\s*(\d+)\.\s+(.+)$`)
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if matches := numberPattern.FindStringSubmatch(line); len(matches) > 2 {
@@ -2743,7 +4202,7 @@ func (a *App) parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceNa
 			}
 		}
 	}
-	
+
 	return insights
 }
 
@@ -2771,12 +4230,12 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("I am starting a new analysis on this database. Based on the following schema and first row of data, please provide exactly two sentences in %s: the first sentence should describe the industry background of this data, and the second sentence should provide a concise overview of the data source content.\n\n", langPrompt))
-	
+
 	var tableSchemas []agent.TableSchema
 
 	for _, tableName := range tables {
 		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
-		
+
 		// Get 1 row
 		data, err := a.dataSourceService.GetDataSourceTableData(dataSourceID, tableName, 1)
 		if err != nil {
@@ -2821,10 +4280,10 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 
 	// 3. Call LLM
 	prompt := sb.String()
-	
+
 	// Log prompt to system log if detailed logging is on (or creates a special log file?)
 	// Since we don't have a threadID, logChatToFile needs a path.
-	// We can log to "system_analysis.log" or similar? 
+	// We can log to "system_analysis.log" or similar?
 	// Or just skip file logging for background tasks and use main log.
 	if cfg.DetailedLog {
 		a.Log("Sending Analysis Prompt to LLM...")
@@ -2832,9 +4291,9 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 
 	llm := agent.NewLLMService(cfg, a.Log)
 	startLLM := time.Now()
-	description, err := llm.Chat(context.Background(), prompt) 
+	description, err := llm.Chat(context.Background(), prompt)
 	a.Log(fmt.Sprintf("[TIMING] Background LLM Analysis took: %v", time.Since(startLLM)))
-	
+
 	if err != nil {
 		a.Log(fmt.Sprintf("LLM Analysis failed: %v", err))
 		return
@@ -2875,38 +4334,39 @@ func (a *App) ClearHistory() error {
 	if a.chatService == nil {
 		return fmt.Errorf("chat service not initialized")
 	}
-	
+
 	// Check if there's an ongoing analysis and cancel it
 	a.cancelAnalysisMutex.Lock()
 	a.activeThreadsMutex.RLock()
 	hasActiveAnalysis := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if hasActiveAnalysis {
 		// Cancel any ongoing analysis
 		a.cancelAnalysis = true
 		a.Log("[CLEAR-HISTORY] Cancelling ongoing analysis before clearing history")
 	}
 	a.cancelAnalysisMutex.Unlock()
-	
+
 	// Wait for cancellation to take effect if needed
 	if hasActiveAnalysis {
 		time.Sleep(100 * time.Millisecond)
 		a.Log("[CLEAR-HISTORY] Waited for analysis cancellation")
 	}
-	
+
 	// Clear all history
 	err := a.chatService.ClearHistory()
 	if err != nil {
 		return err
 	}
-	
+
 	// Clear dashboard data since all threads are deleted
 	a.Log("[CLEAR-HISTORY] Clearing dashboard data after clearing all history")
-	runtime.EventsEmit(a.ctx, "clear-dashboard-data", map[string]interface{}{
-		"reason": "history_cleared",
-	})
-	
+	// Use new unified event system
+	if a.eventAggregator != nil {
+		a.eventAggregator.Clear("")
+	}
+
 	return nil
 }
 
@@ -3030,6 +4490,14 @@ func (a *App) RenameColumn(id string, tableName string, oldColumnName string, ne
 	return a.dataSourceService.RenameColumn(id, tableName, oldColumnName, newColumnName)
 }
 
+// DeleteColumn deletes a column from a table
+func (a *App) DeleteColumn(id string, tableName string, columnName string) error {
+	if a.dataSourceService == nil {
+		return fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.DeleteColumn(id, tableName, columnName)
+}
+
 // UpdateMySQLExportConfig updates the MySQL export configuration for a data source
 func (a *App) UpdateMySQLExportConfig(id string, host, port, user, password, database string) error {
 	if a.dataSourceService == nil {
@@ -3081,14 +4549,10 @@ func (a *App) SelectExcelFile() (string, error) {
 		Filters: []runtime.FileFilter{
 
 			{DisplayName: "Excel Files", Pattern: "*.xlsx;*.xls;*.xlsm"},
-
 		},
-
 	})
 
 }
-
-
 
 // SelectCSVFile opens a file dialog to select a CSV file
 func (a *App) SelectCSVFile() (string, error) {
@@ -3116,21 +4580,17 @@ func (a *App) SelectSaveFile(filename string, filterPattern string) (string, err
 
 	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 
-		Title:           "Save File",
+		Title: "Save File",
 
 		DefaultFilename: filename,
 
 		Filters: []runtime.FileFilter{
 
 			{DisplayName: "Files", Pattern: filterPattern},
-
 		},
-
 	})
 
 }
-
-
 
 // ExportToCSV exports one or more data source tables to CSV
 
@@ -3160,7 +4620,6 @@ func (a *App) ExportToJSON(id string, tableNames []string, outputPath string) er
 
 }
 
-
 // ExportToSQL exports one or more data source tables to SQL
 
 func (a *App) ExportToSQL(id string, tableNames []string, outputPath string) error {
@@ -3175,8 +4634,6 @@ func (a *App) ExportToSQL(id string, tableNames []string, outputPath string) err
 
 }
 
-
-
 // ExportToMySQL exports one or more data source tables to MySQL
 
 func (a *App) ExportToMySQL(id string, tableNames []string, host, port, user, password, database string) error {
@@ -3189,16 +4646,15 @@ func (a *App) ExportToMySQL(id string, tableNames []string, host, port, user, pa
 
 	config := agent.DataSourceConfig{
 
-		Host:     host,
+		Host: host,
 
-		Port:     port,
+		Port: port,
 
-		User:     user,
+		User: user,
 
 		Password: password,
 
 		Database: database,
-
 	}
 
 	return a.dataSourceService.ExportToMySQL(id, tableNames, config)
@@ -3401,12 +4857,12 @@ func (a *App) associateNewFilesWithMessage(threadID, messageID string, existingF
 		if existingFiles[sessionFiles[i].Name] {
 			continue
 		}
-		
+
 		// Skip files that already have a MessageID
 		if sessionFiles[i].MessageID != "" {
 			continue
 		}
-		
+
 		// Associate this new file with the message
 		sessionFiles[i].MessageID = messageID
 		updated = true
@@ -3471,18 +4927,18 @@ func (a *App) OpenSessionResultsDirectory(threadID string) error {
 
 // SkillInfo represents skill information for frontend
 type SkillInfo struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`
-	Version         string            `json:"version"`
-	Author          string            `json:"author"`
-	Category        string            `json:"category"`
-	Keywords        []string          `json:"keywords"`
-	RequiredColumns []string          `json:"required_columns"`
-	Tools           []string          `json:"tools"`
-	Enabled         bool              `json:"enabled"`
-	Icon            string            `json:"icon"`
-	Tags            []string          `json:"tags"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	Version         string   `json:"version"`
+	Author          string   `json:"author"`
+	Category        string   `json:"category"`
+	Keywords        []string `json:"keywords"`
+	RequiredColumns []string `json:"required_columns"`
+	Tools           []string `json:"tools"`
+	Enabled         bool     `json:"enabled"`
+	Icon            string   `json:"icon"`
+	Tags            []string `json:"tags"`
 }
 
 // GetSkills returns all loaded skills
@@ -3573,11 +5029,11 @@ func (a *App) EnableSkill(skillID string) error {
 	a.activeThreadsMutex.RLock()
 	hasActiveAnalysis := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if hasActiveAnalysis {
 		return fmt.Errorf("cannot enable skill while analysis is in progress")
 	}
-	
+
 	// Use skillService if available (for new skill management)
 	if a.skillService != nil {
 		if err := a.skillService.EnableSkill(skillID); err != nil {
@@ -3586,7 +5042,7 @@ func (a *App) EnableSkill(skillID string) error {
 		// Reload skills in agent after enabling
 		return a.ReloadSkills()
 	}
-	
+
 	// Fallback to einoService for backward compatibility
 	if a.einoService == nil {
 		return fmt.Errorf("skill service not initialized")
@@ -3606,11 +5062,11 @@ func (a *App) DisableSkill(skillID string) error {
 	a.activeThreadsMutex.RLock()
 	hasActiveAnalysis := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if hasActiveAnalysis {
 		return fmt.Errorf("cannot disable skill while analysis is in progress")
 	}
-	
+
 	// Use skillService if available (for new skill management)
 	if a.skillService != nil {
 		if err := a.skillService.DisableSkill(skillID); err != nil {
@@ -3619,7 +5075,7 @@ func (a *App) DisableSkill(skillID string) error {
 		// Reload skills in agent after disabling
 		return a.ReloadSkills()
 	}
-	
+
 	// Fallback to einoService for backward compatibility
 	if a.einoService == nil {
 		return fmt.Errorf("skill service not initialized")
@@ -3639,11 +5095,11 @@ func (a *App) DeleteSkill(skillID string) error {
 	a.activeThreadsMutex.RLock()
 	isGenerating := len(a.activeThreads) > 0
 	a.activeThreadsMutex.RUnlock()
-	
+
 	if isGenerating {
 		return fmt.Errorf("cannot delete skill while analysis is in progress")
 	}
-	
+
 	// Use skillService if available (for new skill management)
 	if a.skillService != nil {
 		if err := a.skillService.DeleteSkill(skillID); err != nil {
@@ -3655,7 +5111,7 @@ func (a *App) DeleteSkill(skillID string) error {
 		}
 		return nil
 	}
-	
+
 	return fmt.Errorf("skill service not initialized")
 }
 
@@ -3802,14 +5258,14 @@ Please return JSON:`, analysisContent)
 		if err == nil {
 			return nil
 		}
-		
+
 		a.Log(fmt.Sprintf("Metrics extraction attempt %d failed: %v", attempt, err))
-		
+
 		if attempt < 3 {
 			time.Sleep(time.Duration(attempt) * time.Second) // Incremental delay
 		}
 	}
-	
+
 	// If all attempts fail, use fallback text extraction
 	return a.fallbackTextExtraction(messageId, analysisContent)
 }
@@ -3846,7 +5302,7 @@ func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string
 	for i, metric := range metrics {
 		name, hasName := metric["name"]
 		value, hasValue := metric["value"]
-		
+
 		if !hasName {
 			a.Log(fmt.Sprintf("Metric %d missing 'name' field, skipping", i))
 			continue
@@ -3855,14 +5311,14 @@ func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string
 			a.Log(fmt.Sprintf("Metric %d missing 'value' field, skipping", i))
 			continue
 		}
-		
+
 		// Validate that value contains numbers
 		valueStr := fmt.Sprintf("%v", value)
 		if !containsNumber(valueStr) {
 			a.Log(fmt.Sprintf("Metric %d (%s) value '%s' does not contain numbers, skipping", i, name, valueStr))
 			continue
 		}
-		
+
 		validMetrics = append(validMetrics, metric)
 	}
 
@@ -3891,11 +5347,26 @@ func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string
 		})
 	}
 
-	// Notify frontend
-	runtime.EventsEmit(a.ctx, "metrics-extracted", map[string]interface{}{
-		"messageId": messageId,
-		"metrics":   validMetrics,
-	})
+	// Use event aggregator for new unified event system
+	if a.eventAggregator != nil {
+		// Get threadID from context if available
+		threadID := "" // Will be set by caller context
+		for _, metric := range validMetrics {
+			m := Metric{
+				Title:  fmt.Sprintf("%v", metric["name"]),
+				Value:  fmt.Sprintf("%v", metric["value"]),
+				Change: "",
+			}
+			if unit, ok := metric["unit"]; ok {
+				m.Value = fmt.Sprintf("%v%v", metric["value"], unit)
+			}
+			if change, ok := metric["change"]; ok {
+				m.Change = fmt.Sprintf("%v", change)
+			}
+			a.eventAggregator.AddMetric(threadID, messageId, "", m)
+		}
+		a.eventAggregator.FlushNow(threadID, false)
+	}
 
 	a.Log(fmt.Sprintf("Metrics extracted and saved for message %s (attempt %d)", messageId, attempt))
 	return nil
@@ -3919,21 +5390,21 @@ func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisCo
 	// Common patterns: numbered lists, "建议", "next steps", "you can", "可以", etc.
 	var insights []Insight
 	lines := strings.Split(analysisContent, "\n")
-	
+
 	// Patterns for next-step suggestions
 	numberPattern := regexp.MustCompile(`^\s*(\d+)[.、]\s+(.+)$`)
 	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步)`)
-	
+
 	foundSuggestionSection := false
-	
+
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
-		
+
 		// Check if we're entering a suggestion/next-steps section
 		if suggestionPattern.MatchString(trimmedLine) {
 			foundSuggestionSection = true
 		}
-		
+
 		// Extract numbered items (likely suggestions) - prefer items after suggestion markers
 		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
 			suggestionText := strings.TrimSpace(matches[2])
@@ -3943,27 +5414,30 @@ func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisCo
 				insights = append(insights, Insight{
 					Text:         suggestionText,
 					Icon:         "lightbulb",
-					DataSourceID: "", 
+					DataSourceID: "",
 					SourceName:   "",
 				})
 			}
 		}
 	}
-	
+
 	// Limit to 5 suggestions
 	if len(insights) > 5 {
 		insights = insights[:5]
 	}
-	
+
 	if len(insights) > 0 {
 		a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
-		
-		// Emit to dashboard
-		runtime.EventsEmit(a.ctx, "dashboard-data-update", DashboardData{
-			Insights: insights,
-		})
+
+		// Use event aggregator for new unified event system
+		if a.eventAggregator != nil {
+			for _, insight := range insights {
+				a.eventAggregator.AddInsight(threadID, userMessageID, "", insight)
+			}
+			a.eventAggregator.FlushNow(threadID, false)
+		}
 	}
-	
+
 	return nil
 }
 
@@ -3982,7 +5456,7 @@ func (a *App) extractJSONFromResponse(response string) string {
 	// Try to extract JSON array
 	jsonPattern := regexp.MustCompile(`\[[\s\S]*?\]`)
 	matches := jsonPattern.FindAllString(response, -1)
-	
+
 	for _, match := range matches {
 		// Validate if it's valid JSON
 		var test []interface{}
@@ -3990,14 +5464,14 @@ func (a *App) extractJSONFromResponse(response string) string {
 			return match
 		}
 	}
-	
+
 	return ""
 }
 
 // fallbackTextExtraction uses regex patterns as fallback when LLM extraction fails
 func (a *App) fallbackTextExtraction(messageId string, content string) error {
 	metrics := []map[string]interface{}{}
-	
+
 	// Extract common metric patterns
 	patterns := []struct {
 		regex *regexp.Regexp
@@ -4010,7 +5484,7 @@ func (a *App) fallbackTextExtraction(messageId string, content string) error {
 		{regexp.MustCompile(`平均.*?[：:]?\s*(\d+(?:\.\d+)?)`), "平均值", ""},
 		{regexp.MustCompile(`增长.*?[：:]?\s*([+\-]?\d+(?:\.\d+)?)%`), "增长率", "%"},
 	}
-	
+
 	for _, pattern := range patterns {
 		matches := pattern.regex.FindAllStringSubmatch(content, -1)
 		for i, match := range matches {
@@ -4023,25 +5497,33 @@ func (a *App) fallbackTextExtraction(messageId string, content string) error {
 			}
 		}
 	}
-	
+
 	if len(metrics) > 0 {
 		jsonStr, _ := json.Marshal(metrics)
 		err := a.SaveMetricsJson(messageId, string(jsonStr))
 		if err == nil {
-			// Notify frontend
-			runtime.EventsEmit(a.ctx, "metrics-extracted", map[string]interface{}{
-				"messageId": messageId,
-				"metrics":   metrics,
-			})
+			// Use event aggregator for new unified event system
+			if a.eventAggregator != nil {
+				for _, metric := range metrics {
+					m := Metric{
+						Title:  fmt.Sprintf("%v", metric["name"]),
+						Value:  fmt.Sprintf("%v", metric["value"]),
+						Change: "",
+					}
+					if unit, ok := metric["unit"]; ok {
+						m.Value = fmt.Sprintf("%v%v", metric["value"], unit)
+					}
+					a.eventAggregator.AddMetric("", messageId, "", m)
+				}
+				a.eventAggregator.FlushNow("", false)
+			}
 			a.Log(fmt.Sprintf("Fallback metrics extracted for message %s", messageId))
 		}
 		return err
 	}
-	
+
 	return fmt.Errorf("no metrics could be extracted using fallback method")
 }
-
-
 
 // SaveSessionRecording saves the current session's analysis recording to a file
 func (a *App) SaveSessionRecording(threadID, title, description string) (string, error) {
@@ -4254,6 +5736,7 @@ func (a *App) ReplayAnalysisRecording(recordingID, targetSourceID string, autoFi
 
 	return result, nil
 }
+
 // --- Dashboard Drag-Drop Layout Wails Bridge Methods ---
 
 // SaveLayout saves a layout configuration to the database (Task 5.1)
@@ -4261,14 +5744,14 @@ func (a *App) SaveLayout(config database.LayoutConfiguration) error {
 	if a.layoutService == nil {
 		return fmt.Errorf("layout service not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[LAYOUT] Saving layout configuration for user: %s", config.UserID))
 	err := a.layoutService.SaveLayout(config)
 	if err != nil {
 		a.Log(fmt.Sprintf("[LAYOUT] Failed to save layout: %v", err))
 		return err
 	}
-	
+
 	a.Log("[LAYOUT] Layout configuration saved successfully")
 	return nil
 }
@@ -4278,7 +5761,7 @@ func (a *App) LoadLayout(userID string) (*database.LayoutConfiguration, error) {
 	if a.layoutService == nil {
 		return nil, fmt.Errorf("layout service not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[LAYOUT] Loading layout configuration for user: %s", userID))
 	config, err := a.layoutService.LoadLayout(userID)
 	if err != nil {
@@ -4289,11 +5772,11 @@ func (a *App) LoadLayout(userID string) (*database.LayoutConfiguration, error) {
 			defaultConfig.UserID = userID
 			return &defaultConfig, nil
 		}
-		
+
 		a.Log(fmt.Sprintf("[LAYOUT] Failed to load layout: %v", err))
 		return nil, err
 	}
-	
+
 	a.Log("[LAYOUT] Layout configuration loaded successfully")
 	return config, nil
 }
@@ -4303,14 +5786,14 @@ func (a *App) CheckComponentHasData(componentType string, instanceID string) (bo
 	if a.dataService == nil {
 		return false, fmt.Errorf("data service not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[DATA] Checking data availability for component: %s (%s)", instanceID, componentType))
 	hasData, err := a.dataService.CheckComponentHasData(componentType, instanceID)
 	if err != nil {
 		a.Log(fmt.Sprintf("[DATA] Failed to check component data: %v", err))
 		return false, err
 	}
-	
+
 	a.Log(fmt.Sprintf("[DATA] Component %s has data: %v", instanceID, hasData))
 	return hasData, nil
 }
@@ -4320,7 +5803,7 @@ func (a *App) GetFilesByCategory(category string) ([]database.FileInfo, error) {
 	if a.fileService == nil {
 		return nil, fmt.Errorf("file service not initialized")
 	}
-	
+
 	// Convert string to FileCategory type
 	var fileCategory database.FileCategory
 	switch category {
@@ -4331,14 +5814,14 @@ func (a *App) GetFilesByCategory(category string) ([]database.FileInfo, error) {
 	default:
 		return nil, fmt.Errorf("invalid file category: %s", category)
 	}
-	
+
 	a.Log(fmt.Sprintf("[FILES] Getting files for category: %s", category))
 	files, err := a.fileService.GetFilesByCategory(fileCategory)
 	if err != nil {
 		a.Log(fmt.Sprintf("[FILES] Failed to get files: %v", err))
 		return nil, err
 	}
-	
+
 	a.Log(fmt.Sprintf("[FILES] Retrieved %d files for category %s", len(files), category))
 	return files, nil
 }
@@ -4348,14 +5831,14 @@ func (a *App) DownloadFile(fileID string) (string, error) {
 	if a.fileService == nil {
 		return "", fmt.Errorf("file service not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[FILES] Downloading file: %s", fileID))
 	filePath, err := a.fileService.DownloadFile(fileID)
 	if err != nil {
 		a.Log(fmt.Sprintf("[FILES] Failed to download file: %v", err))
 		return "", err
 	}
-	
+
 	a.Log(fmt.Sprintf("[FILES] File download path: %s", filePath))
 	return filePath, nil
 }
@@ -4365,16 +5848,16 @@ func (a *App) ExportDashboard(req database.ExportRequest) (*database.ExportResul
 	if a.exportService == nil {
 		return nil, fmt.Errorf("export service not initialized")
 	}
-	
+
 	a.Log(fmt.Sprintf("[EXPORT] Exporting dashboard for user: %s, format: %s", req.UserID, req.Format))
 	result, err := a.exportService.ExportDashboard(req)
 	if err != nil {
 		a.Log(fmt.Sprintf("[EXPORT] Failed to export dashboard: %v", err))
 		return nil, err
 	}
-	
+
 	a.Log(fmt.Sprintf("[EXPORT] Dashboard exported successfully: %s", result.FilePath))
-	a.Log(fmt.Sprintf("[EXPORT] Included components: %d, Excluded components: %d", 
+	a.Log(fmt.Sprintf("[EXPORT] Included components: %d, Excluded components: %d",
 		len(result.IncludedComponents), len(result.ExcludedComponents)))
 	return result, nil
 }
@@ -4393,7 +5876,7 @@ func (a *App) InstallSkillsFromZip() ([]string, error) {
 	if a.skillService == nil {
 		return nil, fmt.Errorf("skill service not initialized")
 	}
-	
+
 	// Open file dialog to select ZIP file
 	zipPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select Skills ZIP Package",
@@ -4404,24 +5887,264 @@ func (a *App) InstallSkillsFromZip() ([]string, error) {
 			},
 		},
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file dialog: %v", err)
 	}
-	
+
 	if zipPath == "" {
 		return nil, fmt.Errorf("no file selected")
 	}
-	
+
 	a.Log(fmt.Sprintf("[SKILLS] Installing from: %s", zipPath))
-	
+
 	// Install skills from ZIP
 	installed, err := a.skillService.InstallFromZip(zipPath)
 	if err != nil {
 		a.Log(fmt.Sprintf("[SKILLS] Installation failed: %v", err))
 		return nil, err
 	}
-	
+
 	a.Log(fmt.Sprintf("[SKILLS] Successfully installed: %v", installed))
 	return installed, nil
+}
+
+// detectAnalysisType detects the type of analysis from the response
+// Used for recording analysis history (Requirement 1.1)
+func (a *App) detectAnalysisType(response string) string {
+	responseLower := strings.ToLower(response)
+
+	// Check for trend analysis keywords
+	if strings.Contains(responseLower, "trend") || strings.Contains(responseLower, "趋势") ||
+		strings.Contains(responseLower, "over time") || strings.Contains(responseLower, "随时间") {
+		return "trend"
+	}
+
+	// Check for comparison analysis keywords
+	if strings.Contains(responseLower, "comparison") || strings.Contains(responseLower, "对比") ||
+		strings.Contains(responseLower, "compare") || strings.Contains(responseLower, "比较") {
+		return "comparison"
+	}
+
+	// Check for distribution analysis keywords
+	if strings.Contains(responseLower, "distribution") || strings.Contains(responseLower, "分布") ||
+		strings.Contains(responseLower, "breakdown") || strings.Contains(responseLower, "构成") {
+		return "distribution"
+	}
+
+	// Check for correlation analysis keywords
+	if strings.Contains(responseLower, "correlation") || strings.Contains(responseLower, "相关") ||
+		strings.Contains(responseLower, "relationship") || strings.Contains(responseLower, "关系") {
+		return "correlation"
+	}
+
+	// Check for aggregation analysis keywords
+	if strings.Contains(responseLower, "total") || strings.Contains(responseLower, "sum") ||
+		strings.Contains(responseLower, "average") || strings.Contains(responseLower, "汇总") ||
+		strings.Contains(responseLower, "平均") {
+		return "aggregation"
+	}
+
+	// Check for ranking analysis keywords
+	if strings.Contains(responseLower, "ranking") || strings.Contains(responseLower, "排名") ||
+		strings.Contains(responseLower, "top") || strings.Contains(responseLower, "前") {
+		return "ranking"
+	}
+
+	// Check for time series analysis keywords
+	if strings.Contains(responseLower, "time series") || strings.Contains(responseLower, "时间序列") ||
+		strings.Contains(responseLower, "forecast") || strings.Contains(responseLower, "预测") {
+		return "time_series"
+	}
+
+	// Check for geographic analysis keywords
+	if strings.Contains(responseLower, "geographic") || strings.Contains(responseLower, "地理") ||
+		strings.Contains(responseLower, "region") || strings.Contains(responseLower, "区域") ||
+		strings.Contains(responseLower, "province") || strings.Contains(responseLower, "省份") {
+		return "geographic"
+	}
+
+	// Default to statistical analysis
+	return "statistical"
+}
+
+// extractKeyFindings extracts key findings from the analysis response
+// Used for recording analysis history (Requirement 1.1)
+func (a *App) extractKeyFindings(response string) string {
+	// Look for key findings section
+	findingsKeywords := []string{
+		"关键发现", "主要发现", "结论", "总结",
+		"Key Findings", "Key findings", "Conclusion", "Summary",
+		"发现", "结果", "insights", "Insights",
+	}
+
+	for _, keyword := range findingsKeywords {
+		idx := strings.Index(response, keyword)
+		if idx != -1 {
+			// Extract up to 200 characters after the keyword
+			start := idx
+			end := start + 200
+			if end > len(response) {
+				end = len(response)
+			}
+
+			// Find the end of the sentence or paragraph
+			excerpt := response[start:end]
+
+			// Clean up the excerpt
+			excerpt = strings.TrimSpace(excerpt)
+			if len(excerpt) > 150 {
+				// Truncate at the last complete sentence
+				lastPeriod := strings.LastIndex(excerpt[:150], "。")
+				if lastPeriod == -1 {
+					lastPeriod = strings.LastIndex(excerpt[:150], ".")
+				}
+				if lastPeriod > 50 {
+					excerpt = excerpt[:lastPeriod+1]
+				} else {
+					excerpt = excerpt[:150] + "..."
+				}
+			}
+
+			return excerpt
+		}
+	}
+
+	// If no key findings section found, extract the first meaningful sentence
+	if len(response) > 150 {
+		excerpt := response[:150]
+		lastPeriod := strings.LastIndex(excerpt, "。")
+		if lastPeriod == -1 {
+			lastPeriod = strings.LastIndex(excerpt, ".")
+		}
+		if lastPeriod > 30 {
+			return excerpt[:lastPeriod+1]
+		}
+		return excerpt + "..."
+	}
+
+	return response
+}
+
+// extractTargetColumns extracts target columns mentioned in the analysis
+// Used for recording analysis history (Requirement 1.1)
+func (a *App) extractTargetColumns(response string, availableColumns []string) []string {
+	responseLower := strings.ToLower(response)
+	targetColumns := []string{}
+
+	for _, col := range availableColumns {
+		colLower := strings.ToLower(col)
+		if strings.Contains(responseLower, colLower) {
+			targetColumns = append(targetColumns, col)
+		}
+	}
+
+	// Limit to top 5 columns
+	if len(targetColumns) > 5 {
+		targetColumns = targetColumns[:5]
+	}
+
+	return targetColumns
+}
+
+// recordAnalysisHistory records analysis completion for intent enhancement
+// Used for recording analysis history (Requirement 1.1)
+func (a *App) recordAnalysisHistory(dataSourceID string, record agent.AnalysisRecord) {
+	if a.intentEnhancementService == nil {
+		return
+	}
+
+	// Get the context enhancer from the service and add the record
+	// Note: We need to access the context enhancer through a public method
+	// For now, we'll add a method to IntentEnhancementService to handle this
+	a.AddAnalysisRecord(dataSourceID, record)
+}
+
+// AddAnalysisRecord adds an analysis record for intent enhancement
+// This is a wrapper that delegates to the IntentEnhancementService
+// Validates: Requirement 1.1
+func (a *App) AddAnalysisRecord(dataSourceID string, record agent.AnalysisRecord) error {
+	if a.intentEnhancementService == nil {
+		return fmt.Errorf("intent enhancement service not initialized")
+	}
+
+	// Ensure the data source ID is set in the record
+	if record.DataSourceID == "" {
+		record.DataSourceID = dataSourceID
+	}
+
+	// Delegate to the IntentEnhancementService to add the record
+	err := a.intentEnhancementService.AddAnalysisRecord(record)
+	if err != nil {
+		a.Log(fmt.Sprintf("[INTENT-HISTORY] Failed to record analysis: %v", err))
+		return err
+	}
+
+	a.Log(fmt.Sprintf("[INTENT-HISTORY] Successfully recorded analysis: type=%s, columns=%v, findings=%s",
+		record.AnalysisType, record.TargetColumns, record.KeyFindings))
+
+	return nil
+}
+
+// RecordIntentSelection records user's intent selection for preference learning
+// This is called from the frontend when a user selects an intent
+// Validates: Requirement 2.1, 5.1
+func (a *App) RecordIntentSelection(threadID string, intent IntentSuggestion) error {
+	// Get data source ID from thread
+	var dataSourceID string
+	if threadID != "" && a.chatService != nil {
+		threads, _ := a.chatService.LoadThreads()
+		for _, t := range threads {
+			if t.ID == threadID {
+				dataSourceID = t.DataSourceID
+				break
+			}
+		}
+	}
+
+	if dataSourceID == "" {
+		return fmt.Errorf("no data source associated with thread")
+	}
+
+	// Convert to agent.IntentSuggestion
+	agentIntent := agent.IntentSuggestion{
+		ID:          intent.ID,
+		Title:       intent.Title,
+		Description: intent.Description,
+		Icon:        intent.Icon,
+		Query:       intent.Query,
+	}
+
+	// Record the selection using the new IntentUnderstandingService if available
+	// Validates: Requirement 5.1 - Record user intent selection for preference learning
+	if a.intentUnderstandingService != nil {
+		if err := a.intentUnderstandingService.RecordSelection(dataSourceID, agentIntent); err != nil {
+			a.Log(fmt.Sprintf("[INTENT] Failed to record selection in IntentUnderstandingService: %v", err))
+		}
+	}
+
+	// Also record in the legacy IntentEnhancementService for backward compatibility
+	if a.intentEnhancementService != nil {
+		a.intentEnhancementService.RecordSelection(dataSourceID, agentIntent)
+	}
+
+	a.Log(fmt.Sprintf("[INTENT] Recorded intent selection: %s for data source: %s", intent.Title, dataSourceID))
+
+	return nil
+}
+
+// GetMessageAnalysisData retrieves analysis data for a specific message (for dashboard restoration)
+func (a *App) GetMessageAnalysisData(threadID, messageID string) (map[string]interface{}, error) {
+	if a.chatService == nil {
+		return nil, fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.GetMessageAnalysisData(threadID, messageID)
+}
+
+// SaveMessageAnalysisResults saves analysis results for a specific message
+func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []AnalysisResultItem) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.SaveAnalysisResults(threadID, messageID, results)
 }

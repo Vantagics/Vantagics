@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
-import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, DeleteDataSource, DeleteTable, GetConfig, RenameColumn } from '../../wailsjs/go/main/App';
+import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, DeleteDataSource, DeleteTable, DeleteColumn, GetConfig, RenameColumn } from '../../wailsjs/go/main/App';
 import { Table, Database, FileText, ChevronRight, ChevronLeft, List, Trash2, Check, X } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import DeleteTableConfirmationModal from './DeleteTableConfirmationModal';
+import DeleteColumnConfirmationModal from './DeleteColumnConfirmationModal';
 
 interface ContextPanelProps {
     width: number;
@@ -26,6 +27,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
     const [isLoading, setIsLoading] = useState(false);
     const [previewLimit, setPreviewLimit] = useState(100);
     const [deleteTableTarget, setDeleteTableTarget] = useState<{ tableName: string; isLastTable?: boolean } | null>(null);
+    const [deleteColumnTarget, setDeleteColumnTarget] = useState<{ columnName: string; isLastColumn: boolean; isLastTable: boolean } | null>(null);
     
     // Column editing state
     const [editingColumn, setEditingColumn] = useState<EditingColumn | null>(null);
@@ -78,13 +80,17 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
         };
     }, [selectedSource]);
 
-    // Focus input when editing starts
+    // Focus input when editing starts (only when columnName changes, not on every keystroke)
     useEffect(() => {
         if (editingColumn && inputRef.current) {
             inputRef.current.focus();
-            inputRef.current.select();
+            // Move cursor to end and scroll to show the end of text
+            const len = editingColumn.newName.length;
+            inputRef.current.setSelectionRange(len, len);
+            // Scroll to the end of the input
+            inputRef.current.scrollLeft = inputRef.current.scrollWidth;
         }
-    }, [editingColumn]);
+    }, [editingColumn?.columnName]); // Only trigger when starting to edit a new column, not on every keystroke
 
     const loadTables = async (sourceId: string) => {
         setIsLoading(true);
@@ -287,6 +293,62 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
         }
     };
 
+    // Column deletion handlers
+    const handleDeleteColumn = (columnName: string) => {
+        // Check if this is the last column
+        let isLastColumn = false;
+        if (tableData.length > 0) {
+            const columnCount = Object.keys(tableData[0]).length;
+            isLastColumn = columnCount === 1;
+        }
+        const isLastTable = tables.length === 1;
+        
+        setDeleteColumnTarget({ columnName, isLastColumn, isLastTable });
+    };
+
+    const confirmDeleteColumn = async () => {
+        if (!deleteColumnTarget || !selectedSource || !selectedTable) return;
+        
+        const { columnName, isLastColumn, isLastTable } = deleteColumnTarget;
+        
+        try {
+            // If this is the last column of the last table, delete the entire data source
+            if (isLastColumn && isLastTable) {
+                await DeleteDataSource(selectedSource.id);
+                EventsEmit('data-source-deleted', selectedSource.id);
+                setSelectedSource(null);
+                setSelectedTable(null);
+                setTableData([]);
+                setTables([]);
+                setTableCounts({});
+            } 
+            // If this is the last column but not the last table, delete the table
+            else if (isLastColumn) {
+                await DeleteTable(selectedSource.id, selectedTable);
+                await loadTables(selectedSource.id);
+                setSelectedTable(null);
+                setTableData([]);
+            }
+            // Otherwise, just delete the column
+            else {
+                await DeleteColumn(selectedSource.id, selectedTable, columnName);
+                // Reload table data
+                const data = await GetDataSourceTableData(selectedSource.id, selectedTable);
+                setTableData(data || []);
+                // Emit event to notify other components
+                EventsEmit('column-deleted', {
+                    dataSourceId: selectedSource.id,
+                    tableName: selectedTable,
+                    columnName: columnName
+                });
+            }
+            setDeleteColumnTarget(null);
+        } catch (err) {
+            console.error('Failed to delete column:', err);
+            alert(t('delete_column_failed') + ': ' + err);
+        }
+    };
+
     const handleContextPanelClick = (e: React.MouseEvent) => {
         // 只有当点击的是非交互元素时才隐藏聊天
         const target = e.target as HTMLElement;
@@ -327,7 +389,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                                 newName: e.target.value
                             })}
                             onKeyDown={handleKeyDown}
-                            className={`flex-1 min-w-[80px] px-2 py-1 text-[10px] border rounded focus:outline-none focus:ring-1 ${
+                            className={`w-[106px] px-1 py-1 text-[10px] border rounded focus:outline-none focus:ring-1 ${
                                 editError 
                                     ? 'border-red-400 focus:ring-red-200 bg-red-50' 
                                     : 'border-blue-400 focus:ring-blue-200 bg-white'
@@ -363,11 +425,25 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
         return (
             <th 
                 key={col} 
-                className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider border-r border-slate-200 last:border-0 cursor-pointer hover:bg-blue-50 hover:text-blue-600 transition-colors"
-                onDoubleClick={() => handleColumnDoubleClick(col)}
-                title={t('double_click_to_edit')}
+                className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider border-r border-slate-200 last:border-0 group/col hover:bg-slate-100 transition-colors"
+                style={{ minWidth: '100px' }}
             >
-                {col}
+                <div className="flex items-center justify-between gap-1">
+                    <span 
+                        className="cursor-pointer hover:text-blue-600 truncate flex-1"
+                        onDoubleClick={() => handleColumnDoubleClick(col)}
+                        title={t('double_click_to_edit')}
+                    >
+                        {col}
+                    </span>
+                    <button
+                        onClick={() => handleDeleteColumn(col)}
+                        className="p-0.5 text-slate-400 hover:text-red-600 opacity-0 group-hover/col:opacity-100 transition-opacity flex-shrink-0"
+                        title={t('delete_column')}
+                    >
+                        <Trash2 className="w-3 h-3" />
+                    </button>
+                </div>
             </th>
         );
     };
@@ -522,6 +598,17 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                 dataSourceName={selectedSource?.name || ''}
                 onClose={() => setDeleteTableTarget(null)}
                 onConfirm={confirmDeleteTable}
+            />
+
+            <DeleteColumnConfirmationModal
+                isOpen={!!deleteColumnTarget}
+                columnName={deleteColumnTarget?.columnName || ''}
+                tableName={selectedTable || ''}
+                isLastColumn={deleteColumnTarget?.isLastColumn || false}
+                isLastTable={deleteColumnTarget?.isLastTable || false}
+                dataSourceName={selectedSource?.name || ''}
+                onClose={() => setDeleteColumnTarget(null)}
+                onConfirm={confirmDeleteColumn}
             />
         </div>
     );
