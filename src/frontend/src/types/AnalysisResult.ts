@@ -108,6 +108,20 @@ export interface ValidationResult {
 // 状态变更回调类型
 export type StateChangeCallback = (state: AnalysisResultState) => void;
 
+// 分析结果事件类型
+export interface AnalysisResultEvents {
+  'analysis-started': { sessionId: string; messageId: string; requestId: string };
+  'session-switched': { fromSessionId: string | null; toSessionId: string };
+  'message-selected': { sessionId: string; fromMessageId: string | null; toMessageId: string };
+  // 历史请求无结果事件 - 当历史分析请求没有关联的分析结果时触发
+  // 用于通知 useDashboardData 显示空状态而非数据源统计 (Requirement 2.4)
+  'historical-empty-result': { sessionId: string; messageId: string };
+}
+
+// 事件回调类型
+export type AnalysisResultEventCallback<K extends keyof AnalysisResultEvents> = 
+  (data: AnalysisResultEvents[K]) => void;
+
 // 分析结果管理器接口
 export interface IAnalysisResultManager {
   // 数据更新
@@ -134,8 +148,14 @@ export interface IAnalysisResultManager {
   // 状态订阅
   subscribe(callback: StateChangeCallback): () => void;
   
+  // 事件订阅
+  on<K extends keyof AnalysisResultEvents>(
+    event: K, 
+    callback: AnalysisResultEventCallback<K>
+  ): () => void;
+  
   // 加载状态
-  setLoading(loading: boolean, requestId?: string): void;
+  setLoading(loading: boolean, requestId?: string, messageId?: string): void;
   isLoading(): boolean;
   
   // 错误处理
@@ -144,4 +164,8 @@ export interface IAnalysisResultManager {
   
   // 获取完整状态
   getState(): AnalysisResultState;
+  
+  // 历史请求空结果通知 (Requirement 2.4)
+  // 当历史分析请求没有关联的分析结果时调用
+  notifyHistoricalEmptyResult(sessionId: string, messageId: string): void;
 }

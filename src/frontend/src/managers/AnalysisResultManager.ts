@@ -13,6 +13,8 @@ import {
   StateChangeCallback,
   ResultSource,
   ResultMetadata,
+  AnalysisResultEvents,
+  AnalysisResultEventCallback,
 } from '../types/AnalysisResult';
 import { DataNormalizer } from '../utils/DataNormalizer';
 import { createLogger } from '../utils/systemLog';
@@ -24,6 +26,17 @@ const logger = createLogger('AnalysisResultManager');
  */
 function generateId(): string {
   return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
+ * 历史请求空结果事件数据
+ * 
+ * 当历史分析请求没有关联的分析结果时触发
+ * 用于通知 useDashboardData 显示空状态而非数据源统计
+ */
+export interface HistoricalEmptyResultEvent {
+  sessionId: string;
+  messageId: string;
 }
 
 /**
@@ -44,6 +57,9 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
   private updateQueue: AnalysisResultBatch[];
   private isProcessingQueue: boolean;
   
+  // 事件监听器存储
+  private eventListeners: Map<keyof AnalysisResultEvents, Set<AnalysisResultEventCallback<any>>>;
+  
   private constructor() {
     this.state = {
       currentSessionId: null,
@@ -56,6 +72,7 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     this.subscribers = new Set();
     this.updateQueue = [];
     this.isProcessingQueue = false;
+    this.eventListeners = new Map();
   }
   
   /**
@@ -292,13 +309,18 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
   
   /**
    * 切换会话
+   * 
+   * 当切换到不同会话时，会触发 session-switched 事件
+   * 事件携带 fromSessionId 和 toSessionId
    */
   switchSession(sessionId: string): void {
     if (this.state.currentSessionId === sessionId) {
       return;
     }
     
-    logger.debug(`Switching session: ${this.state.currentSessionId} -> ${sessionId}`);
+    const fromSessionId = this.state.currentSessionId;
+    
+    logger.debug(`Switching session: ${fromSessionId} -> ${sessionId}`);
     
     // 取消当前的pending请求
     if (this.state.pendingRequestId) {
@@ -310,6 +332,12 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     this.state.currentSessionId = sessionId;
     this.state.currentMessageId = null; // 重置消息选择
     this.state.error = null;
+    
+    // 触发 session-switched 事件
+    this.emit('session-switched', {
+      fromSessionId,
+      toSessionId: sessionId,
+    });
     
     this.notifySubscribers();
   }
@@ -323,15 +351,52 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
   
   /**
    * 选择消息
+   * 
+   * 当切换到新消息时，会清除当前会话下的所有旧消息数据
+   * 这确保仪表盘在加载新数据前显示干净的状态
+   * 
+   * 触发 message-selected 事件，携带 sessionId、fromMessageId、toMessageId
    */
   selectMessage(messageId: string): void {
     if (this.state.currentMessageId === messageId) {
       return;
     }
     
-    logger.debug(`Selecting message: ${this.state.currentMessageId} -> ${messageId}`);
+    const fromMessageId = this.state.currentMessageId;
+    const sessionId = this.state.currentSessionId || '';
+    
+    logger.debug(`Selecting message: ${fromMessageId} -> ${messageId}`);
+    
+    // 清除当前会话下的所有旧消息数据（除了新选中的消息）
+    // 这样仪表盘会在干净的状态下等待新数据加载
+    if (this.state.currentSessionId) {
+      const sessionData = this.state.data.get(this.state.currentSessionId);
+      if (sessionData) {
+        // 保存新消息的数据（如果有）
+        const newMessageData = sessionData.get(messageId);
+        
+        // 清除所有旧数据
+        sessionData.clear();
+        
+        // 恢复新消息的数据（如果有）
+        if (newMessageData && newMessageData.length > 0) {
+          sessionData.set(messageId, newMessageData);
+          logger.debug(`Restored ${newMessageData.length} items for message ${messageId}`);
+        } else {
+          logger.debug(`No existing data for message ${messageId}, dashboard will be empty until new data arrives`);
+        }
+      }
+    }
     
     this.state.currentMessageId = messageId;
+    
+    // 触发 message-selected 事件
+    this.emit('message-selected', {
+      sessionId,
+      fromMessageId,
+      toMessageId: messageId,
+    });
+    
     this.notifySubscribers();
   }
   
@@ -370,16 +435,85 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     });
   }
   
+  // ==================== 事件订阅 ====================
+  
+  /**
+   * 订阅特定事件
+   */
+  on<K extends keyof AnalysisResultEvents>(
+    event: K,
+    callback: AnalysisResultEventCallback<K>
+  ): () => void {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    
+    const listeners = this.eventListeners.get(event)!;
+    listeners.add(callback);
+    
+    logger.debug(`Event listener added for: ${event}`);
+    
+    // 返回取消订阅函数
+    return () => {
+      listeners.delete(callback);
+      logger.debug(`Event listener removed for: ${event}`);
+    };
+  }
+  
+  /**
+   * 触发事件
+   */
+  private emit<K extends keyof AnalysisResultEvents>(
+    event: K,
+    data: AnalysisResultEvents[K]
+  ): void {
+    const listeners = this.eventListeners.get(event);
+    if (!listeners || listeners.size === 0) {
+      logger.debug(`No listeners for event: ${event}`);
+      return;
+    }
+    
+    logger.debug(`Emitting event: ${event}, data=${JSON.stringify(data)}`);
+    
+    listeners.forEach(callback => {
+      try {
+        callback(data);
+      } catch (error) {
+        logger.error(`Event callback error for ${event}: ${error}`);
+      }
+    });
+  }
+  
   // ==================== 加载状态 ====================
   
   /**
    * 设置加载状态
+   * 
+   * 当 loading 为 true 时，会触发 analysis-started 事件
+   * 事件携带 sessionId、messageId、requestId
    */
-  setLoading(loading: boolean, requestId?: string): void {
+  setLoading(loading: boolean, requestId?: string, messageId?: string): void {
     this.state.isLoading = loading;
     
     if (loading && requestId) {
       this.state.pendingRequestId = requestId;
+      
+      // 如果提供了 messageId，更新当前消息
+      if (messageId) {
+        this.state.currentMessageId = messageId;
+      }
+      
+      // 触发 analysis-started 事件
+      const sessionId = this.state.currentSessionId || '';
+      const currentMessageId = messageId || this.state.currentMessageId || '';
+      
+      this.emit('analysis-started', {
+        sessionId,
+        messageId: currentMessageId,
+        requestId,
+      });
+      
+      logger.debug(`Analysis started: session=${sessionId}, message=${currentMessageId}, request=${requestId}`);
     } else if (!loading) {
       this.state.pendingRequestId = null;
     }
@@ -424,6 +558,26 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
    */
   getError(): string | null {
     return this.state.error;
+  }
+  
+  // ==================== 历史请求空结果处理 ====================
+  
+  /**
+   * 通知历史请求无结果
+   * 
+   * 当历史分析请求没有关联的分析结果时调用
+   * 触发 historical-empty-result 事件，通知 useDashboardData 显示空状态而非数据源统计
+   * 
+   * Validates: Requirement 2.4
+   */
+  notifyHistoricalEmptyResult(sessionId: string, messageId: string): void {
+    logger.info(`Historical request has no results: session=${sessionId}, message=${messageId}`);
+    
+    // 触发 historical-empty-result 事件
+    this.emit('historical-empty-result', {
+      sessionId,
+      messageId,
+    });
   }
   
   // ==================== 状态获取 ====================

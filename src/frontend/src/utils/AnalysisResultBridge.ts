@@ -75,25 +75,57 @@ export function initAnalysisResultBridge(
   unsubscribers.push(unsubscribeError);
   
   // 监听 analysis-result-restore 事件（用于恢复历史数据）
+  // 
+  // 改进的历史数据恢复逻辑:
+  // 1. 先清除当前显示的所有数据 (Requirement 2.1)
+  // 2. 确保只显示恢复的数据 (Requirement 2.2)
+  // 3. 无结果时显示空状态而非数据源统计 (Requirement 2.4)
   const unsubscribeRestore = EventsOn('analysis-result-restore', (payload: {
     sessionId: string;
     messageId: string;
     items: AnalysisResultItem[];
   }) => {
-    logger.debug(`analysis-result-restore: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
+    logger.info(`analysis-result-restore: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
     
+    // Step 1: 先清除当前会话的所有数据，确保数据隔离 (Requirement 2.1)
+    // 这样可以避免新旧数据混合显示
+    const currentSessionId = manager.getCurrentSession();
+    if (currentSessionId) {
+      logger.debug(`Clearing current session data before restore: ${currentSessionId}`);
+      manager.clearResults(currentSessionId);
+    }
+    
+    // Step 2: 切换到目标会话（如果不同）
+    if (payload.sessionId !== currentSessionId) {
+      logger.debug(`Switching to restore target session: ${payload.sessionId}`);
+      manager.switchSession(payload.sessionId);
+    }
+    
+    // Step 3: 清除目标会话的数据（确保干净状态）
+    // 即使切换了会话，也要确保目标会话是干净的
+    manager.clearResults(payload.sessionId);
+    
+    // Step 4: 选择目标消息
+    if (payload.messageId !== manager.getCurrentMessage()) {
+      logger.debug(`Selecting restore target message: ${payload.messageId}`);
+      manager.selectMessage(payload.messageId);
+    }
+    
+    // Step 5: 处理恢复的数据
     if (!payload.items || payload.items.length === 0) {
-      logger.debug('No items to restore');
+      logger.debug('No items to restore, notifying historical empty result for empty state display');
+      // 通知历史请求无结果，以便 useDashboardData 显示空状态而非数据源统计 (Requirement 2.4)
+      manager.notifyHistoricalEmptyResult(payload.sessionId, payload.messageId);
       return;
     }
     
-    // 标记为恢复的数据
+    // Step 6: 标记为恢复的数据并更新管理器 (Requirement 2.2)
     const restoredItems: AnalysisResultItem[] = payload.items.map(item => ({
       ...item,
       source: 'restored' as ResultSource,
     }));
     
-    // 更新管理器
+    // 更新管理器 - 此时仪表盘只会显示恢复的数据
     manager.updateResults({
       sessionId: payload.sessionId,
       messageId: payload.messageId,
@@ -103,13 +135,7 @@ export function initAnalysisResultBridge(
       timestamp: Date.now(),
     });
     
-    // 同步会话和消息ID
-    if (payload.sessionId !== manager.getCurrentSession()) {
-      manager.switchSession(payload.sessionId);
-    }
-    if (payload.messageId !== manager.getCurrentMessage()) {
-      manager.selectMessage(payload.messageId);
-    }
+    logger.info(`Historical data restored successfully: ${restoredItems.length} items`);
   });
   unsubscribers.push(unsubscribeRestore);
   
