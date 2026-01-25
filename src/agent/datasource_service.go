@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/extrame/xls"
 	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
 	_ "github.com/go-sql-driver/mysql"
@@ -759,15 +760,37 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 }
 
 // ImportExcel processes an Excel file and stores it in SQLite
+// Supports both .xlsx (Excel 2007+) and .xls (Excel 97-2003) formats
 func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen func(string) (string, error)) (*DataSource, error) {
 	// 1. Validate file
 	if _, err := os.Stat(filePath); err != nil {
 		return nil, fmt.Errorf("file not found: %s", filePath)
 	}
 
-	// 2. Open Excel
+	// 2. Check file extension and route to appropriate handler
+	ext := strings.ToLower(filepath.Ext(filePath))
+	
+	switch ext {
+	case ".xls":
+		// Use xls library for old Excel format
+		return s.importXLS(name, filePath, headerGen)
+	case ".xlsx", ".xlsm":
+		// Use excelize for new Excel format
+		return s.importXLSX(name, filePath, headerGen)
+	default:
+		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件", ext)
+	}
+}
+
+// importXLSX processes .xlsx files using excelize library
+func (s *DataSourceService) importXLSX(name string, filePath string, headerGen func(string) (string, error)) (*DataSource, error) {
+	// Open Excel
 	f, err := excelize.OpenFile(filePath)
 	if err != nil {
+		// Provide more helpful error message
+		if strings.Contains(err.Error(), "unsupported workbook file format") {
+			return nil, fmt.Errorf("无法打开 Excel 文件：文件格式不受支持。请确保文件是有效的 .xlsx 格式（Excel 2007 或更高版本）")
+		}
 		return nil, fmt.Errorf("failed to open excel file: %v", err)
 	}
 	defer f.Close()
@@ -777,7 +800,7 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		return nil, fmt.Errorf("no sheets found in excel file")
 	}
 
-	// 3. Prepare Metadata
+	// Prepare Metadata
 	id := uuid.New().String()
 	relDBDir := filepath.Join("sources", id)
 	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
@@ -789,14 +812,14 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	// 4. Create SQLite DB
+	// Create SQLite DB
 	db, err := sql.Open("sqlite", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
 	defer db.Close()
 
-	// 5. Process Sheets
+	// Process Sheets
 	processedSheets := 0
 	var mainTableName string
 	usedTableNames := make(map[string]bool)
@@ -804,7 +827,6 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 	for _, sheetName := range sheetList {
 		rows, err := f.GetRows(sheetName)
 		if err != nil {
-			// Skip sheets we can't read? Or just log? For now skip.
 			continue
 		}
 		if len(rows) == 0 {
@@ -812,7 +834,6 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		}
 
 		tableName := s.sanitizeName(sheetName)
-		// Ensure unique table name
 		originalTableName := tableName
 		counter := 1
 		for usedTableNames[tableName] {
@@ -832,12 +853,11 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 	}
 
 	if processedSheets == 0 {
-		// Clean up
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("no valid data found in any sheet")
 	}
 
-	// 7. Save to Registry
+	// Save to Registry
 	ds := DataSource{
 		ID:        id,
 		Name:      name,
@@ -855,6 +875,147 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 	}
 
 	return &ds, nil
+}
+
+// importXLS processes .xls files (Excel 97-2003 format) using extrame/xls library
+func (s *DataSourceService) importXLS(name string, filePath string, headerGen func(string) (string, error)) (*DataSource, error) {
+	// Open XLS file
+	xlsFile, err := xls.Open(filePath, "utf-8")
+	if err != nil {
+		return nil, fmt.Errorf("无法打开 Excel 文件: %v", err)
+	}
+
+	if xlsFile.NumSheets() == 0 {
+		return nil, fmt.Errorf("Excel 文件中没有找到工作表")
+	}
+
+	// Prepare Metadata
+	id := uuid.New().String()
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	// Create SQLite DB
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Process Sheets
+	processedSheets := 0
+	var mainTableName string
+	usedTableNames := make(map[string]bool)
+
+	for i := 0; i < xlsFile.NumSheets(); i++ {
+		sheet := xlsFile.GetSheet(i)
+		if sheet == nil {
+			continue
+		}
+
+		sheetName := sheet.Name
+		if sheetName == "" {
+			sheetName = fmt.Sprintf("Sheet%d", i+1)
+		}
+
+		// Convert xls sheet to rows format
+		rows := s.xlsSheetToRows(sheet)
+		if len(rows) == 0 {
+			continue
+		}
+
+		tableName := s.sanitizeName(sheetName)
+		originalTableName := tableName
+		counter := 1
+		for usedTableNames[tableName] {
+			tableName = fmt.Sprintf("%s_%d", originalTableName, counter)
+			counter++
+		}
+		usedTableNames[tableName] = true
+
+		if processedSheets == 0 {
+			mainTableName = tableName
+		}
+
+		if err := s.processSheet(db, tableName, rows, headerGen); err != nil {
+			return nil, err
+		}
+		processedSheets++
+	}
+
+	if processedSheets == 0 {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("Excel 文件中没有找到有效数据")
+	}
+
+	// Save to Registry
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "excel",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			OriginalFile: filePath,
+			DBPath:       relDBPath,
+			TableName:    mainTableName,
+		},
+	}
+
+	if err := s.AddDataSource(ds); err != nil {
+		return nil, err
+	}
+
+	return &ds, nil
+}
+
+// xlsSheetToRows converts an xls.WorkSheet to [][]string format
+func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
+	if sheet == nil {
+		return nil
+	}
+
+	maxRow := int(sheet.MaxRow)
+	if maxRow == 0 {
+		return nil
+	}
+
+	var rows [][]string
+	
+	for rowIdx := 0; rowIdx <= maxRow; rowIdx++ {
+		row := sheet.Row(rowIdx)
+		if row == nil {
+			continue
+		}
+
+		var rowData []string
+		lastCol := row.LastCol()
+		
+		for colIdx := 0; colIdx <= lastCol; colIdx++ {
+			cell := row.Col(colIdx)
+			rowData = append(rowData, cell)
+		}
+
+		// Skip completely empty rows
+		hasData := false
+		for _, cell := range rowData {
+			if strings.TrimSpace(cell) != "" {
+				hasData = true
+				break
+			}
+		}
+		
+		if hasData {
+			rows = append(rows, rowData)
+		}
+	}
+
+	return rows
 }
 
 // ImportCSV processes a single CSV file or a directory of CSV files
@@ -2232,20 +2393,32 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 }
 
 // CreateOptimizedDatabase 创建优化后的数据库文件
+// 返回新数据库的完整路径和相对路径（用于存储在 DBPath 中）
 func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, newName string) (string, error) {
-	// 生成新的数据库文件路径
-	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("%s_%s.db", sanitizeFilename(newName), timestamp)
-	newDBPath := filepath.Join(s.dataCacheDir, filename)
+	// 生成新的数据源 ID
+	id := uuid.New().String()
+	
+	// 创建数据源目录：sources/{id}
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// 数据库文件名为 data.db
+	dbName := "data.db"
+	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// 创建空数据库
-	db, err := sql.Open("sqlite", newDBPath)
+	db, err := sql.Open("sqlite", absDBPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create database: %w", err)
 	}
 	db.Close()
 
-	return newDBPath, nil
+	s.log(fmt.Sprintf("[CreateOptimizedDatabase] Created database at: %s", absDBPath))
+
+	return absDBPath, nil
 }
 
 // SaveDataSource 保存单个数据源

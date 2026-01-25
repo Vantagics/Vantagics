@@ -222,30 +222,108 @@ func (s *PDFExportService) addMetrics(m core.Maroto, metrics []MetricData) {
 	m.AddRow(5)
 }
 
-// addInsights adds the insights section
+// addInsights adds the insights section with markdown support
 func (s *PDFExportService) addInsights(m core.Maroto, insights []string) {
-	m.AddRow(8,
+	m.AddRow(10,
 		col.New(12).Add(
 			text.New("智能洞察", props.Text{
 				Family: fontfamily.Arial,
-				Size:   12,
+				Size:   14,
 				Style:  fontstyle.Bold,
 			}),
 		),
 	)
 
-	for i, insight := range insights {
-		m.AddRow(8,
-			col.New(12).Add(
-				text.New(fmt.Sprintf("%d. %s", i+1, insight), props.Text{
-					Family: fontfamily.Arial,
-					Size:   9,
-				}),
-			),
-		)
+	for _, insight := range insights {
+		// Split insight into lines for markdown processing
+		lines := strings.Split(insight, "\n")
+		
+		for _, line := range lines {
+			// Skip empty lines
+			if strings.TrimSpace(line) == "" {
+				m.AddRow(3)
+				continue
+			}
+			
+			// Parse markdown formatting
+			textContent, style, fontSize := s.parseMarkdownForMaroto(line)
+			
+			m.AddRow(8,
+				col.New(12).Add(
+					text.New(textContent, props.Text{
+						Family: fontfamily.Arial,
+						Size:   fontSize,
+						Style:  style,
+					}),
+				),
+			)
+		}
+		
+		// Add spacing between insights
+		m.AddRow(4)
 	}
 
-	m.AddRow(5)
+	m.AddRow(6)
+}
+
+// parseMarkdownForMaroto parses markdown and returns text, style, and font size
+func (s *PDFExportService) parseMarkdownForMaroto(line string) (string, fontstyle.Type, float64) {
+	style := fontstyle.Normal
+	fontSize := 11.0
+	text := line
+	
+	// Check for headings (order matters - check longer prefixes first)
+	if strings.HasPrefix(line, "#### ") {
+		text = strings.TrimPrefix(line, "#### ")
+		style = fontstyle.Bold
+		fontSize = 11.0
+	} else if strings.HasPrefix(line, "### ") {
+		text = strings.TrimPrefix(line, "### ")
+		style = fontstyle.Bold
+		fontSize = 12.0
+	} else if strings.HasPrefix(line, "## ") {
+		text = strings.TrimPrefix(line, "## ")
+		style = fontstyle.Bold
+		fontSize = 13.0
+	} else if strings.HasPrefix(line, "# ") {
+		text = strings.TrimPrefix(line, "# ")
+		style = fontstyle.Bold
+		fontSize = 14.0
+	}
+	
+	// Check for list items
+	trimmed := strings.TrimLeft(line, " \t")
+	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
+		text = "• " + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
+	}
+	
+	// Strip inline bold markers (**text** or __text__)
+	text = s.stripMarkdownBoldMaroto(text)
+	
+	return text, style, fontSize
+}
+
+// stripMarkdownBoldMaroto removes ** and __ markers
+func (s *PDFExportService) stripMarkdownBoldMaroto(text string) string {
+	// Remove **bold** markers
+	for strings.Contains(text, "**") {
+		start := strings.Index(text, "**")
+		end := strings.Index(text[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		text = text[:start] + text[start+2:start+2+end] + text[start+2+end+2:]
+	}
+	// Remove __bold__ markers
+	for strings.Contains(text, "__") {
+		start := strings.Index(text, "__")
+		end := strings.Index(text[start+2:], "__")
+		if end == -1 {
+			break
+		}
+		text = text[:start] + text[start+2:start+2+end] + text[start+2+end+2:]
+	}
+	return text
 }
 
 // addCharts adds chart images
@@ -312,8 +390,8 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 		),
 	)
 
-	// Limit columns to fit page width (max 6 columns)
-	maxCols := 6
+	// Limit columns to fit page width (max 5 columns for better spacing)
+	maxCols := 5
 	if len(tableData.Columns) > maxCols {
 		tableData.Columns = tableData.Columns[:maxCols]
 	}
@@ -321,19 +399,19 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 	// Calculate column width
 	colWidth := 12 / len(tableData.Columns)
 
-	// Add table header
+	// Add table header - 增大字体和行高
 	headerCols := []core.Col{}
 	for _, column := range tableData.Columns {
 		headerCols = append(headerCols, col.New(colWidth).Add(
 			text.New(column.Title, props.Text{
 				Family: fontfamily.Arial,
-				Size:   8,
+				Size:   9, // 从8增加到9
 				Style:  fontstyle.Bold,
 				Align:  align.Center,
 			}),
 		))
 	}
-	m.AddRow(7, headerCols...)
+	m.AddRow(9, headerCols...) // 从7增加到9
 
 	// Add table rows (limit to 50 rows for PDF)
 	maxRows := 50
@@ -345,19 +423,23 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 		dataCols := []core.Col{}
 		for i := 0; i < len(tableData.Columns) && i < len(rowData); i++ {
 			cellValue := fmt.Sprintf("%v", rowData[i])
-			// Truncate long text
-			if len(cellValue) > 30 {
-				cellValue = cellValue[:27] + "..."
+			// 根据列宽动态调整截断长度
+			maxLen := 35 / len(tableData.Columns)
+			if maxLen < 15 {
+				maxLen = 15
+			}
+			if len(cellValue) > maxLen {
+				cellValue = cellValue[:maxLen-3] + "..."
 			}
 			dataCols = append(dataCols, col.New(colWidth).Add(
 				text.New(cellValue, props.Text{
 					Family: fontfamily.Arial,
-					Size:   7,
+					Size:   8, // 从7增加到8
 					Align:  align.Left,
 				}),
 			))
 		}
-		m.AddRow(6, dataCols...)
+		m.AddRow(7, dataCols...) // 从6增加到7
 	}
 
 	// Add note if data was truncated

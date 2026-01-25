@@ -74,10 +74,10 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	if hints != nil {
 		sb.WriteString("## 分析要求（基于请求理解）\n")
 		if hints.NeedsVisualization {
-			sb.WriteString("- ⭐ **必须生成可视化图表** (chart.png)\n")
+			sb.WriteString("- ⭐ **必须生成可视化图表** - 使用plt.savefig()保存到SESSION_DIR/chart.png\n")
 		}
 		if hints.NeedsDataExport {
-			sb.WriteString("- ⭐ **需要导出数据文件** (Excel/CSV)\n")
+			sb.WriteString("- ⭐ **必须导出数据文件** - 使用df.to_excel()保存到SESSION_DIR\n")
 		}
 		if len(hints.SuggestedOutputs) > 0 {
 			sb.WriteString(fmt.Sprintf("- 建议输出: %s\n", strings.Join(hints.SuggestedOutputs, ", ")))
@@ -92,37 +92,57 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	sb.WriteString("## 数据库信息\n")
 	sb.WriteString(fmt.Sprintf("- 数据库类型: %s\n", schemaContext.DatabaseType))
 	sb.WriteString("- 数据库路径: {DB_PATH} (运行时注入)\n")
-	sb.WriteString("- 会话目录: {SESSION_DIR} (运行时注入)\n\n")
+	sb.WriteString("- 文件保存目录: {FILES_DIR} (运行时注入，所有生成的文件必须保存到此目录)\n\n")
 
 	// Schema section
 	sb.WriteString("## 数据库Schema\n")
 	sb.WriteString(b.formatSchemaForPrompt(schemaContext))
 	sb.WriteString("\n")
 
-	// Code requirements section
-	sb.WriteString("## 代码要求\n")
+	// Code requirements section - 更强调文件保存
+	sb.WriteString("## 代码要求（必须严格遵守）\n")
 	sb.WriteString("1. 代码必须完整可执行，不需要任何修改\n")
 	sb.WriteString("2. 使用sqlite3连接数据库，pandas处理数据\n")
-	
-	// Visualization requirement based on hints
-	if hints != nil && hints.NeedsVisualization {
-		sb.WriteString("3. **必须生成可视化图表**，使用matplotlib/seaborn，保存为chart.png到SESSION_DIR\n")
-	} else {
-		sb.WriteString("3. **必须生成可视化图表**，使用matplotlib/seaborn，保存为chart.png到SESSION_DIR\n")
-	}
-	
+	sb.WriteString("3. **图表必须实际保存**: 使用 `plt.savefig(os.path.join(FILES_DIR, 'chart.png'), dpi=150)` 保存图表\n")
 	sb.WriteString("4. 所有输出使用中文（图表标题、标签、洞察）\n")
 	sb.WriteString("5. 包含完整的错误处理（try-except-finally）\n")
 	sb.WriteString("6. 在finally块中关闭数据库连接\n")
 	sb.WriteString("7. 使用print输出分析结果和关键洞察\n")
-	sb.WriteString("8. 数据库路径使用变量DB_PATH，会话目录使用变量SESSION_DIR\n")
+	sb.WriteString("8. 数据库路径使用变量DB_PATH，文件保存目录使用变量FILES_DIR\n")
 	sb.WriteString("9. 图表配置: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']\n")
 	
 	// Data export requirement based on hints
 	if hints != nil && hints.NeedsDataExport {
-		sb.WriteString("10. **导出数据到Excel文件**: 使用df.to_excel()保存到SESSION_DIR\n")
+		sb.WriteString("10. **数据必须实际导出**: 使用以下代码保存Excel:\n")
+		sb.WriteString("    ```python\n")
+		sb.WriteString("    export_path = os.path.join(FILES_DIR, 'analysis_data.xlsx')\n")
+		sb.WriteString("    df.to_excel(export_path, index=False, sheet_name='数据')\n")
+		sb.WriteString("    print(f'✅ 数据已导出: {export_path}')\n")
+		sb.WriteString("    ```\n")
 	}
 	sb.WriteString("\n")
+
+	// Critical warning about file generation
+	sb.WriteString("## ⚠️ 重要警告 - 文件保存\n")
+	sb.WriteString("**必须使用 FILES_DIR 变量保存所有文件，不要使用其他路径！**\n\n")
+	sb.WriteString("正确示例:\n")
+	sb.WriteString("```python\n")
+	sb.WriteString("# 在代码开头定义（会被自动替换为实际路径）\n")
+	sb.WriteString("FILES_DIR = \"{FILES_DIR}\"\n")
+	sb.WriteString("os.makedirs(FILES_DIR, exist_ok=True)  # 确保目录存在\n\n")
+	sb.WriteString("# 保存图表\n")
+	sb.WriteString("chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
+	sb.WriteString("plt.savefig(chart_path, dpi=150, bbox_inches='tight')\n")
+	sb.WriteString("print(f'✅ 图表已保存: {chart_path}')\n\n")
+	sb.WriteString("# 保存Excel\n")
+	sb.WriteString("excel_path = os.path.join(FILES_DIR, 'data.xlsx')\n")
+	sb.WriteString("df.to_excel(excel_path, index=False)\n")
+	sb.WriteString("print(f'✅ Excel已保存: {excel_path}')\n")
+	sb.WriteString("```\n\n")
+	sb.WriteString("**错误示例（不要这样做）:**\n")
+	sb.WriteString("- ❌ `plt.savefig('chart.png')` - 没有使用 FILES_DIR\n")
+	sb.WriteString("- ❌ `plt.savefig('/tmp/chart.png')` - 使用了硬编码路径\n")
+	sb.WriteString("- ❌ `df.to_excel('data.xlsx')` - 没有使用 FILES_DIR\n\n")
 
 	// Output format section
 	sb.WriteString("## 输出格式\n")
@@ -221,13 +241,16 @@ plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 import os
 
-# 数据库路径和会话目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入）
 DB_PATH = "{DB_PATH}"
-SESSION_DIR = "{SESSION_DIR}"
+FILES_DIR = "{FILES_DIR}"
 
 def main():
     conn = None
     try:
+        # 确保文件目录存在
+        os.makedirs(FILES_DIR, exist_ok=True)
+        
         # 1. 连接数据库
         conn = sqlite3.connect(DB_PATH)
         
@@ -270,13 +293,16 @@ plt.rcParams['axes.unicode_minus'] = False
 import seaborn as sns
 import os
 
-# 数据库路径和会话目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入）
 DB_PATH = "{DB_PATH}"
-SESSION_DIR = "{SESSION_DIR}"
+FILES_DIR = "{FILES_DIR}"
 
 def main():
     conn = None
     try:
+        # 确保文件目录存在
+        os.makedirs(FILES_DIR, exist_ok=True)
+        
         # 1. 连接数据库
         conn = sqlite3.connect(DB_PATH)
         
@@ -300,15 +326,20 @@ def main():
         plt.ylabel('Y轴标签')
         plt.tight_layout()
         
-        # 5. 保存图表
-        chart_path = os.path.join(SESSION_DIR, 'chart.png')
+        # 5. 【必须】保存图表到FILES_DIR
+        chart_path = os.path.join(FILES_DIR, 'chart.png')
         plt.savefig(chart_path, dpi=150, bbox_inches='tight')
         plt.close()
+        print(f"✅ 图表已保存: {chart_path}")
         
-        # 6. 输出结果
+        # 6. 【可选】导出数据到Excel
+        # export_path = os.path.join(FILES_DIR, 'data_export.xlsx')
+        # df.to_excel(export_path, index=False, sheet_name='分析数据')
+        # print(f"✅ 数据已导出: {export_path}")
+        
+        # 7. 输出分析结果
         print("=== 分析结果 ===")
         print(df.to_string())
-        print(f"\n图表已保存: {chart_path}")
         
     except sqlite3.Error as e:
         print(f"数据库错误: {e}")
@@ -333,13 +364,16 @@ plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 import os
 
-# 数据库路径和会话目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入）
 DB_PATH = "{DB_PATH}"
-SESSION_DIR = "{SESSION_DIR}"
+FILES_DIR = "{FILES_DIR}"
 
 def main():
     conn = None
     try:
+        # 确保文件目录存在
+        os.makedirs(FILES_DIR, exist_ok=True)
+        
         # 1. 连接数据库
         conn = sqlite3.connect(DB_PATH)
         
@@ -413,7 +447,25 @@ plt.ylabel('销售额')
 plt.xticks(rotation=45)
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig(os.path.join(SESSION_DIR, 'chart.png'), dpi=150)
+plt.savefig(os.path.join(FILES_DIR, 'chart.png'), dpi=150)
+print(f"✅ 图表已保存: {os.path.join(FILES_DIR, 'chart.png')}")
+`
+
+const excelExportExample = `# 示例：导出数据到Excel
+sql = """
+SELECT customer_name, order_date, product_name, quantity, amount
+FROM orders o
+JOIN customers c ON o.customer_id = c.id
+JOIN products p ON o.product_id = p.id
+ORDER BY order_date DESC
+"""
+df = pd.read_sql_query(sql, conn)
+
+# 保存到Excel文件
+export_path = os.path.join(FILES_DIR, 'order_details.xlsx')
+df.to_excel(export_path, index=False, sheet_name='订单明细')
+print(f"✅ 数据已导出到Excel: {export_path}")
+print(f"共导出 {len(df)} 条记录")
 `
 
 const aggregationExample = `# 示例：客户分析

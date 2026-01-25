@@ -73,8 +73,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         insights: dashboardData.insights.map(i => ({
             text: i.text,
             icon: i.icon || 'lightbulb',
-            data_source_id: i.dataSourceId,
-            source_name: i.sourceName
+            dataSourceId: i.dataSourceId,
+            sourceName: i.sourceName
         }))
     };
     
@@ -188,7 +188,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             setExportDropdownOpen(false);
             logger.debug('Starting PDF export...');
 
-            // 收集仪表盘数据
+            // 收集仪表盘数据 - 直接使用 dashboardData
             const exportData: any = {
                 userRequest: userRequestText || '',
                 metrics: [],
@@ -196,19 +196,19 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 chartImage: ''
             };
 
-            // 收集指标数据
-            if (data?.metrics && Array.isArray(data.metrics)) {
-                exportData.metrics = data.metrics.map((metric: any) => ({
+            // 收集指标数据 - 直接使用 dashboardData.metrics
+            if (dashboardData.hasMetrics) {
+                exportData.metrics = dashboardData.metrics.map((metric) => ({
                     title: metric.title || '',
                     value: metric.value || '',
                     change: metric.change || ''
                 }));
             }
 
-            // 收集洞察数据
-            if (data?.insights && Array.isArray(data.insights)) {
-                exportData.insights = data.insights.map((insight: any) =>
-                    insight.text || insight.toString()
+            // 收集洞察数据 - 直接使用 dashboardData.insights
+            if (dashboardData.hasInsights) {
+                exportData.insights = dashboardData.insights.map((insight) =>
+                    insight.text || ''
                 );
             }
 
@@ -263,21 +263,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 }
             }
 
-            // 收集chartData.charts中的所有image类型
-            if (activeChart?.chartData?.charts) {
-                for (const chart of activeChart.chartData.charts) {
-                    if (chart.type === 'image' && typeof chart.data === 'string' && chart.data.startsWith('data:image')) {
-                        chartImages.push(chart.data);
-                        logger.debug(`Added image from chartData, size: ${chart.data.length}`);
+            // 收集 dashboardData.images 中的所有图片
+            if (dashboardData.hasImages) {
+                for (const img of dashboardData.images) {
+                    if (typeof img === 'string' && img.startsWith('data:image') && !chartImages.includes(img)) {
+                        chartImages.push(img);
+                        logger.debug(`Added image from dashboardData, size: ${img.length}`);
                     }
-                }
-            }
-
-            // 也检查activeChart.data（直接图片）
-            if (activeChart?.type === 'image' && typeof activeChart.data === 'string' && activeChart.data.startsWith('data:image')) {
-                if (!chartImages.includes(activeChart.data)) {
-                    chartImages.push(activeChart.data);
-                    logger.debug(`Added direct image, size: ${activeChart.data.length}`);
                 }
             }
 
@@ -288,44 +280,28 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 exportData.chartImages = chartImages;
             }
 
-            // 收集表格数据
-            if (activeChart?.chartData?.charts) {
-                const tableCharts = activeChart.chartData.charts.filter(
-                    (chart: any) => chart.type === 'table'
-                );
-
-                if (tableCharts.length > 0) {
-                    const firstTable = tableCharts[0];
-                    try {
-                        let tableDataRaw = firstTable.data;
-
-                        if (typeof tableDataRaw === 'string') {
-                            tableDataRaw = tableDataRaw
-                                .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
-                                .replace(/,(\s*[}\]])/g, '$1');
-                            tableDataRaw = JSON.parse(tableDataRaw);
-                        }
-
-                        if (Array.isArray(tableDataRaw) && tableDataRaw.length > 0) {
-                            const columns = Object.keys(tableDataRaw[0]).map(key => ({
-                                title: key,
-                                dataType: 'string'
-                            }));
-
-                            const rows = tableDataRaw.map((row: any) =>
-                                Object.values(row).map(v => v === null || v === undefined ? '' : v)
-                            );
-
-                            exportData.tableData = {
-                                columns: columns,
-                                data: rows
-                            };
-
-                            logger.debug(`Table data extracted: ${columns.length} columns, ${rows.length} rows`);
-                        }
-                    } catch (e) {
-                        console.error('[DraggableDashboard] Failed to parse table data:', e);
-                    }
+            // 收集表格数据 - 直接使用 dashboardData.tableData
+            if (dashboardData.hasTables && dashboardData.tableData) {
+                const tableData = dashboardData.tableData;
+                
+                // tableData 已经是规范化格式 { columns: string[], rows: object[] }
+                if (tableData.columns && tableData.columns.length > 0 && tableData.rows && tableData.rows.length > 0) {
+                    const columns = tableData.columns.map(col => ({
+                        title: col,
+                        dataType: 'string'
+                    }));
+                    
+                    // 将 rows 对象数组转换为二维数组
+                    const rows = tableData.rows.map((row: Record<string, any>) =>
+                        tableData.columns.map(col => row[col] === null || row[col] === undefined ? '' : row[col])
+                    );
+                    
+                    exportData.tableData = {
+                        columns: columns,
+                        data: rows
+                    };
+                    
+                    logger.debug(`Table data extracted from dashboardData: ${columns.length} columns, ${rows.length} rows`);
                 }
             }
 
@@ -351,7 +327,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             setExportDropdownOpen(false);
             logger.debug('Starting PPT export...');
 
-            // 收集仪表盘数据（与PDF导出相同的逻辑）
+            // 收集仪表盘数据 - 直接使用 dashboardData
             const exportData: any = {
                 userRequest: userRequestText || '',
                 metrics: [],
@@ -359,19 +335,19 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 chartImage: ''
             };
 
-            // 收集指标数据
-            if (data?.metrics && Array.isArray(data.metrics)) {
-                exportData.metrics = data.metrics.map((metric: any) => ({
+            // 收集指标数据 - 直接使用 dashboardData.metrics
+            if (dashboardData.hasMetrics) {
+                exportData.metrics = dashboardData.metrics.map((metric) => ({
                     title: metric.title || '',
                     value: metric.value || '',
                     change: metric.change || ''
                 }));
             }
 
-            // 收集洞察数据
-            if (data?.insights && Array.isArray(data.insights)) {
-                exportData.insights = data.insights.map((insight: any) =>
-                    insight.text || insight.toString()
+            // 收集洞察数据 - 直接使用 dashboardData.insights
+            if (dashboardData.hasInsights) {
+                exportData.insights = dashboardData.insights.map((insight) =>
+                    insight.text || ''
                 );
             }
 
@@ -426,21 +402,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 }
             }
 
-            // 收集chartData.charts中的所有image类型
-            if (activeChart?.chartData?.charts) {
-                for (const chart of activeChart.chartData.charts) {
-                    if (chart.type === 'image' && typeof chart.data === 'string' && chart.data.startsWith('data:image')) {
-                        chartImages.push(chart.data);
-                        logger.debug(`Added image from chartData, size: ${chart.data.length}`);
+            // 收集 dashboardData.images 中的所有图片
+            if (dashboardData.hasImages) {
+                for (const img of dashboardData.images) {
+                    if (typeof img === 'string' && img.startsWith('data:image') && !chartImages.includes(img)) {
+                        chartImages.push(img);
+                        logger.debug(`Added image from dashboardData, size: ${img.length}`);
                     }
-                }
-            }
-
-            // 也检查activeChart.data（直接图片）
-            if (activeChart?.type === 'image' && typeof activeChart.data === 'string' && activeChart.data.startsWith('data:image')) {
-                if (!chartImages.includes(activeChart.data)) {
-                    chartImages.push(activeChart.data);
-                    logger.debug(`Added direct image, size: ${activeChart.data.length}`);
                 }
             }
 
@@ -451,44 +419,28 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 exportData.chartImages = chartImages;
             }
 
-            // 收集表格数据
-            if (activeChart?.chartData?.charts) {
-                const tableCharts = activeChart.chartData.charts.filter(
-                    (chart: any) => chart.type === 'table'
-                );
-
-                if (tableCharts.length > 0) {
-                    const firstTable = tableCharts[0];
-                    try {
-                        let tableDataRaw = firstTable.data;
-
-                        if (typeof tableDataRaw === 'string') {
-                            tableDataRaw = tableDataRaw
-                                .replace(/,?\s*"?formatter"?\s*:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, '')
-                                .replace(/,(\s*[}\]])/g, '$1');
-                            tableDataRaw = JSON.parse(tableDataRaw);
-                        }
-
-                        if (Array.isArray(tableDataRaw) && tableDataRaw.length > 0) {
-                            const columns = Object.keys(tableDataRaw[0]).map(key => ({
-                                title: key,
-                                dataType: 'string'
-                            }));
-
-                            const rows = tableDataRaw.map((row: any) =>
-                                Object.values(row).map(v => v === null || v === undefined ? '' : v)
-                            );
-
-                            exportData.tableData = {
-                                columns: columns,
-                                data: rows
-                            };
-
-                            logger.debug(`Table data extracted: ${columns.length} columns, ${rows.length} rows`);
-                        }
-                    } catch (e) {
-                        console.error('[DraggableDashboard] Failed to parse table data:', e);
-                    }
+            // 收集表格数据 - 直接使用 dashboardData.tableData
+            if (dashboardData.hasTables && dashboardData.tableData) {
+                const tableData = dashboardData.tableData;
+                
+                // tableData 已经是规范化格式 { columns: string[], rows: object[] }
+                if (tableData.columns && tableData.columns.length > 0 && tableData.rows && tableData.rows.length > 0) {
+                    const columns = tableData.columns.map(col => ({
+                        title: col,
+                        dataType: 'string'
+                    }));
+                    
+                    // 将 rows 对象数组转换为二维数组
+                    const rows = tableData.rows.map((row: Record<string, any>) =>
+                        tableData.columns.map(col => row[col] === null || row[col] === undefined ? '' : row[col])
+                    );
+                    
+                    exportData.tableData = {
+                        columns: columns,
+                        data: rows
+                    };
+                    
+                    logger.debug(`Table data extracted from dashboardData: ${columns.length} columns, ${rows.length} rows`);
                 }
             }
 
@@ -532,12 +484,23 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     // 点击洞察项，传递到父组件处理
     // 不清空当前显示数据，保持仪表盘内容稳定
     const handleInsightClick = (insight: any) => {
+        const isDataSourceInsight = insight.dataSourceId && insight.dataSourceId !== '';
+        logger.warn(`[InsightClick] dsId=${insight.dataSourceId}, isDS=${isDataSourceInsight}`);
+        
+        if (isDataSourceInsight) {
+            logger.warn(`[InsightClick] onInsightClick defined: ${!!onInsightClick}`);
+            if (onInsightClick) {
+                logger.warn(`[InsightClick] Calling onInsightClick...`);
+                onInsightClick(insight);
+                logger.warn(`[InsightClick] onInsightClick called`);
+            }
+            return;
+        }
+        
         // 优先使用回调函数，由父组件统一管理分析请求
-        // 传递完整的洞察对象，包含 data_source_id 等信息
         if (onInsightClick) {
             onInsightClick(insight);
         } else if (activeThreadId) {
-            // 降级方案：直接通过事件发送分析请求
             const insightText = typeof insight === 'string' ? insight : insight.text;
             EventsEmit('chat-send-message-in-session', {
                 text: `请深入分析：${insightText}`,
@@ -662,58 +625,22 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
 
     // 检查某种类型的组件是否有数据
+    // 直接使用 dashboardData 而不是 activeChart，确保所有数据类型都能正确检测
     const hasDataForType = (type: string): boolean => {
         switch (type) {
             case 'metric':
-                return !!(data?.metrics && Array.isArray(data.metrics) && data.metrics.length > 0);
+                return dashboardData.hasMetrics;
             case 'insight':
-                return !!(data?.insights && Array.isArray(data.insights) && data.insights.length > 0);
+                return dashboardData.hasInsights;
             case 'chart':
-                // 图表组件：只有当 activeChart 是 echarts 类型时才显示
-                return !!(activeChart?.type === 'echarts' && activeChart?.data);
+                // 图表组件：检查是否有 ECharts 数据
+                return dashboardData.hasECharts;
             case 'table':
-                // 表格数据：检查多种来源
-                // 调试日志
-                import('../utils/systemLog').then(({ SystemLog }) => {
-                    SystemLog.debug('DraggableDashboard', `[hasDataForType:table] activeChart?.type: ${activeChart?.type}`);
-                    SystemLog.debug('DraggableDashboard', `[hasDataForType:table] activeChart?.data type: ${typeof activeChart?.data}, isArray: ${Array.isArray(activeChart?.data)}`);
-                    if (Array.isArray(activeChart?.data)) {
-                        SystemLog.debug('DraggableDashboard', `[hasDataForType:table] activeChart?.data length: ${activeChart?.data?.length}`);
-                    }
-                });
-                
-                // 1. activeChart.type === 'table' 或 'csv'，data可以是数组或字符串
-                if ((activeChart?.type === 'table' || activeChart?.type === 'csv') && activeChart?.data) {
-                    // 检查data是否有效（数组或非空字符串）
-                    if (Array.isArray(activeChart.data) && activeChart.data.length > 0) {
-                        return true;
-                    }
-                    if (typeof activeChart.data === 'string' && activeChart.data.length > 0) {
-                        return true;
-                    }
-                }
-                // 2. chartData.charts 数组中有 table 类型
-                if (activeChart?.chartData?.charts) {
-                    const hasTableChart = activeChart.chartData.charts.some(
-                        (chart: any) => chart.type === 'table' && chart.data
-                    );
-                    if (hasTableChart) return true;
-                }
-                return false;
+                // 表格数据：直接使用 dashboardData.hasTables
+                return dashboardData.hasTables;
             case 'image':
-                // 图片组件：检查多种来源
-                // 1. activeChart.type === 'image'
-                if (activeChart?.type === 'image' && activeChart?.data) {
-                    return true;
-                }
-                // 2. chartData.charts 数组中有 image 类型
-                if (activeChart?.chartData?.charts) {
-                    const hasImageChart = activeChart.chartData.charts.some(
-                        (chart: any) => chart.type === 'image' && chart.data
-                    );
-                    if (hasImageChart) return true;
-                }
-                return false;
+                // 图片组件：直接使用 dashboardData.hasImages
+                return dashboardData.hasImages;
             case 'file_download':
                 // 文件下载：只显示与当前选中消息关联的文件
                 if (!sessionFiles || sessionFiles.length === 0 || !selectedMessageId) return false;
@@ -1172,18 +1099,31 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {insights.map((insight: any, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 rounded-lg p-3 border border-purple-100 cursor-pointer hover:bg-purple-100 hover:border-purple-300 hover:shadow-md transition-all group"
-                            onClick={() => handleInsightClick(insight)}
-                            title="点击深入分析此洞察"
+                            className="bg-purple-50 rounded-lg p-3 border border-purple-100"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
                                 icon={insight.icon || 'lightbulb'}
+                                threadId={activeThreadId || undefined}
+                                onClick={() => {
+                                    const dsId = insight.dataSourceId;
+                                    const dsName = insight.sourceName || '';
+                                    logger.warn(`[onClick1] dsId=${dsId}, dsName=${dsName}`);
+                                    if (dsId) {
+                                        // 使用与手工"开始新分析"相同的流程
+                                        logger.warn(`[onClick1] Emitting start-new-chat event...`);
+                                        EventsEmit('start-new-chat', {
+                                            dataSourceId: dsId,
+                                            dataSourceName: dsName,
+                                            sessionName: `分析: ${dsName}`,
+                                            keepChatOpen: true
+                                        });
+                                        logger.warn(`[onClick1] Event emitted`);
+                                    } else if (onInsightClick) {
+                                        onInsightClick(insight);
+                                    }
+                                }}
                             />
-                            <div className="mt-2 text-xs text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                <span>🔍</span>
-                                <span>点击深入分析</span>
-                            </div>
                         </div>
                     ))}
                 </div>
@@ -1211,6 +1151,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             <SmartInsight
                                 text={item.data?.text || ''}
                                 icon={item.data?.icon || 'lightbulb'}
+                                threadId={activeThreadId || undefined}
                             />
                         );
                     }
@@ -1250,7 +1191,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             >
                                 <img 
                                     src={item.data.data} 
-                                    alt="Chart" 
+                                    alt={t('chart_image')} 
                                     className="w-full h-full object-contain"
                                 />
                                 <div className="absolute top-2 right-2 opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
@@ -1420,13 +1361,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
         // 渲染多个指标（4列自动排布）
         const renderMetricsGrid = () => {
-            if (!data?.metrics || !Array.isArray(data.metrics) || data.metrics.length === 0) {
+            if (!dashboardData.hasMetrics || dashboardData.metrics.length === 0) {
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无指标数据</div>;
             }
-            const metrics = data.metrics;
+            const metrics = dashboardData.metrics;
             return (
                 <div className="grid grid-cols-4 gap-2 p-2">
-                    {metrics.map((metric: any, idx: number) => (
+                    {metrics.map((metric, idx: number) => (
                         <div key={idx} className="bg-blue-50 rounded-lg border border-blue-100">
                             <MetricCard
                                 title={metric.title || ''}
@@ -1441,27 +1382,40 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
         // 渲染多个洞察（3列自动排布）- 可点击发起分析
         const renderInsightsGrid = () => {
-            if (!data?.insights || !Array.isArray(data.insights) || data.insights.length === 0) {
+            if (!dashboardData.hasInsights || dashboardData.insights.length === 0) {
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无洞察数据</div>;
             }
-            const insights = data.insights;
+            const insights = dashboardData.insights;
             return (
                 <div className="grid grid-cols-3 gap-2 p-2">
-                    {insights.map((insight: any, idx: number) => (
+                    {insights.map((insight, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 rounded-lg p-3 border border-purple-100 cursor-pointer hover:bg-purple-100 hover:border-purple-300 hover:shadow-md transition-all group"
-                            onClick={() => handleInsightClick(insight)}
-                            title="点击深入分析此洞察"
+                            className="bg-purple-50 rounded-lg p-3 border border-purple-100"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
                                 icon={insight.icon || 'lightbulb'}
+                                threadId={activeThreadId || undefined}
+                                onClick={() => {
+                                    const dsId = insight.dataSourceId;
+                                    const dsName = insight.sourceName || '';
+                                    logger.warn(`[onClick2] dsId=${dsId}, dsName=${dsName}`);
+                                    if (dsId) {
+                                        // 使用与手工"开始新分析"相同的流程
+                                        logger.warn(`[onClick2] Emitting start-new-chat event...`);
+                                        EventsEmit('start-new-chat', {
+                                            dataSourceId: dsId,
+                                            dataSourceName: dsName,
+                                            sessionName: `分析: ${dsName}`,
+                                            keepChatOpen: true
+                                        });
+                                        logger.warn(`[onClick2] Event emitted`);
+                                    } else if (onInsightClick) {
+                                        onInsightClick(insight);
+                                    }
+                                }}
                             />
-                            <div className="mt-2 text-xs text-purple-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                <span>🔍</span>
-                                <span>点击深入分析</span>
-                            </div>
                         </div>
                     ))}
                 </div>
@@ -1470,123 +1424,54 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
         // 渲染图表
         const renderChart = () => {
-            if (!activeChart) {
+            // 直接使用 dashboardData 中的 ECharts 数据
+            if (!dashboardData.hasECharts || !dashboardData.echartsData) {
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无图表数据</div>;
             }
-            if (activeChart.type === 'echarts' && typeof activeChart.data === 'string') {
-                try {
-                    const options = JSON.parse(activeChart.data);
-                    return (
-                        <div 
-                            className="cursor-zoom-in group relative"
-                            onDoubleClick={handleChartDoubleClick}
-                            title="双击放大查看"
-                        >
-                            <Chart options={options} height="300px" />
-                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                                双击放大
-                            </div>
-                        </div>
-                    );
-                } catch (e) {
-                    return <div className="text-red-500 p-4">图表解析错误</div>;
-                }
-            } else if (activeChart.type === 'image') {
+            
+            try {
+                // dashboardData.echartsData 已经是解析后的对象
+                const options = typeof dashboardData.echartsData === 'string' 
+                    ? JSON.parse(dashboardData.echartsData) 
+                    : dashboardData.echartsData;
+                    
                 return (
                     <div 
                         className="cursor-zoom-in group relative"
-                        onDoubleClick={() => handleImageDoubleClick(activeChart.data)}
+                        onDoubleClick={() => {
+                            setModalChartOptions(options);
+                            setChartModalOpen(true);
+                        }}
                         title="双击放大查看"
                     >
-                        <img src={activeChart.data} alt="Chart" className="w-full object-contain max-h-96" />
+                        <Chart options={options} height="300px" />
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
                             双击放大
                         </div>
                     </div>
                 );
+            } catch (e) {
+                console.error('Failed to render chart:', e);
+                return <div className="text-red-500 p-4">图表解析错误</div>;
             }
-            return null;
         };
 
         // 渲染表格
         const renderTable = () => {
-            // 使用系统日志调试
-            import('../utils/systemLog').then(({ SystemLog }) => {
-                SystemLog.debug('DraggableDashboard', `[renderTable] activeChart: ${JSON.stringify(activeChart ? { type: activeChart.type, hasData: !!activeChart.data, hasChartData: !!activeChart.chartData } : null)}`);
-                SystemLog.debug('DraggableDashboard', `[renderTable] activeChart?.chartData?.charts: ${JSON.stringify(activeChart?.chartData?.charts?.map((c: any) => ({ type: c.type, hasData: !!c.data })))}`);
-            });
-            
-            // 从activeChart.chartData.charts中提取表格数据
-            let tableData: any[] = [];
-            
-            if (activeChart?.chartData?.charts) {
-                // 查找所有table类型的图表
-                const tableCharts = activeChart.chartData.charts.filter(
-                    (chart: any) => chart.type === 'table'
-                );
-                
-                import('../utils/systemLog').then(({ SystemLog }) => {
-                    SystemLog.debug('DraggableDashboard', `[renderTable] tableCharts found: ${tableCharts.length}`);
-                });
-                
-                if (tableCharts.length > 0 && tableCharts[0].data) {
-                    // 使用第一个表格的数据
-                    const firstTableData = tableCharts[0].data;
-                    
-                    import('../utils/systemLog').then(({ SystemLog }) => {
-                        SystemLog.debug('DraggableDashboard', `[renderTable] firstTableData type: ${typeof firstTableData}, preview: ${typeof firstTableData === 'string' ? firstTableData.substring(0, 100) : 'array'}`);
-                    });
-                    
-                    if (typeof firstTableData === 'string') {
-                        try {
-                            tableData = JSON.parse(firstTableData);
-                        } catch (e) {
-                            console.error('[renderTable] Failed to parse table data:', e);
-                        }
-                    } else if (Array.isArray(firstTableData)) {
-                        tableData = firstTableData;
-                    }
-                }
-            }
-            
-            // 兼容旧格式：直接从activeChart.data获取
-            if (tableData.length === 0 && activeChart?.type === 'table' && activeChart?.data) {
-                import('../utils/systemLog').then(({ SystemLog }) => {
-                    SystemLog.debug('DraggableDashboard', `[renderTable] Trying old format - activeChart.type: ${activeChart.type}`);
-                });
-                if (typeof activeChart.data === 'string') {
-                    try {
-                        tableData = JSON.parse(activeChart.data);
-                    } catch (e) {
-                        console.error('Failed to parse table data:', e);
-                    }
-                } else if (Array.isArray(activeChart.data)) {
-                    tableData = activeChart.data;
-                }
-            }
-            
-            // 兼容CSV类型
-            if (tableData.length === 0 && activeChart?.type === 'csv' && activeChart?.data) {
-                if (typeof activeChart.data === 'string') {
-                    try {
-                        tableData = JSON.parse(activeChart.data);
-                    } catch (e) {
-                        console.error('Failed to parse CSV data:', e);
-                    }
-                } else if (Array.isArray(activeChart.data)) {
-                    tableData = activeChart.data;
-                }
-            }
-            
-            // 如果item.data有数据，也使用它（兼容性）
-            if (tableData.length === 0 && Array.isArray(item.data) && item.data.length > 0) {
-                tableData = item.data;
-            }
-            
-            if (tableData.length === 0) {
+            // 直接使用 dashboardData 中的表格数据
+            if (!dashboardData.hasTables || !dashboardData.tableData) {
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无表格数据</div>;
             }
-            return <DataTable data={tableData} />;
+            
+            // dashboardData.tableData 已经是规范化的格式 { columns, rows }
+            const tableData = dashboardData.tableData;
+            
+            // DataTable 组件期望的是行数组格式
+            if (tableData.rows && tableData.rows.length > 0) {
+                return <DataTable data={tableData.rows} />;
+            }
+            
+            return <div className="p-4 text-center text-slate-400 text-sm">暂无表格数据</div>;
         };
 
         // 渲染文件下载 - 带预览图和下载功能
@@ -1682,22 +1567,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 case 'chart': return renderChart();
                 case 'table': return renderTable();
                 case 'image': {
-                    // 收集所有图片
-                    const images: string[] = [];
-                    
-                    // 从chartData.charts中提取所有image类型的图片
-                    if (activeChart?.chartData?.charts) {
-                        for (const chart of activeChart.chartData.charts) {
-                            if (chart.type === 'image' && typeof chart.data === 'string' && chart.data.startsWith('data:image')) {
-                                images.push(chart.data);
-                            }
-                        }
-                    }
-                    
-                    // 如果没有从charts数组中找到，尝试使用activeChart.data（兼容旧格式）
-                    if (images.length === 0 && activeChart?.type === 'image' && typeof activeChart.data === 'string') {
-                        images.push(activeChart.data);
-                    }
+                    // 直接使用 dashboardData.images
+                    const images = dashboardData.images;
                     
                     if (images.length === 0) {
                         return <div className="p-4 text-center text-slate-400 text-sm">暂无图片</div>;
@@ -1894,48 +1765,49 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         </div>
                     </div>
 
-                    {/* 右侧：数据导出按钮 */}
+                    {/* 右侧：数据导出按钮 - 始终显示，无内容时禁用 */}
                     <div className="flex items-center gap-2">
-                        {hasExportableContent() && (
-                            <div className="relative export-dropdown-container">
-                                <button
-                                    onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
-                                    className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
-                                        bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100"
-                                    title="导出仪表盘数据"
-                                >
-                                    <Download size={14} />
-                                    <span>导出</span>
-                                </button>
+                        <div className="relative export-dropdown-container">
+                            <button
+                                onClick={() => hasExportableContent() && setExportDropdownOpen(!exportDropdownOpen)}
+                                disabled={!hasExportableContent()}
+                                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
+                                    ${hasExportableContent() 
+                                        ? 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100 cursor-pointer' 
+                                        : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'}`}
+                                title={hasExportableContent() ? "导出仪表盘数据" : "暂无可导出的内容"}
+                            >
+                                <Download size={14} />
+                                <span>导出</span>
+                            </button>
 
-                                {/* 导出下拉菜单 */}
-                                {exportDropdownOpen && (
-                                    <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
-                                        <button
-                                            onClick={exportAsPDF}
-                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                        >
-                                            <FileImage size={16} className="text-red-600" />
-                                            <span>导出为 PDF</span>
-                                        </button>
-                                        <button
-                                            onClick={exportAsPPT}
-                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                        >
-                                            <Presentation size={16} className="text-orange-600" />
-                                            <span>导出为 PPT</span>
-                                        </button>
-                                        <button
-                                            onClick={exportDataFiles}
-                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                        >
-                                            <Download size={16} className="text-green-600" />
-                                            <span>导出数据文件</span>
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                            {/* 导出下拉菜单 */}
+                            {exportDropdownOpen && hasExportableContent() && (
+                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
+                                    <button
+                                        onClick={exportAsPDF}
+                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                    >
+                                        <FileImage size={16} className="text-red-600" />
+                                        <span>导出为 PDF</span>
+                                    </button>
+                                    <button
+                                        onClick={exportAsPPT}
+                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                    >
+                                        <Presentation size={16} className="text-orange-600" />
+                                        <span>导出为 PPT</span>
+                                    </button>
+                                    <button
+                                        onClick={exportDataFiles}
+                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                    >
+                                        <Download size={16} className="text-green-600" />
+                                        <span>导出数据文件</span>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

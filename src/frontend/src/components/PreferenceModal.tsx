@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateRapidBIEnvironment, CheckRapidBIEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateRapidBIEnvironment, CheckRapidBIEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
 import MCPServiceModal from './MCPServiceModal';
-import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin } from 'lucide-react';
+import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin, Archive } from 'lucide-react';
 import { countries, getCityDisplayName, getCountryDisplayName, City, Country } from '../data/cities';
 
 type Tab = 'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent';
@@ -76,6 +76,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     const [editingMcpService, setEditingMcpService] = useState<MCPService | null>(null);
     const [testingSearchAPI, setTestingSearchAPI] = useState<string | null>(null); // Track which API is being tested
     const [searchAPITestResults, setSearchAPITestResults] = useState<{ [key: string]: { success: boolean; message: string } | null }>({});
+    const [logStats, setLogStats] = useState<{ totalSizeMB: number; logCount: number; archiveCount: number; logDir: string } | null>(null);
+    const [isCleaningLogs, setIsCleaningLogs] = useState(false);
 
     // Helper function to update config while maintaining Config class instance
     const updateConfig = (updates: Partial<configModel.Config>) => {
@@ -94,10 +96,39 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     data.activeSearchAPI = '';
                 }
                 setConfig(data);
+                // Always load log stats
+                loadLogStats();
             }).catch(console.error);
             setTestResult(null);
         }
     }, [isOpen]);
+
+    // Load log statistics
+    const loadLogStats = async () => {
+        try {
+            const stats = await GetLogStats();
+            setLogStats(stats);
+        } catch (err) {
+            console.error('Failed to get log stats:', err);
+            setLogStats(null);
+        }
+    };
+
+    // Handle log cleanup
+    const handleCleanupLogs = async () => {
+        setIsCleaningLogs(true);
+        try {
+            await CleanupLogs();
+            setToast({ message: t('log_cleanup_success'), type: 'success' });
+            // Reload stats after cleanup
+            await loadLogStats();
+        } catch (err) {
+            console.error('Failed to cleanup logs:', err);
+            setToast({ message: t('log_cleanup_error') + ': ' + err, type: 'error' });
+        } finally {
+            setIsCleaningLogs(false);
+        }
+    };
 
     const handleSave = async () => {
         try {
@@ -414,6 +445,65 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         />
                                     </div>
                                     
+                                    {/* Log Management - Independent of detailed log setting */}
+                                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-sm font-medium text-slate-700">{t('log_stats')}</span>
+                                            <button
+                                                onClick={loadLogStats}
+                                                className="text-xs text-blue-600 hover:text-blue-800"
+                                            >
+                                                <RefreshCw className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                        {logStats ? (
+                                            <div className="space-y-1 text-xs text-slate-600">
+                                                <div className="flex justify-between">
+                                                    <span>{t('log_stats_total')}:</span>
+                                                    <span className="font-medium">{logStats.totalSizeMB.toFixed(2)} MB</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>{t('log_stats_logs')}:</span>
+                                                    <span className="font-medium">{logStats.logCount}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span>{t('log_stats_archives')}:</span>
+                                                    <span className="font-medium">{logStats.archiveCount}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-slate-500 italic">Loading...</p>
+                                        )}
+                                        
+                                        <div className="mt-3 pt-3 border-t border-slate-200">
+                                            <label htmlFor="logMaxSizeMB" className="block text-xs font-medium text-slate-600 mb-1">{t('log_max_size')}</label>
+                                            <input
+                                                id="logMaxSizeMB"
+                                                type="number"
+                                                value={config.logMaxSizeMB || 100}
+                                                onChange={(e) => updateConfig({ logMaxSizeMB: parseInt(e.target.value) || 100 })}
+                                                className="w-full border border-slate-300 rounded-md p-1.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                min="1"
+                                                max="10000"
+                                            />
+                                            <p className="mt-1 text-[10px] text-slate-400 italic">
+                                                {t('log_max_size_desc')}
+                                            </p>
+                                        </div>
+                                        
+                                        <button
+                                            onClick={handleCleanupLogs}
+                                            disabled={isCleaningLogs}
+                                            className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <Archive className="w-3 h-3" />
+                                            {isCleaningLogs ? 'Cleaning...' : t('log_cleanup')}
+                                        </button>
+                                        <p className="mt-1 text-[10px] text-slate-400 italic">
+                                            {t('log_cleanup_desc')}
+                                        </p>
+                                    </div>
+                                    
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">{t('language')}</label>
                                         <select
@@ -478,7 +568,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         </p>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('country') || '国家'}</label>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('country') || '国家或地区'}</label>
                                                 <select
                                                     value={config.location?.country || ''}
                                                     onChange={(e) => {
@@ -494,7 +584,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                     }}
                                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 >
-                                                    <option value="">{t('select_country') || '选择国家'}</option>
+                                                    <option value="">{t('select_country') || '选择国家或地区'}</option>
                                                     {countries.map(country => (
                                                         <option key={country.code} value={country.nameEn}>
                                                             {getCountryDisplayName(country, config.language === '简体中文' ? 'zh' : 'en')}

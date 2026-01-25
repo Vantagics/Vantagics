@@ -74,11 +74,39 @@ type pythonInput struct {
 func (t *PythonExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "python_executor",
-		Desc: "Execute Python code for data analysis or visualization. Use pandas for data and matplotlib/seaborn for charts. Always save any generated plots as 'chart.png' in the current working directory. The tool returns stdout/stderr and will automatically detect 'chart.png'.",
+		Desc: `Execute Python code for data analysis or visualization.
+
+**IMPORTANT - File Saving:**
+- Use FILES_DIR variable for saving files (it will be automatically injected)
+- Charts: plt.savefig(os.path.join(FILES_DIR, 'chart.png'), dpi=150)
+- Excel: df.to_excel(os.path.join(FILES_DIR, 'data.xlsx'), index=False)
+- CSV: df.to_csv(os.path.join(FILES_DIR, 'data.csv'), index=False)
+
+**Code Template:**
+` + "```python" + `
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+matplotlib.use('Agg')
+
+FILES_DIR = ""  # Will be injected automatically
+
+# Ensure directory exists
+os.makedirs(FILES_DIR, exist_ok=True)
+
+# Your analysis code here...
+
+# Save chart
+chart_path = os.path.join(FILES_DIR, 'chart.png')
+plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+print(f"✅ Chart saved: {chart_path}")
+` + "```" + `
+
+The tool returns stdout/stderr and will automatically detect generated files.`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"code": {
 				Type:     schema.String,
-				Desc:     "The Python code to execute. Must be valid Python 3 code.",
+				Desc:     "The Python code to execute. Must be valid Python 3 code. Use FILES_DIR for file paths.",
 				Required: true,
 			},
 		}),
@@ -125,6 +153,34 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 		}
 		return fmt.Sprintf("❌ Error: Invalid input format: %v\n\nInput received (first 500 chars):\n%s\n\n💡 Please provide valid JSON with a 'code' field containing Python code.", err, truncated), nil
 	}
+
+	// Inject FILES_DIR and SESSION_DIR into the code if it contains placeholders
+	code := in.Code
+	if t.sessionDir != "" {
+		sessionDirNormalized := strings.ReplaceAll(t.sessionDir, "\\", "/")
+		filesDir := sessionDirNormalized + "/files"
+		
+		// Replace FILES_DIR placeholders
+		code = strings.ReplaceAll(code, `"{FILES_DIR}"`, fmt.Sprintf(`"%s"`, filesDir))
+		code = strings.ReplaceAll(code, `'{FILES_DIR}'`, fmt.Sprintf(`'%s'`, filesDir))
+		code = strings.ReplaceAll(code, `{FILES_DIR}`, fmt.Sprintf(`"%s"`, filesDir))
+		code = strings.ReplaceAll(code, `FILES_DIR = ""`, fmt.Sprintf(`FILES_DIR = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `FILES_DIR = ''`, fmt.Sprintf(`FILES_DIR = '%s'`, filesDir))
+		code = strings.ReplaceAll(code, `FILES_DIR = None`, fmt.Sprintf(`FILES_DIR = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `files_dir = ""`, fmt.Sprintf(`files_dir = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `files_dir = ''`, fmt.Sprintf(`files_dir = '%s'`, filesDir))
+		
+		// Replace SESSION_DIR placeholders (also map to files dir for backward compatibility)
+		code = strings.ReplaceAll(code, `"{SESSION_DIR}"`, fmt.Sprintf(`"%s"`, filesDir))
+		code = strings.ReplaceAll(code, `'{SESSION_DIR}'`, fmt.Sprintf(`'%s'`, filesDir))
+		code = strings.ReplaceAll(code, `{SESSION_DIR}`, fmt.Sprintf(`"%s"`, filesDir))
+		code = strings.ReplaceAll(code, `SESSION_DIR = ""`, fmt.Sprintf(`SESSION_DIR = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `SESSION_DIR = ''`, fmt.Sprintf(`SESSION_DIR = '%s'`, filesDir))
+		code = strings.ReplaceAll(code, `SESSION_DIR = None`, fmt.Sprintf(`SESSION_DIR = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `session_dir = ""`, fmt.Sprintf(`session_dir = "%s"`, filesDir))
+		code = strings.ReplaceAll(code, `session_dir = ''`, fmt.Sprintf(`session_dir = '%s'`, filesDir))
+	}
+	in.Code = code
 
 	if t.cfg.PythonPath == "" {
 		return "❌ Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil

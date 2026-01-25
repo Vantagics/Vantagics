@@ -34,6 +34,10 @@ export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
 
+export function CleanupLogs() {
+  return window['go']['main']['App']['CleanupLogs']();
+}
+
 export function ClearHistory() {
   return window['go']['main']['App']['ClearHistory']();
 }
@@ -112,6 +116,10 @@ export function ExportDashboardToPDF(arg1) {
 
 export function ExportDashboardToPPT(arg1) {
   return window['go']['main']['App']['ExportDashboardToPPT'](arg1);
+}
+
+export function ExportMessageToPDF(arg1, arg2) {
+  return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
 }
 
 export function ExportSessionFilesToZip(arg1, arg2) {
@@ -198,6 +206,10 @@ export function GetDashboardData() {
   return window['go']['main']['App']['GetDashboardData']();
 }
 
+export function GetDataSourceStatistics() {
+  return window['go']['main']['App']['GetDataSourceStatistics']();
+}
+
 export function GetDataSourceTableCount(arg1, arg2) {
   return window['go']['main']['App']['GetDataSourceTableCount'](arg1, arg2);
 }
@@ -228,6 +240,10 @@ export function GetErrorKnowledgeSummary() {
 
 export function GetFilesByCategory(arg1) {
   return window['go']['main']['App']['GetFilesByCategory'](arg1);
+}
+
+export function GetLogStats() {
+  return window['go']['main']['App']['GetLogStats']();
 }
 
 export function GetMessageAnalysisData(arg1, arg2) {
@@ -432,6 +448,10 @@ export function ShowAbout() {
 
 export function ShowMessage(arg1, arg2, arg3) {
   return window['go']['main']['App']['ShowMessage'](arg1, arg2, arg3);
+}
+
+export function StartDataSourceAnalysis(arg1) {
+  return window['go']['main']['App']['StartDataSourceAnalysis'](arg1);
 }
 
 export function TestLLMConnection(arg1) {

@@ -8,12 +8,12 @@ require (
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/cloudwego/eino v0.7.18
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.7
+	github.com/extrame/xls v0.0.1
 	github.com/getlantern/systray v1.2.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto/v2 v2.3.3
 	github.com/jung-kurt/gofpdf v1.16.2
-	github.com/leanovate/gopter v0.2.11
 	github.com/signintech/gopdf v0.35.0
 	github.com/unidoc/unioffice v1.39.0
 	github.com/wailsapp/wails/v2 v2.11.0
@@ -37,6 +37,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
+	github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7 // indirect
 	github.com/f-amaral/go-async v0.3.0 // indirect
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect

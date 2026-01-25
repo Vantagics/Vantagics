@@ -2,6 +2,7 @@ import React from 'react';
 import DraggableComponent from './DraggableComponent';
 import SmartInsight from './SmartInsight';
 import { ComponentInstance } from '../utils/ComponentManager';
+import { useLanguage } from '../i18n';
 
 export interface DraggableSmartInsightProps {
   instance: ComponentInstance;
@@ -14,6 +15,7 @@ export interface DraggableSmartInsightProps {
   onResizeStop: (id: string, width: number, height: number) => void;
   onRemove?: (id: string) => void;
   onInsightClick?: (insightData: InsightData) => void;
+  threadId?: string;  // 用于加载 sandbox: 路径的图片
 }
 
 export interface InsightData {
@@ -32,8 +34,11 @@ export const DraggableSmartInsight: React.FC<DraggableSmartInsightProps> = ({
   onResize,
   onResizeStop,
   onRemove,
-  onInsightClick
+  onInsightClick,
+  threadId
 }) => {
+  const { t } = useLanguage();
+  
   // Check if component has data
   const hasData = instance.hasData && instance.data && 
     instance.data.text && instance.data.text.trim().length > 0;
@@ -88,6 +93,7 @@ export const DraggableSmartInsight: React.FC<DraggableSmartInsightProps> = ({
             text={insightData.text}
             icon={insightData.icon || 'info'}
             onClick={!isEditMode ? handleInsightClick : undefined}
+            threadId={threadId}
           />
         </div>
         
@@ -96,7 +102,7 @@ export const DraggableSmartInsight: React.FC<DraggableSmartInsightProps> = ({
             onClick={() => onRemove(instance.id)}
             className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white text-xs rounded-full hover:bg-red-600 transition-colors flex items-center justify-center z-20"
             data-testid="remove-component-button"
-            aria-label="Remove component"
+            aria-label={t('remove_component')}
           >
             ×
           </button>

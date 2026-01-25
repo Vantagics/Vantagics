@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { X, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 export type ToastType = 'info' | 'success' | 'warning' | 'error';
 
@@ -11,6 +12,8 @@ interface ToastProps {
 }
 
 const Toast: React.FC<ToastProps> = ({ message, type = 'info', duration = 3000, onClose }) => {
+    const { t } = useLanguage();
+    
     useEffect(() => {
         if (duration > 0) {
             const timer = setTimeout(() => {
@@ -56,7 +59,7 @@ const Toast: React.FC<ToastProps> = ({ message, type = 'info', duration = 3000, 
             <button
                 onClick={onClose}
                 className="p-1 hover:bg-black/5 rounded transition-colors"
-                aria-label="Close"
+                aria-label={t('close_button')}
             >
                 <X className="w-4 h-4" />
             </button>

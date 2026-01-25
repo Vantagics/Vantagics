@@ -303,9 +303,49 @@ func (a *App) GetSessionFileAsBase64(threadID string, fileName string) (string, 
 	filesDir := a.chatService.GetSessionFilesDirectory(threadID)
 	filePath := filepath.Join(filesDir, fileName)
 
-	// Check if file exists
+	// Check if file exists with exact name
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("file not found: %s", fileName)
+		// File not found with exact name, try to find a file with unique prefix
+		// Files are saved with format: requestId_originalName.ext (e.g., msg_123_chart.png)
+		// So if looking for "chart.png", we should find "*_chart.png"
+		
+		// List all files in the directory
+		files, listErr := os.ReadDir(filesDir)
+		if listErr != nil {
+			return "", fmt.Errorf("file not found: %s (directory read error: %v)", fileName, listErr)
+		}
+		
+		// Look for files that end with _<fileName>
+		var matchedFile string
+		var latestModTime int64
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			name := f.Name()
+			// Check if file ends with _<fileName> (e.g., "msg_123_chart.png" matches "chart.png")
+			if strings.HasSuffix(name, "_"+fileName) {
+				// Get file info to find the most recent one
+				info, infoErr := f.Info()
+				if infoErr == nil {
+					modTime := info.ModTime().UnixNano()
+					if modTime > latestModTime {
+						latestModTime = modTime
+						matchedFile = name
+					}
+				} else if matchedFile == "" {
+					// If we can't get info, just use the first match
+					matchedFile = name
+				}
+			}
+		}
+		
+		if matchedFile != "" {
+			filePath = filepath.Join(filesDir, matchedFile)
+			a.Log(fmt.Sprintf("[GetSessionFileAsBase64] Resolved '%s' to '%s'", fileName, matchedFile))
+		} else {
+			return "", fmt.Errorf("file not found: %s", fileName)
+		}
 	}
 
 	// Read file
@@ -513,6 +553,72 @@ func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
 	return nil
 }
 
+
+// ExportMessageToPDF exports a chat message (LLM output) to PDF
+// This is used for exporting analysis results from the chat area
+func (a *App) ExportMessageToPDF(content string, messageID string) error {
+	if content == "" {
+		return fmt.Errorf("没有可导出的内容")
+	}
+
+	// Save dialog
+	timestamp := time.Now().Format("20060102_150405")
+	defaultFilename := fmt.Sprintf("analysis_%s.pdf", timestamp)
+	if messageID != "" {
+		// Use shorter message ID for filename
+		shortID := messageID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		defaultFilename = fmt.Sprintf("analysis_%s_%s.pdf", shortID, timestamp)
+	}
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "导出分析结果为PDF",
+		DefaultFilename: defaultFilename,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "PDF文件", Pattern: "*.pdf"},
+		},
+	})
+
+	if err != nil || savePath == "" {
+		return nil // User cancelled
+	}
+
+	// Create PDF export service
+	pdfService := export.NewPDFExportService()
+
+	// Parse content to extract insights (split by newlines, filter empty lines)
+	lines := strings.Split(content, "\n")
+	var insights []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			insights = append(insights, trimmed)
+		}
+	}
+
+	// Create export data structure
+	exportData := export.DashboardData{
+		UserRequest: "分析结果导出",
+		Insights:    insights,
+	}
+
+	// Generate PDF
+	pdfBytes, err := pdfService.ExportDashboardToPDF(exportData)
+	if err != nil {
+		return fmt.Errorf("PDF生成失败: %v", err)
+	}
+
+	// Write PDF file
+	err = os.WriteFile(savePath, pdfBytes, 0644)
+	if err != nil {
+		return fmt.Errorf("写入PDF文件失败: %v", err)
+	}
+
+	a.Log(fmt.Sprintf("Message exported to PDF successfully: %s", savePath))
+	return nil
+}
 
 // ExportDashboardToPPT exports dashboard data to PowerPoint format
 func (a *App) ExportDashboardToPPT(data DashboardExportData) error {

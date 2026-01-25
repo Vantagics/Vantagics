@@ -75,6 +75,7 @@ type Config struct {
 	MaxPreviewRows    int            `json:"maxPreviewRows"`
 	MaxConcurrentAnalysis int        `json:"maxConcurrentAnalysis"` // Maximum concurrent analysis tasks (1-10, default 5)
 	DetailedLog       bool           `json:"detailedLog"`
+	LogMaxSizeMB      int            `json:"logMaxSizeMB"`          // Maximum log file size in MB before compression (default 100)
 	AutoIntentUnderstanding bool     `json:"autoIntentUnderstanding"` // Enable automatic intent understanding before analysis
 	MCPServices       []MCPService   `json:"mcpServices"`     // Generic MCP services configuration
 	SearchEngines     []SearchEngine `json:"searchEngines,omitempty"`   // DEPRECATED: Legacy search engines

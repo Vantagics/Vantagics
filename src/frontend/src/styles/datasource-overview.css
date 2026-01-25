@@ -1,0 +1,256 @@
+/**
+ * DataSourceOverview Component Styles
+ * 
+ * Custom CSS for the data source overview component
+ * Complements Tailwind CSS classes with animations and transitions
+ */
+
+/* ============================================================================
+   COMPONENT ANIMATIONS
+   ============================================================================ */
+
+/* Fade-in animation for the overview component */
+.data-source-overview {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================================
+   LOADING STATE ANIMATIONS
+   ============================================================================ */
+
+/* Enhanced spinner animation */
+.data-source-overview .animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Pulse animation for loading text */
+.data-source-overview.loading p {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================================
+   BREAKDOWN ITEM ANIMATIONS
+   ============================================================================ */
+
+/* Staggered fade-in for breakdown items */
+.breakdown-item {
+  animation: fadeInScale 0.3s ease-out backwards;
+}
+
+.breakdown-item:nth-child(1) { animation-delay: 0.05s; }
+.breakdown-item:nth-child(2) { animation-delay: 0.1s; }
+.breakdown-item:nth-child(3) { animation-delay: 0.15s; }
+.breakdown-item:nth-child(4) { animation-delay: 0.2s; }
+.breakdown-item:nth-child(5) { animation-delay: 0.25s; }
+.breakdown-item:nth-child(6) { animation-delay: 0.3s; }
+.breakdown-item:nth-child(7) { animation-delay: 0.35s; }
+.breakdown-item:nth-child(8) { animation-delay: 0.4s; }
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Smooth hover transition for breakdown items */
+.breakdown-item {
+  transition: all 0.2s ease-out;
+}
+
+.breakdown-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================================
+   TOTAL COUNT BADGE ANIMATION
+   ============================================================================ */
+
+/* Subtle scale animation for total count */
+.total-count {
+  animation: scaleIn 0.4s ease-out 0.2s backwards;
+}
+
+@keyframes scaleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Number counter animation effect */
+.total-count .value {
+  display: inline-block;
+  transition: transform 0.3s ease-out;
+}
+
+.total-count:hover .value {
+  transform: scale(1.1);
+}
+
+/* ============================================================================
+   ERROR STATE ANIMATIONS
+   ============================================================================ */
+
+/* Shake animation for error state */
+.data-source-overview.error {
+  animation: shake 0.5s ease-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+  20%, 40%, 60%, 80% { transform: translateX(5px); }
+}
+
+/* Retry button hover effect */
+.data-source-overview button {
+  transition: all 0.2s ease-out;
+}
+
+.data-source-overview button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.data-source-overview button:active {
+  transform: translateY(0);
+}
+
+/* ============================================================================
+   EMPTY STATE ANIMATIONS
+   ============================================================================ */
+
+/* Gentle fade-in for empty state */
+.data-source-overview.empty {
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* ============================================================================
+   HEADER ANIMATIONS
+   ============================================================================ */
+
+/* Slide-in animation for header */
+.overview-header {
+  animation: slideInLeft 0.4s ease-out;
+}
+
+@keyframes slideInLeft {
+  0% {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Icon rotation on hover */
+.overview-header svg {
+  transition: transform 0.3s ease-out;
+}
+
+.overview-header:hover svg {
+  transform: rotate(15deg);
+}
+
+/* ============================================================================
+   RESPONSIVE ANIMATIONS
+   ============================================================================ */
+
+/* Reduce animations on mobile for performance */
+@media (max-width: 768px) {
+  .breakdown-item,
+  .total-count,
+  .overview-header {
+    animation-duration: 0.2s;
+  }
+  
+  .breakdown-item:hover {
+    transform: none;
+  }
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .data-source-overview,
+  .breakdown-item,
+  .total-count,
+  .overview-header,
+  .data-source-overview.loading p,
+  .data-source-overview.error {
+    animation: none !important;
+    transition: none !important;
+  }
+  
+  .breakdown-item:hover,
+  .total-count:hover .value,
+  .overview-header:hover svg {
+    transform: none !important;
+  }
+}
+
+/* ============================================================================
+   DARK MODE ENHANCEMENTS
+   ============================================================================ */
+
+/* Enhanced shadows for dark mode */
+.dark .breakdown-item:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dark .data-source-overview button:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================================================
+   ACCESSIBILITY FOCUS STATES
+   ============================================================================ */
+
+/* Focus indicators for keyboard navigation */
+.data-source-overview button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
+}
+
+.breakdown-item:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}

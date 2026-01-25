@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../i18n';
 
 export enum ComponentType {
   METRICS = 'metrics',
@@ -25,6 +26,8 @@ export const PaginationControl: React.FC<PaginationControlProps> = ({
   visible,
   className = ''
 }) => {
+  const { t } = useLanguage();
+  
   // Don't render if not visible or only one page
   if (!visible || totalPages <= 1) {
     return null;
@@ -65,7 +68,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = ({
           }
         `}
         data-testid="pagination-previous"
-        aria-label="Previous page"
+        aria-label={t('previous_page')}
       >
         ←
       </button>
@@ -104,7 +107,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = ({
           }
         `}
         data-testid="pagination-next"
-        aria-label="Next page"
+        aria-label={t('next_page')}
       >
         →
       </button>

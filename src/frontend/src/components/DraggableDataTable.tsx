@@ -2,6 +2,7 @@ import React from 'react';
 import DraggableComponent from './DraggableComponent';
 import DataTable from './DataTable';
 import { ComponentInstance } from '../utils/ComponentManager';
+import { useLanguage } from '../i18n';
 
 export interface DraggableDataTableProps {
   instance: ComponentInstance;
@@ -31,6 +32,8 @@ export const DraggableDataTable: React.FC<DraggableDataTableProps> = ({
   onResizeStop,
   onRemove
 }) => {
+  const { t } = useLanguage();
+  
   // Check if component has data
   const hasData = instance.hasData && instance.data && 
     Array.isArray(instance.data.data) && instance.data.data.length > 0;
@@ -76,7 +79,7 @@ export const DraggableDataTable: React.FC<DraggableDataTableProps> = ({
             onClick={() => onRemove(instance.id)}
             className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white text-xs rounded-full hover:bg-red-600 transition-colors flex items-center justify-center z-20"
             data-testid="remove-component-button"
-            aria-label="Remove component"
+            aria-label={t('remove_component')}
           >
             ×
           </button>

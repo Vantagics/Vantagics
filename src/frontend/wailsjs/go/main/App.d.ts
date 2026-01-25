@@ -21,6 +21,8 @@ export function CheckRapidBIEnvironmentExists():Promise<boolean>;
 
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
 
+export function CleanupLogs():Promise<void>;
+
 export function ClearHistory():Promise<void>;
 
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
@@ -60,6 +62,8 @@ export function ExportDashboardToExcel(arg1:main.DashboardExportData):Promise<vo
 export function ExportDashboardToPDF(arg1:main.DashboardExportData):Promise<void>;
 
 export function ExportDashboardToPPT(arg1:main.DashboardExportData):Promise<void>;
+
+export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
 export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
 
@@ -103,6 +107,8 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetDashboardData():Promise<main.DashboardData>;
 
+export function GetDataSourceStatistics():Promise<agent.DataSourceStatistics>;
+
 export function GetDataSourceTableCount(arg1:string,arg2:string):Promise<number>;
 
 export function GetDataSourceTableData(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
@@ -118,6 +124,8 @@ export function GetEnabledSkills():Promise<Array<main.SkillInfo>>;
 export function GetErrorKnowledgeSummary():Promise<main.ErrorKnowledgeSummary>;
 
 export function GetFilesByCategory(arg1:string):Promise<Array<database.FileInfo>>;
+
+export function GetLogStats():Promise<main.LogStats>;
 
 export function GetMessageAnalysisData(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -220,6 +228,8 @@ export function SetChatOpen(arg1:boolean):Promise<void>;
 export function ShowAbout():Promise<void>;
 
 export function ShowMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function StartDataSourceAnalysis(arg1:string):Promise<string>;
 
 export function TestLLMConnection(arg1:config.Config):Promise<main.ConnectionResult>;
 

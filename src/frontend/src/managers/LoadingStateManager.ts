@@ -64,7 +64,7 @@ class LoadingStateManager {
     private listeners: Set<LoadingStateListener> = new Set();
     private sessionListeners: Map<string, Set<SessionStateListener>> = new Map();
     private timeoutIds: Map<string, number> = new Map();
-    private readonly TIMEOUT_MS = 120000; // 2分钟超时
+    private readonly TIMEOUT_MS = 600000; // 10分钟超时（支持长时间分析）
     private initialized = false;
 
     private constructor() {
@@ -117,21 +117,40 @@ class LoadingStateManager {
                 logger.info(`[LoadingStateManager] analysis-completed: ${JSON.stringify(payload)}`);
                 const threadId = payload?.threadId;
                 if (threadId) {
-                    this.setLoading(threadId, false);
+                    // 先更新进度为 complete，然后延迟清除加载状态
+                    // 这样可以确保用户看到完成状态
+                    this.updateProgress(threadId, {
+                        stage: 'complete',
+                        progress: 100,
+                        message: '分析完成',
+                        step: 6,
+                        total: 6
+                    });
+                    // 延迟清除，让 updateProgress 的自动清除逻辑处理
+                    // 不需要在这里调用 setLoading(false)
                 }
             });
 
             // 监听分析错误事件
             EventsOn('analysis-error', (payload: any) => {
                 logger.info(`[LoadingStateManager] analysis-error: ${JSON.stringify(payload)}`);
-                const threadId = payload?.threadId;
+                // 支持 threadId 和 sessionId 两种字段名
+                const threadId = payload?.threadId || payload?.sessionId;
                 if (threadId) {
+                    // 从 payload 中提取错误信息，支持多种字段名
+                    const errorMessage = payload?.message || payload?.error || '分析过程中发生错误';
+                    const errorCode = payload?.code || 'ANALYSIS_ERROR';
+                    
                     // 使用 setError 方法设置错误状态
                     const error = {
-                        code: payload?.code || 'ANALYSIS_ERROR',
-                        message: payload?.message || '分析过程中发生错误'
+                        code: errorCode,
+                        message: errorMessage
                     };
+                    
+                    logger.info(`[LoadingStateManager] Setting error for threadId=${threadId}: code=${errorCode}, message=${errorMessage}`);
                     this.setError(threadId, error);
+                } else {
+                    logger.warn(`[LoadingStateManager] analysis-error received without threadId/sessionId: ${JSON.stringify(payload)}`);
                 }
             });
 
@@ -140,7 +159,8 @@ class LoadingStateManager {
                 logger.info(`[LoadingStateManager] analysis-cancelled: ${JSON.stringify(data)}`);
                 const threadId = data?.threadId;
                 if (threadId) {
-                    this.setLoading(threadId, false);
+                    // 取消是用户主动操作，立即清除加载状态
+                    this.doSetLoadingFalse(threadId);
                 }
             });
 
@@ -211,6 +231,9 @@ class LoadingStateManager {
 
     /**
      * 设置会话加载状态
+     * 
+     * 添加防抖机制：如果在短时间内收到多个 setLoading(false) 调用，
+     * 只有最后一个会生效，防止进度条闪烁
      */
     setLoading(threadId: string, loading: boolean): void {
         logger.info(`[LoadingStateManager] setLoading: threadId=${threadId}, loading=${loading}`);
@@ -230,23 +253,59 @@ class LoadingStateManager {
             this.clearTimeout(threadId);
             const timeoutId = window.setTimeout(() => {
                 logger.warn(`[LoadingStateManager] Timeout for threadId=${threadId}, auto-clearing`);
-                this.setLoading(threadId, false);
+                this.doSetLoadingFalse(threadId);
             }, this.TIMEOUT_MS);
             this.timeoutIds.set(threadId, timeoutId);
+            
+            // 通知监听器
+            this.notifyListeners();
+            this.notifySessionListeners(threadId);
         } else {
             // 结束加载
             const existingSession = this.loadingSessions.get(threadId);
-            if (existingSession) {
-                // 保留会话状态但标记为不再加载
-                existingSession.isLoading = false;
-                // 如果没有错误，可以清理会话
-                if (!existingSession.error) {
-                    this.loadingSessions.delete(threadId);
-                }
+            logger.info(`[LoadingStateManager] setLoading(false): existingSession=${JSON.stringify(existingSession)}`);
+            
+            if (existingSession && existingSession.isLoading) {
+                // 如果会话正在加载，延迟清除以避免闪烁
+                // 无论进度状态如何，都延迟一小段时间
+                logger.info(`[LoadingStateManager] setLoading(false): delaying clear for smooth transition`);
+                setTimeout(() => {
+                    const currentSession = this.loadingSessions.get(threadId);
+                    // 如果会话仍然存在且正在加载，清除它
+                    if (currentSession?.isLoading) {
+                        logger.info(`[LoadingStateManager] Delayed clear executing for threadId=${threadId}`);
+                        this.doSetLoadingFalse(threadId);
+                    } else {
+                        logger.info(`[LoadingStateManager] Session already cleared or not loading, skipping`);
+                    }
+                }, 100); // 短暂延迟，让 updateProgress 的 complete 状态有机会显示
+                // 不立即通知监听器，保持当前状态
+                return;
+            } else if (existingSession) {
+                // 会话存在但不在加载状态，直接清除
+                this.doSetLoadingFalse(threadId);
+            } else {
+                logger.info(`[LoadingStateManager] setLoading(false): session not found, clearing timeout only`);
+                // 会话不存在，清除超时
+                this.clearTimeout(threadId);
             }
-            this.clearTimeout(threadId);
         }
-        
+    }
+    
+    /**
+     * 实际执行 setLoading(false) 的逻辑
+     */
+    private doSetLoadingFalse(threadId: string): void {
+        const existingSession = this.loadingSessions.get(threadId);
+        if (existingSession) {
+            // 保留会话状态但标记为不再加载
+            existingSession.isLoading = false;
+            // 如果没有错误，可以清理会话
+            if (!existingSession.error) {
+                this.loadingSessions.delete(threadId);
+            }
+        }
+        this.clearTimeout(threadId);
         this.notifyListeners();
         this.notifySessionListeners(threadId);
     }
@@ -255,6 +314,8 @@ class LoadingStateManager {
      * 更新会话进度
      * 
      * 如果会话不存在，会自动创建一个新的加载会话
+     * 每次收到进度更新时，会重置超时计时器，防止长时间分析时进度条消失
+     * 当进度达到 100% 或 complete 阶段时，会自动清除加载状态
      * 
      * Requirements: 4.3, 5.1
      */
@@ -272,18 +333,35 @@ class LoadingStateManager {
                 startTime: Date.now()
             };
             this.loadingSessions.set(threadId, session);
-            
-            // 设置超时自动清理
-            this.clearTimeout(threadId);
-            const timeoutId = window.setTimeout(() => {
-                logger.warn(`[LoadingStateManager] Timeout for threadId=${threadId}, auto-clearing`);
-                this.setLoading(threadId, false);
-            }, this.TIMEOUT_MS);
-            this.timeoutIds.set(threadId, timeoutId);
         }
+        
+        // 每次收到进度更新时，重置超时计时器
+        // 这样可以防止长时间分析时进度条消失
+        this.clearTimeout(threadId);
+        const timeoutId = window.setTimeout(() => {
+            logger.warn(`[LoadingStateManager] Timeout for threadId=${threadId}, auto-clearing`);
+            this.setLoading(threadId, false);
+        }, this.TIMEOUT_MS);
+        this.timeoutIds.set(threadId, timeoutId);
         
         // 更新进度信息
         session.progress = progress;
+        
+        // 确保会话处于加载状态（可能之前被超时清除了）
+        if (!session.isLoading) {
+            logger.info(`[LoadingStateManager] Restoring loading state for threadId=${threadId}`);
+            session.isLoading = true;
+        }
+        
+        // 如果进度达到 100% 或 complete 阶段，延迟清除加载状态
+        // 这样可以让用户看到完成状态，然后平滑过渡
+        if (progress && (progress.stage === 'complete' || progress.progress >= 100)) {
+            logger.info(`[LoadingStateManager] Progress complete for threadId=${threadId}, scheduling cleanup`);
+            // 延迟 300ms 清除，让用户看到完成状态
+            setTimeout(() => {
+                this.doSetLoadingFalse(threadId);
+            }, 300);
+        }
         
         // 通知所有订阅者
         this.notifyListeners();
@@ -323,6 +401,32 @@ class LoadingStateManager {
         // 通知所有订阅者
         this.notifyListeners();
         this.notifySessionListeners(threadId);
+    }
+
+    /**
+     * 清除会话的错误状态
+     * 
+     * 仅清除错误信息，保留其他状态
+     * 用于用户关闭错误提示后清除错误状态
+     * 
+     * Requirements: 5.3
+     */
+    clearError(threadId: string): void {
+        logger.info(`[LoadingStateManager] clearError: threadId=${threadId}`);
+        
+        const session = this.loadingSessions.get(threadId);
+        if (session) {
+            session.error = undefined;
+            
+            // 如果会话不在加载状态且没有错误，可以清理会话
+            if (!session.isLoading) {
+                this.loadingSessions.delete(threadId);
+            }
+            
+            // 通知所有订阅者
+            this.notifyListeners();
+            this.notifySessionListeners(threadId);
+        }
     }
 
     /**

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -265,12 +266,38 @@ func (ea *EventAggregator) SetLoading(sessionID string, loading bool, requestID 
 	})
 }
 
-// EmitError emits an error event
+// EmitError emits an error event with detailed error information
 func (ea *EventAggregator) EmitError(sessionID, requestID, errorMessage string) {
+	ea.EmitErrorWithCode(sessionID, requestID, "ANALYSIS_ERROR", errorMessage)
+}
+
+// EmitErrorWithCode emits an error event with a specific error code
+func (ea *EventAggregator) EmitErrorWithCode(sessionID, requestID, errorCode, errorMessage string) {
 	runtime.EventsEmit(ea.ctx, "analysis-error", map[string]interface{}{
 		"sessionId": sessionID,
+		"threadId":  sessionID, // Also include threadId for compatibility
 		"requestId": requestID,
+		"code":      errorCode,
 		"error":     errorMessage,
+		"message":   errorMessage, // Also include message for compatibility
+		"timestamp": time.Now().UnixMilli(),
+	})
+}
+
+// EmitTimeout emits a timeout error event
+func (ea *EventAggregator) EmitTimeout(sessionID, requestID string, duration time.Duration) {
+	ea.EmitErrorWithCode(sessionID, requestID, "ANALYSIS_TIMEOUT", 
+		fmt.Sprintf("分析超时（已运行 %v）。请尝试简化查询或稍后重试。", duration.Round(time.Second)))
+}
+
+// EmitCancelled emits a cancellation event
+func (ea *EventAggregator) EmitCancelled(sessionID, requestID string) {
+	runtime.EventsEmit(ea.ctx, "analysis-cancelled", map[string]interface{}{
+		"sessionId": sessionID,
+		"threadId":  sessionID,
+		"requestId": requestID,
+		"message":   "分析已取消",
+		"timestamp": time.Now().UnixMilli(),
 	})
 }
 

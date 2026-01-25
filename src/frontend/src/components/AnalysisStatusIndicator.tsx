@@ -12,6 +12,7 @@
 import React, { useMemo, useState } from 'react';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { AlertCircle, Loader2, XCircle, AlertTriangle } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 /**
  * AnalysisStatusIndicatorProps - 组件属性接口
@@ -29,6 +30,10 @@ export interface AnalysisStatusIndicatorProps {
     showCancelButton?: boolean;
     /** 取消分析的回调函数 */
     onCancel?: () => void;
+    /** 重试分析的回调函数 */
+    onRetry?: () => void;
+    /** 关闭错误提示的回调函数 */
+    onDismissError?: () => void;
     /** 自定义 CSS 类名 */
     className?: string;
 }
@@ -36,11 +41,12 @@ export interface AnalysisStatusIndicatorProps {
 /**
  * 格式化已用时间为可读字符串
  * @param ms 毫秒数
+ * @param t 翻译函数
  * @returns 格式化的时间字符串
  */
-function formatElapsedTime(ms: number): string {
+function formatElapsedTime(ms: number, t: (key: string) => string): string {
     if (ms < 1000) {
-        return '刚刚开始';
+        return t('just_started');
     }
     
     const seconds = Math.floor(ms / 1000);
@@ -48,34 +54,36 @@ function formatElapsedTime(ms: number): string {
     const remainingSeconds = seconds % 60;
     
     if (minutes > 0) {
-        return `${minutes}分${remainingSeconds}秒`;
+        return `${minutes}${t('minutes')}${remainingSeconds}${t('seconds')}`;
     }
-    return `${seconds}秒`;
+    return `${seconds}${t('seconds')}`;
 }
 
 /**
- * 获取阶段的中文显示名称
+ * 获取阶段的显示名称
  * @param stage 阶段标识
- * @returns 中文阶段名称
+ * @param t 翻译函数
+ * @returns 阶段名称
  */
-function getStageDisplayName(stage: string): string {
-    const stageNames: Record<string, string> = {
-        'waiting': '等待中',
-        'initializing': '初始化中',
-        'analyzing': '正在分析',
-        'generating': '正在生成',
-        'complete': '已完成',
-        'error': '发生错误'
+function getStageDisplayName(stage: string, t: (key: string) => string): string {
+    const stageKeys: Record<string, string> = {
+        'waiting': 'stage_waiting',
+        'initializing': 'stage_initializing',
+        'analyzing': 'stage_analyzing',
+        'generating': 'stage_generating',
+        'complete': 'stage_complete',
+        'error': 'stage_error'
     };
-    return stageNames[stage] || stage;
+    return t(stageKeys[stage] || stage);
 }
 
 /**
  * Spinner 组件 - 转圈加载动画
  */
-const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg'; className?: string }> = ({ 
+const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg'; className?: string; label?: string }> = ({ 
     size = 'md', 
-    className = '' 
+    className = '',
+    label
 }) => {
     const sizeClasses = {
         sm: 'w-3 h-3 border-2',
@@ -87,7 +95,7 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' | 'lg'; className?: string }> = ({
         <div 
             className={`${sizeClasses[size]} border-blue-200 border-t-blue-600 rounded-full animate-spin ${className}`}
             role="status"
-            aria-label="加载中"
+            aria-label={label}
         />
     );
 };
@@ -120,9 +128,9 @@ const ProgressBar: React.FC<{ progress: number; className?: string }> = ({
  * InlineIndicator - 内联模式指示器
  * 仅显示一个小型转圈动画
  */
-const InlineIndicator: React.FC<{ className?: string }> = ({ className = '' }) => (
+const InlineIndicator: React.FC<{ className?: string; t: (key: string) => string }> = ({ className = '', t }) => (
     <span className={`inline-flex items-center ${className}`}>
-        <Spinner size="sm" />
+        <Spinner size="sm" label={t('loading')} />
     </span>
 );
 
@@ -134,9 +142,10 @@ const CompactIndicator: React.FC<{
     message?: string;
     showMessage: boolean;
     className?: string;
-}> = ({ message, showMessage, className = '' }) => (
+    t: (key: string) => string;
+}> = ({ message, showMessage, className = '', t }) => (
     <div className={`inline-flex items-center gap-2 ${className}`}>
-        <Spinner size="sm" />
+        <Spinner size="sm" label={t('loading')} />
         {showMessage && message && (
             <span className="text-sm text-slate-600 truncate max-w-[200px]">
                 {message}
@@ -153,7 +162,8 @@ const CancelConfirmDialog: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     onConfirm: () => void;
-}> = ({ isOpen, onClose, onConfirm }) => {
+    t: (key: string) => string;
+}> = ({ isOpen, onClose, onConfirm, t }) => {
     if (!isOpen) return null;
 
     return (
@@ -164,12 +174,12 @@ const CancelConfirmDialog: React.FC<{
                         <AlertTriangle className="w-6 h-6 text-amber-600" />
                     </div>
                     <div className="flex-1">
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">取消分析</h3>
+                        <h3 className="text-lg font-bold text-slate-900 mb-1">{t('cancel_analysis_dialog_title')}</h3>
                         <p className="text-sm text-slate-600">
-                            确定要取消当前的分析任务吗？
+                            {t('cancel_analysis_dialog_message')}
                         </p>
                         <p className="text-xs text-slate-400 mt-2">
-                            已经生成的结果将会丢失。
+                            {t('cancel_analysis_dialog_note')}
                         </p>
                     </div>
                 </div>
@@ -179,13 +189,13 @@ const CancelConfirmDialog: React.FC<{
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                     >
-                        继续分析
+                        {t('continue_analysis')}
                     </button>
                     <button
                         onClick={onConfirm}
                         className="px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition-colors"
                     >
-                        确认取消
+                        {t('confirm_cancel')}
                     </button>
                 </div>
             </div>
@@ -213,11 +223,12 @@ const FullIndicator: React.FC<{
     showCancelButton: boolean;
     onCancel?: () => void;
     className?: string;
-}> = ({ progress, elapsedTime, showMessage, showProgress, showCancelButton, onCancel, className = '' }) => {
+    t: (key: string) => string;
+}> = ({ progress, elapsedTime, showMessage, showProgress, showCancelButton, onCancel, className = '', t }) => {
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     
-    const displayMessage = progress?.message || '正在处理...';
-    const displayStage = progress?.stage ? getStageDisplayName(progress.stage) : '';
+    const displayMessage = progress?.message || t('processing');
+    const displayStage = progress?.stage ? getStageDisplayName(progress.stage, t) : '';
     const progressPercent = progress?.progress ?? 0;
     const stepInfo = progress?.step && progress?.total 
         ? `(${progress.step}/${progress.total})` 
@@ -258,16 +269,16 @@ const FullIndicator: React.FC<{
                         </div>
                         <div className="flex items-center gap-2">
                             <span className="text-xs text-slate-500">
-                                {formatElapsedTime(elapsedTime)}
+                                {formatElapsedTime(elapsedTime, t)}
                             </span>
                             {showCancelButton && onCancel && (
                                 <button
                                     onClick={handleCancelClick}
                                     className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                    title="取消分析"
+                                    title={t('cancel')}
                                 >
                                     <XCircle className="w-3.5 h-3.5" />
-                                    <span>取消</span>
+                                    <span>{t('cancel')}</span>
                                 </button>
                             )}
                         </div>
@@ -292,6 +303,7 @@ const FullIndicator: React.FC<{
                 isOpen={showConfirmDialog}
                 onClose={handleCloseDialog}
                 onConfirm={handleConfirmCancel}
+                t={t}
             />
         </>
     );
@@ -299,16 +311,41 @@ const FullIndicator: React.FC<{
 
 /**
  * ErrorIndicator - 错误状态指示器
+ * 显示分析过程中发生的错误，支持不同的显示模式
  */
 const ErrorIndicator: React.FC<{
     error: { code: string; message: string };
     variant: 'inline' | 'compact' | 'full';
     className?: string;
-}> = ({ error, variant, className = '' }) => {
+    onRetry?: () => void;
+    onDismiss?: () => void;
+    t: (key: string) => string;
+}> = ({ error, variant, className = '', onRetry, onDismiss, t }) => {
+    // 根据错误代码获取图标和颜色
+    const getErrorStyle = (code: string) => {
+        switch (code) {
+            case 'ANALYSIS_TIMEOUT':
+                return { icon: AlertTriangle, bgColor: 'bg-amber-50', borderColor: 'border-amber-200', textColor: 'text-amber-700', iconColor: 'text-amber-500' };
+            case 'NETWORK_ERROR':
+                return { icon: AlertCircle, bgColor: 'bg-orange-50', borderColor: 'border-orange-200', textColor: 'text-orange-700', iconColor: 'text-orange-500' };
+            case 'DATABASE_ERROR':
+                return { icon: AlertCircle, bgColor: 'bg-blue-50', borderColor: 'border-blue-200', textColor: 'text-blue-700', iconColor: 'text-blue-500' };
+            case 'PYTHON_ERROR':
+                return { icon: AlertCircle, bgColor: 'bg-purple-50', borderColor: 'border-purple-200', textColor: 'text-purple-700', iconColor: 'text-purple-500' };
+            case 'LLM_ERROR':
+                return { icon: AlertCircle, bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200', textColor: 'text-indigo-700', iconColor: 'text-indigo-500' };
+            default:
+                return { icon: AlertCircle, bgColor: 'bg-red-50', borderColor: 'border-red-200', textColor: 'text-red-700', iconColor: 'text-red-500' };
+        }
+    };
+    
+    const style = getErrorStyle(error.code);
+    const IconComponent = style.icon;
+    
     if (variant === 'inline') {
         return (
             <span className={`inline-flex items-center ${className}`} title={error.message}>
-                <AlertCircle className="w-3 h-3 text-red-500" />
+                <IconComponent className={`w-3 h-3 ${style.iconColor}`} />
             </span>
         );
     }
@@ -316,31 +353,63 @@ const ErrorIndicator: React.FC<{
     if (variant === 'compact') {
         return (
             <div className={`inline-flex items-center gap-2 ${className}`}>
-                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <span className="text-sm text-red-600 truncate max-w-[200px]">
+                <IconComponent className={`w-4 h-4 ${style.iconColor} flex-shrink-0`} />
+                <span className={`text-sm ${style.textColor} truncate max-w-[200px]`}>
                     {error.message}
                 </span>
             </div>
         );
     }
     
-    // full variant
+    // full variant - 完整的错误显示，包含重试和关闭按钮
     return (
-        <div className={`flex flex-col gap-2 p-3 bg-red-50 border border-red-200 rounded-lg ${className}`}>
-            <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                <span className="text-sm font-medium text-red-700">
-                    分析失败
-                </span>
+        <div className={`flex items-start gap-4 ${className}`}>
+            {/* 错误图标 - 与 AI 助手图标样式一致 */}
+            <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${style.bgColor}`}>
+                <IconComponent className={`w-5 h-5 ${style.iconColor}`} />
             </div>
-            <p className="text-sm text-red-600">
-                {error.message}
-            </p>
-            {error.code && error.code !== 'ANALYSIS_ERROR' && (
-                <p className="text-xs text-red-400">
-                    错误代码: {error.code}
+            
+            {/* 错误内容区域 */}
+            <div className={`flex-1 flex flex-col gap-2 p-3 ${style.bgColor} border ${style.borderColor} rounded-2xl rounded-tl-none shadow-sm`}>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <IconComponent className={`w-4 h-4 ${style.iconColor} flex-shrink-0`} />
+                        <span className={`text-sm font-medium ${style.textColor}`}>
+                            {t('analysis_failed')}
+                        </span>
+                    </div>
+                    {onDismiss && (
+                        <button
+                            onClick={onDismiss}
+                            className="text-slate-400 hover:text-slate-600 transition-colors"
+                            title={t('close')}
+                        >
+                            <XCircle className="w-4 h-4" />
+                        </button>
+                    )}
+                </div>
+                
+                <p className={`text-sm ${style.textColor}`}>
+                    {error.message}
                 </p>
-            )}
+                
+                {error.code && error.code !== 'ANALYSIS_ERROR' && (
+                    <p className="text-xs text-slate-400">
+                        {t('error')}: {error.code}
+                    </p>
+                )}
+                
+                {onRetry && (
+                    <div className="flex justify-end mt-1">
+                        <button
+                            onClick={onRetry}
+                            className={`px-3 py-1 text-xs font-medium ${style.textColor} hover:bg-white/50 rounded-md transition-colors`}
+                        >
+                            {t('retry')}
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
@@ -359,8 +428,13 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
     showProgress = true,
     showCancelButton = true,
     onCancel,
+    onRetry,
+    onDismissError,
     className = ''
 }) => {
+    // 使用国际化
+    const { t } = useLanguage();
+    
     // 使用 useSessionStatus hook 获取会话状态
     const { isLoading, progress, error, elapsedTime } = useSessionStatus(threadId);
     
@@ -370,10 +444,10 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
             return progress.message;
         }
         if (progress?.stage) {
-            return getStageDisplayName(progress.stage);
+            return getStageDisplayName(progress.stage, t);
         }
-        return '正在分析...';
-    }, [progress]);
+        return t('analyzing');
+    }, [progress, t]);
     
     // 如果有错误，显示错误状态
     if (error) {
@@ -381,7 +455,10 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
             <ErrorIndicator 
                 error={error} 
                 variant={variant} 
-                className={className} 
+                className={className}
+                onRetry={onRetry}
+                onDismiss={onDismissError}
+                t={t}
             />
         );
     }
@@ -394,7 +471,7 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
     // 根据 variant 渲染不同的指示器
     switch (variant) {
         case 'inline':
-            return <InlineIndicator className={className} />;
+            return <InlineIndicator className={className} t={t} />;
             
         case 'compact':
             return (
@@ -402,6 +479,7 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
                     message={displayMessage}
                     showMessage={showMessage}
                     className={className}
+                    t={t}
                 />
             );
             
@@ -415,6 +493,7 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
                     showCancelButton={showCancelButton}
                     onCancel={onCancel}
                     className={className}
+                    t={t}
                 />
             );
             

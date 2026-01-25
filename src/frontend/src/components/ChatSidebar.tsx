@@ -439,6 +439,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             });
         });
 
+        // Listen for switch-to-session event (from data source insight click)
+        const unsubscribeSwitchToSession = EventsOn('switch-to-session', async (data: any) => {
+            console.log('[ChatSidebar] switch-to-session event received:', data);
+            const { threadId, openChat } = data;
+            if (threadId) {
+                // 重新加载线程列表以包含新创建的会话
+                await loadThreads();
+                setActiveThreadId(threadId);
+                console.log('[ChatSidebar] Switched to new session:', threadId);
+            }
+        });
+
         // Listen for thread updates (e.g. background analysis errors)
         const unsubscribeUpdate = EventsOn('thread-updated', (threadId: string) => {
             loadThreads();
@@ -652,6 +664,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
             // Emit user-message-clicked for UI state update
             EventsEmit('user-message-clicked', {
+                threadId: targetThread.id,
                 messageId: message.id,
                 content: message.content
             });
@@ -745,6 +758,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         return () => {
             if (unsubscribeOpen) unsubscribeOpen();
+            if (unsubscribeSwitchToSession) unsubscribeSwitchToSession();
             if (unsubscribeUpdate) unsubscribeUpdate();
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeChatMessage) unsubscribeChatMessage();
@@ -796,6 +810,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     // 自动触发显示该消息的分析结果
                     setTimeout(() => {
                         EventsEmit('user-message-clicked', {
+                            threadId: activeThreadId,
                             messageId: firstAnalysisMessage!.id,
                             content: firstAnalysisMessage!.content,
                             chartData: firstAnalysisMessage!.chart_data
@@ -1814,6 +1829,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                         // Emit event to update dashboard (same as clicking the message)
                         EventsEmit('user-message-clicked', {
+                            threadId: updatedThread.id,
                             messageId: userMessage.id,
                             content: userMessage.content,
                             chartData: chartDataToUse
@@ -2266,6 +2282,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // Emit event with message data for dashboard update
         EventsEmit('user-message-clicked', {
+            threadId: activeThread?.id,
             messageId: message.id,
             content: message.content,
             chartData: chartDataToUse
@@ -2472,7 +2489,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     e.stopPropagation();
                                     EventsEmit('open-skills');
                                 }}
-                                aria-label="Open Skills"
+                                aria-label={t('open_skills')}
                                 className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
                                 title="Skills Plugin"
                             >
@@ -2493,7 +2510,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         onClose();
                                     }
                                 }}
-                                aria-label="Close sidebar"
+                                aria-label={t('close_sidebar')}
                                 className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
                             >
                                 <X className="w-5 h-5 pointer-events-none" />

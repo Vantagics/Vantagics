@@ -101,3 +101,17 @@ type DataSourceConfig struct {
 	Optimized         bool               `json:"optimized"` // Whether the database has been optimized
 	MySQLExportConfig *MySQLExportConfig `json:"mysql_export_config,omitempty"`
 }
+
+// DataSourceStatistics holds aggregated statistics about data sources
+type DataSourceStatistics struct {
+	TotalCount      int                  `json:"total_count"`
+	BreakdownByType map[string]int       `json:"breakdown_by_type"`
+	DataSources     []DataSourceSummary  `json:"data_sources"`
+}
+
+// DataSourceSummary provides minimal info for selection UI
+type DataSourceSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}

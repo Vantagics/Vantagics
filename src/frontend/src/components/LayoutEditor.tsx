@@ -1,5 +1,6 @@
 import React from 'react';
 import { ComponentType } from './PaginationControl';
+import { useLanguage } from '../i18n';
 
 export interface LayoutEditorProps {
   isLocked: boolean;
@@ -16,6 +17,8 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
   onRemoveComponent,
   className = ''
 }) => {
+  const { t } = useLanguage();
+  
   const handleAddComponent = (type: ComponentType) => {
     onAddComponent(type);
   };
@@ -74,7 +77,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               onClick={() => handleAddComponent(ComponentType.METRICS)}
               className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-metrics-button"
-              aria-label="Add metrics component"
+              aria-label={t('add_metrics_component')}
             >
               <span className="text-2xl">📊</span>
               <span>Metrics</span>
@@ -84,7 +87,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               onClick={() => handleAddComponent(ComponentType.TABLE)}
               className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-table-button"
-              aria-label="Add table component"
+              aria-label={t('add_table_component')}
             >
               <span className="text-2xl">📋</span>
               <span>Table</span>
@@ -94,7 +97,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               onClick={() => handleAddComponent(ComponentType.IMAGE)}
               className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-image-button"
-              aria-label="Add image component"
+              aria-label={t('add_image_component')}
             >
               <span className="text-2xl">🖼️</span>
               <span>Image</span>
@@ -104,7 +107,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               onClick={() => handleAddComponent(ComponentType.INSIGHTS)}
               className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-insights-button"
-              aria-label="Add insights component"
+              aria-label={t('add_insights_component')}
             >
               <span className="text-2xl">💡</span>
               <span>Insights</span>
@@ -114,7 +117,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               onClick={() => handleAddComponent(ComponentType.FILE_DOWNLOAD)}
               className="px-4 py-6 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-colors text-sm font-medium min-h-[80px] flex flex-col items-center justify-center gap-1"
               data-testid="add-file-download-button"
-              aria-label="Add file download component"
+              aria-label={t('add_file_download_component')}
             >
               <span className="text-2xl">📁</span>
               <span>Files</span>

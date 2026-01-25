@@ -1,0 +1,294 @@
+/**
+ * DataSourceSelectionModal Component Styles
+ * 
+ * Custom CSS for the data source selection modal
+ * Complements Tailwind CSS classes with animations and transitions
+ */
+
+/* ============================================================================
+   MODAL ANIMATIONS
+   ============================================================================ */
+
+/* Modal overlay fade-in */
+.fixed.inset-0.z-50 {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Modal content slide-up and scale */
+.fixed.inset-0.z-50 > div {
+  animation: slideUpScale 0.3s ease-out;
+}
+
+@keyframes slideUpScale {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================================
+   DATA SOURCE LIST ANIMATIONS
+   ============================================================================ */
+
+/* Staggered fade-in for data source items */
+.space-y-3 > button {
+  animation: fadeInSlide 0.3s ease-out backwards;
+}
+
+.space-y-3 > button:nth-child(1) { animation-delay: 0.05s; }
+.space-y-3 > button:nth-child(2) { animation-delay: 0.1s; }
+.space-y-3 > button:nth-child(3) { animation-delay: 0.15s; }
+.space-y-3 > button:nth-child(4) { animation-delay: 0.2s; }
+.space-y-3 > button:nth-child(5) { animation-delay: 0.25s; }
+.space-y-3 > button:nth-child(6) { animation-delay: 0.3s; }
+.space-y-3 > button:nth-child(7) { animation-delay: 0.35s; }
+.space-y-3 > button:nth-child(8) { animation-delay: 0.4s; }
+
+@keyframes fadeInSlide {
+  0% {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+   HOVER AND INTERACTION EFFECTS
+   ============================================================================ */
+
+/* Enhanced hover effect for data source items */
+.space-y-3 > button {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease-out;
+}
+
+.space-y-3 > button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+  transition: left 0.5s ease-out;
+}
+
+.space-y-3 > button:hover::before {
+  left: 100%;
+}
+
+.space-y-3 > button:hover {
+  transform: translateX(4px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.space-y-3 > button:active {
+  transform: translateX(2px);
+}
+
+/* Arrow icon animation on hover */
+.space-y-3 > button svg {
+  transition: transform 0.2s ease-out;
+}
+
+.space-y-3 > button:hover svg {
+  transform: translateX(4px);
+}
+
+/* ============================================================================
+   HEADER AND FOOTER ANIMATIONS
+   ============================================================================ */
+
+/* Header slide-in from top */
+.border-b.border-slate-200 {
+  animation: slideInTop 0.3s ease-out;
+}
+
+@keyframes slideInTop {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Footer slide-in from bottom */
+.border-t.border-slate-200 {
+  animation: slideInBottom 0.3s ease-out;
+}
+
+@keyframes slideInBottom {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Close button hover effect */
+.border-b.border-slate-200 button {
+  transition: all 0.2s ease-out;
+}
+
+.border-b.border-slate-200 button:hover {
+  transform: rotate(90deg);
+}
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+/* Custom scrollbar for data source list */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ============================================================================
+   BACKDROP BLUR EFFECT
+   ============================================================================ */
+
+/* Enhanced backdrop blur */
+.backdrop-blur-sm {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ============================================================================
+   RESPONSIVE ANIMATIONS
+   ============================================================================ */
+
+/* Reduce animations on mobile for performance */
+@media (max-width: 768px) {
+  .space-y-3 > button,
+  .fixed.inset-0.z-50,
+  .fixed.inset-0.z-50 > div {
+    animation-duration: 0.2s;
+  }
+  
+  .space-y-3 > button:hover {
+    transform: none;
+  }
+  
+  .space-y-3 > button:hover svg {
+    transform: translateX(2px);
+  }
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .fixed.inset-0.z-50,
+  .fixed.inset-0.z-50 > div,
+  .space-y-3 > button,
+  .border-b.border-slate-200,
+  .border-t.border-slate-200 {
+    animation: none !important;
+  }
+  
+  .space-y-3 > button::before {
+    display: none;
+  }
+  
+  .space-y-3 > button:hover,
+  .space-y-3 > button:hover svg,
+  .border-b.border-slate-200 button:hover {
+    transform: none !important;
+  }
+}
+
+/* ============================================================================
+   DARK MODE ENHANCEMENTS
+   ============================================================================ */
+
+/* Dark mode scrollbar */
+.dark .overflow-y-auto::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark .overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Enhanced shadows for dark mode */
+.dark .space-y-3 > button:hover {
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================================================
+   ACCESSIBILITY FOCUS STATES
+   ============================================================================ */
+
+/* Focus indicators for keyboard navigation */
+.space-y-3 > button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+}
+
+.border-b.border-slate-200 button:focus-visible,
+.border-t.border-slate-200 button:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline-offset: 2px;
+}
+
+/* Keyboard navigation indicator */
+.keyboard-navigation-active .space-y-3 > button:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
+}
+
+/* ============================================================================
+   LOADING STATE (if needed in future)
+   ============================================================================ */
+
+/* Skeleton loading animation for data source items */
+.data-source-item-skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.dark .data-source-item-skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+}

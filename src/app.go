@@ -1,11 +1,13 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	gort "runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -433,9 +436,20 @@ func (a *App) startup(ctx context.Context) {
 		a.Log("[STARTUP] EventAggregator initialized successfully")
 	}
 
-	// Initialize Logging if enabled
+	// Always initialize logger directory for log management (compression, cleanup)
+	// Set log max size
+	maxSizeMB := cfg.LogMaxSizeMB
+	if maxSizeMB <= 0 {
+		maxSizeMB = 100 // Default 100MB
+	}
+	a.logger.SetMaxSizeMB(maxSizeMB)
+	
+	// Initialize logger (this also handles compression of existing logs)
 	if cfg.DetailedLog {
 		a.logger.Init(dataDir)
+	} else {
+		// Just set the log directory for management purposes without enabling logging
+		a.logger.SetLogDir(dataDir)
 	}
 }
 
@@ -799,6 +813,18 @@ func (a *App) WriteSystemLog(level, source, message string) error {
 		return err
 	}
 
+	// Check file size and rotate if needed
+	maxSizeMB := cfg.LogMaxSizeMB
+	if maxSizeMB <= 0 {
+		maxSizeMB = 100 // Default 100MB
+	}
+	maxBytes := int64(maxSizeMB) * 1024 * 1024
+
+	if info, err := os.Stat(logPath); err == nil && info.Size() >= maxBytes {
+		// Rotate: compress old log and create new one
+		a.rotateSystemLog(logPath, cfg.DataCacheDir)
+	}
+
 	// Open file in append mode
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -812,6 +838,96 @@ func (a *App) WriteSystemLog(level, source, message string) error {
 
 	_, err = f.WriteString(logEntry)
 	return err
+}
+
+// rotateSystemLog compresses the system.log file and creates a new one
+func (a *App) rotateSystemLog(logPath, cacheDir string) {
+	// Create archive filename with timestamp
+	timestamp := time.Now().Format("2006-01-02_150405")
+	archivePath := filepath.Join(cacheDir, fmt.Sprintf("system_%s.log.zip", timestamp))
+
+	// Compress the log file
+	if err := compressFile(logPath, archivePath); err != nil {
+		a.Log(fmt.Sprintf("[SYSTEM_LOG] Failed to compress system.log: %v", err))
+		return
+	}
+
+	// Remove original file
+	os.Remove(logPath)
+	a.Log(fmt.Sprintf("[SYSTEM_LOG] Rotated system.log to %s", archivePath))
+
+	// Cleanup old archives (keep last 10)
+	cleanupOldSystemLogArchives(cacheDir, 10)
+}
+
+// compressFile compresses a single file to a zip archive
+func compressFile(srcPath, dstPath string) error {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	zipFile, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer zipFile.Close()
+
+	zipWriter := zip.NewWriter(zipFile)
+	defer zipWriter.Close()
+
+	info, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return err
+	}
+	header.Method = zip.Deflate
+
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(writer, srcFile)
+	return err
+}
+
+// cleanupOldSystemLogArchives removes old system log archives, keeping only the most recent ones
+func cleanupOldSystemLogArchives(cacheDir string, keepCount int) {
+	pattern := filepath.Join(cacheDir, "system_*.log.zip")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) <= keepCount {
+		return
+	}
+
+	// Sort by modification time (oldest first)
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+	}
+	files := make([]fileInfo, 0, len(matches))
+	for _, path := range matches {
+		info, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		files = append(files, fileInfo{path: path, modTime: info.ModTime()})
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modTime.Before(files[j].modTime)
+	})
+
+	// Remove oldest files
+	toRemove := len(files) - keepCount
+	for i := 0; i < toRemove; i++ {
+		os.Remove(files[i].path)
+	}
 }
 
 func (a *App) getStorageDir() (string, error) {
@@ -1057,18 +1173,25 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	}
 
 	// Handle Logging State Change
+	logDir := cfg.DataCacheDir
+	if logDir == "" {
+		logDir = dir // fallback to storage dir
+	}
+	
+	// Always update log max size
+	maxSizeMB := cfg.LogMaxSizeMB
+	if maxSizeMB <= 0 {
+		maxSizeMB = 100 // Default 100MB
+	}
+	a.logger.SetMaxSizeMB(maxSizeMB)
+	
 	if cfg.DetailedLog {
-		// Enable logging if not already enabled (checked inside Init usually, but here we can force re-init or check if active)
-		// Our logger handles re-init gracefully by closing old file.
-		// However, check if we need to switch on.
-		logDir := cfg.DataCacheDir
-		if logDir == "" {
-			logDir = dir // fallback to storage dir
-		}
+		// Enable detailed logging
 		a.logger.Init(logDir)
 	} else {
-		// Disable logging
+		// Disable detailed logging but keep log directory for management
 		a.logger.Close()
+		a.logger.SetLogDir(logDir)
 	}
 
 	// Save the configuration file
@@ -1089,6 +1212,86 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	runtime.EventsEmit(a.ctx, "config-updated")
 
 	a.Log("Configuration saved and services reinitialized")
+	return nil
+}
+
+// LogStats represents statistics about log files
+type LogStats struct {
+	TotalSizeMB  float64 `json:"totalSizeMB"`
+	LogCount     int     `json:"logCount"`
+	ArchiveCount int     `json:"archiveCount"`
+	LogDir       string  `json:"logDir"`
+}
+
+// GetLogStats returns statistics about log files (including system.log)
+func (a *App) GetLogStats() (LogStats, error) {
+	cfg, _ := a.GetConfig()
+	
+	// Get stats from logger (rapidbi_*.log files)
+	totalSizeMB, logCount, archiveCount, err := a.logger.GetLogStats()
+	if err != nil {
+		// If logger not initialized, just count system.log
+		totalSizeMB = 0
+		logCount = 0
+		archiveCount = 0
+	}
+	
+	// Add system.log stats
+	if cfg.DataCacheDir != "" {
+		// Count system.log
+		systemLogPath := filepath.Join(cfg.DataCacheDir, "system.log")
+		if info, err := os.Stat(systemLogPath); err == nil {
+			totalSizeMB += float64(info.Size()) / (1024 * 1024)
+			logCount++
+		}
+		
+		// Count system.log archives
+		pattern := filepath.Join(cfg.DataCacheDir, "system_*.log.zip")
+		if matches, err := filepath.Glob(pattern); err == nil {
+			archiveCount += len(matches)
+			for _, path := range matches {
+				if info, err := os.Stat(path); err == nil {
+					totalSizeMB += float64(info.Size()) / (1024 * 1024)
+				}
+			}
+		}
+	}
+	
+	logDir := a.logger.GetLogDir()
+	if logDir == "" {
+		logDir = cfg.DataCacheDir
+	}
+	
+	return LogStats{
+		TotalSizeMB:  totalSizeMB,
+		LogCount:     logCount,
+		ArchiveCount: archiveCount,
+		LogDir:       logDir,
+	}, nil
+}
+
+// CleanupLogs compresses all log files and removes old archives
+func (a *App) CleanupLogs() error {
+	a.Log("Starting manual log cleanup...")
+	
+	// Cleanup rapidbi_*.log files
+	err := a.logger.CleanupAllLogs()
+	if err != nil {
+		a.Log(fmt.Sprintf("Logger cleanup failed: %v", err))
+	}
+	
+	// Cleanup system.log
+	cfg, _ := a.GetConfig()
+	if cfg.DataCacheDir != "" {
+		systemLogPath := filepath.Join(cfg.DataCacheDir, "system.log")
+		if info, err := os.Stat(systemLogPath); err == nil && info.Size() > 1024*1024 { // > 1MB
+			a.rotateSystemLog(systemLogPath, cfg.DataCacheDir)
+		}
+		// Cleanup old system.log archives
+		cleanupOldSystemLogArchives(cfg.DataCacheDir, 10)
+	}
+	
+	a.Log("Manual log cleanup completed")
 	return nil
 }
 
@@ -2214,6 +2417,15 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			"loading":  true,
 			"threadId": threadID,
 		})
+		
+		// Notify frontend to clear current dashboard display for new analysis
+		// This ensures the dashboard shows fresh results for the new request
+		// Note: We emit analysis-result-loading instead of clearing all data,
+		// so historical data is preserved and can be restored when user clicks old messages
+		if a.eventAggregator != nil {
+			a.Log(fmt.Sprintf("[DASHBOARD] Setting loading state for thread: %s, requestId: %s", threadID, requestID))
+			a.eventAggregator.SetLoading(threadID, true, requestID)
+		}
 	}
 
 	defer func() {
@@ -2353,34 +2565,89 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					a.logChatToFile(threadID, "SYSTEM ERROR", resp)
 				}
 
+				// Determine error type and emit appropriate event
+				errStr := err.Error()
+				
 				// Check if this was a cancellation
-				if strings.Contains(err.Error(), "cancelled by user") {
+				if strings.Contains(errStr, "cancelled by user") || strings.Contains(errStr, "cancelled while waiting") {
 					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
-					// Emit cancellation event to frontend
-					runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
-						"threadId": threadID,
-						"message":  "分析已取消",
-					})
-					// Emit chat-loading false to update App.tsx loading state
-					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-						"loading":  false,
-						"threadId": threadID,
-					})
-					// Also emit loading state change to update dashboard
+					// Use event aggregator for consistent event emission
 					if a.eventAggregator != nil {
+						a.eventAggregator.EmitCancelled(threadID, requestID)
 						a.eventAggregator.SetLoading(threadID, false, requestID)
 					} else {
+						runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
+							"threadId":  threadID,
+							"requestId": requestID,
+							"message":   "分析已取消",
+							"timestamp": time.Now().UnixMilli(),
+						})
 						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
 							"sessionId": threadID,
 							"loading":   false,
 							"requestId": requestID,
 						})
 					}
-				} else {
-					// Emit error event to frontend for other errors
-					runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
+					// Emit chat-loading false to update App.tsx loading state
+					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+						"loading":  false,
 						"threadId": threadID,
-						"error":    resp,
+					})
+				} else {
+					// Determine error code based on error message
+					var errorCode string
+					var userFriendlyMessage string
+					
+					switch {
+					case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "Timeout"):
+						errorCode = "ANALYSIS_TIMEOUT"
+						userFriendlyMessage = fmt.Sprintf("分析超时（已运行 %d分%d秒）。请尝试简化查询或稍后重试。", minutes, seconds)
+					case strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "context deadline exceeded"):
+						errorCode = "ANALYSIS_TIMEOUT"
+						userFriendlyMessage = "分析请求超时。请尝试简化查询或稍后重试。"
+					case strings.Contains(errStr, "connection") || strings.Contains(errStr, "network"):
+						errorCode = "NETWORK_ERROR"
+						userFriendlyMessage = "网络连接错误。请检查网络连接后重试。"
+					case strings.Contains(errStr, "database") || strings.Contains(errStr, "sqlite") || strings.Contains(errStr, "SQL"):
+						errorCode = "DATABASE_ERROR"
+						userFriendlyMessage = "数据库查询错误。请检查数据源配置或查询条件。"
+					case strings.Contains(errStr, "Python") || strings.Contains(errStr, "python"):
+						errorCode = "PYTHON_ERROR"
+						userFriendlyMessage = "Python 执行错误。请检查分析代码或数据格式。"
+					case strings.Contains(errStr, "LLM") || strings.Contains(errStr, "API") || strings.Contains(errStr, "model"):
+						errorCode = "LLM_ERROR"
+						userFriendlyMessage = "AI 模型调用错误。请检查 API 配置或稍后重试。"
+					default:
+						errorCode = "ANALYSIS_ERROR"
+						userFriendlyMessage = fmt.Sprintf("分析过程中发生错误: %s", errStr)
+					}
+					
+					a.Log(fmt.Sprintf("[ERROR] Analysis error for thread %s: code=%s, message=%s", threadID, errorCode, errStr))
+					
+					// Emit error event to frontend with detailed information
+					if a.eventAggregator != nil {
+						a.eventAggregator.EmitErrorWithCode(threadID, requestID, errorCode, userFriendlyMessage)
+						a.eventAggregator.SetLoading(threadID, false, requestID)
+					} else {
+						runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
+							"threadId":  threadID,
+							"sessionId": threadID,
+							"requestId": requestID,
+							"code":      errorCode,
+							"error":     userFriendlyMessage,
+							"message":   userFriendlyMessage,
+							"timestamp": time.Now().UnixMilli(),
+						})
+						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
+							"sessionId": threadID,
+							"loading":   false,
+							"requestId": requestID,
+						})
+					}
+					// Emit chat-loading false to update App.tsx loading state
+					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+						"loading":  false,
+						"threadId": threadID,
 					})
 				}
 
@@ -2404,6 +2671,10 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 
 			// Detect and emit images from the response
 			a.detectAndEmitImages(resp, threadID, userMessageID, requestID)
+
+			// Filter out false file generation claims when ECharts is used
+			// LLM sometimes hallucinates file generation when using ECharts
+			resp = a.filterFalseFileClaimsIfECharts(resp)
 
 			startPost := time.Now()
 			// Detect and store chart data
@@ -2534,8 +2805,38 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			matchTable := reTable.FindStringSubmatch(resp)
 			if len(matchTable) > 1 {
 				jsonStr := strings.TrimSpace(matchTable[1])
+				
+				// Try to parse as object array first (standard format)
 				var tableData []map[string]interface{}
-				if err := json.Unmarshal([]byte(jsonStr), &tableData); err == nil {
+				var parseErr error
+				if parseErr = json.Unmarshal([]byte(jsonStr), &tableData); parseErr != nil {
+					// Try to parse as 2D array (first row is headers)
+					var arrayData [][]interface{}
+					if err := json.Unmarshal([]byte(jsonStr), &arrayData); err == nil && len(arrayData) > 1 {
+						// Convert 2D array to object array
+						// First row is headers
+						headers := make([]string, len(arrayData[0]))
+						for i, h := range arrayData[0] {
+							headers[i] = fmt.Sprintf("%v", h)
+						}
+						
+						// Remaining rows are data
+						tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+						for _, row := range arrayData[1:] {
+							rowMap := make(map[string]interface{})
+							for i, val := range row {
+								if i < len(headers) {
+									rowMap[headers[i]] = val
+								}
+							}
+							tableData = append(tableData, rowMap)
+						}
+						parseErr = nil
+						a.Log(fmt.Sprintf("[CHART] Converted 2D array table: %d columns, %d rows", len(headers), len(tableData)))
+					}
+				}
+				
+				if parseErr == nil && len(tableData) > 0 {
 					tableDataJSON, _ := json.Marshal(tableData)
 					tableDataStr := string(tableDataJSON)
 
@@ -2568,7 +2869,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					if len(jsonStr) < maxLen {
 						maxLen = len(jsonStr)
 					}
-					a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
+					a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", parseErr, jsonStr[:maxLen]))
 				}
 			}
 
@@ -3929,6 +4230,71 @@ func (a *App) detectAndEmitImages(response string, threadID string, userMessageI
 	}
 }
 
+// filterFalseFileClaimsIfECharts filters out false file generation claims when ECharts is used
+// LLM sometimes hallucinates file generation (e.g., "图表已生成: xxx.pdf") when using ECharts,
+// but ECharts only renders in the frontend and doesn't generate any files.
+func (a *App) filterFalseFileClaimsIfECharts(response string) string {
+	// Check if response contains ECharts
+	hasECharts := strings.Contains(response, "json:echarts")
+	
+	if !hasECharts {
+		return response // No ECharts, no filtering needed
+	}
+	
+	// Check if response also contains python_executor output (actual file generation)
+	// If python_executor was used, files might be real
+	hasPythonOutput := strings.Contains(response, "✅ 图表已保存") || 
+		strings.Contains(response, "✅ Chart saved") ||
+		strings.Contains(response, "plt.savefig") ||
+		strings.Contains(response, "FILES_DIR")
+	
+	if hasPythonOutput {
+		return response // Python was used, files might be real
+	}
+	
+	// ECharts is used but no Python execution - filter false file claims
+	a.Log("[FILTER] Detected ECharts without Python execution, filtering false file claims")
+	
+	// Patterns that indicate false file generation claims
+	// These patterns match common LLM hallucinations about file generation
+	falseClaimPatterns := []string{
+		// Chinese patterns - match file generation claims with file sizes
+		"(?i)图表文件已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg|xlsx|csv)`?\\s*\\([^)]*\\)",
+		"(?i)✅\\s*[^：:\\n]+[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?\\s*\\([^)]*\\)",
+		"(?i)图表已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
+		"(?i)已保存[到至]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
+		"(?i)文件已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg|xlsx|csv)`?",
+		// English patterns
+		"(?i)chart\\s+(?:file\\s+)?generated[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
+		"(?i)saved\\s+(?:to|as)[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
+	}
+	
+	result := response
+	for _, pattern := range falseClaimPatterns {
+		re := regexp.MustCompile(pattern)
+		if re.MatchString(result) {
+			a.Log(fmt.Sprintf("[FILTER] Removing false file claim matching pattern: %s", pattern))
+			result = re.ReplaceAllString(result, "")
+		}
+	}
+	
+	// Also remove lines that look like file size claims without actual files
+	// e.g., "(32.18 KB)" or "(28.47 KB)" standalone
+	// fileSizePattern := regexp.MustCompile(`\s*\(\d+\.?\d*\s*[KMG]?B\)\s*`)
+	
+	// Only remove file size if it appears after a filename pattern that was removed
+	// This is a more conservative approach
+	
+	// Clean up any double newlines created by removal
+	result = regexp.MustCompile("\\n{3,}").ReplaceAllString(result, "\n\n")
+	
+	if result != response {
+		a.Log("[FILTER] False file claims were filtered from response")
+	}
+	
+	return result
+}
+
 func (a *App) logChatToFile(threadID, role, content string) {
 	// Use DataCacheDir for logs
 	cfg, _ := a.GetConfig()
@@ -4380,6 +4746,114 @@ func (a *App) GetDataSources() ([]agent.DataSource, error) {
 	return a.dataSourceService.LoadDataSources()
 }
 
+// GetDataSourceStatistics returns aggregated statistics about all data sources
+// Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5
+func (a *App) GetDataSourceStatistics() (*agent.DataSourceStatistics, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+
+	// Load all data sources
+	dataSources, err := a.dataSourceService.LoadDataSources()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load data sources: %w", err)
+	}
+
+	// Calculate statistics
+	stats := &agent.DataSourceStatistics{
+		TotalCount:      len(dataSources),
+		BreakdownByType: make(map[string]int),
+		DataSources:     make([]agent.DataSourceSummary, 0, len(dataSources)),
+	}
+
+	// Group by type and build summaries
+	for _, ds := range dataSources {
+		stats.BreakdownByType[ds.Type]++
+		stats.DataSources = append(stats.DataSources, agent.DataSourceSummary{
+			ID:   ds.ID,
+			Name: ds.Name,
+			Type: ds.Type,
+		})
+	}
+
+	return stats, nil
+}
+
+// StartDataSourceAnalysis initiates analysis for a specific data source
+// Returns the analysis session/thread ID
+// Validates: Requirements 4.1, 4.2, 4.5
+func (a *App) StartDataSourceAnalysis(dataSourceID string) (string, error) {
+	if a.dataSourceService == nil {
+		return "", fmt.Errorf("data source service not initialized")
+	}
+
+	if a.chatService == nil {
+		return "", fmt.Errorf("chat service not initialized")
+	}
+
+	// Validate data source exists
+	dataSources, err := a.dataSourceService.LoadDataSources()
+	if err != nil {
+		return "", fmt.Errorf("failed to load data sources: %w", err)
+	}
+
+	var targetDS *agent.DataSource
+	for i := range dataSources {
+		if dataSources[i].ID == dataSourceID {
+			targetDS = &dataSources[i]
+			break
+		}
+	}
+
+	if targetDS == nil {
+		return "", fmt.Errorf("data source not found: %s", dataSourceID)
+	}
+
+	// Create a new chat thread for this data source analysis
+	// Use data source name as the session title
+	sessionTitle := fmt.Sprintf("分析: %s", targetDS.Name)
+	thread, err := a.chatService.CreateThread(dataSourceID, sessionTitle)
+	if err != nil {
+		return "", fmt.Errorf("failed to create chat thread: %w", err)
+	}
+
+	threadID := thread.ID
+
+	// Construct analysis prompt in Chinese (mention data source name and type)
+	prompt := fmt.Sprintf("请分析数据源 '%s' (%s)，提供数据概览、关键指标和洞察。", 
+		targetDS.Name, targetDS.Type)
+
+	// Generate unique message ID for tracking
+	userMessageID := fmt.Sprintf("ds-msg-%d", time.Now().UnixNano())
+
+	// Log analysis initiation
+	a.Log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Starting analysis for %s (thread: %s, msgId: %s)", 
+		dataSourceID, threadID, userMessageID))
+
+	// Emit event to notify frontend that analysis is starting
+	runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+		"loading":  true,
+		"threadId": threadID,
+	})
+
+	// Call SendMessage asynchronously so we can return the threadID immediately
+	go func() {
+		_, err := a.SendMessage(threadID, prompt, userMessageID, "")
+		if err != nil {
+			a.Log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Error: %v", err))
+			// Emit error event to frontend
+			runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
+				"threadId": threadID,
+				"message":  err.Error(),
+				"code":     "ANALYSIS_ERROR",
+			})
+		}
+	}()
+
+	// Return thread ID immediately (analysis runs in background)
+	return threadID, nil
+}
+
 // ImportExcelDataSource imports an Excel file as a data source
 func (a *App) ImportExcelDataSource(name string, filePath string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
@@ -4547,7 +5021,7 @@ func (a *App) SelectExcelFile() (string, error) {
 		Title: "Select Excel File",
 
 		Filters: []runtime.FileFilter{
-
+			// Support both .xlsx (Excel 2007+) and .xls (Excel 97-2003) formats
 			{DisplayName: "Excel Files", Pattern: "*.xlsx;*.xls;*.xlsm"},
 		},
 	})
@@ -5421,9 +5895,9 @@ func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisCo
 		}
 	}
 
-	// Limit to 5 suggestions
-	if len(insights) > 5 {
-		insights = insights[:5]
+	// Limit to 9 suggestions (auto insights)
+	if len(insights) > 9 {
+		insights = insights[:9]
 	}
 
 	if len(insights) > 0 {

@@ -9,6 +9,7 @@ import { User, Bot, ZoomIn } from 'lucide-react';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 import { createLogger } from '../utils/systemLog';
+import { useLanguage } from '../i18n';
 
 const systemLog = createLogger('MessageBubble');
 
@@ -28,6 +29,7 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId }) => {
+    const { t } = useLanguage();
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     const [clickedActions, setClickedActions] = useState<Set<string>>(new Set());
@@ -675,7 +677,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const cleanedContent = contentWithPlaceholders
         .replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '')
         .replace(/```[ \t]*json:echarts[\s\S]*?```/g, '') // 隐藏ECharts代码
-        .replace(/```[ \t]*json:table[\s\S]*?```/g, '') // 隐藏Table代码，在仪表盘显示
+        // json:table 保留，在 ReactMarkdown 中渲染为表格
         .replace(/```[ \t]*json:metrics[\s\S]*?```/g, '') // 隐藏Metrics代码，在仪表盘显示
         .replace(/```[ \t]*(sql|SQL)[\s\S]*?```/g, '')
         .replace(/```[ \t]*(python|Python|py)[\s\S]*?```/g, '')
@@ -751,17 +753,120 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     const isECharts = className?.includes('json:echarts');
                                     const isTable = className?.includes('json:table');
 
-                                    // Hide SQL, Python, ECharts, and Table code blocks (non-programmers don't need to see them)
-                                    // ECharts and Tables are shown on dashboard instead
+                                    // Hide SQL, Python, ECharts code blocks (non-programmers don't need to see them)
+                                    // ECharts are shown on dashboard instead
                                     const isSql = className?.includes('sql') || className?.includes('SQL');
                                     const isPython = className?.includes('python') || className?.includes('Python') || className?.includes('py');
 
-                                    if (isSql || isPython || isECharts || isTable) {
+                                    if (isSql || isPython || isECharts) {
                                         // Return null to hide these technical code blocks
                                         return null;
                                     }
 
+                                    // Render json:table as actual table
+                                    if (isTable) {
+                                        const codeContent = String(children).replace(/\n$/, '');
+                                        try {
+                                            const tableData = JSON.parse(codeContent);
+                                            if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
+                                                const headers = tableData[0];
+                                                const rows = tableData.slice(1);
+                                                return (
+                                                    <div className="overflow-x-auto my-3">
+                                                        <table className="min-w-full border-collapse text-sm">
+                                                            <thead>
+                                                                <tr className="bg-blue-50">
+                                                                    {headers.map((header: string, idx: number) => (
+                                                                        <th 
+                                                                            key={idx} 
+                                                                            className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                                                        >
+                                                                            {String(header)}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {rows.map((row: any[], rowIdx: number) => (
+                                                                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                        {row.map((cell: any, cellIdx: number) => (
+                                                                            <td 
+                                                                                key={cellIdx} 
+                                                                                className="border border-slate-200 px-3 py-2 text-slate-600"
+                                                                            >
+                                                                                {String(cell)}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                );
+                                            }
+                                        } catch (e) {
+                                            // JSON parse failed, show as code
+                                            console.error('[MessageBubble] Failed to parse json:table:', e);
+                                        }
+                                        return null; // Hide if parse fails
+                                    }
+
                                     return <code {...rest} className={className}>{children}</code>;
+                                },
+                                // Handle pre tag to properly render json:table
+                                pre(props) {
+                                    const { children, ...rest } = props;
+                                    // Check if child is a code element with json:table
+                                    const child = React.Children.toArray(children)[0];
+                                    if (React.isValidElement(child)) {
+                                        const childProps = child.props as { className?: string; children?: React.ReactNode };
+                                        if (childProps.className?.includes('json:table')) {
+                                            const codeContent = String(childProps.children || '').replace(/\n$/, '');
+                                            try {
+                                                const tableData = JSON.parse(codeContent);
+                                                if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
+                                                    const headers = tableData[0];
+                                                    const rows = tableData.slice(1);
+                                                    return (
+                                                        <div className="overflow-x-auto my-3">
+                                                            <table className="min-w-full border-collapse text-sm">
+                                                                <thead>
+                                                                    <tr className="bg-blue-50">
+                                                                        {headers.map((header: string, idx: number) => (
+                                                                            <th 
+                                                                                key={idx} 
+                                                                                className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                                                            >
+                                                                                {String(header)}
+                                                                            </th>
+                                                                        ))}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {rows.map((row: any[], rowIdx: number) => (
+                                                                        <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                            {row.map((cell: any, cellIdx: number) => (
+                                                                                <td 
+                                                                                    key={cellIdx} 
+                                                                                    className="border border-slate-200 px-3 py-2 text-slate-600"
+                                                                                >
+                                                                                    {String(cell)}
+                                                                                </td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    );
+                                                }
+                                            } catch (e) {
+                                                // Parse failed
+                                            }
+                                            return null;
+                                        }
+                                    }
+                                    return <pre {...rest}>{children}</pre>;
                                 }
                             }}
                         >
@@ -849,7 +954,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     >
                         <img
                             src={enlargedImage}
-                            alt="Enlarged chart"
+                            alt={t('enlarged_chart')}
                             className="max-w-full max-h-[90vh] object-contain rounded-lg"
                         />
                     </div>

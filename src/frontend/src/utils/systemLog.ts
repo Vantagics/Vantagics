@@ -7,6 +7,33 @@ import { WriteSystemLog } from '../../wailsjs/go/main/App';
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
+// 日志级别优先级
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+    'DEBUG': 0,
+    'INFO': 1,
+    'WARN': 2,
+    'ERROR': 3,
+};
+
+// 最小日志级别 - 只有 >= 此级别的日志才会被写入
+// 生产环境设为 'WARN'，调试时可改为 'DEBUG' 或 'INFO'
+let minLogLevel: LogLevel = 'WARN';
+
+/**
+ * 设置最小日志级别
+ * @param level 最小日志级别
+ */
+export function setMinLogLevel(level: LogLevel): void {
+    minLogLevel = level;
+}
+
+/**
+ * 获取当前最小日志级别
+ */
+export function getMinLogLevel(): LogLevel {
+    return minLogLevel;
+}
+
 /**
  * Write a log entry to system.log
  * @param level Log level (DEBUG, INFO, WARN, ERROR)
@@ -14,6 +41,11 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
  * @param message Log message
  */
 export async function systemLog(level: LogLevel, source: string, message: string): Promise<void> {
+    // 检查日志级别
+    if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[minLogLevel]) {
+        return; // 跳过低于最小级别的日志
+    }
+    
     try {
         await WriteSystemLog(level, source, message);
     } catch (error) {

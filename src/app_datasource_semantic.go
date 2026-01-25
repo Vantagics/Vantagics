@@ -99,7 +99,8 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 	a.sendSemanticOptimizeProgress("正在创建新数据源...")
 
 	// 4. 创建新数据源（返回新数据源和完整数据库路径）
-	newSource, newDBFullPath, err := a.createOptimizedDataSource(originalSource, optimization)
+	// 传递 schemas 以便使用已收集的列类型信息
+	newSource, newDBFullPath, err := a.createOptimizedDataSource(originalSource, optimization, schemas)
 	if err != nil {
 		return fmt.Errorf("failed to create optimized data source: %w", err)
 	}
@@ -169,13 +170,36 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 		schemas := make([]TableSchemaInfo, 0, len(ds.Analysis.Schema))
 		
 		for _, tableSchema := range ds.Analysis.Schema {
+			// 尝试获取真实的列类型信息
 			columnInfos := make([]ColumnInfo, 0, len(tableSchema.Columns))
-			for _, colName := range tableSchema.Columns {
-				columnInfos = append(columnInfos, ColumnInfo{
-					Name:     colName,
-					Type:     "TEXT", // 默认类型，因为 analysis.schema 不存储类型信息
-					Nullable: true,
-				})
+			realColumns, err := a.dataSourceService.GetTableColumns(sourceID, tableSchema.TableName)
+			if err == nil && len(realColumns) > 0 {
+				// 成功获取真实列信息
+				columnTypeMap := make(map[string]string)
+				for _, col := range realColumns {
+					columnTypeMap[col.Name] = col.Type
+				}
+				for _, colName := range tableSchema.Columns {
+					colType := columnTypeMap[colName]
+					if colType == "" {
+						colType = "TEXT"
+					}
+					columnInfos = append(columnInfos, ColumnInfo{
+						Name:     colName,
+						Type:     colType,
+						Nullable: true,
+					})
+				}
+			} else {
+				// 无法获取真实列信息，使用默认类型
+				a.Log(fmt.Sprintf("[SEMANTIC] Could not get real column types for %s, using TEXT: %v", tableSchema.TableName, err))
+				for _, colName := range tableSchema.Columns {
+					columnInfos = append(columnInfos, ColumnInfo{
+						Name:     colName,
+						Type:     "TEXT",
+						Nullable: true,
+					})
+				}
 			}
 			
 			// 尝试获取样本数据
@@ -409,7 +433,7 @@ func (a *App) buildSemanticOptimizationPrompt(schemas []TableSchemaInfo, languag
 }
 
 // createOptimizedDataSource 创建优化后的数据源
-func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimization *SemanticOptimizationResult) (*agent.DataSource, string, error) {
+func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimization *SemanticOptimizationResult, schemas []TableSchemaInfo) (*agent.DataSource, string, error) {
 	// 创建新的数据源名称
 	newName := originalSource.Name + "_语义优化"
 
@@ -426,16 +450,46 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	}
 	defer newDB.Close()
 
+	// 构建表名到 schema 的映射，用于获取列类型
+	schemaMap := make(map[string]TableSchemaInfo)
+	for _, schema := range schemas {
+		schemaMap[schema.TableName] = schema
+	}
+
 	// 创建优化后的表结构
 	for _, tableOpt := range optimization.Tables {
-		err = a.createOptimizedTable(newDB, tableOpt, originalSource.ID)
+		// 从 schemas 中获取原表的列类型信息
+		originalSchema, hasSchema := schemaMap[tableOpt.OriginalTableName]
+		err = a.createOptimizedTable(newDB, tableOpt, originalSchema, hasSchema)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to create table %s: %w", tableOpt.OptimizedTableName, err)
 		}
 	}
 
-	// 提取文件名作为相对路径（GetConnection 会自动加上 dataCacheDir）
-	dbFileName := filepath.Base(newDBFullPath)
+	// 从完整路径中提取相对路径（sources/{id}/data.db）
+	// 完整路径格式：{dataCacheDir}/sources/{id}/data.db
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get config: %w", err)
+	}
+	
+	// 计算相对路径
+	relDBPath, err := filepath.Rel(cfg.DataCacheDir, newDBFullPath)
+	if err != nil {
+		// 如果无法计算相对路径，尝试从路径中提取 sources/{id}/data.db 部分
+		parts := strings.Split(filepath.ToSlash(newDBFullPath), "/")
+		for i, part := range parts {
+			if part == "sources" && i+2 < len(parts) {
+				relDBPath = filepath.Join("sources", parts[i+1], parts[i+2])
+				break
+			}
+		}
+		if relDBPath == "" {
+			relDBPath = filepath.Base(newDBFullPath)
+		}
+	}
+
+	a.Log(fmt.Sprintf("[SEMANTIC] New database relative path: %s", relDBPath))
 
 	// 构建新数据源的 schema 信息
 	newSchema := make([]agent.TableSchema, 0, len(optimization.Tables))
@@ -468,7 +522,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 		Name: newName,
 		Type: "sqlite",
 		Config: agent.DataSourceConfig{
-			DBPath:    dbFileName,
+			DBPath:    relDBPath,
 			Optimized: true,
 		},
 		Analysis: &agent.DataSourceAnalysis{
@@ -495,17 +549,14 @@ func (a *App) validateAndFixSQL(sqlStmt string, tableName string) (string, error
 }
 
 // createOptimizedTable 创建优化后的表
-func (a *App) createOptimizedTable(db *sql.DB, tableOpt TableOptimization, originalSourceID string) error {
-	// 获取原表的列信息以保留数据类型
-	originalColumns, err := a.dataSourceService.GetTableColumns(originalSourceID, tableOpt.OriginalTableName)
-	if err != nil {
-		return err
-	}
-
-	// 构建列定义映射
+// 使用已收集的 schema 信息，避免再次查询原数据库
+func (a *App) createOptimizedTable(db *sql.DB, tableOpt TableOptimization, originalSchema TableSchemaInfo, hasSchema bool) error {
+	// 构建列定义映射（从已收集的 schema 中获取类型）
 	columnTypeMap := make(map[string]string)
-	for _, col := range originalColumns {
-		columnTypeMap[col.Name] = col.Type
+	if hasSchema {
+		for _, col := range originalSchema.Columns {
+			columnTypeMap[col.Name] = col.Type
+		}
 	}
 
 	// 构建 CREATE TABLE 语句

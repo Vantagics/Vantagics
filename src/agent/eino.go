@@ -60,6 +60,32 @@ func getProviderMaxTokens(modelName string, configuredMax int) int {
 	return limit
 }
 
+// normalizeOpenAIBaseURL normalizes the base URL for OpenAI-compatible APIs
+// The OpenAI SDK automatically appends /chat/completions, so we need to strip it if present
+// This allows users to enter either:
+//   - https://api.example.com/v1 (correct)
+//   - https://api.example.com/v1/chat/completions (also works after normalization)
+func normalizeOpenAIBaseURL(baseURL string) string {
+	if baseURL == "" {
+		return baseURL
+	}
+	
+	// Remove trailing slash first
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	
+	// Remove /chat/completions suffix if present (SDK will add it back)
+	if strings.HasSuffix(baseURL, "/chat/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+	}
+	
+	// Also handle case where user might have added just /completions
+	if strings.HasSuffix(baseURL, "/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/completions")
+	}
+	
+	return baseURL
+}
+
 // EinoService manages Eino-based agents
 type EinoService struct {
 	ChatModel                  model.ChatModel
@@ -160,9 +186,16 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 			// Set max tokens for OpenAI with intelligent provider limits
 			maxTokens := getProviderMaxTokens(cfg.ModelName, cfg.MaxTokens)
 			
+			// Normalize BaseURL - OpenAI SDK automatically appends /chat/completions
+			// so we need to strip it if user included it in the URL
+			normalizedBaseURL := normalizeOpenAIBaseURL(cfg.BaseURL)
+			if logger != nil && normalizedBaseURL != cfg.BaseURL {
+				logger(fmt.Sprintf("[EINO-INIT] Normalized BaseURL: %s -> %s", cfg.BaseURL, normalizedBaseURL))
+			}
+			
 			chatModel, err = openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
 				APIKey:    cfg.APIKey,
-				BaseURL:   cfg.BaseURL, // Might need adjustment if empty
+				BaseURL:   normalizedBaseURL,
 				Model:     cfg.ModelName,
 				MaxTokens: &maxTokens, // Use pointer to int
 				Timeout:   0, // Default
@@ -415,6 +448,20 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	// Save trajectory and SQL collection data on completion (success or error)
 	defer func() {
+		// Recover from any panic and record it
+		if r := recover(); r != nil {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[PANIC] Recovered from panic in RunAnalysisWithProgress: %v", r))
+			}
+			trajectory.Success = false
+			trajectory.ErrorMessage = fmt.Sprintf("panic: %v", r)
+		}
+		
+		// Record end time and duration
+		trajectory.EndTime = time.Now().UnixMilli()
+		trajectory.TotalDuration = trajectory.EndTime - trajectory.StartTime
+		// Note: iterationCount is updated in trajectory.IterationCount during execution
+		
 		if sessionDir != "" {
 			s.saveTrajectory(sessionDir, trajectory)
 			
@@ -1418,11 +1465,29 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 🎯 目标: 高质量分析产出（图表+数据+洞察）
 
-📊 **可视化优先原则**:
-- 数据分析请求 → 必须生成图表(chart.png)
-- 使用matplotlib/seaborn创建专业图表
-- 图表保存到当前目录: plt.savefig('chart.png', dpi=150, bbox_inches='tight')
-- 中文标题和标签: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']
+📊 **可视化方式（二选一）**:
+
+**方式1: ECharts（推荐，无需执行代码）**
+- 直接在回复中输出 ` + "```json:echarts\n{...}\n```" + `
+- 前端会自动渲染图表
+- 适合：交互式图表、快速展示
+- 🚫 **ECharts绝对不会生成任何文件！** 不要说"已生成xxx.pdf"或"已保存xxx.png"
+
+**方式2: Python matplotlib（需要执行代码才能生成文件）**
+- 必须调用python_executor工具执行代码
+- 使用FILES_DIR变量保存文件
+- 适合：需要导出PDF/PNG文件时
+- ✅ 只有python_executor执行成功后，文件才真正存在
+
+🚨🚨🚨 **严禁虚假文件声明（最重要规则）** 🚨🚨🚨
+- **ECharts = 前端渲染 = 无文件生成** → 绝对不能说"图表已生成: xxx.pdf"
+- **只有调用python_executor并执行成功后，才能声称文件已生成**
+- **违规示例（绝对禁止）**:
+  - ❌ "图表文件已生成: analysis.pdf (32KB)" ← 如果没调用python_executor，这是虚假声明
+  - ❌ "✅ 散点图: scatter.pdf (28KB)" ← 如果只用了ECharts，这是虚假声明
+- **正确示例**:
+  - ✅ 使用ECharts时: "以下是交互式图表:" + json:echarts代码块（不提及任何文件）
+  - ✅ 使用matplotlib时: 先调用python_executor，执行成功后才说"文件已保存"
 
 ⚡ 快速路径(跳过搜索,直接用python_executor):
 - 时间/日期查询 → datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")
@@ -1432,22 +1497,23 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 📋 数据分析标准流程:
 1. get_data_source_context → 获取schema
 2. execute_sql → 查询数据
-3. python_executor → **必须**生成可视化图表 + 数据分析
+3. 可视化：ECharts(直接输出,无文件) 或 python_executor(生成文件)
 4. 呈现结果(图表+洞察+数据表)
 
 📤 数据导出规则:
 - ⭐ 数据表格导出 → Excel格式(export_data, format="excel")
-- 可视化报告 → PDF格式
+- 可视化报告 → PDF格式(需要python_executor)
 - 演示文稿 → PPT格式
 
 🔴 关键规则:
-- **分析请求必须生成图表** - 不要只返回文字
+- **分析请求必须有可视化** - ECharts或matplotlib
+- **ECharts不生成文件，不要声称生成了文件**
 - 立即执行工具(不要先解释)
 - get_data_source_context最多调用2次
 - SQL错误时直接修复
 
 📊 输出格式:
-- 图表: ` + "```json:echarts\n{...}\n```" + `
+- ECharts图表: ` + "```json:echarts\n{...}\n```" + ` (仅前端渲染，无文件)
 - 表格: ` + "```json:table\n[...]\n```" + `
 - 图片会自动检测并显示
 
@@ -1460,7 +1526,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 🇨🇳 语言: 图表标题/标签必须用中文
 
 📈 分析产出要求:
-- 数据分析 → 必须包含: 图表 + 关键洞察 + 数据摘要
+- 数据分析 → 必须包含: 图表(ECharts或matplotlib) + 关键洞察 + 数据摘要
 - 简单问题(时间/计算) → 直接返回结果
 - 不要只返回纯文字分析，要有可视化支撑
 

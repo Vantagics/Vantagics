@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -259,46 +260,66 @@ func (p *ResultParser) parseTextTable(lines []string) *ParsedTable {
 }
 
 // detectGeneratedFiles detects files generated in the session directory
+// Recursively scans the session directory and its subdirectories (e.g., "files")
 func (p *ResultParser) detectGeneratedFiles(sessionDir string) ([]FileInfo, []FileInfo) {
 	var chartFiles []FileInfo
 	var exportFiles []FileInfo
 
-	entries, err := os.ReadDir(sessionDir)
-	if err != nil {
-		p.log("[PARSER] Failed to read session directory: " + err.Error())
-		return chartFiles, exportFiles
-	}
+	p.log(fmt.Sprintf("[PARSER] Scanning session directory for files: %s", sessionDir))
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		fullPath := filepath.Join(sessionDir, name)
-
-		info, err := entry.Info()
+	// Scan the session directory recursively
+	err := filepath.Walk(sessionDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			continue
+			p.log("[PARSER] Error accessing path: " + path + " - " + err.Error())
+			return nil // Continue walking
 		}
+
+		// Skip directories
+		if info.IsDir() {
+			return nil
+		}
+
+		name := info.Name()
+		ext := strings.ToLower(filepath.Ext(name))
 
 		fileInfo := FileInfo{
-			Path: fullPath,
+			Path: path,
 			Name: name,
 			Size: info.Size(),
 		}
 
 		// Categorize by extension
 		switch ext {
-		case ".png", ".jpg", ".jpeg", ".svg", ".pdf":
+		case ".png", ".jpg", ".jpeg", ".svg":
 			fileInfo.Type = "chart"
 			chartFiles = append(chartFiles, fileInfo)
+			p.log(fmt.Sprintf("[PARSER] Found chart file: %s (%d bytes)", path, info.Size()))
+		case ".pdf":
+			// PDF could be either a chart/report or export file
+			// Check if it's in the "files" subdirectory (export) or root (chart)
+			if strings.Contains(path, string(filepath.Separator)+"files"+string(filepath.Separator)) {
+				fileInfo.Type = "export"
+				exportFiles = append(exportFiles, fileInfo)
+				p.log(fmt.Sprintf("[PARSER] Found export PDF: %s (%d bytes)", path, info.Size()))
+			} else {
+				fileInfo.Type = "chart"
+				chartFiles = append(chartFiles, fileInfo)
+				p.log(fmt.Sprintf("[PARSER] Found chart PDF: %s (%d bytes)", path, info.Size()))
+			}
 		case ".csv", ".xlsx", ".xls", ".json":
 			fileInfo.Type = "export"
 			exportFiles = append(exportFiles, fileInfo)
+			p.log(fmt.Sprintf("[PARSER] Found export file: %s (%d bytes)", path, info.Size()))
 		}
+
+		return nil
+	})
+
+	if err != nil {
+		p.log("[PARSER] Failed to walk session directory: " + err.Error())
 	}
+
+	p.log(fmt.Sprintf("[PARSER] Found %d chart files and %d export files", len(chartFiles), len(exportFiles)))
 
 	return chartFiles, exportFiles
 }

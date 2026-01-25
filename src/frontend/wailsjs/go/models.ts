@@ -424,6 +424,57 @@ export namespace agent {
 	}
 	
 	
+	export class DataSourceSummary {
+	    id: string;
+	    name: string;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	    }
+	}
+	export class DataSourceStatistics {
+	    total_count: number;
+	    breakdown_by_type: Record<string, number>;
+	    data_sources: DataSourceSummary[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceStatistics(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_count = source["total_count"];
+	        this.breakdown_by_type = source["breakdown_by_type"];
+	        this.data_sources = this.convertValues(source["data_sources"], DataSourceSummary);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class FieldMapping {
 	    old_field: string;
@@ -797,6 +848,7 @@ export namespace config {
 	    maxPreviewRows: number;
 	    maxConcurrentAnalysis: number;
 	    detailedLog: boolean;
+	    logMaxSizeMB: number;
 	    autoIntentUnderstanding: boolean;
 	    mcpServices: MCPService[];
 	    searchEngines?: SearchEngine[];
@@ -833,6 +885,7 @@ export namespace config {
 	        this.maxPreviewRows = source["maxPreviewRows"];
 	        this.maxConcurrentAnalysis = source["maxConcurrentAnalysis"];
 	        this.detailedLog = source["detailedLog"];
+	        this.logMaxSizeMB = source["logMaxSizeMB"];
 	        this.autoIntentUnderstanding = source["autoIntentUnderstanding"];
 	        this.mcpServices = this.convertValues(source["mcpServices"], MCPService);
 	        this.searchEngines = this.convertValues(source["searchEngines"], SearchEngine);
@@ -1701,6 +1754,24 @@ export namespace main {
 	        this.description = source["description"];
 	        this.icon = source["icon"];
 	        this.query = source["query"];
+	    }
+	}
+	export class LogStats {
+	    totalSizeMB: number;
+	    logCount: number;
+	    archiveCount: number;
+	    logDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalSizeMB = source["totalSizeMB"];
+	        this.logCount = source["logCount"];
+	        this.archiveCount = source["archiveCount"];
+	        this.logDir = source["logDir"];
 	    }
 	}
 	

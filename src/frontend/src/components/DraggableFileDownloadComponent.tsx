@@ -2,6 +2,7 @@ import React from 'react';
 import DraggableComponent from './DraggableComponent';
 import { ComponentInstance } from '../utils/ComponentManager';
 import { Download, File, Calendar, HardDrive } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 export interface DraggableFileDownloadComponentProps {
   instance: ComponentInstance;
@@ -42,6 +43,8 @@ export const DraggableFileDownloadComponent: React.FC<DraggableFileDownloadCompo
   onRemove,
   onFileDownload
 }) => {
+  const { t } = useLanguage();
+  
   // Check if component has data (at least one category has files)
   const fileData = instance.data as FileDownloadData;
   const hasAllFiles = fileData?.allFiles && fileData.allFiles.length > 0;
@@ -194,7 +197,7 @@ export const DraggableFileDownloadComponent: React.FC<DraggableFileDownloadCompo
           onClick={() => onRemove(instance.id)}
           className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white text-xs rounded-full hover:bg-red-600 transition-colors flex items-center justify-center z-20"
           data-testid="remove-component-button"
-          aria-label="Remove component"
+          aria-label={t('remove_component')}
         >
           ×
         </button>

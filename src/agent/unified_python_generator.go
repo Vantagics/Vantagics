@@ -268,18 +268,54 @@ func (g *UnifiedPythonGenerator) extractPythonCode(response string) string {
 
 // postProcessCode injects runtime values into the code
 func (g *UnifiedPythonGenerator) postProcessCode(code string, dbPath string, sessionDir string) string {
-	// Replace placeholders with actual values
+	// Normalize path separators for Windows
+	dbPath = strings.ReplaceAll(dbPath, "\\", "/")
+	sessionDir = strings.ReplaceAll(sessionDir, "\\", "/")
+	
+	// FILES_DIR is sessionDir/files
+	filesDir := sessionDir + "/files"
+	
+	g.log(fmt.Sprintf("[UNIFIED_GEN] Injecting paths - DB_PATH: %s, FILES_DIR: %s", dbPath, filesDir))
+	
+	// Replace placeholders with actual values - handle various formats
+	// Format 1: "{DB_PATH}" or '{DB_PATH}'
 	code = strings.ReplaceAll(code, `"{DB_PATH}"`, fmt.Sprintf(`"%s"`, dbPath))
 	code = strings.ReplaceAll(code, `'{DB_PATH}'`, fmt.Sprintf(`'%s'`, dbPath))
-	code = strings.ReplaceAll(code, `{DB_PATH}`, dbPath)
+	code = strings.ReplaceAll(code, `"{FILES_DIR}"`, fmt.Sprintf(`"%s"`, filesDir))
+	code = strings.ReplaceAll(code, `'{FILES_DIR}'`, fmt.Sprintf(`'%s'`, filesDir))
+	code = strings.ReplaceAll(code, `"{SESSION_DIR}"`, fmt.Sprintf(`"%s"`, filesDir)) // SESSION_DIR also maps to files dir
+	code = strings.ReplaceAll(code, `'{SESSION_DIR}'`, fmt.Sprintf(`'%s'`, filesDir))
 	
-	code = strings.ReplaceAll(code, `"{SESSION_DIR}"`, fmt.Sprintf(`"%s"`, sessionDir))
-	code = strings.ReplaceAll(code, `'{SESSION_DIR}'`, fmt.Sprintf(`'%s'`, sessionDir))
-	code = strings.ReplaceAll(code, `{SESSION_DIR}`, sessionDir)
+	// Format 2: {DB_PATH} without quotes
+	code = strings.ReplaceAll(code, `{DB_PATH}`, fmt.Sprintf(`"%s"`, dbPath))
+	code = strings.ReplaceAll(code, `{FILES_DIR}`, fmt.Sprintf(`"%s"`, filesDir))
+	code = strings.ReplaceAll(code, `{SESSION_DIR}`, fmt.Sprintf(`"%s"`, filesDir))
 
-	// Also handle common variations
+	// Format 3: DB_PATH = "" or DB_PATH = ''
 	code = strings.ReplaceAll(code, `DB_PATH = ""`, fmt.Sprintf(`DB_PATH = "%s"`, dbPath))
-	code = strings.ReplaceAll(code, `SESSION_DIR = ""`, fmt.Sprintf(`SESSION_DIR = "%s"`, sessionDir))
+	code = strings.ReplaceAll(code, `FILES_DIR = ""`, fmt.Sprintf(`FILES_DIR = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `SESSION_DIR = ""`, fmt.Sprintf(`SESSION_DIR = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `DB_PATH = ''`, fmt.Sprintf(`DB_PATH = '%s'`, dbPath))
+	code = strings.ReplaceAll(code, `FILES_DIR = ''`, fmt.Sprintf(`FILES_DIR = '%s'`, filesDir))
+	code = strings.ReplaceAll(code, `SESSION_DIR = ''`, fmt.Sprintf(`SESSION_DIR = '%s'`, filesDir))
+	
+	// Format 4: DB_PATH = {DB_PATH}
+	code = strings.ReplaceAll(code, `DB_PATH = {DB_PATH}`, fmt.Sprintf(`DB_PATH = "%s"`, dbPath))
+	code = strings.ReplaceAll(code, `FILES_DIR = {FILES_DIR}`, fmt.Sprintf(`FILES_DIR = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `SESSION_DIR = {SESSION_DIR}`, fmt.Sprintf(`SESSION_DIR = "%s"`, filesDir))
+	
+	// Format 5: DB_PATH = None or FILES_DIR = None
+	code = strings.ReplaceAll(code, `DB_PATH = None`, fmt.Sprintf(`DB_PATH = "%s"`, dbPath))
+	code = strings.ReplaceAll(code, `FILES_DIR = None`, fmt.Sprintf(`FILES_DIR = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `SESSION_DIR = None`, fmt.Sprintf(`SESSION_DIR = "%s"`, filesDir))
+	
+	// Format 6: lowercase variants
+	code = strings.ReplaceAll(code, `db_path = ""`, fmt.Sprintf(`db_path = "%s"`, dbPath))
+	code = strings.ReplaceAll(code, `files_dir = ""`, fmt.Sprintf(`files_dir = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `session_dir = ""`, fmt.Sprintf(`session_dir = "%s"`, filesDir))
+	code = strings.ReplaceAll(code, `db_path = ''`, fmt.Sprintf(`db_path = '%s'`, dbPath))
+	code = strings.ReplaceAll(code, `files_dir = ''`, fmt.Sprintf(`files_dir = '%s'`, filesDir))
+	code = strings.ReplaceAll(code, `session_dir = ''`, fmt.Sprintf(`session_dir = '%s'`, filesDir))
 
 	return code
 }

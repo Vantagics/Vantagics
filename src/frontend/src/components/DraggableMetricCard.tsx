@@ -2,6 +2,7 @@ import React from 'react';
 import DraggableComponent from './DraggableComponent';
 import MetricCard from './MetricCard';
 import { ComponentInstance } from '../utils/ComponentManager';
+import { useLanguage } from '../i18n';
 
 export interface DraggableMetricCardProps {
   instance: ComponentInstance;
@@ -32,6 +33,8 @@ export const DraggableMetricCard: React.FC<DraggableMetricCardProps> = ({
   onResizeStop,
   onRemove
 }) => {
+  const { t } = useLanguage();
+  
   // Check if component has data
   const hasData = instance.hasData && instance.data;
   
@@ -77,7 +80,7 @@ export const DraggableMetricCard: React.FC<DraggableMetricCardProps> = ({
             onClick={() => onRemove(instance.id)}
             className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white text-xs rounded-full hover:bg-red-600 transition-colors flex items-center justify-center z-20"
             data-testid="remove-component-button"
-            aria-label="Remove component"
+            aria-label={t('remove_component')}
           >
             ×
           </button>

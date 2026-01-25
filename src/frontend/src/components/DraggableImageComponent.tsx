@@ -4,6 +4,7 @@ import ImageModal from './ImageModal';
 import { ComponentInstance } from '../utils/ComponentManager';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 import { convertImageData } from '../utils/ImageConverter';
+import { useLanguage } from '../i18n';
 
 export interface DraggableImageComponentProps {
   instance: ComponentInstance;
@@ -36,6 +37,7 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
   onRemove,
   threadId
 }) => {
+  const { t } = useLanguage();
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -159,7 +161,7 @@ export const DraggableImageComponent: React.FC<DraggableImageComponentProps> = (
           onClick={() => onRemove(instance.id)}
           className="absolute top-2 right-2 w-6 h-6 bg-red-500 text-white text-xs rounded-full hover:bg-red-600 transition-colors flex items-center justify-center z-20"
           data-testid="remove-component-button"
-          aria-label="Remove component"
+          aria-label={t('remove_component')}
         >
           ×
         </button>

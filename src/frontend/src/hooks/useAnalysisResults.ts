@@ -75,7 +75,7 @@ export function useAnalysisResults(): UseAnalysisResultsReturn {
   useEffect(() => {
     // 监听 analysis-result-update 事件
     const unsubscribeUpdate = EventsOn('analysis-result-update', (payload: AnalysisResultBatch) => {
-      logger.debug(`Received analysis-result-update: ${payload.items?.length || 0} items`);
+      logger.debug(`Received analysis-result-update: ${payload.items?.length || 0} items, session=${payload.sessionId}, message=${payload.messageId}`);
       manager.updateResults(payload);
     });
 

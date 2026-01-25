@@ -120,11 +120,31 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
       return;
     }
     
+    // 自动更新当前会话和消息（确保数据能被正确获取）
+    // 只有当收到新数据时才更新，避免覆盖用户手动选择
+    if (sessionId && items.length > 0) {
+      if (this.state.currentSessionId !== sessionId) {
+        logger.debug(`Auto-switching session: ${this.state.currentSessionId} -> ${sessionId}`);
+        this.state.currentSessionId = sessionId;
+      }
+      if (this.state.currentMessageId !== messageId) {
+        logger.debug(`Auto-selecting message: ${this.state.currentMessageId} -> ${messageId}`);
+        this.state.currentMessageId = messageId;
+      }
+    }
+    
     // 获取或创建session数据
     if (!this.state.data.has(sessionId)) {
       this.state.data.set(sessionId, new Map());
     }
     const sessionData = this.state.data.get(sessionId)!;
+    
+    // 当新的 messageId 数据到达时，清除该 session 下的旧 message 数据
+    // 这样仪表盘会在干净的状态下展示新的分析结果
+    if (!sessionData.has(messageId) && sessionData.size > 0) {
+      logger.debug(`Clearing old message data for session ${sessionId} before adding new message ${messageId}`);
+      sessionData.clear();
+    }
     
     // 获取或创建message数据
     if (!sessionData.has(messageId)) {
