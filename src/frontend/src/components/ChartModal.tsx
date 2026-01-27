@@ -113,7 +113,7 @@ const ChartModal: React.FC<ChartModalProps> = ({ isOpen, options, onClose }) => 
                     option={enhancedOptions}
                     style={{ height: '100%', width: '100%' }}
                     theme="light"
-                    onError={(error) => {
+                    onError={(error: any) => {
                         console.error('ECharts modal rendering error:', error);
                     }}
                     opts={{

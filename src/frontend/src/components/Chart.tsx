@@ -106,7 +106,7 @@ const Chart: React.FC<ChartProps> = ({ options, height = '400px' }) => {
                 option={enhancedOptions}
                 style={{ height: height, width: '100%' }}
                 theme="light"
-                onError={(error) => {
+                onError={(error: any) => {
                     console.error('ECharts rendering error:', error);
                 }}
                 opts={{

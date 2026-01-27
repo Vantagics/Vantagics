@@ -25,6 +25,7 @@ show_help() {
     echo "  --darwin          Build for macOS"
     echo "  --windows         Build for Windows"
     echo "  --linux           Build for Linux"
+    echo "  --universal       Build for macOS Universal (Intel + Apple Silicon)"
     echo ""
     echo "Example:"
     echo "  ./build.sh debug"
@@ -88,9 +89,14 @@ case $COMMAND in
         shift || true
         while [[ "$#" -gt 0 ]]; do
             case $1 in
-                --darwin) PLATFORM="darwin" ;;
+                --darwin) 
+                    if [ "$PLATFORM" != "darwin/universal" ]; then
+                        PLATFORM="darwin"
+                    fi
+                    ;;
                 --windows) PLATFORM="windows" ;;
                 --linux) PLATFORM="linux" ;;
+                --universal) PLATFORM="darwin/universal" ;;
                 *) echo "Unknown option: $1"; show_help; exit 1 ;;
             esac
             shift
