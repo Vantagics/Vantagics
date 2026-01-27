@@ -88,13 +88,15 @@ func cleanChartData(data string) string {
 }
 
 // ChatMessage represents a single message in a chat thread
+// Note: AnalysisResultItem is defined in event_aggregator.go
 type ChatMessage struct {
-	ID           string                 `json:"id"`
-	Role         string                 `json:"role"` // "user" or "assistant"
-	Content      string                 `json:"content"`
-	Timestamp    int64                  `json:"timestamp"`
-	ChartData    *ChartData             `json:"chart_data,omitempty"`    // Associated chart/visualization data (can contain multiple charts)
-	TimingData   map[string]interface{} `json:"timing_data,omitempty"`   // Detailed timing information for analysis stages
+	ID              string                 `json:"id"`
+	Role            string                 `json:"role"` // "user" or "assistant"
+	Content         string                 `json:"content"`
+	Timestamp       int64                  `json:"timestamp"`
+	ChartData       *ChartData             `json:"chart_data,omitempty"`       // Legacy: Associated chart/visualization data
+	TimingData      map[string]interface{} `json:"timing_data,omitempty"`      // Detailed timing information for analysis stages
+	AnalysisResults []AnalysisResultItem   `json:"analysis_results,omitempty"` // New unified analysis results
 }
 
 // UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
@@ -599,3 +601,91 @@ func (s *ChatService) GetSessionFiles(threadID string) ([]SessionFile, error) {
 }
 
 
+
+// SaveAnalysisResults saves analysis results for a specific message
+func (s *ChatService) SaveAnalysisResults(threadID, messageID string, results []AnalysisResultItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+
+	// Find the message and update its analysis results
+	for i := range t.Messages {
+		if t.Messages[i].ID == messageID {
+			t.Messages[i].AnalysisResults = results
+			return s.saveThreadInternal(t)
+		}
+	}
+
+	return fmt.Errorf("message not found: %s", messageID)
+}
+
+// GetAnalysisResults retrieves analysis results for a specific message
+func (s *ChatService) GetAnalysisResults(threadID, messageID string) ([]AnalysisResultItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
+	}
+
+	// Find the message
+	for _, msg := range t.Messages {
+		if msg.ID == messageID {
+			return msg.AnalysisResults, nil
+		}
+	}
+
+	return nil, fmt.Errorf("message not found: %s", messageID)
+}
+
+// GetMessageAnalysisData retrieves all analysis data for a message (for dashboard restoration)
+func (s *ChatService) GetMessageAnalysisData(threadID, messageID string) (map[string]interface{}, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, err
+	}
+
+	// Find the message
+	for _, msg := range t.Messages {
+		if msg.ID == messageID {
+			result := map[string]interface{}{
+				"messageId":       msg.ID,
+				"threadId":        threadID,
+				"analysisResults": msg.AnalysisResults,
+			}
+			// Include legacy chart data if present
+			if msg.ChartData != nil {
+				result["chartData"] = msg.ChartData
+			}
+			return result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("message not found: %s", messageID)
+}

@@ -23,7 +23,7 @@ func getTrayText(language string) map[string]string {
 			"hide_tip":    "隐藏应用程序",
 			"quit":        "退出",
 			"quit_tip":    "退出应用程序",
-			"tooltip":     "RapidBI - 智能数据分析",
+			"tooltip":     "观界 - 智能数据分析",
 		}
 	}
 	// Default to English
@@ -34,7 +34,7 @@ func getTrayText(language string) map[string]string {
 		"hide_tip":    "Hide App",
 		"quit":        "Quit",
 		"quit_tip":    "Quit App",
-		"tooltip":     "RapidBI - Smart Data Analysis",
+		"tooltip":     "VantageData - Smart Data Analysis",
 	}
 }
 
@@ -42,7 +42,7 @@ func runSystray(ctx context.Context) {
 	go func() {
 		systray.Run(func() {
 			systray.SetIcon(trayIcon)
-			systray.SetTitle("RapidBI")
+			systray.SetTitle("VantageData")
 			
 			// Get initial language from config
 			app := ctx.Value("app").(*App)

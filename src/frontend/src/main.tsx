@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client'
 import './style.css'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { DarkModeProvider } from './contexts/DarkModeContext'
 
 const container = document.getElementById('root')
 
@@ -32,6 +33,8 @@ if (!window.go) {
                     modelName: '',
                     maxTokens: 4096,
                     darkMode: false,
+                    enableMemory: false,
+                    autoAnalysisSuggestions: true,
                     localCache: true,
                     language: 'English',
                     claudeHeaderStyle: 'Anthropic',
@@ -86,7 +89,9 @@ window.addEventListener('error', (event) => {
 root.render(
     <React.StrictMode>
         <ErrorBoundary>
-            <App/>
+            <DarkModeProvider>
+                <App/>
+            </DarkModeProvider>
         </ErrorBoundary>
     </React.StrictMode>
 )

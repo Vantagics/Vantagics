@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info, Play, Zap, Edit3 } from 'lucide-react';
+import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
@@ -9,20 +9,31 @@ interface SourceContextMenuProps {
     sourceId: string;
     sourceName: string;
     hasLocalDB: boolean; // Whether this is a local SQLite database
+    isOptimized?: boolean; // Whether the data source has been optimized (indexes)
     onClose: () => void;
     onSelectThread: (thread: main.ChatThread) => void;
     onExport: () => void;
     onProperties: () => void;
     onStartAnalysis: () => void;
-    onOptimize?: () => void; // New: optimize data source
-    onRename?: () => void; // New: rename data source
+    onOptimize?: () => void; // Optimize data source (indexes)
+    onRename?: () => void; // Rename data source
+    onSemanticOptimize?: () => void; // New: semantic optimization
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, hasLocalDB, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    console.log('[DEBUG] SourceContextMenu render:', {
+        sourceId,
+        sourceName,
+        hasLocalDB,
+        isOptimized,
+        hasOnOptimize: !!onOptimize,
+        hasOnSemanticOptimize: !!onSemanticOptimize
+    });
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -100,7 +111,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 {t('export_data')}
             </button>
             
-            {hasLocalDB && onOptimize && (
+            {hasLocalDB && !isOptimized && onOptimize && (
                 <button 
                     onClick={() => {
                         onOptimize();
@@ -110,6 +121,19 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 >
                     <Zap className="w-4 h-4 text-amber-500" />
                     <span>{t('optimize_data_source')}</span>
+                </button>
+            )}
+            
+            {hasLocalDB && onSemanticOptimize && (
+                <button 
+                    onClick={() => {
+                        onSemanticOptimize();
+                        onClose();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                >
+                    <Sparkles className="w-4 h-4 text-purple-500" />
+                    <span>{t('semantic_optimize')}</span>
                 </button>
             )}
             

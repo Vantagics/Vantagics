@@ -1,0 +1,8 @@
+{
+  "track_id": "web_search_infra_20260118",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-18T06:38:00Z",
+  "updated_at": "2026-01-18T06:38:00Z",
+  "description": "开发本程序使用chromedp+goquery调用外部浏览器访问相关数据，进行本地数据与在线数据对比分析的功能。需要实现在设置中选择或添加搜索引擎，默认有https://www.google.com 以及https://www.baidu.com, https://www.bing.com , 实现一个agent使用的外部搜索工具，用于搜索网络上最新数据，方便对比及趋势预测等。"
+}

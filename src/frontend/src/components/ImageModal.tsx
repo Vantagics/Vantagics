@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 interface ImageModalProps {
     isOpen: boolean;
@@ -8,6 +9,7 @@ interface ImageModalProps {
 }
 
 const ImageModal: React.FC<ImageModalProps> = ({ isOpen, imageUrl, onClose }) => {
+    const { t } = useLanguage();
     const [scale, setScale] = useState(1);
     const [isVisible, setIsVisible] = useState(false);
 
@@ -70,7 +72,7 @@ const ImageModal: React.FC<ImageModalProps> = ({ isOpen, imageUrl, onClose }) =>
             >
                 <img 
                     src={imageUrl} 
-                    alt="Full View" 
+                    alt={t('full_view')} 
                     className="max-w-[90vw] max-h-[90vh] object-contain transition-transform duration-200 ease-out shadow-2xl rounded-lg"
                     style={{ transform: `scale(${scale})` }}
                 />

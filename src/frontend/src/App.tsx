@@ -1,30 +1,33 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import Dashboard from './components/Dashboard';
+import DashboardTest from './components/DashboardTest';
+import DraggableDashboard from './components/DraggableDashboard';
 import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';
 import AboutModal from './components/AboutModal';
 import ChatSidebar from './components/ChatSidebar';
 import ContextMenu from './components/ContextMenu';
 import MessageModal from './components/MessageModal';
-import SkillsPage from './components/SkillsPage';
+import SkillsManagementPage from './components/SkillsManagementPage';
 import { EventsOn, EventsEmit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
-import { ToastProvider } from './contexts/ToastContext';
+import { ToastProvider, useToast } from './contexts/ToastContext';
 import './App.css';
 
 const logger = createLogger('App');
 
-function App() {
+// Inner component that has access to ToastContext
+function AppContent() {
     const { t } = useLanguage();
+    const { showToast } = useToast();
     const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
     const [isAboutOpen, setIsAboutOpen] = useState(false);
-    const [isChatOpen, setIsChatOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+    const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
     const [activeChart, setActiveChart] = useState<{ type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: main.ChartData } | null>(null);
     const [sessionCharts, setSessionCharts] = useState<{ [sessionId: string]: { type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: main.ChartData } }>({});
@@ -47,6 +50,164 @@ function App() {
     const [isAnalysisLoading, setIsAnalysisLoading] = useState(false);
     const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
 
+    // Request tracking state (Requirements 2.1, 4.1)
+    const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
+    const [lastCompletedRequestId, setLastCompletedRequestId] = useState<string | null>(null);
+    
+    // Task 6.1: Timeout tracking for request timeout handling (Requirement 2.4)
+    const [requestTimeouts, setRequestTimeouts] = useState<Map<string, number>>(new Map());
+
+    // Generate unique request ID for tracking analysis requests (Requirements 2.1, 4.1)
+    const generateRequestId = (): string => {
+        return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    };
+
+    // Handle insight click - Requirements 1.1, 1.2, 2.1, 2.2, 4.2, 5.3, 5.4
+    // insight can be either a string (backward compatibility) or an object with data_source_id
+    const handleInsightClick = async (insight: any) => {
+        // Extract insight text - handle both string and object formats
+        const insightText = typeof insight === 'string' ? insight : (insight.text || '');
+        const dataSourceId = typeof insight === 'object' ? insight.data_source_id : null;
+        const sourceName = typeof insight === 'object' ? insight.source_name : null;
+        
+        logger.debug(`Insight clicked: ${insightText.substring(0, 50)}`);
+        logger.debug(`dataSourceId: ${dataSourceId}, sourceName: ${sourceName}, activeSessionId: ${activeSessionId}`);
+        
+        // 判断逻辑：
+        // 1. 如果有 data_source_id 且没有 activeSessionId -> 系统初始状态，创建新会话
+        // 2. 如果有 activeSessionId -> 会话分析结果状态，在当前会话继续
+        
+        if (dataSourceId && !activeSessionId) {
+            // 场景1：系统初始状态，点击数据源洞察 -> 创建新会话
+            logger.info(`System initial state: Creating new session for data source: ${dataSourceId}`);
+            
+            // Check if we can start a new analysis (concurrent limit check)
+            try {
+                const [canStart, errorMessage] = await CanStartNewAnalysis();
+                if (!canStart) {
+                    logger.warn(`Cannot start new analysis: ${errorMessage}`);
+                    setMessageModal({
+                        isOpen: true,
+                        type: 'warning',
+                        title: t('warning') || '警告',
+                        message: errorMessage
+                    });
+                    return;
+                }
+            } catch (error) {
+                logger.error(`Error checking concurrent limit: ${error}`);
+                // Continue anyway if check fails
+            }
+            
+            const sessionName = `分析会话: ${sourceName || insightText}`;
+            logger.info(`Session name will be: ${sessionName}`);
+            
+            const eventData = {
+                dataSourceId: dataSourceId,
+                sessionName: sessionName,
+                keepChatOpen: true,
+                initialMessage: insightText
+            };
+            
+            logger.info(`Emitting start-new-chat event with data: ${JSON.stringify(eventData)}`);
+            
+            // 打开聊天区域
+            setIsChatOpen(true);
+            // 折叠数据浏览器
+            setIsContextPanelCollapsed(true);
+            
+            // 发送创建新会话事件
+            EventsEmit('start-new-chat', eventData);
+            return;
+        }
+        
+        // 场景2：会话分析结果状态，在当前会话继续分析
+        // Task 4.1: Check if there's a pending request and cancel it (Requirements 5.3, 5.4)
+        if (pendingRequestId) {
+            logger.info(`Canceling previous request ${pendingRequestId} - new insight clicked`);
+            // Clear the timeout for the previous request
+            const prevTimeout = requestTimeouts.get(pendingRequestId);
+            if (prevTimeout) {
+                clearTimeout(prevTimeout);
+                setRequestTimeouts(prev => {
+                    const newMap = new Map(prev);
+                    newMap.delete(pendingRequestId);
+                    return newMap;
+                });
+            }
+            // The previous request will be ignored when its result arrives
+            // because the requestId won't match the new pendingRequestId
+        }
+        
+        // Generate unique request ID for tracking
+        const requestId = generateRequestId();
+        logger.debug(`Generated requestId: ${requestId}`);
+        
+        // Set loading state and pending request ID
+        // CRITICAL: Do NOT modify dashboardData - keep it stable during loading
+        // Task 4.1: Update pendingRequestId to the new request, effectively canceling the old one
+        setPendingRequestId(requestId);
+        setIsAnalysisLoading(true);
+        
+        // Task 6.1: Set 30-second timeout for the request (Requirement 2.4)
+        const timeoutId = setTimeout(() => {
+            // Check if this request is still pending
+            setPendingRequestId(currentPendingId => {
+                if (currentPendingId === requestId) {
+                    logger.warn(`Request ${requestId} timed out after 30 seconds`);
+                    
+                    // Clear loading state but keep dashboard data (Requirement 2.4)
+                    setIsAnalysisLoading(false);
+                    
+                    // Show timeout error message
+                    showToast('error', '分析请求超时（30秒），请重试', '分析超时');
+                    
+                    // Clear the timeout from the map
+                    setRequestTimeouts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.delete(requestId);
+                        return newMap;
+                    });
+                    
+                    return null; // Clear pending request ID
+                }
+                return currentPendingId; // Keep current pending ID if it's different
+            });
+        }, 30000); // 30 seconds timeout
+        
+        // Store the timeout ID for potential cancellation
+        setRequestTimeouts(prev => {
+            const newMap = new Map(prev);
+            newMap.set(requestId, timeoutId);
+            return newMap;
+        });
+        
+        // If there's an active session, send the analysis request with requestId
+        if (activeSessionId) {
+            logger.debug(`Sending analysis request in session ${activeSessionId} with requestId ${requestId}`);
+            
+            // Ensure chat sidebar is open so user can see the message
+            if (!isChatOpen) {
+                setIsChatOpen(true);
+            }
+            
+            EventsEmit('chat-send-message-in-session', {
+                text: insightText,
+                threadId: activeSessionId,
+                requestId: requestId
+            });
+        } else {
+            // No active session - open chat and send message
+            logger.debug('No active session, opening chat and sending message');
+            setIsChatOpen(true);
+            
+            // Delay to ensure chat sidebar is mounted
+            setTimeout(() => {
+                EventsEmit('chat-send-message', insightText);
+            }, 150);
+        }
+    };
+
     useEffect(() => {
         SetChatOpen(isChatOpen);
     }, [isChatOpen]);
@@ -61,12 +222,15 @@ function App() {
     const [contextPanelWidth, setContextPanelWidth] = useState(384);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [isResizingContextPanel, setIsResizingContextPanel] = useState(false);
+    const [isContextPanelCollapsed, setIsContextPanelCollapsed] = useState(false); // 数据浏览器折叠状态
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: HTMLElement } | null>(null);
 
     const checkLLM = async () => {
         setStartupStatus("checking");
+        
+        // Check LLM configuration
         setStartupMessage(t('checking_llm_config'));
         try {
             const config = await GetConfig();
@@ -123,8 +287,66 @@ function App() {
         });
 
         // Listen for analysis events
-        const unsubscribeAnalysisError = EventsOn("analysis-error", (msg: string) => {
-            alert(`Analysis Error: ${msg}`);
+        // Task 6.2: Enhanced analysis error handling (Requirement 2.4)
+        const unsubscribeAnalysisError = EventsOn("analysis-error", (payload: any) => {
+            logger.debug(`Analysis error event received: ${JSON.stringify(payload)}`);
+            
+            // Support both old format (string) and new format (object with requestId)
+            let errorMessage: string;
+            let requestId: string | null = null;
+            
+            if (typeof payload === 'string') {
+                // Old format: just error message string
+                errorMessage = payload;
+                logger.debug('Old format error message (no requestId)');
+            } else if (payload && typeof payload === 'object') {
+                // New format: object with requestId and error message
+                errorMessage = payload.error || payload.message || 'Unknown error';
+                requestId = payload.requestId || null;
+                logger.debug(`New format error with requestId: ${requestId}`);
+            } else {
+                errorMessage = 'Unknown error';
+                logger.warn('Invalid error payload format');
+            }
+            
+            // Task 6.2: Verify requestId matches if provided (Requirement 2.4)
+            if (requestId) {
+                // Check if this error is for the current pending request
+                if (requestId !== pendingRequestId) {
+                    logger.info(`Ignoring stale error - requestId mismatch: received=${requestId}, expected=${pendingRequestId}`);
+                    return; // Ignore errors for old requests
+                }
+                
+                logger.debug(`RequestId matched: ${requestId}, processing error`);
+                
+                // Clear the timeout for this request
+                const timeoutId = requestTimeouts.get(requestId);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    setRequestTimeouts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.delete(requestId);
+                        return newMap;
+                    });
+                    logger.debug(`Cleared timeout for failed request ${requestId}`);
+                }
+                
+                // Task 6.2: Clear loading state but keep dashboard data (Requirement 2.4)
+                setPendingRequestId(null);
+                setIsAnalysisLoading(false);
+                logger.debug('Loading state cleared, dashboard data preserved');
+            } else {
+                // Backward compatibility: if no requestId, clear loading state anyway
+                logger.debug('No requestId in error payload, clearing loading state (backward compatibility)');
+                setPendingRequestId(null);
+                setIsAnalysisLoading(false);
+            }
+            
+            // Task 6.2: Show error toast message (Requirement 2.4)
+            showToast('error', errorMessage, '分析失败');
+            logger.warn(`Analysis failed: ${errorMessage}`);
+            
+            // Note: dashboardData is NOT modified - existing data is preserved
         });
         const unsubscribeAnalysisWarning = EventsOn("analysis-warning", (msg: string) => {
             alert(`Analysis Warning: ${msg}`);
@@ -165,31 +387,122 @@ function App() {
 
         // Listen for dashboard chart updates (with session ID)
         const unsubscribeDashboardUpdate = EventsOn("dashboard-update", (payload: any) => {
+            // Log received event for debugging
             logger.debug(`Dashboard update received: ${JSON.stringify(payload).substring(0, 100)}`);
-            // Payload now includes sessionId and optionally chartData: { sessionId: string, type: string, data: any, chartData?: ChartData }
-            if (payload && payload.sessionId) {
-                const chartData = {
-                    type: payload.type,
-                    data: payload.data,
-                    chartData: payload.chartData // Full ChartData with Charts array for multi-chart support
-                };
-                setSessionCharts(prev => ({ ...prev, [payload.sessionId]: chartData }));
-                // Update active chart if this is the current session
-                setActiveSessionId(currentSessionId => {
-                    if (currentSessionId === payload.sessionId || !currentSessionId) {
-                        setActiveChart(chartData);
+            
+            // Validate payload structure
+            if (!payload) {
+                logger.warn("Dashboard update received with null/undefined payload");
+                return;
+            }
+
+            // Validate required fields: type and data
+            if (!payload.type) {
+                logger.warn(`Dashboard update received without type field`);
+                return;
+            }
+
+            if (payload.data === undefined || payload.data === null) {
+                logger.warn(`Dashboard update received with type=${payload.type} but no data`);
+                return;
+            }
+
+            // 合并新数据到现有的chartData.charts数组中
+            const updateActiveChart = () => {
+                setActiveChart(prevChart => {
+                    const newChartItem = {
+                        type: payload.type,
+                        data: payload.data
+                    };
+                    
+                    // 如果之前没有chartData，创建新的
+                    if (!prevChart || !prevChart.chartData) {
+                        logger.debug(`Creating new chartData with type: ${payload.type}`);
+                        return {
+                            type: payload.type as 'echarts' | 'image' | 'table' | 'csv',
+                            data: payload.data,
+                            chartData: {
+                                charts: [newChartItem]
+                            } as any
+                        };
                     }
+                    
+                    // 合并到现有的charts数组中
+                    const existingCharts = prevChart.chartData.charts || [];
+                    // 检查是否已存在相同类型的数据，如果存在则更新，否则添加
+                    const existingIndex = existingCharts.findIndex((c: any) => c.type === payload.type);
+                    let updatedCharts;
+                    if (existingIndex >= 0) {
+                        // 更新现有的
+                        updatedCharts = [...existingCharts];
+                        updatedCharts[existingIndex] = newChartItem;
+                        logger.debug(`Updated existing chart at index ${existingIndex}, type: ${payload.type}`);
+                    } else {
+                        // 添加新的
+                        updatedCharts = [...existingCharts, newChartItem];
+                        logger.debug(`Added new chart, type: ${payload.type}, total charts: ${updatedCharts.length}`);
+                    }
+                    
+                    return {
+                        type: payload.type as 'echarts' | 'image' | 'table' | 'csv',
+                        data: payload.data,
+                        chartData: {
+                            charts: updatedCharts
+                        } as any
+                    };
+                });
+            };
+
+            // Handle session ID validation and filtering
+            if (payload.sessionId) {
+                // Check if this event is for the current active session
+                setActiveSessionId(currentSessionId => {
+                    // If sessionId doesn't match current active session, silently ignore
+                    if (currentSessionId && currentSessionId !== payload.sessionId) {
+                        return currentSessionId;
+                    }
+                    
+                    // Session ID matches - update chart outside of this callback
                     return currentSessionId;
                 });
+                
+                // 直接更新 activeChart，不在 setActiveSessionId 回调中
+                updateActiveChart();
+                logger.debug(`Active chart updated for session ${payload.sessionId}, type: ${payload.type}`);
             } else {
-                // Fallback for old format without sessionId
-                setActiveChart(payload);
+                // Fallback: sessionId not provided - update anyway
+                updateActiveChart();
+                logger.debug(`Active chart updated (no sessionId provided, using fallback)`);
             }
         });
 
         // Listen for session switch to update dashboard
         const unsubscribeSessionSwitch = EventsOn("session-switched", async (sessionId: string) => {
             logger.debug(`Session switched: ${sessionId}`);
+            
+            // Task 6.3: Cancel pending requests when switching sessions (Requirement 2.4)
+            // If there's a pending request from the previous session, cancel it
+            if (pendingRequestId) {
+                logger.info(`Canceling pending request ${pendingRequestId} due to session switch`);
+                
+                // Clear the timeout for the pending request
+                const timeoutId = requestTimeouts.get(pendingRequestId);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    setRequestTimeouts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.delete(pendingRequestId);
+                        return newMap;
+                    });
+                    logger.debug(`Cleared timeout for request ${pendingRequestId}`);
+                }
+                
+                // Clear loading state
+                setPendingRequestId(null);
+                setIsAnalysisLoading(false);
+                logger.debug('Loading state cleared due to session switch');
+            }
+            
             setActiveSessionId(sessionId);
 
             // 从 sessionCharts 中加载该会话的图表
@@ -295,6 +608,8 @@ function App() {
 
         const unsubscribeStartNewChat = EventsOn("start-new-chat", (data: any) => {
             setIsChatOpen(true);
+            // 启动分析会话时折叠数据浏览器区域
+            setIsContextPanelCollapsed(true);
             // If keepChatOpen is true, don't auto-hide the chat area
             if (data && data.keepChatOpen) {
                 logger.debug('start-new-chat with keepChatOpen=true, keeping chat area open');
@@ -302,8 +617,9 @@ function App() {
             }
         });
 
-        const unsubscribeOpenSkills = EventsOn("open-skills", () => {
-            setIsSkillsOpen(true);
+        const unsubscribeEnsureChatOpen = EventsOn("ensure-chat-open", () => {
+            logger.debug('ensure-chat-open event received, ensuring chat is open');
+            setIsChatOpen(true);
         });
 
         const unsubscribeOpenDevTools = EventsOn("open-dev-tools", () => {
@@ -355,7 +671,48 @@ function App() {
         const unsubscribeAnalysisCompleted = EventsOn("analysis-completed", (payload: any) => {
             logger.debug(`Analysis completed event received: ${JSON.stringify(payload)}`);
 
-            const { threadId, userMessageId, assistantMsgId, hasChartData } = payload;
+            const { threadId, userMessageId, assistantMsgId, hasChartData, requestId } = payload;
+
+            // Task 3.1: Verify requestId matches pending request (Requirements 1.3, 4.3, 4.4)
+            if (requestId) {
+                // Check if this result matches the current pending request
+                if (requestId !== pendingRequestId) {
+                    logger.info(`Ignoring stale analysis result - requestId mismatch: received=${requestId}, expected=${pendingRequestId}`);
+                    return; // Ignore outdated results
+                }
+                
+                logger.debug(`RequestId matched: ${requestId}, proceeding with dashboard update`);
+                
+                // Task 6.1: Clear the timeout for this request (Requirement 2.4)
+                const timeoutId = requestTimeouts.get(requestId);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    setRequestTimeouts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.delete(requestId);
+                        return newMap;
+                    });
+                    logger.debug(`Cleared timeout for request ${requestId}`);
+                }
+                
+                // Task 3.2: Clear loading state when result matches (Requirements 2.3)
+                setPendingRequestId(null);
+                setLastCompletedRequestId(requestId);
+                setIsAnalysisLoading(false);
+            } else {
+                // Backward compatibility: if no requestId in payload, process anyway
+                logger.debug('No requestId in payload, processing without validation (backward compatibility)');
+                
+                // Task 3.2: Clear loading state for backward compatibility (Requirements 2.3)
+                setPendingRequestId(null);
+                setIsAnalysisLoading(false);
+            }
+
+            // Set active session ID so that clicking insights will continue in this session
+            if (threadId) {
+                logger.debug(`Setting activeSessionId to: ${threadId}`);
+                setActiveSessionId(threadId);
+            }
 
             // 清除仪表盘所有内容，准备显示新的分析结果
             logger.debug('Clearing dashboard for new analysis results');
@@ -369,19 +726,20 @@ function App() {
                 });
             });
 
-            // 清除当前图表
-            setActiveChart(null);
+            // 注意：不清除 activeChart，因为 dashboard-update 事件已经设置了正确的数据
+            // 如果清除会导致实时更新的数据丢失
+            // setActiveChart(null);
 
             // 延迟加载新的分析结果（确保清除操作完成）
             setTimeout(() => {
                 logger.debug(`Auto-loading analysis results for message: ${userMessageId}`);
 
                 // 触发 user-message-clicked 事件来加载完整的分析结果
-                // 这会加载 chartData, metrics, insights
-                EventsEmit('user-message-clicked', {
+                // 注意：不传递 chartData，让 ChatSidebar 从消息历史中加载
+                // ChatSidebar 会监听这个事件并从消息的 chart_data 字段加载数据
+                EventsEmit('load-message-data', {
                     messageId: userMessageId,
-                    content: '', // 会从消息历史中加载
-                    chartData: null // 会从消息历史中加载
+                    threadId: threadId
                 });
             }, 150); // 150ms 延迟确保清除完成
         });
@@ -485,7 +843,7 @@ function App() {
                         logger.info(`Active chart set with ${payload.chartData.charts.length} charts`);
                     } else {
                         logger.warn(`Invalid first chart in array`);
-                        setActiveChart(null);
+                        // 不清空，保留之前的数据
                     }
                 } else if (payload.chartData.type && payload.chartData.data) {
                     // Old format: Direct type and data fields (backward compatibility)
@@ -507,13 +865,13 @@ function App() {
 
                     logger.info(`Active chart set (converted from old format)`);
                 } else {
-                    logger.error(`Invalid chartData format - neither new nor old format matched`);
-                    setActiveChart(null);
+                    logger.debug(`Invalid chartData format - keeping current activeChart`);
+                    // 不清空，保留之前的数据
                 }
             } else {
-                // No chart data, clear active chart to show default view
-                setActiveChart(null);
-                logger.debug(`No chartData - Active chart cleared`);
+                // No chart data in payload - keep current activeChart
+                // This is important because dashboard-update events may have already set the data
+                logger.debug(`No chartData in payload - keeping current activeChart`);
             }
         });
 
@@ -781,7 +1139,7 @@ function App() {
             if (unsubscribeAnalyzeInsight) unsubscribeAnalyzeInsight();
             if (unsubscribeAnalyzeInsightInSession) unsubscribeAnalyzeInsightInSession();
             if (unsubscribeStartNewChat) unsubscribeStartNewChat();
-            if (unsubscribeOpenSkills) unsubscribeOpenSkills();
+            if (unsubscribeEnsureChatOpen) unsubscribeEnsureChatOpen();
             if (unsubscribeOpenDevTools) unsubscribeOpenDevTools();
             if (unsubscribeClearDashboard) unsubscribeClearDashboard();
             if (unsubscribeAnalysisCompleted) unsubscribeAnalysisCompleted();
@@ -850,6 +1208,7 @@ function App() {
 
                 <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
 
+                {/* Normal startup UI */}
                 <div className="text-center max-w-md px-6">
                     <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('system_startup')}</h2>
                     <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
@@ -883,7 +1242,6 @@ function App() {
     }
 
     return (
-        <ToastProvider>
             <div className="flex h-screen overflow-hidden bg-slate-100 font-sans text-slate-900 relative">
                 {/* Removed draggable title bar - using system window border for dragging */}
 
@@ -891,8 +1249,8 @@ function App() {
                     width={sidebarWidth}
                     onOpenSettings={() => setIsPreferenceOpen(true)}
                     onToggleChat={() => setIsChatOpen(!isChatOpen)}
-                    onToggleSkills={() => setIsSkillsOpen(!isSkillsOpen)}
                     isChatOpen={isChatOpen}
+                    isAnalysisLoading={isAnalysisLoading}
                 />
 
                 {/* Sidebar Resizer */}
@@ -901,23 +1259,40 @@ function App() {
                     onMouseDown={startResizingSidebar}
                 />
 
-                <ContextPanel
-                    width={contextPanelWidth}
-                    onContextPanelClick={() => {
-                        if (isChatOpen) {
-                            setIsChatOpen(false);
-                        }
-                    }}
-                />
+                {/* 数据浏览器区域 - 可折叠 */}
+                {!isContextPanelCollapsed ? (
+                    <>
+                        <ContextPanel
+                            width={contextPanelWidth}
+                            onContextPanelClick={() => {
+                                if (isChatOpen) {
+                                    setIsChatOpen(false);
+                                }
+                            }}
+                            onCollapse={() => setIsContextPanelCollapsed(true)}
+                        />
 
-                {/* Context Panel Resizer */}
-                <div
-                    className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
-                    onMouseDown={startResizingContextPanel}
-                />
+                        {/* Context Panel Resizer */}
+                        <div
+                            className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
+                            onMouseDown={startResizingContextPanel}
+                        />
+                    </>
+                ) : (
+                    /* 折叠状态下显示展开按钮 */
+                    <div className="relative flex-shrink-0">
+                        <button
+                            onClick={() => setIsContextPanelCollapsed(false)}
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-blue-500 hover:bg-blue-600 text-white px-1 py-3 rounded-r-md shadow-lg transition-colors"
+                            title="展开数据浏览器"
+                        >
+                            <ChevronRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
 
                 <div className="flex-1 flex flex-col min-w-0">
-                    <Dashboard
+                    <DraggableDashboard
                         data={dashboardData}
                         activeChart={activeChart}
                         userRequestText={selectedUserRequest}
@@ -927,6 +1302,7 @@ function App() {
                         loadingThreadId={loadingThreadId}
                         sessionFiles={sessionFiles}
                         selectedMessageId={selectedMessageId}
+                        onInsightClick={handleInsightClick}
                         onDashboardClick={() => {
                             if (isChatOpen) {
                                 setIsChatOpen(false);
@@ -946,6 +1322,15 @@ function App() {
                 <PreferenceModal
                     isOpen={isPreferenceOpen}
                     onClose={() => setIsPreferenceOpen(false)}
+                    onOpenSkills={() => {
+                        setIsPreferenceOpen(false);
+                        setIsSkillsOpen(true);
+                    }}
+                />
+
+                <SkillsManagementPage
+                    isOpen={isSkillsOpen}
+                    onClose={() => setIsSkillsOpen(false)}
                 />
 
                 <AboutModal
@@ -961,11 +1346,6 @@ function App() {
                     onClose={() => setMessageModal(prev => ({ ...prev, isOpen: false }))}
                 />
 
-                <SkillsPage
-                    isOpen={isSkillsOpen}
-                    onClose={() => setIsSkillsOpen(false)}
-                />
-
                 {contextMenu && (
                     <ContextMenu
                         position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -977,13 +1357,21 @@ function App() {
                 {!isChatOpen && (
                     <button
                         onClick={() => setIsChatOpen(true)}
-                        className="fixed right-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-r-0 rounded-l-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:-translate-x-1 group"
+                        className="fixed left-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-l-0 rounded-r-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:translate-x-1 group"
                         title="Open Chat"
                     >
-                        <ChevronLeft className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                        <ChevronRight className="w-5 h-5 group-hover:scale-110 transition-transform" />
                     </button>
                 )}
             </div>
+    );
+}
+
+// Main App component that provides ToastContext
+function App() {
+    return (
+        <ToastProvider>
+            <AppContent />
         </ToastProvider>
     );
 }

@@ -8,6 +8,10 @@ import TimingAnalysisModal from './TimingAnalysisModal';
 import { User, Bot, ZoomIn } from 'lucide-react';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
+import { createLogger } from '../utils/systemLog';
+import { useLanguage } from '../i18n';
+
+const systemLog = createLogger('MessageBubble');
 
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
@@ -25,6 +29,7 @@ interface MessageBubbleProps {
 }
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId }) => {
+    const { t } = useLanguage();
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
     const [clickedActions, setClickedActions] = useState<Set<string>>(new Set());
@@ -97,6 +102,35 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 };
 
                 loadImage();
+            } else if (src.startsWith('sandbox:')) {
+                // Handle sandbox: paths (OpenAI code interpreter format)
+                // Format: sandbox:/mnt/data/chart.png
+                const loadImage = async () => {
+                    try {
+                        // Extract filename from sandbox: path
+                        const pathParts = src.replace('sandbox:', '').split('/');
+                        const filename = pathParts[pathParts.length - 1];
+                        
+                        if (!threadId) {
+                            console.error('[MessageImage] No threadId available for sandbox path:', src);
+                            setError(true);
+                            setLoading(false);
+                            return;
+                        }
+
+                        console.log('[MessageImage] Loading image from sandbox path:', { threadId, filename, src });
+
+                        const base64Data = await GetSessionFileAsBase64(threadId, filename);
+                        setImageSrc(base64Data);
+                        setLoading(false);
+                    } catch (err) {
+                        console.error('[MessageImage] Failed to load image from sandbox path:', err);
+                        setError(true);
+                        setLoading(false);
+                    }
+                };
+
+                loadImage();
             } else if (src.startsWith('files/') || src.match(/^[^:\/]+\.(png|jpg|jpeg|gif|svg)$/i)) {
                 // Handle relative paths like "files/chart_xxx.png" or "chart_xxx.png"
                 const loadImage = async () => {
@@ -141,8 +175,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         if (error || !imageSrc) {
             return (
-                <div className="relative group my-4 bg-red-50 border border-red-200 rounded-lg p-8 flex items-center justify-center">
-                    <div className="text-red-600 text-sm">Failed to load image</div>
+                <div className="relative group my-4 bg-blue-50 border border-blue-200 rounded-lg p-8 flex items-center justify-center">
+                    <div className="text-blue-600 text-sm">Failed to load image</div>
                 </div>
             );
         }
@@ -177,7 +211,17 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     }
 
     // Helper function to check if content is in a suggestion/recommendation context
+    // 使用标签检测意图理解消息，避免多语言问题
     const isSuggestionContext = (content: string): boolean => {
+        // 首先检查是否有意图理解标记（最可靠）
+        if (content.includes('[INTENT_SUGGESTIONS]')) {
+            return true;
+        }
+        // 检查是否包含意图数据标记（也是可靠的标识）
+        if (content.includes('[INTENT_SELECT:') || content.includes('[INTENT_RETRY_DATA:') || content.includes('[INTENT_STICK_DATA:')) {
+            return true;
+        }
+        // 回退到关键词检测（用于其他建议类消息）
         const suggestionKeywords = [
             '建议', '分析建议', '推荐', '可以分析', '以下分析', '推荐分析', '可以进行',
             'suggest', 'recommendation', 'analysis suggestion', 'can analyze',
@@ -192,9 +236,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         const actionKeywords = [
             '分析', '查看', '对比', '统计', '趋势', '预测', '细分', '探索',
             '检查', '评估', '比较', '研究', '洞察', '计算', '识别', '发现',
+            '重新', '理解', '意图', // 添加意图理解相关关键词
             'analysis', 'analyze', 'compare', 'trend', 'forecast', 'segment',
             'explore', 'examine', 'assess', 'study', 'insight', 'review',
-            'calculate', 'identify', 'discover', 'investigate', 'evaluate'
+            'calculate', 'identify', 'discover', 'investigate', 'evaluate',
+            'retry', 'understand', 'intent' // 英文意图关键词
         ];
         const lowerText = text.toLowerCase();
         return actionKeywords.some(kw => lowerText.includes(kw.toLowerCase()));
@@ -225,10 +271,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         // Check if this is a suggestion response
         const hasSuggestionContext = isSuggestionContext(content);
+        
+        systemLog.info(`[EXTRACT] Starting extraction: hasSuggestionContext=${hasSuggestionContext}, linesCount=${lines.length}`);
+        systemLog.info(`[EXTRACT] Content preview: ${content.substring(0, 300)}`);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
+            
+            // Log each line for debugging
+            if (line.includes('INTENT_') || line.includes('重新') || line.includes('理解')) {
+                systemLog.info(`[EXTRACT] Processing line ${i}: ${line.substring(0, 150)}`);
+            }
 
             // Detect suggestion section headers
             if (/^(分析建议|推荐分析|建议|suggestions?|recommendations?|you (can|could|might))[:：]/i.test(line)) {
@@ -240,29 +294,51 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             const numberedMatch = line.match(/^(\d+)[.、)]\s+(.+)$/);
             if (numberedMatch) {
                 const rawLabel = numberedMatch[2].trim();
+                
+                // Log raw label for debugging intent buttons
+                if (rawLabel.includes('INTENT_') || rawLabel.includes('重新') || rawLabel.includes('理解')) {
+                    systemLog.info(`[EXTRACT] Found intent-related numbered item: rawLabel=${rawLabel.substring(0, 200)}`);
+                }
+                
+                // 计算显示长度时移除嵌入的数据标记（这些标记不会显示给用户）
+                const displayLabel = rawLabel
+                    .replace(/\s*\[INTENT_RETRY_DATA:[^\]]*\]/g, '')
+                    .replace(/\s*\[INTENT_STICK_DATA:[^\]]*\]/g, '')
+                    .replace(/\s*\[INTENT_SELECT:[^\]]*\]/g, '');
+                const displayLength = displayLabel.length;
+                
+                systemLog.debug(`Found numbered item: rawLabel=${rawLabel.substring(0, 100)}, displayLength=${displayLength}, hasSuggestionContext=${hasSuggestionContext}, inSuggestionSection=${inSuggestionSection}, isActionable=${isActionableItem(displayLabel)}`);
 
                 // More lenient extraction in suggestion context
                 if (hasSuggestionContext || inSuggestionSection) {
-                    if (rawLabel.length > 5 && rawLabel.length < 150) {
+                    if (displayLength > 5 && displayLength < 200) {
                         suggestionCount++;
+                        const cleanValue = displayLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
                         extractedActions.push({
                             id: `auto_${suggestionCount}`,
-                            label: rawLabel,
-                            value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                            label: rawLabel,  // 保留原始标签（包含嵌入数据）用于点击处理
+                            value: cleanValue
                         });
-                        extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                        extractedInsights.push(cleanValue);
+                        systemLog.info(`✅ Extracted action (suggestion context): id=auto_${suggestionCount}, label=${displayLabel.substring(0, 80)}`);
+                    } else {
+                        systemLog.debug(`❌ Skipped (length check): displayLength=${displayLength}`);
                     }
-                } else if (isActionableItem(rawLabel) && !isExplanationPattern(rawLabel)) {
+                } else if (isActionableItem(displayLabel) && !isExplanationPattern(displayLabel)) {
                     // Stricter filtering outside suggestion context
-                    if (rawLabel.length > 5 && rawLabel.length < 150) {
+                    if (displayLength > 5 && displayLength < 200) {
                         suggestionCount++;
+                        const cleanValue = displayLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
                         extractedActions.push({
                             id: `auto_${suggestionCount}`,
-                            label: rawLabel,
-                            value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
+                            label: rawLabel,  // 保留原始标签（包含嵌入数据）用于点击处理
+                            value: cleanValue
                         });
-                        extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                        extractedInsights.push(cleanValue);
+                        systemLog.info(`✅ Extracted action (actionable): id=auto_${suggestionCount}, label=${displayLabel.substring(0, 80)}`);
                     }
+                } else {
+                    systemLog.debug(`❌ Skipped (not actionable or is explanation)`);
                 }
                 continue;
             }
@@ -282,6 +358,23 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 }
             }
         }
+        
+        systemLog.info(`[EXTRACT] Extraction complete: extractedActionsCount=${extractedActions.length}`);
+        if (extractedActions.length > 0) {
+            extractedActions.forEach((a, i) => {
+                const hasRetryData = a.label?.includes('[INTENT_RETRY_DATA:');
+                const hasStickData = a.label?.includes('[INTENT_STICK_DATA:');
+                const hasSelectData = a.label?.includes('[INTENT_SELECT:');
+                systemLog.info(`[EXTRACT] Action ${i}: id=${a.id}, labelLen=${a.label?.length}, hasRetryData=${hasRetryData}, hasStickData=${hasStickData}, hasSelectData=${hasSelectData}`);
+                if (hasRetryData || hasStickData) {
+                    systemLog.info(`[EXTRACT] Action ${i} full label: ${a.label}`);
+                }
+            });
+        }
+        console.log('[MessageBubble] Extraction complete:', { 
+            extractedActionsCount: extractedActions.length,
+            actions: extractedActions.map(a => a.label.substring(0, 50))
+        });
 
         // Fallback: If no actions extracted but content suggests analysis, extract from sentences
         if (extractedActions.length === 0 && hasSuggestionContext) {
@@ -311,6 +404,25 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         ...(parsedPayload && parsedPayload.type === 'actions' ? parsedPayload.actions : []),
         ...extractedActions
     ];
+
+    // Debug: Log when allActions changes - 使用 useRef 来避免重复日志
+    const prevAllActionsLengthRef = useRef(0);
+    useEffect(() => {
+        if (allActions.length !== prevAllActionsLengthRef.current) {
+            systemLog.info(`[RENDER] allActions changed: prevCount=${prevAllActionsLengthRef.current}, newCount=${allActions.length}`);
+            if (allActions.length > 0) {
+                systemLog.info(`[RENDER] allActions content: ${allActions.map(a => `${a.id}:${a.label?.substring(0, 30)}`).join(' | ')}`);
+            }
+            prevAllActionsLengthRef.current = allActions.length;
+        }
+    });
+    
+    // Debug: Log on every render to track if buttons should be visible
+    useEffect(() => {
+        if (allActions.length > 0 && !isUser) {
+            systemLog.debug(`[RENDER] MessageBubble: role=${role}, allActionsLength=${allActions.length}, hasOnActionClick=${!!onActionClick}, messageId=${messageId}`);
+        }
+    });
 
     // 发送洞察建议到Dashboard（仅在有新建议时）
     useEffect(() => {
@@ -489,8 +601,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     }, [contextMenu, exportMenu]);
 
     const renderButtonLabel = (label: string) => {
+        // Remove all embedded data markers from display (but they're still in action.label for detection)
+        const displayLabel = label
+            .replace(/\s*\[INTENT_RETRY_BUTTON\]/g, '')
+            .replace(/\s*\[INTENT_STICK_ORIGINAL\]/g, '')
+            .replace(/\s*\[INTENT_RETRY_DATA:[^\]]*\]/g, '')  // 移除重试数据标记
+            .replace(/\s*\[INTENT_STICK_DATA:[^\]]*\]/g, '')  // 移除坚持原始请求数据标记
+            .replace(/\s*\[INTENT_SELECT:[^\]]*\]/g, '');     // 移除意图选择数据标记
+        
         // Split by bold markers **text**
-        const parts = label.split(/(\*\*.*?\*\*)/g);
+        const parts = displayLabel.split(/(\*\*.*?\*\*)/g);
         return parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
                 return <strong key={i} className="font-black underline-offset-2">{part.slice(2, -2)}</strong>;
@@ -501,22 +621,29 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
     // Handle action button clicks with deduplication
     const handleActionClick = (action: any) => {
-        if (!onActionClick) return;
+        systemLog.info(`handleActionClick called: id=${action.id}, label=${action.label?.substring(0, 80)}, hasOnActionClick=${!!onActionClick}`);
+        
+        if (!onActionClick) {
+            systemLog.warn('handleActionClick: onActionClick is not defined, returning');
+            return;
+        }
 
         // Create unique key for this action
         const actionKey = `${action.id}-${action.value || action.label}`;
 
         // Check if this action is already being processed
         if (pendingActionsRef.current.has(actionKey)) {
-            console.log('[MessageBubble] Ignoring duplicate action click:', action.label?.substring(0, 50));
+            systemLog.debug(`Ignoring duplicate action click: ${action.label?.substring(0, 50)}`);
             return;
         }
 
         // Mark action as pending
         pendingActionsRef.current.add(actionKey);
+        systemLog.debug(`Action marked as pending: ${actionKey}`);
 
         try {
             // Call the parent handler
+            systemLog.info(`Calling parent onActionClick handler`);
             onActionClick(action);
         } finally {
             // Clear the pending flag after a delay to prevent rapid clicking
@@ -531,8 +658,15 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // Hide: json:echarts, json:table, json:metrics (shown on dashboard instead), SQL queries, Python code
     // Hide: Raw base64 data URLs that aren't part of markdown images
 
-    // First, preserve markdown images by replacing them with placeholders
-    const imageRegex = /!\[([^\]]*)\]\((data:image\/[^;]+;base64,[A-Za-z0-9+/=]+)\)/g;
+    // First, preserve ALL markdown images by replacing them with placeholders
+    // This regex matches markdown images with various URL formats:
+    // - data:image/...;base64,... (inline base64)
+    // - sandbox:/mnt/data/... (OpenAI code interpreter format)
+    // - file://... (local file paths)
+    // - files/... (relative paths)
+    // - http(s)://... (remote URLs)
+    // - any other path format
+    const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
     const preservedImages: string[] = [];
     let contentWithPlaceholders = content.replace(imageRegex, (match) => {
         preservedImages.push(match);
@@ -543,12 +677,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const cleanedContent = contentWithPlaceholders
         .replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '')
         .replace(/```[ \t]*json:echarts[\s\S]*?```/g, '') // 隐藏ECharts代码
-        .replace(/```[ \t]*json:table[\s\S]*?```/g, '') // 隐藏Table代码，在仪表盘显示
+        // json:table 保留，在 ReactMarkdown 中渲染为表格
         .replace(/```[ \t]*json:metrics[\s\S]*?```/g, '') // 隐藏Metrics代码，在仪表盘显示
         .replace(/```[ \t]*(sql|SQL)[\s\S]*?```/g, '')
         .replace(/```[ \t]*(python|Python|py)[\s\S]*?```/g, '')
         // Remove standalone base64 data URLs (now safe since markdown images are preserved)
         .replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '')
+        // Remove intent suggestions marker (used for detection, not display)
+        .replace(/\[INTENT_SUGGESTIONS\]\s*/g, '')
+        // Remove all embedded data markers from display (but keep in action.label for detection)
+        .replace(/\s*\[INTENT_RETRY_BUTTON\]/g, '')
+        .replace(/\s*\[INTENT_STICK_ORIGINAL\]/g, '')
+        .replace(/\s*\[INTENT_RETRY_DATA:[^\]]*\]/g, '')  // 移除重试数据标记
+        .replace(/\s*\[INTENT_STICK_DATA:[^\]]*\]/g, '')  // 移除坚持原始请求数据标记
+        .replace(/\s*\[INTENT_SELECT:[^\]]*\]/g, '')      // 移除意图选择数据标记
         // Restore preserved markdown images
         .replace(/__IMAGE_PLACEHOLDER_(\d+)__/g, (match, index) => preservedImages[parseInt(index)])
         .trim();
@@ -593,14 +735,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             <span>Has visualization - Click to view</span>
                         </div>
                     )}
-                    {isUser && isDisabled && (
-                        <div className="mb-2 flex items-center gap-2 text-xs opacity-50">
-                            <svg className="w-3 h-3 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                            </svg>
-                            <span>Analysis in progress...</span>
-                        </div>
-                    )}
                     <div
                         className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}
                         onContextMenu={handleContextMenu}
@@ -619,17 +753,120 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     const isECharts = className?.includes('json:echarts');
                                     const isTable = className?.includes('json:table');
 
-                                    // Hide SQL, Python, ECharts, and Table code blocks (non-programmers don't need to see them)
-                                    // ECharts and Tables are shown on dashboard instead
+                                    // Hide SQL, Python, ECharts code blocks (non-programmers don't need to see them)
+                                    // ECharts are shown on dashboard instead
                                     const isSql = className?.includes('sql') || className?.includes('SQL');
                                     const isPython = className?.includes('python') || className?.includes('Python') || className?.includes('py');
 
-                                    if (isSql || isPython || isECharts || isTable) {
+                                    if (isSql || isPython || isECharts) {
                                         // Return null to hide these technical code blocks
                                         return null;
                                     }
 
+                                    // Render json:table as actual table
+                                    if (isTable) {
+                                        const codeContent = String(children).replace(/\n$/, '');
+                                        try {
+                                            const tableData = JSON.parse(codeContent);
+                                            if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
+                                                const headers = tableData[0];
+                                                const rows = tableData.slice(1);
+                                                return (
+                                                    <div className="overflow-x-auto my-3">
+                                                        <table className="min-w-full border-collapse text-sm">
+                                                            <thead>
+                                                                <tr className="bg-blue-50">
+                                                                    {headers.map((header: string, idx: number) => (
+                                                                        <th 
+                                                                            key={idx} 
+                                                                            className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                                                        >
+                                                                            {String(header)}
+                                                                        </th>
+                                                                    ))}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {rows.map((row: any[], rowIdx: number) => (
+                                                                    <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                        {row.map((cell: any, cellIdx: number) => (
+                                                                            <td 
+                                                                                key={cellIdx} 
+                                                                                className="border border-slate-200 px-3 py-2 text-slate-600"
+                                                                            >
+                                                                                {String(cell)}
+                                                                            </td>
+                                                                        ))}
+                                                                    </tr>
+                                                                ))}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                );
+                                            }
+                                        } catch (e) {
+                                            // JSON parse failed, show as code
+                                            console.error('[MessageBubble] Failed to parse json:table:', e);
+                                        }
+                                        return null; // Hide if parse fails
+                                    }
+
                                     return <code {...rest} className={className}>{children}</code>;
+                                },
+                                // Handle pre tag to properly render json:table
+                                pre(props) {
+                                    const { children, ...rest } = props;
+                                    // Check if child is a code element with json:table
+                                    const child = React.Children.toArray(children)[0];
+                                    if (React.isValidElement(child)) {
+                                        const childProps = child.props as { className?: string; children?: React.ReactNode };
+                                        if (childProps.className?.includes('json:table')) {
+                                            const codeContent = String(childProps.children || '').replace(/\n$/, '');
+                                            try {
+                                                const tableData = JSON.parse(codeContent);
+                                                if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
+                                                    const headers = tableData[0];
+                                                    const rows = tableData.slice(1);
+                                                    return (
+                                                        <div className="overflow-x-auto my-3">
+                                                            <table className="min-w-full border-collapse text-sm">
+                                                                <thead>
+                                                                    <tr className="bg-blue-50">
+                                                                        {headers.map((header: string, idx: number) => (
+                                                                            <th 
+                                                                                key={idx} 
+                                                                                className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                                                            >
+                                                                                {String(header)}
+                                                                            </th>
+                                                                        ))}
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {rows.map((row: any[], rowIdx: number) => (
+                                                                        <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                            {row.map((cell: any, cellIdx: number) => (
+                                                                                <td 
+                                                                                    key={cellIdx} 
+                                                                                    className="border border-slate-200 px-3 py-2 text-slate-600"
+                                                                                >
+                                                                                    {String(cell)}
+                                                                                </td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    );
+                                                }
+                                            } catch (e) {
+                                                // Parse failed
+                                            }
+                                            return null;
+                                        }
+                                    }
+                                    return <pre {...rest}>{children}</pre>;
                                 }
                             }}
                         >
@@ -654,19 +891,42 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     )}
 
                     {allActions.length > 0 && (
-                        <div className="mt-4 flex flex-wrap gap-2">
-                            {allActions.map((action: any) => (
-                                <button
-                                    key={action.id}
-                                    onClick={() => handleActionClick(action)}
-                                    className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${isUser
-                                        ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
-                                        : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
-                                        } shadow-sm hover:shadow-md active:scale-95`}
-                                >
-                                    {renderButtonLabel(action.label)}
-                                </button>
-                            ))}
+                        <div className="mt-4 flex flex-wrap gap-2" style={{ pointerEvents: 'auto' }}>
+                            {allActions.map((action: any) => {
+                                const isRetryBtn = action.label?.includes('[INTENT_RETRY_DATA:') || action.label?.includes('[INTENT_RETRY_BUTTON]');
+                                const hasIntentData = action.label?.includes('[INTENT_RETRY_DATA:') || action.label?.includes('[INTENT_STICK_DATA:') || action.label?.includes('[INTENT_SELECT:');
+                                return (
+                                    <button
+                                        key={action.id}
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            const hasRetryData = action.label?.includes('[INTENT_RETRY_DATA:');
+                                            const hasStickData = action.label?.includes('[INTENT_STICK_DATA:');
+                                            const hasSelectData = action.label?.includes('[INTENT_SELECT:');
+                                            systemLog.info(`[BUTTON_CLICK] id=${action.id}, labelLen=${action.label?.length}, isRetry=${isRetryBtn}, hasRetryData=${hasRetryData}, hasStickData=${hasStickData}, hasSelectData=${hasSelectData}`);
+                                            if (hasRetryData || hasStickData) {
+                                                systemLog.info(`[BUTTON_CLICK] Full label: ${action.label}`);
+                                            }
+                                            console.log('[BUTTON_CLICK]', action.id, action.label?.substring(0, 80), 'isRetry:', isRetryBtn, 'hasIntentData:', hasIntentData);
+                                            handleActionClick(action);
+                                        }}
+                                        onMouseDown={(e) => {
+                                            systemLog.debug(`[BUTTON_MOUSEDOWN] id=${action.id}, isRetry=${isRetryBtn}`);
+                                        }}
+                                        className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${isUser
+                                            ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
+                                            : isRetryBtn
+                                                ? 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100'
+                                                : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
+                                            } shadow-sm hover:shadow-md active:scale-95`}
+                                        style={{ pointerEvents: 'auto', position: 'relative', zIndex: 100, cursor: 'pointer' }}
+                                    >
+                                        {renderButtonLabel(action.label)}
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -694,7 +954,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     >
                         <img
                             src={enlargedImage}
-                            alt="Enlarged chart"
+                            alt={t('enlarged_chart')}
                             className="max-w-full max-h-[90vh] object-contain rounded-lg"
                         />
                     </div>

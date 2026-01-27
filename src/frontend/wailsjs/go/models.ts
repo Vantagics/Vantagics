@@ -122,6 +122,47 @@ export namespace agent {
 		    return a;
 		}
 	}
+	export class AnalysisRecord {
+	    id: string;
+	    data_source_id: string;
+	    analysis_type: string;
+	    target_columns: string[];
+	    key_findings: string;
+	    // Go type: time
+	    timestamp: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.data_source_id = source["data_source_id"];
+	        this.analysis_type = source["analysis_type"];
+	        this.target_columns = source["target_columns"];
+	        this.key_findings = source["key_findings"];
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConversationTurn {
 	    role: string;
 	    content: string;
@@ -383,6 +424,57 @@ export namespace agent {
 	}
 	
 	
+	export class DataSourceSummary {
+	    id: string;
+	    name: string;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	    }
+	}
+	export class DataSourceStatistics {
+	    total_count: number;
+	    breakdown_by_type: Record<string, number>;
+	    data_sources: DataSourceSummary[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DataSourceStatistics(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_count = source["total_count"];
+	        this.breakdown_by_type = source["breakdown_by_type"];
+	        this.data_sources = this.convertValues(source["data_sources"], DataSourceSummary);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class FieldMapping {
 	    old_field: string;
@@ -537,6 +629,47 @@ export namespace agent {
 		}
 	}
 	
+	export class Skill {
+	    name: string;
+	    description: string;
+	    content: string;
+	    path: string;
+	    // Go type: time
+	    installed_at: any;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Skill(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.content = source["content"];
+	        this.path = source["path"];
+	        this.installed_at = this.convertValues(source["installed_at"], null);
+	        this.enabled = source["enabled"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	
 
@@ -544,6 +677,70 @@ export namespace agent {
 
 export namespace config {
 	
+	export class LocationConfig {
+	    country: string;
+	    city: string;
+	    latitude?: number;
+	    longitude?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocationConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.country = source["country"];
+	        this.city = source["city"];
+	        this.latitude = source["latitude"];
+	        this.longitude = source["longitude"];
+	    }
+	}
+	export class IntentEnhancementConfig {
+	    enable_context_enhancement: boolean;
+	    enable_preference_learning: boolean;
+	    enable_dynamic_dimensions: boolean;
+	    enable_few_shot_examples: boolean;
+	    enable_caching: boolean;
+	    cache_similarity_threshold: number;
+	    cache_expiration_hours: number;
+	    max_cache_entries: number;
+	    max_history_records: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new IntentEnhancementConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enable_context_enhancement = source["enable_context_enhancement"];
+	        this.enable_preference_learning = source["enable_preference_learning"];
+	        this.enable_dynamic_dimensions = source["enable_dynamic_dimensions"];
+	        this.enable_few_shot_examples = source["enable_few_shot_examples"];
+	        this.enable_caching = source["enable_caching"];
+	        this.cache_similarity_threshold = source["cache_similarity_threshold"];
+	        this.cache_expiration_hours = source["cache_expiration_hours"];
+	        this.max_cache_entries = source["max_cache_entries"];
+	        this.max_history_records = source["max_history_records"];
+	    }
+	}
+	export class UAPIConfig {
+	    enabled: boolean;
+	    apiToken: string;
+	    baseUrl?: string;
+	    tested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UAPIConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.apiToken = source["apiToken"];
+	        this.baseUrl = source["baseUrl"];
+	        this.tested = source["tested"];
+	    }
+	}
 	export class ProxyConfig {
 	    enabled: boolean;
 	    protocol: string;
@@ -565,6 +762,30 @@ export namespace config {
 	        this.port = source["port"];
 	        this.username = source["username"];
 	        this.password = source["password"];
+	        this.tested = source["tested"];
+	    }
+	}
+	export class SearchAPIConfig {
+	    id: string;
+	    name: string;
+	    description: string;
+	    apiKey?: string;
+	    customId?: string;
+	    enabled: boolean;
+	    tested: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchAPIConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.apiKey = source["apiKey"];
+	        this.customId = source["customId"];
+	        this.enabled = source["enabled"];
 	        this.tested = source["tested"];
 	    }
 	}
@@ -617,20 +838,30 @@ export namespace config {
 	    modelName: string;
 	    maxTokens: number;
 	    darkMode: boolean;
+	    enableMemory: boolean;
+	    autoAnalysisSuggestions: boolean;
 	    localCache: boolean;
 	    language: string;
 	    claudeHeaderStyle: string;
 	    dataCacheDir: string;
 	    pythonPath: string;
 	    maxPreviewRows: number;
+	    maxConcurrentAnalysis: number;
 	    detailedLog: boolean;
+	    logMaxSizeMB: number;
+	    autoIntentUnderstanding: boolean;
 	    mcpServices: MCPService[];
-	    searchEngines: SearchEngine[];
+	    searchEngines?: SearchEngine[];
+	    searchAPIs: SearchAPIConfig[];
 	    activeSearchEngine?: string;
+	    activeSearchAPI?: string;
 	    proxyConfig?: ProxyConfig;
+	    uapiConfig?: UAPIConfig;
 	    webSearchProvider?: string;
 	    webSearchAPIKey?: string;
 	    webSearchMCPURL?: string;
+	    intentEnhancement?: IntentEnhancementConfig;
+	    location?: LocationConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -644,20 +875,30 @@ export namespace config {
 	        this.modelName = source["modelName"];
 	        this.maxTokens = source["maxTokens"];
 	        this.darkMode = source["darkMode"];
+	        this.enableMemory = source["enableMemory"];
+	        this.autoAnalysisSuggestions = source["autoAnalysisSuggestions"];
 	        this.localCache = source["localCache"];
 	        this.language = source["language"];
 	        this.claudeHeaderStyle = source["claudeHeaderStyle"];
 	        this.dataCacheDir = source["dataCacheDir"];
 	        this.pythonPath = source["pythonPath"];
 	        this.maxPreviewRows = source["maxPreviewRows"];
+	        this.maxConcurrentAnalysis = source["maxConcurrentAnalysis"];
 	        this.detailedLog = source["detailedLog"];
+	        this.logMaxSizeMB = source["logMaxSizeMB"];
+	        this.autoIntentUnderstanding = source["autoIntentUnderstanding"];
 	        this.mcpServices = this.convertValues(source["mcpServices"], MCPService);
 	        this.searchEngines = this.convertValues(source["searchEngines"], SearchEngine);
+	        this.searchAPIs = this.convertValues(source["searchAPIs"], SearchAPIConfig);
 	        this.activeSearchEngine = source["activeSearchEngine"];
+	        this.activeSearchAPI = source["activeSearchAPI"];
 	        this.proxyConfig = this.convertValues(source["proxyConfig"], ProxyConfig);
+	        this.uapiConfig = this.convertValues(source["uapiConfig"], UAPIConfig);
 	        this.webSearchProvider = source["webSearchProvider"];
 	        this.webSearchAPIKey = source["webSearchAPIKey"];
 	        this.webSearchMCPURL = source["webSearchMCPURL"];
+	        this.intentEnhancement = this.convertValues(source["intentEnhancement"], IntentEnhancementConfig);
+	        this.location = this.convertValues(source["location"], LocationConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -679,6 +920,168 @@ export namespace config {
 		}
 	}
 	
+	
+	
+	
+	
+	
+
+}
+
+export namespace database {
+	
+	export class LayoutItem {
+	    i: string;
+	    x: number;
+	    y: number;
+	    w: number;
+	    h: number;
+	    minW?: number;
+	    minH?: number;
+	    maxW?: number;
+	    maxH?: number;
+	    static: boolean;
+	    type: string;
+	    instanceIdx: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayoutItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.i = source["i"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.w = source["w"];
+	        this.h = source["h"];
+	        this.minW = source["minW"];
+	        this.minH = source["minH"];
+	        this.maxW = source["maxW"];
+	        this.maxH = source["maxH"];
+	        this.static = source["static"];
+	        this.type = source["type"];
+	        this.instanceIdx = source["instanceIdx"];
+	    }
+	}
+	export class LayoutConfiguration {
+	    id: string;
+	    userId: string;
+	    isLocked: boolean;
+	    items: LayoutItem[];
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LayoutConfiguration(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.userId = source["userId"];
+	        this.isLocked = source["isLocked"];
+	        this.items = this.convertValues(source["items"], LayoutItem);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExportRequest {
+	    layoutConfig: LayoutConfiguration;
+	    format: string;
+	    userId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.layoutConfig = this.convertValues(source["layoutConfig"], LayoutConfiguration);
+	        this.format = source["format"];
+	        this.userId = source["userId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExportResult {
+	    filePath: string;
+	    includedComponents: string[];
+	    excludedComponents: string[];
+	    totalComponents: number;
+	    exportedAt: string;
+	    format: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.filePath = source["filePath"];
+	        this.includedComponents = source["includedComponents"];
+	        this.excludedComponents = source["excludedComponents"];
+	        this.totalComponents = source["totalComponents"];
+	        this.exportedAt = source["exportedAt"];
+	        this.format = source["format"];
+	    }
+	}
+	export class FileInfo {
+	    id: string;
+	    name: string;
+	    size: number;
+	    createdAt: number;
+	    category: string;
+	    downloadUrl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	        this.createdAt = source["createdAt"];
+	        this.category = source["category"];
+	        this.downloadUrl = source["downloadUrl"];
+	    }
+	}
 	
 
 }
@@ -893,6 +1296,26 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class AnalysisResultItem {
+	    id: string;
+	    type: string;
+	    data: any;
+	    metadata: Record<string, any>;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AnalysisResultItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.data = source["data"];
+	        this.metadata = source["metadata"];
+	        this.source = source["source"];
+	    }
+	}
 	export class ChartItem {
 	    type: string;
 	    data: string;
@@ -945,6 +1368,7 @@ export namespace main {
 	    timestamp: number;
 	    chart_data?: ChartData;
 	    timing_data?: Record<string, any>;
+	    analysis_results?: AnalysisResultItem[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -958,6 +1382,7 @@ export namespace main {
 	        this.timestamp = source["timestamp"];
 	        this.chart_data = this.convertValues(source["chart_data"], ChartData);
 	        this.timing_data = source["timing_data"];
+	        this.analysis_results = this.convertValues(source["analysis_results"], AnalysisResultItem);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1039,22 +1464,6 @@ export namespace main {
 		    }
 		    return a;
 		}
-	}
-	export class ChromeCheckResult {
-	    available: boolean;
-	    message: string;
-	    path?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChromeCheckResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.available = source["available"];
-	        this.message = source["message"];
-	        this.path = source["path"];
-	    }
 	}
 	export class ConnectionResult {
 	    success: boolean;
@@ -1327,6 +1736,44 @@ export namespace main {
 	    }
 	}
 	
+	export class IntentSuggestion {
+	    id: string;
+	    title: string;
+	    description: string;
+	    icon: string;
+	    query: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IntentSuggestion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	        this.query = source["query"];
+	    }
+	}
+	export class LogStats {
+	    totalSizeMB: number;
+	    logCount: number;
+	    archiveCount: number;
+	    logDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LogStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalSizeMB = source["totalSizeMB"];
+	        this.logCount = source["logCount"];
+	        this.archiveCount = source["archiveCount"];
+	        this.logDir = source["logDir"];
+	    }
+	}
 	
 	export class OptimizeDataSourceResult {
 	    data_source_id: string;

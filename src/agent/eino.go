@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -59,18 +60,46 @@ func getProviderMaxTokens(modelName string, configuredMax int) int {
 	return limit
 }
 
+// normalizeOpenAIBaseURL normalizes the base URL for OpenAI-compatible APIs
+// The OpenAI SDK automatically appends /chat/completions, so we need to strip it if present
+// This allows users to enter either:
+//   - https://api.example.com/v1 (correct)
+//   - https://api.example.com/v1/chat/completions (also works after normalization)
+func normalizeOpenAIBaseURL(baseURL string) string {
+	if baseURL == "" {
+		return baseURL
+	}
+	
+	// Remove trailing slash first
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	
+	// Remove /chat/completions suffix if present (SDK will add it back)
+	if strings.HasSuffix(baseURL, "/chat/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+	}
+	
+	// Also handle case where user might have added just /completions
+	if strings.HasSuffix(baseURL, "/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/completions")
+	}
+	
+	return baseURL
+}
+
 // EinoService manages Eino-based agents
 type EinoService struct {
-	ChatModel             model.ChatModel
-	dsService             *DataSourceService
-	cfg                   config.Config
-	Logger                func(string)
-	memoryManager         *MemoryManager
-	workingContextManager *WorkingContextManager
-	pythonPool            *PythonPool
-	errorKnowledge        *ErrorKnowledge
-	skillManager          *templates.SkillManager
-	memoryService         *MemoryService // For persistent memory storage
+	ChatModel                  model.ChatModel
+	dsService                  *DataSourceService
+	cfg                        config.Config
+	Logger                     func(string)
+	memoryManager              *MemoryManager
+	workingContextManager      *WorkingContextManager
+	conversationContextManager *ConversationContextManager // For tracking conversation context
+	pythonPool                 *PythonPool
+	errorKnowledge             *ErrorKnowledge
+	skillManager               *templates.SkillManager
+	memoryService              *MemoryService // For persistent memory storage
+	executionValidator         *ExecutionValidator // For execution plan validation
 }
 
 // TrajectoryStep represents a single step in agent execution
@@ -157,9 +186,16 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 			// Set max tokens for OpenAI with intelligent provider limits
 			maxTokens := getProviderMaxTokens(cfg.ModelName, cfg.MaxTokens)
 			
+			// Normalize BaseURL - OpenAI SDK automatically appends /chat/completions
+			// so we need to strip it if user included it in the URL
+			normalizedBaseURL := normalizeOpenAIBaseURL(cfg.BaseURL)
+			if logger != nil && normalizedBaseURL != cfg.BaseURL {
+				logger(fmt.Sprintf("[EINO-INIT] Normalized BaseURL: %s -> %s", cfg.BaseURL, normalizedBaseURL))
+			}
+			
 			chatModel, err = openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
 				APIKey:    cfg.APIKey,
-				BaseURL:   cfg.BaseURL, // Might need adjustment if empty
+				BaseURL:   normalizedBaseURL,
 				Model:     cfg.ModelName,
 				MaxTokens: &maxTokens, // Use pointer to int
 				Timeout:   0, // Default
@@ -212,17 +248,31 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 		}
 	}
 
+	// Initialize Execution Validator
+	executionValidator := NewExecutionValidator(logger)
+	if logger != nil {
+		logger("[INFO] Execution Validator initialized")
+	}
+
+	// Initialize Conversation Context Manager
+	conversationContextManager := NewConversationContextManager()
+	if logger != nil {
+		logger("[INFO] Conversation Context Manager initialized")
+	}
+
 	return &EinoService{
-		ChatModel:             chatModel,
-		dsService:             dsService,
-		cfg:                   cfg,
-		Logger:                logger,
-		memoryManager:         memManager,
-		workingContextManager: workingContextManager,
-		pythonPool:            pyPool,
-		errorKnowledge:        errorKnowledge,
-		skillManager:          skillManager,
-		memoryService:         memoryService,
+		ChatModel:                  chatModel,
+		dsService:                  dsService,
+		cfg:                        cfg,
+		Logger:                     logger,
+		memoryManager:              memManager,
+		workingContextManager:      workingContextManager,
+		conversationContextManager: conversationContextManager,
+		pythonPool:                 pyPool,
+		errorKnowledge:             errorKnowledge,
+		skillManager:               skillManager,
+		memoryService:              memoryService,
+		executionValidator:         executionValidator,
 	}, nil
 }
 
@@ -278,6 +328,11 @@ func (s *EinoService) GetConfig() config.Config {
 	return s.cfg
 }
 
+// GetExecutionValidator returns the execution validator instance
+func (s *EinoService) GetExecutionValidator() *ExecutionValidator {
+	return s.executionValidator
+}
+
 // RunAnalysis executes the agent with full history and tool support
 func (s *EinoService) RunAnalysis(ctx context.Context, history []*schema.Message, dataSourceID, threadID string) (*schema.Message, error) {
 	return s.RunAnalysisWithProgress(ctx, history, dataSourceID, threadID, "", "", nil, nil, nil)
@@ -290,9 +345,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Start RunAnalysis for thread: %s", threadID))
 	}
 
-	// Configure memory manager with memory service for this thread
-	if s.memoryManager != nil && s.memoryService != nil && threadID != "" {
+	// Configure memory manager with memory service for this thread (only if memory is enabled)
+	if s.cfg.EnableMemory && s.memoryManager != nil && s.memoryService != nil && threadID != "" {
 		s.memoryManager.SetMemoryService(s.memoryService, threadID)
+		if s.Logger != nil {
+			s.Logger("[MEMORY] Memory service configured for thread")
+		}
+	} else if s.Logger != nil && !s.cfg.EnableMemory {
+		s.Logger("[MEMORY] Memory feature disabled in config")
 	}
 
 	// Initialize trajectory tracking for training
@@ -305,11 +365,33 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	// Extract user request from last message with escaping for training visibility
+	var lastUserMessage string
 	if len(history) > 0 {
 		for i := len(history) - 1; i >= 0; i-- {
 			if history[i].Role == schema.User {
 				trajectory.UserRequest = escapeForTraining(history[i].Content)
+				lastUserMessage = history[i].Content
 				break
+			}
+		}
+	}
+
+	// Update conversation context with user message
+	if s.conversationContextManager != nil && threadID != "" && lastUserMessage != "" {
+		s.conversationContextManager.UpdateFromUserMessage(threadID, lastUserMessage)
+		
+		// Resolve references in user message (e.g., "天气" -> "北京的天气")
+		resolvedMessage := s.conversationContextManager.ResolveReferences(threadID, lastUserMessage)
+		if resolvedMessage != lastUserMessage {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[CONTEXT] Resolved message: %s -> %s", lastUserMessage, resolvedMessage))
+			}
+			// Update the last user message in history with resolved version
+			for i := len(history) - 1; i >= 0; i-- {
+				if history[i].Role == schema.User {
+					history[i].Content = resolvedMessage
+					break
+				}
 			}
 		}
 	}
@@ -366,6 +448,20 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	// Save trajectory and SQL collection data on completion (success or error)
 	defer func() {
+		// Recover from any panic and record it
+		if r := recover(); r != nil {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[PANIC] Recovered from panic in RunAnalysisWithProgress: %v", r))
+			}
+			trajectory.Success = false
+			trajectory.ErrorMessage = fmt.Sprintf("panic: %v", r)
+		}
+		
+		// Record end time and duration
+		trajectory.EndTime = time.Now().UnixMilli()
+		trajectory.TotalDuration = trajectory.EndTime - trajectory.StartTime
+		// Note: iterationCount is updated in trajectory.IterationCount during execution
+		
 		if sessionDir != "" {
 			s.saveTrajectory(sessionDir, trajectory)
 			
@@ -465,87 +561,388 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	// 1. Initialize Tools
-	startTools := time.Now()
-	
-	var pyTool *PythonExecutorTool
-	if s.pythonPool != nil {
-		pyTool = NewPythonExecutorToolWithPool(s.cfg, s.pythonPool)
-	} else {
-		pyTool = NewPythonExecutorTool(s.cfg)
-	}
-	// Inject error knowledge into Python tool
-	pyTool.SetErrorKnowledge(s.errorKnowledge)
-	// Inject execution recorder into Python tool
-	if executionRecorder != nil {
-		pyTool.SetExecutionRecorder(executionRecorder)
-	}
-	// Set session directory for file storage
-	if sessionDir != "" {
-		pyTool.SetSessionDirectory(sessionDir)
-		if onFileSaved != nil {
-			pyTool.SetFileSavedCallback(onFileSaved)
-		}
-		if s.Logger != nil {
-			s.Logger(fmt.Sprintf("[SESSION] Files will be saved to: %s", sessionDir))
+	// 🚀 Unified Python Analysis Path: Single LLM call for data analysis
+	// This path consolidates multiple LLM calls into one for better performance
+	if dataSourceID != "" && len(history) > 0 {
+		lastMsg := history[len(history)-1]
+		if lastMsg.Role == schema.User {
+			userQuery := lastMsg.Content
+			
+			// Use LLM-based classification for more accurate routing
+			router := NewRequestRouterWithLLM(s.ChatModel, s.Logger)
+			path, classificationResult := router.RouteRequestWithLLM(ctx, userQuery, dataSourceID)
+			
+			// Log classification result
+			if classificationResult != nil && s.Logger != nil {
+				s.Logger(fmt.Sprintf("[CLASSIFIER] LLM result: type=%s, viz=%v, export=%v, confidence=%.2f",
+					classificationResult.RequestType, 
+					classificationResult.NeedsVisualization,
+					classificationResult.NeedsDataExport,
+					classificationResult.Confidence))
+			}
+			
+			if path == PathUnified {
+				if s.Logger != nil {
+					s.Logger("[UNIFIED] Attempting unified Python analysis path")
+				}
+				
+				// Get database path for the data source
+				var dbPath string
+				if sources, err := s.dsService.LoadDataSources(); err == nil {
+					for _, ds := range sources {
+						if ds.ID == dataSourceID {
+							dbPath = ds.Config.DBPath
+							break
+						}
+					}
+				}
+				
+				if dbPath != "" && sessionDir != "" {
+					// Create metrics collector
+					metrics := NewAnalysisMetrics(s.Logger)
+					
+					// Create unified generator
+					generator := NewUnifiedPythonGenerator(s.ChatModel, s.dsService, s.Logger)
+					generator.SetMetrics(metrics)
+					
+					// Pass classification result to generator for better code generation
+					if classificationResult != nil {
+						generator.SetClassificationHints(classificationResult)
+					}
+					
+					// Generate complete Python code in single LLM call
+					emitProgress(StageAnalysis, 30, "progress.generating_code", 2, 6)
+					generatedCode, err := generator.GenerateAnalysisCode(ctx, userQuery, dataSourceID, dbPath, sessionDir)
+					
+					if err == nil && generatedCode != nil && generatedCode.Code != "" {
+						if s.Logger != nil {
+							s.Logger(fmt.Sprintf("[UNIFIED] Code generated successfully, %d SQL queries detected", len(generatedCode.SQLQueries)))
+						}
+						
+						// Create execution safety wrapper
+						safety := NewExecutionSafety(s.Logger)
+						safety.SetTimeout(120 * time.Second) // 2 minute timeout
+						
+						// Generate safety report
+						safetyReport := safety.GenerateSafetyReport(generatedCode.Code)
+						if !safetyReport.IsSafe {
+							if s.Logger != nil {
+								s.Logger(fmt.Sprintf("[UNIFIED] Code blocked by safety check: %v", safetyReport.Errors))
+							}
+							// Fall through to multi-step path
+						} else {
+							// Log any warnings
+							for _, warning := range safetyReport.Warnings {
+								if s.Logger != nil {
+									s.Logger(fmt.Sprintf("[UNIFIED] Safety warning: %s", warning))
+								}
+							}
+							
+							// Execute the generated Python code with safety wrapper
+							emitProgress(StageAnalysis, 60, "progress.running_python", 4, 6)
+							
+							execStart := time.Now()
+							safeResult := safety.ValidateAndExecute(ctx, generatedCode.Code, func(code string) (string, error) {
+								if s.pythonPool != nil {
+									return s.pythonPool.Execute(code, sessionDir)
+								}
+								ps := &PythonService{}
+								return ps.ExecuteScript(s.cfg.PythonPath, code)
+							})
+							metrics.RecordExecution(time.Since(execStart))
+							
+							if safeResult.TimedOut {
+								if s.Logger != nil {
+									s.Logger(fmt.Sprintf("[UNIFIED] Execution timed out after %v, falling back to multi-step", safeResult.Duration))
+								}
+								// Fall through to multi-step path
+							} else if safeResult.Blocked {
+								if s.Logger != nil {
+									s.Logger(fmt.Sprintf("[UNIFIED] Execution blocked: %s", safeResult.BlockReason))
+								}
+								// Fall through to multi-step path
+							} else if safeResult.Success {
+								// Parse the execution result
+								parser := NewResultParser(s.Logger)
+								parsedResult := parser.ParseOutput(safeResult.Output, sessionDir)
+								
+								// Emit file events for generated files
+								if onFileSaved != nil {
+									for _, f := range parsedResult.ChartFiles {
+										onFileSaved(f.Name, f.Type, f.Size)
+									}
+									for _, f := range parsedResult.ExportFiles {
+										onFileSaved(f.Name, f.Type, f.Size)
+									}
+								}
+								
+								// Log metrics summary
+								metrics.LogSummary()
+								
+								emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
+								trajectory.Success = true
+								trajectory.FinalResponse = safeResult.Output
+								trajectory.IterationCount = 1
+								trajectory.ToolCallCount = 2 // Schema fetch + Python execution
+								
+								if s.Logger != nil {
+									s.Logger(fmt.Sprintf("[TIMING] Unified analysis path took: %v", time.Since(startTotal)))
+								}
+								
+								return &schema.Message{
+									Role:    schema.Assistant,
+									Content: parser.FormatAsText(parsedResult),
+								}, nil
+							} else {
+								// Execution failed
+								if s.Logger != nil {
+									s.Logger(fmt.Sprintf("[UNIFIED] Execution failed: %v, falling back to multi-step", safeResult.Error))
+								}
+							}
+						}
+					} else if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[UNIFIED] Code generation failed: %v, falling back to multi-step", err))
+					}
+				}
+			} else if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[UNIFIED] Request routed to %s path, skipping unified", router.GetPathDescription(path)))
+			}
 		}
 	}
 
-	dsTool := NewDataSourceContextTool(s.dsService)
-	// Inject working context manager for schema caching
-	if s.workingContextManager != nil {
-		dsTool.SetWorkingContextManager(s.workingContextManager)
-	}
-	// Inject SQL collector into datasource tool for schema tracking
-	if sqlCollector != nil {
-		dsTool.SetSQLCollector(sqlCollector)
-	}
+	// 🎯 Analysis Planner: Create execution plan before running
+	var planPrompt string
+	if len(history) > 0 {
+		// Extract user query
+		var userQuery string
+		for i := len(history) - 1; i >= 0; i-- {
+			if history[i].Role == schema.User {
+				userQuery = history[i].Content
+				break
+			}
+		}
 
-	// Create SQL planner for self-correction capability
-	sqlPlanner := NewSQLPlanner(s.ChatModel, s.dsService, s.Logger)
-	sqlTool := NewSQLExecutorToolWithPlanner(s.dsService, sqlPlanner, s.Logger)
-	// Inject error knowledge into SQL tool
-	sqlTool.SetErrorKnowledge(s.errorKnowledge)
-	// Inject execution recorder into SQL tool
-	if executionRecorder != nil {
-		sqlTool.SetExecutionRecorder(executionRecorder)
-	}
-	// Inject SQL collector into SQL tool
-	if sqlCollector != nil {
-		sqlTool.SetSQLCollector(sqlCollector)
-		// Set current user request for context
-		if len(history) > 0 {
-			for i := len(history) - 1; i >= 0; i-- {
-				if history[i].Role == schema.User {
-					sqlCollector.SetUserRequest(history[i].Content)
-					break
+		if userQuery != "" {
+			// Create planner and generate plan
+			planner := NewAnalysisPlanner(s.ChatModel, s.Logger)
+			
+			// Get data source info for planning
+			dataSourceInfo := "无数据源"
+			if dataSourceID != "" {
+				if sources, err := s.dsService.LoadDataSources(); err == nil {
+					for _, ds := range sources {
+						if ds.ID == dataSourceID {
+							tables, _ := s.dsService.GetDataSourceTables(dataSourceID)
+							dataSourceInfo = fmt.Sprintf("数据源: %s, 表: %s", ds.Name, strings.Join(tables, ", "))
+							break
+						}
+					}
+				}
+			}
+
+			// Generate execution plan
+			plan, err := planner.PlanAnalysis(ctx, userQuery, dataSourceInfo)
+			if err == nil && plan != nil {
+				planPrompt = planner.FormatPlanForPrompt(plan)
+				
+				// For quick path tasks, execute directly without full agent loop
+				if plan.IsQuickPath && plan.QuickPathCode != "" {
+					if s.Logger != nil {
+						s.Logger("[PLANNER] Executing quick path directly")
+					}
+					
+					// Execute Python code directly
+					var result string
+					var execErr error
+					if s.pythonPool != nil {
+						result, execErr = s.pythonPool.Execute(plan.QuickPathCode, sessionDir)
+					} else {
+						ps := &PythonService{}
+						result, execErr = ps.ExecuteScript(s.cfg.PythonPath, plan.QuickPathCode)
+					}
+					
+					if execErr == nil {
+						emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
+						trajectory.Success = true
+						trajectory.FinalResponse = result
+						trajectory.IterationCount = 1
+						trajectory.ToolCallCount = 1
+						if s.Logger != nil {
+							s.Logger(fmt.Sprintf("[TIMING] Quick path execution took: %v", time.Since(startTotal)))
+						}
+						return &schema.Message{
+							Role:    schema.Assistant,
+							Content: result,
+						}, nil
+					}
+					// If quick path failed, fall through to normal flow
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[PLANNER] Quick path failed: %v, falling back to normal flow", execErr))
+					}
 				}
 			}
 		}
 	}
 
-	// Remove PythonPlanner to reduce overhead - LLM can generate Python directly
-	// pythonPlanner := NewPythonPlanner(s.ChatModel, s.Logger)
-	// pythonPlannerTool := NewPythonPlannerTool(pythonPlanner)
-
-	// Initialize tools list
-	tools := []tool.BaseTool{pyTool, dsTool, sqlTool}
-
-	// Add Web Search and Fetch tools with configured search engine and proxy
-	activeEngine := s.cfg.GetActiveSearchEngine()
-	webSearchTool := NewWebSearchTool(s.Logger, activeEngine, s.cfg.ProxyConfig)
-	webFetchTool := NewWebFetchTool(s.Logger, s.cfg.ProxyConfig)
-	tools = append(tools, webSearchTool, webFetchTool)
-	if s.Logger != nil {
-		engineName := "default"
-		if activeEngine != nil {
-			engineName = activeEngine.Name
+	// 1. Initialize Tools (parallelized for speed)
+	startTools := time.Now()
+	
+	// Use sync.WaitGroup for parallel tool initialization
+	var wg sync.WaitGroup
+	var pyTool *PythonExecutorTool
+	var dsTool *DataSourceContextTool
+	var sqlTool *SQLExecutorTool
+	var webSearchTool tool.BaseTool // Changed to interface to support multiple search implementations
+	var webFetchTool *WebFetchTool  // HTTP-based web content fetcher (no Chrome dependency)
+	var mcpTool *MCPTool
+	var exportTool *ExportTool
+	
+	// Initialize Python tool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if s.pythonPool != nil {
+			pyTool = NewPythonExecutorToolWithPool(s.cfg, s.pythonPool)
+		} else {
+			pyTool = NewPythonExecutorTool(s.cfg)
 		}
-		s.Logger(fmt.Sprintf("[WEB-TOOLS] Web search (engine: %s) and fetch tools loaded", engineName))
+		pyTool.SetErrorKnowledge(s.errorKnowledge)
+		if executionRecorder != nil {
+			pyTool.SetExecutionRecorder(executionRecorder)
+		}
+		if sessionDir != "" {
+			pyTool.SetSessionDirectory(sessionDir)
+			if userMessageID != "" {
+				pyTool.SetRequestID(userMessageID)
+			}
+			if onFileSaved != nil {
+				pyTool.SetFileSavedCallback(onFileSaved)
+			}
+		}
+	}()
+	
+	// Initialize DataSource tool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dsTool = NewDataSourceContextTool(s.dsService)
+		if s.workingContextManager != nil {
+			dsTool.SetWorkingContextManager(s.workingContextManager)
+		}
+		if sqlCollector != nil {
+			dsTool.SetSQLCollector(sqlCollector)
+		}
+	}()
+	
+	// Initialize SQL tool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		sqlPlanner := NewSQLPlanner(s.ChatModel, s.dsService, s.Logger)
+		sqlTool = NewSQLExecutorToolWithPlanner(s.dsService, sqlPlanner, s.Logger)
+		sqlTool.SetErrorKnowledge(s.errorKnowledge)
+		if executionRecorder != nil {
+			sqlTool.SetExecutionRecorder(executionRecorder)
+		}
+		if sqlCollector != nil {
+			sqlTool.SetSQLCollector(sqlCollector)
+			if len(history) > 0 {
+				for i := len(history) - 1; i >= 0; i-- {
+					if history[i].Role == schema.User {
+						sqlCollector.SetUserRequest(history[i].Content)
+						break
+					}
+				}
+			}
+		}
+	}()
+	
+	// Initialize Web tools (using new API-based search)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Initialize search API configuration
+		s.cfg.InitializeSearchAPIs()
+		activeAPI := s.cfg.GetActiveSearchAPI()
+		
+		if activeAPI != nil && activeAPI.Enabled {
+			searchTool, err := NewSearchAPITool(s.Logger, activeAPI)
+			if err != nil {
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[SEARCH-API] Failed to initialize search tool: %v", err))
+				}
+				// Fallback to nil - will be handled later
+				webSearchTool = nil
+			} else {
+				webSearchTool = searchTool
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[SEARCH-API] Initialized %s search API", activeAPI.Name))
+				}
+			}
+		} else {
+			if s.Logger != nil {
+				s.Logger("[SEARCH-API] No active search API configured")
+			}
+			webSearchTool = nil
+		}
+		
+		// Initialize HTTP-based web fetch tool (no Chrome dependency)
+		webFetchTool = NewWebFetchTool(s.Logger, s.cfg.ProxyConfig)
+	}()
+	
+	// Initialize MCP tool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		mcpTool = NewMCPTool(s.cfg.MCPServices, s.Logger)
+	}()
+	
+	// Initialize Export tool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		exportTool = NewExportTool(s.Logger)
+		if sessionDir != "" {
+			exportTool.SetSessionDirectory(sessionDir)
+			if userMessageID != "" {
+				exportTool.SetRequestID(userMessageID)
+			}
+			if onFileSaved != nil {
+				exportTool.SetFileSavedCallback(onFileSaved)
+			}
+		}
+	}()
+	
+	// Wait for all tools to initialize
+	wg.Wait()
+	
+	if sessionDir != "" && s.Logger != nil {
+		s.Logger(fmt.Sprintf("[SESSION] Files will be saved to: %s", sessionDir))
+	}
+
+	// Build tools list - only add search tool if it was successfully initialized
+	tools := []tool.BaseTool{pyTool, dsTool, sqlTool, webFetchTool, exportTool}
+	
+	if webSearchTool != nil {
+		tools = append(tools, webSearchTool)
+		if s.Logger != nil {
+			activeAPI := s.cfg.GetActiveSearchAPI()
+			if activeAPI != nil {
+				s.Logger(fmt.Sprintf("[SEARCH-API] %s search tool added to agent", activeAPI.Name))
+			}
+		}
+	}
+	
+	if s.Logger != nil {
+		activeAPI := s.cfg.GetActiveSearchAPI()
+		apiName := "none"
+		if activeAPI != nil {
+			apiName = activeAPI.Name
+		}
+		s.Logger(fmt.Sprintf("[WEB-TOOLS] Web search API: %s, Web fetch: HTTP-based (no Chrome)", apiName))
 	}
 
 	// Add MCP tool if services are configured
-	mcpTool := NewMCPTool(s.cfg.MCPServices, s.Logger)
 	if mcpTool.HasServices() {
 		tools = append(tools, mcpTool)
 		if s.Logger != nil {
@@ -668,23 +1065,33 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		input = deduplicateMessages(input)
 
 		// ⚡ EARLY WARNINGS: Encourage completion before hitting limits
-		if iterationCount == 10 {
+		// More aggressive warnings to speed up completion
+		if iterationCount == 6 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "⚡ 10 steps used. Finish QUICKLY - use 1-2 more tools MAX.",
+				Content: "⚡ 已用6步。尽快完成,最多再用2次工具。",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
-				s.Logger("[WARNING] Step 10 warning injected")
+				s.Logger("[WARNING] Step 6 warning injected")
 			}
-		} else if iterationCount == 15 {
+		} else if iterationCount == 8 {
+			warningMsg := &schema.Message{
+				Role:    schema.User,
+				Content: "⚠️ 已用8步。立即呈现结果,不要再调用工具。",
+			}
+			input = append(input, warningMsg)
+			if s.Logger != nil {
+				s.Logger("[WARNING] Step 8 warning injected")
+			}
+		} else if iterationCount == 10 {
 			finalMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "🛑 STOP NOW. Present what you have.",
+				Content: "🛑 停止! 立即输出当前结果。",
 			}
 			input = append(input, finalMsg)
 			if s.Logger != nil {
-				s.Logger("[FINAL-WARNING] Step 15 final warning injected")
+				s.Logger("[FINAL-WARNING] Step 10 final warning injected")
 			}
 		}
 
@@ -692,21 +1099,27 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
 		emitProgress(StageAnalysis, progress, "progress.ai_processing", 3, 6)
 
-		// CRITICAL: Apply memory management before each model call to prevent context overflow
-		managedInput, err := s.memoryManager.ManageMemory(ctx, input)
-		if err != nil {
-			if s.Logger != nil {
-				s.Logger(fmt.Sprintf("[WARNING] Memory management failed in graph: %v", err))
+		// Apply memory management only if enabled in config
+		managedInput := input
+		if s.cfg.EnableMemory && s.memoryManager != nil {
+			var err error
+			managedInput, err = s.memoryManager.ManageMemory(ctx, input)
+			if err != nil {
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[WARNING] Memory management failed in graph: %v", err))
+				}
+				managedInput = input
 			}
-			managedInput = input
-		}
 
-		// Log token reduction if significant
-		if s.Logger != nil && len(input) != len(managedInput) {
-			originalTokens := s.memoryManager.EstimateTokens(input)
-			managedTokens := s.memoryManager.EstimateTokens(managedInput)
-			s.Logger(fmt.Sprintf("[MEMORY-GRAPH] Reduced from %d to %d messages (%d -> %d est. tokens)",
-				len(input), len(managedInput), originalTokens, managedTokens))
+			// Log token reduction if significant
+			if s.Logger != nil && len(input) != len(managedInput) {
+				originalTokens := s.memoryManager.EstimateTokens(input)
+				managedTokens := s.memoryManager.EstimateTokens(managedInput)
+				s.Logger(fmt.Sprintf("[MEMORY-GRAPH] Reduced from %d to %d messages (%d -> %d est. tokens)",
+					len(input), len(managedInput), originalTokens, managedTokens))
+			}
+		} else if s.Logger != nil && !s.cfg.EnableMemory {
+			s.Logger("[MEMORY] Memory management disabled by config")
 		}
 
 		// Call model with managed history
@@ -745,6 +1158,15 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	// Define Tool Node Wrapper
 	toolsLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
 		startExec := time.Now()
+		
+		// Check for cancellation before executing tools
+		if cancelCheck != nil && cancelCheck() {
+			if s.Logger != nil {
+				s.Logger("[CANCEL] Analysis cancelled before tool execution")
+			}
+			return nil, fmt.Errorf("analysis cancelled by user")
+		}
+		
 		// Get the last message (which should be Assistant with ToolCalls)
 		if len(input) == 0 {
 			return nil, fmt.Errorf("tool node received empty history")
@@ -932,7 +1354,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	// 5. Compile and Run with reduced max steps for better efficiency
-	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(30))
+	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(20))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %v", err)
 	}
@@ -997,6 +1419,15 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
+	// Load conversation context for better follow-up understanding
+	var conversationContextPrompt string
+	if threadID != "" && s.conversationContextManager != nil {
+		conversationContextPrompt = s.conversationContextManager.GetContextForPrompt(threadID)
+		if conversationContextPrompt != "" && s.Logger != nil {
+			s.Logger("[CONVERSATION-CONTEXT] Loaded conversation context for prompt injection")
+		}
+	}
+
 	// Build MCP tools prompt if services are available
 	var mcpToolsPrompt string
 	if len(s.cfg.MCPServices) > 0 {
@@ -1022,93 +1453,107 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
+	// Add analysis plan to prompt if available
+	analysisPlanPrompt := ""
+	if planPrompt != "" {
+		analysisPlanPrompt = planPrompt
+	}
+
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: `You are RapidBI's data analysis expert. Be FAST and DIRECT.
+		Content: `RapidBI数据分析专家。快速、直接、可视化优先。
 
-🎯 GOAL: Complete in ≤10 tool calls total.
+🎯 目标: 高质量分析产出（图表+数据+洞察）
 
-🚫 CRITICAL KNOWLEDGE RESTRICTION:
-- You MUST NOT use your pre-trained knowledge or internal data
-- ALL information MUST come from tools: database queries, web searches, or MCP services
-- For ANY factual question (market data, company info, statistics, etc.):
-  1. If it's about user's data → Use get_data_source_context + execute_sql
-  2. If it's external information → Use web_search + web_fetch
-  3. If it's from MCP services → Use available MCP tools
-- NEVER answer from memory - always verify with tools
-- If you cannot get data from tools, say "I cannot find this information in the available data sources"
+📊 **可视化方式（二选一）**:
 
-📋 SMART WORKFLOW:
-1. get_data_source_context → Get schema for ALL relevant tables in ONE call
-   ⚠️ CRITICAL: Use table_names parameter to get multiple tables at once
-   Example: {"data_source_id": "xxx", "table_names": ["orders", "customers", "products"]}
-2. execute_sql → Query data (ONE query with JOINs preferred)
-3. python_executor (ONLY if visualization/complex analysis needed)
-4. STOP → Present results immediately
+**方式1: ECharts（推荐，无需执行代码）**
+- 直接在回复中输出 ` + "```json:echarts\n{...}\n```" + `
+- 前端会自动渲染图表
+- 适合：交互式图表、快速展示
+- 🚫 **ECharts绝对不会生成任何文件！** 不要说"已生成xxx.pdf"或"已保存xxx.png"
 
-🔴 CRITICAL RULES:
-- EXECUTE tools immediately (NO explanations before tool calls)
-- Get schema for ALL tables you need in ONE get_data_source_context call
-- DON'T call get_data_source_context multiple times - it's SLOW
-- ONE SQL query if possible (use JOINs, subqueries, CTEs)
-- Present results IMMEDIATELY after data ready
-- NO unnecessary tool calls
+**方式2: Python matplotlib（需要执行代码才能生成文件）**
+- 必须调用python_executor工具执行代码
+- 使用FILES_DIR变量保存文件
+- 适合：需要导出PDF/PNG文件时
+- ✅ 只有python_executor执行成功后，文件才真正存在
 
-⚡ EFFICIENCY TIPS:
-- First call: Get table list only (no table_names parameter)
-- Second call: Get schema for ALL relevant tables at once (with table_names)
-- NEVER call get_data_source_context more than twice
-- If SQL error mentions column → Fix it directly, don't re-fetch schema
-- Combine multiple questions into ONE SQL query when possible
-- Skip python_executor for simple queries (just show table)
+🚨🚨🚨 **严禁虚假文件声明（最重要规则）** 🚨🚨🚨
+- **ECharts = 前端渲染 = 无文件生成** → 绝对不能说"图表已生成: xxx.pdf"
+- **只有调用python_executor并执行成功后，才能声称文件已生成**
+- **违规示例（绝对禁止）**:
+  - ❌ "图表文件已生成: analysis.pdf (32KB)" ← 如果没调用python_executor，这是虚假声明
+  - ❌ "✅ 散点图: scatter.pdf (28KB)" ← 如果只用了ECharts，这是虚假声明
+- **正确示例**:
+  - ✅ 使用ECharts时: "以下是交互式图表:" + json:echarts代码块（不提及任何文件）
+  - ✅ 使用matplotlib时: 先调用python_executor，执行成功后才说"文件已保存"
 
-📊 OUTPUT FORMAT:
-- For charts: ` + "```json:echarts\n{...}\n```" + `
-- For tables: ` + "```json:table\n[...]\n```" + `
-- IMPORTANT: Add newline after json:echarts or json:table
+⚡ 快速路径(跳过搜索,直接用python_executor):
+- 时间/日期查询 → datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")
+- 数学计算 → 直接计算
+- 单位换算 → 直接换算
 
-🌐 WEB SEARCH TOOLS (Use sparingly - SLOW operation):
-- web_search: Search the web for current information, market data, competitor analysis
-  ⚠️ WARNING: Takes 60-90 seconds! Use ONLY when external data is essential
-  Example: "latest smartphone market share 2026", "Tesla vs BYD sales comparison"
-  Returns: JSON array with title, url, snippet for each result
-- web_fetch: Fetch and parse web page content (use URLs from search results)
-  Returns structured data: title, content, tables, links
-- ONLY use when database data is insufficient
-- Prefer internal data analysis over web searches
+📋 数据分析标准流程:
+1. get_data_source_context → 获取schema
+2. execute_sql → 查询数据
+3. 可视化：ECharts(直接输出,无文件) 或 python_executor(生成文件)
+4. 呈现结果(图表+洞察+数据表)
 
-📌 CRITICAL - CITING WEB SOURCES:
-When using information from web_search or web_fetch results:
-1. ALWAYS include the source URL in your response
-2. Format citations as: [Source: URL] or use markdown links [text](URL)
-3. Place citations immediately after the information
-4. Example: "特斯拉2025年销量为180万辆 [来源: https://example.com/tesla-sales]"
-5. For multiple sources, cite each one separately
-6. This ensures transparency and allows users to verify information
+📤 数据导出规则:
+- ⭐ 数据表格导出 → Excel格式(export_data, format="excel")
+- 可视化报告 → PDF格式(需要python_executor)
+- 演示文稿 → PPT格式
 
-🇨🇳 LANGUAGE REQUIREMENTS:
-- ALL chart titles, axis labels, and legends MUST be in Chinese
-- Use descriptive Chinese names for all visualizations (e.g., "销售趋势图", not "Sales Trend")
-- ALL Python code comments and print statements should be in Chinese where user-facing
+🔴 关键规则:
+- **分析请求必须有可视化** - ECharts或matplotlib
+- **ECharts不生成文件，不要声称生成了文件**
+- 立即执行工具(不要先解释)
+- get_data_source_context最多调用2次
+- SQL错误时直接修复
 
-⚠️ You have LIMITED steps - be efficient!` + contextPrompt + workingContextPrompt + mcpToolsPrompt,
+📊 输出格式:
+- ECharts图表: ` + "```json:echarts\n{...}\n```" + ` (仅前端渲染，无文件)
+- 表格: ` + "```json:table\n[...]\n```" + `
+- 图片会自动检测并显示
+
+🌐 网络搜索(仅用于外部信息):
+- web_search: 新闻、股价、天气等实时外部数据
+- web_fetch: 获取网页内容
+- ⚠️ 不要用搜索查时间/计算/本地可完成的任务
+- 引用来源: [来源: URL]
+
+🇨🇳 语言: 图表标题/标签必须用中文
+
+📈 分析产出要求:
+- 数据分析 → 必须包含: 图表(ECharts或matplotlib) + 关键洞察 + 数据摘要
+- 简单问题(时间/计算) → 直接返回结果
+- 不要只返回纯文字分析，要有可视化支撑
+
+⚠️ 高效执行，但不要牺牲分析质量!` + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt,
 	}
 
-	// 7. Apply memory management to history
+	// 7. Apply memory management to history (only if enabled)
 	startMemory := time.Now()
-	managedHistory, err := s.memoryManager.ManageMemory(ctx, history)
-	if err != nil {
-		if s.Logger != nil {
-			s.Logger(fmt.Sprintf("[WARNING] Memory management failed: %v, using original history", err))
+	managedHistory := history
+	if s.cfg.EnableMemory && s.memoryManager != nil {
+		var err error
+		managedHistory, err = s.memoryManager.ManageMemory(ctx, history)
+		if err != nil {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[WARNING] Memory management failed: %v, using original history", err))
+			}
+			managedHistory = history
 		}
-		managedHistory = history
-	}
-	if s.Logger != nil {
-		originalTokens := s.memoryManager.EstimateTokens(history)
-		managedTokens := s.memoryManager.EstimateTokens(managedHistory)
-		s.Logger(fmt.Sprintf("[MEMORY] Original: %d msgs (%d est. tokens) -> Managed: %d msgs (%d est. tokens)",
-			len(history), originalTokens, len(managedHistory), managedTokens))
-		s.Logger(fmt.Sprintf("[TIMING] Memory Management took: %v", time.Since(startMemory)))
+		if s.Logger != nil {
+			originalTokens := s.memoryManager.EstimateTokens(history)
+			managedTokens := s.memoryManager.EstimateTokens(managedHistory)
+			s.Logger(fmt.Sprintf("[MEMORY] Original: %d msgs (%d est. tokens) -> Managed: %d msgs (%d est. tokens)",
+				len(history), originalTokens, len(managedHistory), managedTokens))
+			s.Logger(fmt.Sprintf("[TIMING] Memory Management took: %v", time.Since(startMemory)))
+		}
+	} else if s.Logger != nil {
+		s.Logger("[MEMORY] Memory management disabled - using raw history")
 	}
 
 	input := append([]*schema.Message{sysMsg}, managedHistory...)
@@ -1136,9 +1581,29 @@ When using information from web_search or web_fetch results:
 		trajectory.Success = true
 		trajectory.FinalResponse = escapeForTraining(lastMsg.Content) // Escape for training visibility
 		
-		// Extract and store valuable memories (only if analysis was successful)
+		// Update conversation context with assistant response
+		if s.conversationContextManager != nil && threadID != "" && lastMsg.Role == schema.Assistant {
+			// Extract tool used from history
+			var lastToolUsed string
+			var lastToolResult string
+			for i := len(finalHistory) - 1; i >= 0; i-- {
+				if finalHistory[i].Role == schema.Assistant && len(finalHistory[i].ToolCalls) > 0 {
+					lastToolUsed = finalHistory[i].ToolCalls[0].Function.Name
+					break
+				}
+				if finalHistory[i].Role == schema.Tool {
+					lastToolResult = finalHistory[i].Content
+				}
+			}
+			s.conversationContextManager.UpdateFromAssistantResponse(threadID, lastMsg.Content, lastToolUsed, lastToolResult)
+			if s.Logger != nil {
+				s.Logger("[CONTEXT] Updated conversation context with assistant response")
+			}
+		}
+		
+		// Extract and store valuable memories (only if memory is enabled and analysis was successful)
 		// Run asynchronously to not block user response
-		if lastMsg.Role == schema.Assistant && lastMsg.Content != "" {
+		if s.cfg.EnableMemory && lastMsg.Role == schema.Assistant && lastMsg.Content != "" {
 			go func() {
 				startMemoryExtraction := time.Now()
 				

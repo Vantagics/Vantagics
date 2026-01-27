@@ -154,7 +154,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
 
                     <div className="p-6 space-y-4">
                         {error && (
-                            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-md break-words">
+                            <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-md break-words">
                                 {error}
                             </div>
                         )}

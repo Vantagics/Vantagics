@@ -1,112 +1,112 @@
-import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import React from 'react';
+import { X, Database } from 'lucide-react';
+import { useLanguage } from '../i18n';
+import '../styles/datasource-selection-modal.css';
 
-interface DataSource {
+interface DataSourceSummary {
     id: string;
     name: string;
     type: string;
 }
 
 interface DataSourceSelectionModalProps {
-    isOpen: boolean;
-    dataSources: DataSource[];
-    onClose: () => void;
+    dataSources: DataSourceSummary[];
     onSelect: (dataSourceId: string) => void;
+    onCancel?: () => void;
+    onClose?: () => void;
+    isOpen?: boolean;
 }
 
 const DataSourceSelectionModal: React.FC<DataSourceSelectionModalProps> = ({
-    isOpen,
     dataSources,
-    onClose,
-    onSelect
+    onSelect,
+    onCancel,
+    onClose
 }) => {
-    const [selectedId, setSelectedId] = useState<string>('');
-
-    useEffect(() => {
-        if (isOpen && dataSources.length > 0) {
-            setSelectedId(dataSources[0].id);
-        }
-    }, [isOpen, dataSources]);
-
-    if (!isOpen) return null;
-
-    const handleConfirm = () => {
-        if (selectedId) {
-            onSelect(selectedId);
-        }
+    const { t } = useLanguage();
+    
+    // Support both onCancel and onClose for flexibility
+    const handleClose = () => {
+        if (onClose) onClose();
+        if (onCancel) onCancel();
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100000]">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div 
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={handleClose}
+        >
+            <div 
+                className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                    <h2 className="text-lg font-semibold text-slate-800">选择目标数据源</h2>
+                <div className="flex items-center justify-between p-6 border-b border-slate-200">
+                    <div className="flex items-center gap-3">
+                        <Database className="w-6 h-6 text-blue-500" />
+                        <div>
+                            <h3 className="text-lg font-semibold text-slate-900">
+                                {t('select_data_source') || '选择要分析的数据源'}
+                            </h3>
+                            <p className="text-sm text-slate-600 mt-1">
+                                {t('select_data_source_desc') || '请选择一个数据源开始智能分析'}
+                            </p>
+                        </div>
+                    </div>
                     <button
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="text-slate-400 hover:text-slate-600 transition-colors"
                     >
-                        <X className="w-5 h-5" />
+                        <X size={24} />
                     </button>
                 </div>
 
-                {/* Body */}
-                <div className="px-6 py-4">
-                    <p className="text-sm text-slate-600 mb-4">
-                        选择要导入分析过程的目标数据源
-                    </p>
-
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                {/* Data Source List */}
+                <div className="flex-1 overflow-y-auto p-6">
+                    <div className="space-y-3">
                         {dataSources.map((ds) => (
-                            <label
+                            <button
                                 key={ds.id}
-                                className={`block p-3 border rounded-lg cursor-pointer transition-colors ${selectedId === ds.id
-                                        ? 'border-blue-500 bg-blue-50'
-                                        : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
-                                    }`}
+                                onClick={() => onSelect(ds.id)}
+                                className="w-full text-left p-4 border-2 border-slate-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all duration-200 group"
                             >
-                                <input
-                                    type="radio"
-                                    name="dataSource"
-                                    value={ds.id}
-                                    checked={selectedId === ds.id}
-                                    onChange={(e) => setSelectedId(e.target.value)}
-                                    className="sr-only"
-                                />
-                                <div className="flex items-center gap-3">
-                                    <span className={`flex-shrink-0 w-3 h-3 rounded-full ${ds.type === 'excel' ? 'bg-green-500' :
-                                            ['mysql', 'postgresql', 'doris'].includes(ds.type) ? 'bg-blue-500' :
-                                                'bg-gray-400'
-                                        }`}></span>
-                                    <div className="flex-1">
-                                        <div className="font-medium text-slate-800">{ds.name}</div>
-                                        <div className="text-xs text-slate-500">{ds.type.toUpperCase()}</div>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <div className="ds-name font-semibold text-slate-900 group-hover:text-blue-600 mb-1">
+                                            {ds.name}
+                                        </div>
+                                        <div className="ds-type text-sm text-slate-600 uppercase font-medium">
+                                            {ds.type}
+                                        </div>
                                     </div>
-                                    {selectedId === ds.id && (
-                                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                    <div className="ml-4 text-slate-400 group-hover:text-blue-500 transition-colors">
+                                        <svg 
+                                            className="w-5 h-5" 
+                                            fill="none" 
+                                            stroke="currentColor" 
+                                            viewBox="0 0 24 24"
+                                        >
+                                            <path 
+                                                strokeLinecap="round" 
+                                                strokeLinejoin="round" 
+                                                strokeWidth={2} 
+                                                d="M9 5l7 7-7 7" 
+                                            />
                                         </svg>
-                                    )}
+                                    </div>
                                 </div>
-                            </label>
+                            </button>
                         ))}
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-end p-6 border-t border-slate-200 bg-slate-50">
                     <button
-                        onClick={onClose}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
+                        onClick={handleClose}
+                        className="cancel-button px-4 py-2 text-sm text-slate-600 hover:text-slate-900 font-medium"
                     >
-                        取消
-                    </button>
-                    <button
-                        onClick={handleConfirm}
-                        disabled={!selectedId}
-                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-                    >
-                        继续导入
+                        {t('cancel') || '取消'}
                     </button>
                 </div>
             </div>
