@@ -100,6 +100,23 @@ type DataSourceConfig struct {
 	StoreLocally      bool               `json:"store_locally"`
 	Optimized         bool               `json:"optimized"` // Whether the database has been optimized
 	MySQLExportConfig *MySQLExportConfig `json:"mysql_export_config,omitempty"`
+	// Shopify API configuration
+	ShopifyStore       string `json:"shopify_store,omitempty"`
+	ShopifyAccessToken string `json:"shopify_access_token,omitempty"`
+	ShopifyAPIVersion  string `json:"shopify_api_version,omitempty"`
+	// BigCommerce API configuration
+	BigCommerceStoreHash    string `json:"bigcommerce_store_hash,omitempty"`
+	BigCommerceAccessToken  string `json:"bigcommerce_access_token,omitempty"`
+	// eBay API configuration
+	EbayAccessToken    string `json:"ebay_access_token,omitempty"`
+	EbayEnvironment    string `json:"ebay_environment,omitempty"` // "production" or "sandbox"
+	EbayApiFulfillment bool   `json:"ebay_api_fulfillment,omitempty"`
+	EbayApiFinances    bool   `json:"ebay_api_finances,omitempty"`
+	EbayApiAnalytics   bool   `json:"ebay_api_analytics,omitempty"`
+	// Etsy API configuration
+	EtsyShopId      string `json:"etsy_shop_id,omitempty"`
+	EtsyApiKey      string `json:"etsy_api_key,omitempty"`
+	EtsyAccessToken string `json:"etsy_access_token,omitempty"`
 }
 
 // DataSourceStatistics holds aggregated statistics about data sources

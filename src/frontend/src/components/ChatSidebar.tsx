@@ -2799,7 +2799,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 type="text"
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && !((isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId)) && handleSendMessage()}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !((isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId))) {
+                                        handleSendMessage();
+                                    } else {
+                                        e.stopPropagation();
+                                    }
+                                }}
                                 placeholder={t('what_to_analyze')}
                                 disabled={(isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId)}
                                 className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"

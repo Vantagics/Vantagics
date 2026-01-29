@@ -290,6 +290,9 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
             handleColumnSave();
         } else if (e.key === 'Escape') {
             handleColumnCancel();
+        } else {
+            // Allow other keyboard shortcuts like Ctrl+C, Ctrl+V, etc.
+            e.stopPropagation();
         }
     };
 

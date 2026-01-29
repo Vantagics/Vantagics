@@ -96,6 +96,22 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setError(driverType === 'excel' ? 'Please select an Excel file' : driverType === 'json' ? 'Please select a JSON file' : 'Please select a CSV file');
             return;
         }
+        if (driverType === 'shopify' && (!config.shopifyStore || !config.shopifyAccessToken)) {
+            setError('Please provide Shopify store URL and access token');
+            return;
+        }
+        if (driverType === 'bigcommerce' && (!config.bigcommerceStoreHash || !config.bigcommerceAccessToken)) {
+            setError('Please provide BigCommerce store hash and access token');
+            return;
+        }
+        if (driverType === 'ebay' && !config.ebayAccessToken) {
+            setError('Please provide eBay OAuth access token');
+            return;
+        }
+        if (driverType === 'etsy' && (!config.etsyShopId || !config.etsyApiKey || !config.etsyAccessToken)) {
+            setError('Please provide Etsy shop ID, API key and access token');
+            return;
+        }
 
         setIsImporting(true);
         setError(null);
@@ -189,6 +205,10 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 <option value="mysql">MySQL</option>
                                 <option value="postgresql">PostgreSQL</option>
                                 <option value="doris">Doris</option>
+                                <option value="shopify">Shopify API</option>
+                                <option value="bigcommerce">BigCommerce API</option>
+                                <option value="ebay">eBay API</option>
+                                <option value="etsy">Etsy API</option>
                             </select>
                         </div>
 
@@ -209,6 +229,208 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     >
                                         {t('browse')}
                                     </button>
+                                </div>
+                            </div>
+                        ) : driverType === 'shopify' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.shopifyStore || ''}
+                                        onChange={(e) => setConfig({ ...config, shopifyStore: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="your-store.myshopify.com"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_access_token') || 'Access Token'}</label>
+                                    <input
+                                        type="password"
+                                        value={config.shopifyAccessToken || ''}
+                                        onChange={(e) => setConfig({ ...config, shopifyAccessToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="shpat_..."
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('shopify_token_hint') || 'Admin API access token from your Shopify store'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('api_version') || 'API Version'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.shopifyAPIVersion || '2024-01'}
+                                        onChange={(e) => setConfig({ ...config, shopifyAPIVersion: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="2024-01"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            </div>
+                        ) : driverType === 'bigcommerce' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_store_hash') || 'Store Hash'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.bigcommerceStoreHash || ''}
+                                        onChange={(e) => setConfig({ ...config, bigcommerceStoreHash: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="abc123"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('bigcommerce_store_hash_hint') || 'Found in your BigCommerce API path: api.bigcommerce.com/stores/{store_hash}'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_access_token') || 'Access Token'}</label>
+                                    <input
+                                        type="password"
+                                        value={config.bigcommerceAccessToken || ''}
+                                        onChange={(e) => setConfig({ ...config, bigcommerceAccessToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="API Access Token"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('bigcommerce_token_hint') || 'API Account Access Token from BigCommerce'}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : driverType === 'ebay' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_access_token') || 'OAuth Access Token'}</label>
+                                    <input
+                                        type="password"
+                                        value={config.ebayAccessToken || ''}
+                                        onChange={(e) => setConfig({ ...config, ebayAccessToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="v^1.1#i^1#p^3#..."
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('ebay_token_hint') || 'OAuth User Token from eBay Developer Program'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_environment') || 'Environment'}</label>
+                                    <select
+                                        value={config.ebayEnvironment || 'production'}
+                                        onChange={(e) => setConfig({ ...config, ebayEnvironment: e.target.value })}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    >
+                                        <option value="production">Production</option>
+                                        <option value="sandbox">Sandbox</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_apis') || 'APIs to Import'}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={config.ebayApiFulfillment !== 'false'}
+                                                onChange={(e) => setConfig({ ...config, ebayApiFulfillment: e.target.checked ? 'true' : 'false' })}
+                                                className="rounded border-slate-300 text-blue-600"
+                                            />
+                                            <span className="text-sm text-slate-700">Fulfillment API</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_fulfillment_desc') || 'Orders, buyer info, payments'})</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={config.ebayApiFinances !== 'false'}
+                                                onChange={(e) => setConfig({ ...config, ebayApiFinances: e.target.checked ? 'true' : 'false' })}
+                                                className="rounded border-slate-300 text-blue-600"
+                                            />
+                                            <span className="text-sm text-slate-700">Finances API</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_finances_desc') || 'Transactions, fees, payouts'})</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={config.ebayApiAnalytics !== 'false'}
+                                                onChange={(e) => setConfig({ ...config, ebayApiAnalytics: e.target.checked ? 'true' : 'false' })}
+                                                className="rounded border-slate-300 text-blue-600"
+                                            />
+                                            <span className="text-sm text-slate-700">Analytics API</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_analytics_desc') || 'Traffic, conversion, seller metrics'})</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'etsy' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_shop_id') || 'Shop ID'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.etsyShopId || ''}
+                                        onChange={(e) => setConfig({ ...config, etsyShopId: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="12345678"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('etsy_shop_id_hint') || 'Your Etsy shop numeric ID'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_api_key') || 'API Key (Keystring)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.etsyApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, etsyApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="xxxxxxxxxxxxxxxx"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_access_token') || 'OAuth Access Token'}</label>
+                                    <input
+                                        type="password"
+                                        value={config.etsyAccessToken || ''}
+                                        onChange={(e) => setConfig({ ...config, etsyAccessToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="OAuth token"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('etsy_token_hint') || 'OAuth 2.0 access token from Etsy Developer Portal'}
+                                    </p>
                                 </div>
                             </div>
                         ) : (
@@ -322,7 +544,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         )}
 
                         {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || isStoreLocally) && (
+                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || isStoreLocally) && (
                             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <input
                                     type="checkbox"

@@ -344,6 +344,19 @@ export namespace agent {
 	    store_locally: boolean;
 	    optimized: boolean;
 	    mysql_export_config?: MySQLExportConfig;
+	    shopify_store?: string;
+	    shopify_access_token?: string;
+	    shopify_api_version?: string;
+	    bigcommerce_store_hash?: string;
+	    bigcommerce_access_token?: string;
+	    ebay_access_token?: string;
+	    ebay_environment?: string;
+	    ebay_api_fulfillment?: boolean;
+	    ebay_api_finances?: boolean;
+	    ebay_api_analytics?: boolean;
+	    etsy_shop_id?: string;
+	    etsy_api_key?: string;
+	    etsy_access_token?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSourceConfig(source);
@@ -362,6 +375,19 @@ export namespace agent {
 	        this.store_locally = source["store_locally"];
 	        this.optimized = source["optimized"];
 	        this.mysql_export_config = this.convertValues(source["mysql_export_config"], MySQLExportConfig);
+	        this.shopify_store = source["shopify_store"];
+	        this.shopify_access_token = source["shopify_access_token"];
+	        this.shopify_api_version = source["shopify_api_version"];
+	        this.bigcommerce_store_hash = source["bigcommerce_store_hash"];
+	        this.bigcommerce_access_token = source["bigcommerce_access_token"];
+	        this.ebay_access_token = source["ebay_access_token"];
+	        this.ebay_environment = source["ebay_environment"];
+	        this.ebay_api_fulfillment = source["ebay_api_fulfillment"];
+	        this.ebay_api_finances = source["ebay_api_finances"];
+	        this.ebay_api_analytics = source["ebay_api_analytics"];
+	        this.etsy_shop_id = source["etsy_shop_id"];
+	        this.etsy_api_key = source["etsy_api_key"];
+	        this.etsy_access_token = source["etsy_access_token"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -97,6 +97,8 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 	newMenu := menu.NewMenu()
 	if runtime.GOOS == "darwin" {
 		newMenu.Append(menu.AppMenu())
+		// IMPORTANT: Add EditMenu to enable Cmd+C, Cmd+V, Cmd+X, Cmd+A, Cmd+Z shortcuts on macOS
+		newMenu.Append(menu.EditMenu())
 	}
 
 	// Add File Menu with Preferences

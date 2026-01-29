@@ -131,6 +131,16 @@ export class AccessibilityManager {
   private handleKeyboardNavigation = (event: KeyboardEvent): void => {
     if (!this.config.enableKeyboardNavigation) return;
 
+    // Don't interfere with keyboard shortcuts in input fields
+    const target = event.target as HTMLElement;
+    if (target && (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.contentEditable === 'true'
+    )) {
+      return;
+    }
+
     switch (event.key) {
       case 'Tab':
         this.handleTabNavigation(event);

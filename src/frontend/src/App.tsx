@@ -1118,7 +1118,8 @@ function AppContent() {
         const handleContextMenu = (e: MouseEvent) => {
             const target = e.target as HTMLElement;
             if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-                e.preventDefault();
+                // Don't prevent default for input fields - allow native context menu
+                // e.preventDefault();
                 setContextMenu({ x: e.clientX, y: e.clientY, target });
             }
         };

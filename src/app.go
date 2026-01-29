@@ -4912,13 +4912,26 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 	}
 
 	dsConfig := agent.DataSourceConfig{
-		OriginalFile: config["filePath"],
-		Host:         config["host"],
-		Port:         config["port"],
-		User:         config["user"],
-		Password:     config["password"],
-		Database:     config["database"],
-		StoreLocally: config["storeLocally"] == "true",
+		OriginalFile:           config["filePath"],
+		Host:                   config["host"],
+		Port:                   config["port"],
+		User:                   config["user"],
+		Password:               config["password"],
+		Database:               config["database"],
+		StoreLocally:           config["storeLocally"] == "true",
+		ShopifyStore:           config["shopifyStore"],
+		ShopifyAccessToken:     config["shopifyAccessToken"],
+		ShopifyAPIVersion:      config["shopifyAPIVersion"],
+		BigCommerceStoreHash:   config["bigcommerceStoreHash"],
+		BigCommerceAccessToken: config["bigcommerceAccessToken"],
+		EbayAccessToken:        config["ebayAccessToken"],
+		EbayEnvironment:        config["ebayEnvironment"],
+		EbayApiFulfillment:     config["ebayApiFulfillment"] != "false",
+		EbayApiFinances:        config["ebayApiFinances"] != "false",
+		EbayApiAnalytics:       config["ebayApiAnalytics"] != "false",
+		EtsyShopId:             config["etsyShopId"],
+		EtsyApiKey:             config["etsyApiKey"],
+		EtsyAccessToken:        config["etsyAccessToken"],
 	}
 
 	headerGen := func(prompt string) (string, error) {

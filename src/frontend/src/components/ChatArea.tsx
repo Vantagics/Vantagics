@@ -52,7 +52,13 @@ const ChatArea: React.FC = () => {
                         placeholder="Ask a question about your data..."
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                handleSend();
+                            } else {
+                                e.stopPropagation();
+                            }
+                        }}
                     />
                     <button 
                         onClick={handleSend}

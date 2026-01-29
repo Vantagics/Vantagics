@@ -58,6 +58,9 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
             handleRename();
         } else if (e.key === 'Escape') {
             onClose();
+        } else {
+            // Allow other keyboard shortcuts like Ctrl+C, Ctrl+V, etc.
+            e.stopPropagation();
         }
     };
 

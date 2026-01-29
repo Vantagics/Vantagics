@@ -5,6 +5,8 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -284,6 +286,14 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportJSON(name, config.OriginalFile, headerGen)
 	case "mysql", "doris":
 		return s.ImportRemoteDataSource(name, driverType, config)
+	case "shopify":
+		return s.ImportShopify(name, config)
+	case "bigcommerce":
+		return s.ImportBigCommerce(name, config)
+	case "ebay":
+		return s.ImportEbay(name, config)
+	case "etsy":
+		return s.ImportEtsy(name, config)
 	case "postgresql":
 		return nil, fmt.Errorf("postgresql driver not supported yet")
 	default:
@@ -2917,4 +2927,1350 @@ func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, 
 	}
 
 	return count, nil
+}
+
+// ImportShopify imports data from Shopify API
+func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportShopify: %s (Store: %s)", name, config.ShopifyStore))
+
+	// Validate configuration
+	if config.ShopifyStore == "" || config.ShopifyAccessToken == "" {
+		return nil, fmt.Errorf("shopify store URL and access token are required")
+	}
+
+	// Set default API version if not provided
+	apiVersion := config.ShopifyAPIVersion
+	if apiVersion == "" {
+		apiVersion = "2024-01"
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create SQLite database
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Shopify data
+	if err := s.fetchShopifyData(db, config.ShopifyStore, config.ShopifyAccessToken, apiVersion); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Shopify data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "shopify",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:             relDBPath,
+			ShopifyStore:       config.ShopifyStore,
+			ShopifyAccessToken: config.ShopifyAccessToken,
+			ShopifyAPIVersion:  apiVersion,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Shopify data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchShopifyData fetches data from Shopify API and stores it in SQLite
+func (s *DataSourceService) fetchShopifyData(db *sql.DB, store, accessToken, apiVersion string) error {
+	baseURL := fmt.Sprintf("https://%s/admin/api/%s", store, apiVersion)
+	
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Fetch and store different Shopify resources
+	// Note: inventory_items requires specific IDs, so we skip it
+	// We focus on the most commonly used resources for BI analysis
+	resources := []struct {
+		name     string
+		endpoint string
+		key      string
+	}{
+		{"orders", "/orders.json?status=any&limit=250", "orders"},
+		{"products", "/products.json?limit=250", "products"},
+		{"customers", "/customers.json?limit=250", "customers"},
+		{"collections", "/custom_collections.json?limit=250", "custom_collections"},
+		{"smart_collections", "/smart_collections.json?limit=250", "smart_collections"},
+	}
+
+	importedCount := 0
+	for _, resource := range resources {
+		s.log(fmt.Sprintf("Fetching Shopify %s...", resource.name))
+		
+		if err := s.fetchShopifyResource(client, db, baseURL, resource.endpoint, resource.key, resource.name, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch %s: %v", resource.name, err))
+			// Continue with other resources even if one fails
+		} else {
+			importedCount++
+		}
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any Shopify data, please check your access token permissions")
+	}
+
+	return nil
+}
+
+// fetchShopifyResource fetches a specific Shopify resource and stores it in a table
+func (s *DataSourceService) fetchShopifyResource(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, accessToken string) error {
+	allData := []map[string]interface{}{}
+	nextURL := baseURL + endpoint
+
+	// Paginate through all results
+	for nextURL != "" {
+		req, err := http.NewRequest("GET", nextURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("X-Shopify-Access-Token", accessToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch data: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		// Extract data from response
+		if data, ok := result[jsonKey].([]interface{}); ok {
+			for _, item := range data {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allData = append(allData, itemMap)
+				}
+			}
+		}
+
+		// Check for pagination link
+		linkHeader := resp.Header.Get("Link")
+		nextURL = s.extractNextLink(linkHeader)
+	}
+
+	if len(allData) == 0 {
+		s.log(fmt.Sprintf("No data found for %s", tableName))
+		return nil
+	}
+
+	// Create table and insert data
+	return s.createTableFromJSON(db, tableName, allData)
+}
+
+// extractNextLink extracts the next page URL from Link header
+func (s *DataSourceService) extractNextLink(linkHeader string) string {
+	if linkHeader == "" {
+		return ""
+	}
+
+	// Parse Link header format: <url>; rel="next"
+	parts := strings.Split(linkHeader, ",")
+	for _, part := range parts {
+		if strings.Contains(part, `rel="next"`) {
+			start := strings.Index(part, "<")
+			end := strings.Index(part, ">")
+			if start >= 0 && end > start {
+				return part[start+1 : end]
+			}
+		}
+	}
+
+	return ""
+}
+
+// createTableFromJSON creates a SQLite table from JSON data
+func (s *DataSourceService) createTableFromJSON(db *sql.DB, tableName string, data []map[string]interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Analyze first few rows to determine schema
+	columns := make(map[string]interface{})
+	for i := 0; i < min(10, len(data)); i++ {
+		s.flattenJSON("", data[i], columns)
+	}
+
+	// Create table
+	var colDefs []string
+	var colNames []string
+	for colName := range columns {
+		colDefs = append(colDefs, fmt.Sprintf("`%s` TEXT", colName))
+		colNames = append(colNames, colName)
+	}
+
+	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (%s)", tableName, strings.Join(colDefs, ", "))
+	if _, err := db.Exec(createSQL); err != nil {
+		return fmt.Errorf("failed to create table: %v", err)
+	}
+
+	// Insert data
+	quotedColNames := make([]string, len(colNames))
+	for i, name := range colNames {
+		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+	}
+	placeholders := make([]string, len(colNames))
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+		tableName,
+		strings.Join(quotedColNames, ", "),
+		strings.Join(placeholders, ", "))
+
+	stmt, err := db.Prepare(insertSQL)
+	if err != nil {
+		return fmt.Errorf("failed to prepare insert: %v", err)
+	}
+	defer stmt.Close()
+
+	for _, row := range data {
+		flatRow := make(map[string]interface{})
+		s.flattenJSON("", row, flatRow)
+
+		values := make([]interface{}, len(colNames))
+		for i, colName := range colNames {
+			if val, ok := flatRow[colName]; ok {
+				values[i] = s.formatValue(val)
+			} else {
+				values[i] = nil
+			}
+		}
+
+		if _, err := stmt.Exec(values...); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to insert row: %v", err))
+		}
+	}
+
+	s.log(fmt.Sprintf("Imported %d rows into %s", len(data), tableName))
+	return nil
+}
+
+// flattenJSON flattens nested JSON into dot-notation columns
+func (s *DataSourceService) flattenJSON(prefix string, data interface{}, result map[string]interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, val := range v {
+			newKey := key
+			if prefix != "" {
+				newKey = prefix + "_" + key
+			}
+			s.flattenJSON(newKey, val, result)
+		}
+	case []interface{}:
+		// Store arrays as JSON strings
+		if prefix != "" {
+			jsonBytes, _ := json.Marshal(v)
+			result[prefix] = string(jsonBytes)
+		}
+	default:
+		if prefix != "" {
+			result[prefix] = v
+		}
+	}
+}
+
+// formatValue converts a value to string for SQLite storage
+func (s *DataSourceService) formatValue(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+
+	switch v := val.(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		jsonBytes, _ := json.Marshal(v)
+		return string(jsonBytes)
+	}
+}
+
+
+// ImportBigCommerce imports data from BigCommerce API
+func (s *DataSourceService) ImportBigCommerce(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportBigCommerce: %s (Store: %s)", name, config.BigCommerceStoreHash))
+
+	// Validate configuration
+	if config.BigCommerceStoreHash == "" || config.BigCommerceAccessToken == "" {
+		return nil, fmt.Errorf("bigcommerce store hash and access token are required")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create SQLite database
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import BigCommerce data
+	if err := s.fetchBigCommerceData(db, config.BigCommerceStoreHash, config.BigCommerceAccessToken); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch BigCommerce data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "bigcommerce",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:                 relDBPath,
+			BigCommerceStoreHash:   config.BigCommerceStoreHash,
+			BigCommerceAccessToken: config.BigCommerceAccessToken,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("BigCommerce data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchBigCommerceData fetches data from BigCommerce API and stores it in SQLite
+func (s *DataSourceService) fetchBigCommerceData(db *sql.DB, storeHash, accessToken string) error {
+	baseURL := fmt.Sprintf("https://api.bigcommerce.com/stores/%s/v3", storeHash)
+	baseURLV2 := fmt.Sprintf("https://api.bigcommerce.com/stores/%s/v2", storeHash)
+
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Fetch and store different BigCommerce resources
+	// V3 API resources
+	resourcesV3 := []struct {
+		name     string
+		endpoint string
+		key      string
+	}{
+		{"products", "/catalog/products?limit=250", "data"},
+		{"categories", "/catalog/categories?limit=250", "data"},
+		{"brands", "/catalog/brands?limit=250", "data"},
+		{"customers", "/customers?limit=250", "data"},
+	}
+
+	// V2 API resources (orders use V2)
+	resourcesV2 := []struct {
+		name     string
+		endpoint string
+	}{
+		{"orders", "/orders?limit=250"},
+	}
+
+	importedCount := 0
+
+	// Fetch V3 resources
+	for _, resource := range resourcesV3 {
+		s.log(fmt.Sprintf("Fetching BigCommerce %s...", resource.name))
+
+		if err := s.fetchBigCommerceResourceV3(client, db, baseURL, resource.endpoint, resource.key, resource.name, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch %s: %v", resource.name, err))
+		} else {
+			importedCount++
+		}
+	}
+
+	// Fetch V2 resources
+	for _, resource := range resourcesV2 {
+		s.log(fmt.Sprintf("Fetching BigCommerce %s...", resource.name))
+
+		if err := s.fetchBigCommerceResourceV2(client, db, baseURLV2, resource.endpoint, resource.name, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch %s: %v", resource.name, err))
+		} else {
+			importedCount++
+		}
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any BigCommerce data, please check your access token permissions")
+	}
+
+	return nil
+}
+
+// fetchBigCommerceResourceV3 fetches a V3 API resource
+func (s *DataSourceService) fetchBigCommerceResourceV3(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, accessToken string) error {
+	allData := []map[string]interface{}{}
+	nextURL := baseURL + endpoint
+
+	// Paginate through all results
+	for nextURL != "" {
+		req, err := http.NewRequest("GET", nextURL, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("X-Auth-Token", accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch data: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		// Extract data from response
+		if data, ok := result[jsonKey].([]interface{}); ok {
+			for _, item := range data {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allData = append(allData, itemMap)
+				}
+			}
+		}
+
+		// Check for pagination
+		nextURL = ""
+		if meta, ok := result["meta"].(map[string]interface{}); ok {
+			if pagination, ok := meta["pagination"].(map[string]interface{}); ok {
+				if links, ok := pagination["links"].(map[string]interface{}); ok {
+					if next, ok := links["next"].(string); ok && next != "" {
+						nextURL = next
+					}
+				}
+			}
+		}
+	}
+
+	if len(allData) == 0 {
+		s.log(fmt.Sprintf("No data found for %s", tableName))
+		return nil
+	}
+
+	return s.createTableFromJSON(db, tableName, allData)
+}
+
+// fetchBigCommerceResourceV2 fetches a V2 API resource (for orders)
+func (s *DataSourceService) fetchBigCommerceResourceV2(client *http.Client, db *sql.DB, baseURL, endpoint, tableName, accessToken string) error {
+	allData := []map[string]interface{}{}
+	page := 1
+
+	// Paginate through all results
+	for {
+		url := fmt.Sprintf("%s%s&page=%d", baseURL, endpoint, page)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("X-Auth-Token", accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch data: %v", err)
+		}
+		defer resp.Body.Close()
+
+		// V2 API returns 204 when no more data
+		if resp.StatusCode == http.StatusNoContent {
+			break
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result []map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		if len(result) == 0 {
+			break
+		}
+
+		allData = append(allData, result...)
+		page++
+	}
+
+	if len(allData) == 0 {
+		s.log(fmt.Sprintf("No data found for %s", tableName))
+		return nil
+	}
+
+	return s.createTableFromJSON(db, tableName, allData)
+}
+
+
+// ImportEbay imports data from eBay APIs (Fulfillment, Finances, Analytics)
+func (s *DataSourceService) ImportEbay(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportEbay: %s", name))
+
+	// Validate configuration
+	if config.EbayAccessToken == "" {
+		return nil, fmt.Errorf("ebay access token is required")
+	}
+
+	// Set default environment
+	environment := config.EbayEnvironment
+	if environment == "" {
+		environment = "production"
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create SQLite database
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import eBay data
+	if err := s.fetchEbayData(db, config.EbayAccessToken, environment, config); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch eBay data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "ebay",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:             relDBPath,
+			EbayAccessToken:    config.EbayAccessToken,
+			EbayEnvironment:    environment,
+			EbayApiFulfillment: config.EbayApiFulfillment,
+			EbayApiFinances:    config.EbayApiFinances,
+			EbayApiAnalytics:   config.EbayApiAnalytics,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("eBay data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchEbayData fetches data from eBay APIs and stores it in SQLite
+func (s *DataSourceService) fetchEbayData(db *sql.DB, accessToken, environment string, config DataSourceConfig) error {
+	// Determine base URL based on environment
+	var baseURL string
+	if environment == "sandbox" {
+		baseURL = "https://api.sandbox.ebay.com"
+	} else {
+		baseURL = "https://api.ebay.com"
+	}
+
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	importedCount := 0
+
+	// Fulfillment API - Orders
+	if config.EbayApiFulfillment {
+		s.log("Fetching eBay Fulfillment API data (orders)...")
+		if err := s.fetchEbayFulfillmentData(client, db, baseURL, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch Fulfillment data: %v", err))
+		} else {
+			importedCount++
+		}
+	}
+
+	// Finances API - Transactions, Payouts
+	if config.EbayApiFinances {
+		s.log("Fetching eBay Finances API data...")
+		if err := s.fetchEbayFinancesData(client, db, baseURL, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch Finances data: %v", err))
+		} else {
+			importedCount++
+		}
+	}
+
+	// Analytics API - Traffic, Seller Standards
+	if config.EbayApiAnalytics {
+		s.log("Fetching eBay Analytics API data...")
+		if err := s.fetchEbayAnalyticsData(client, db, baseURL, accessToken); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to fetch Analytics data: %v", err))
+		} else {
+			importedCount++
+		}
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any eBay data, please check your access token permissions")
+	}
+
+	return nil
+}
+
+// fetchEbayFulfillmentData fetches order data from Fulfillment API
+func (s *DataSourceService) fetchEbayFulfillmentData(client *http.Client, db *sql.DB, baseURL, accessToken string) error {
+	allOrders := []map[string]interface{}{}
+	offset := 0
+	limit := 200
+
+	for {
+		url := fmt.Sprintf("%s/sell/fulfillment/v1/order?limit=%d&offset=%d", baseURL, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch data: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		// Extract orders
+		if orders, ok := result["orders"].([]interface{}); ok {
+			for _, order := range orders {
+				if orderMap, ok := order.(map[string]interface{}); ok {
+					allOrders = append(allOrders, orderMap)
+				}
+			}
+
+			// Check if there are more pages
+			if len(orders) < limit {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allOrders) == 0 {
+		s.log("No orders found in Fulfillment API")
+		return nil
+	}
+
+	// Create orders table
+	if err := s.createTableFromJSON(db, "orders", allOrders); err != nil {
+		return fmt.Errorf("failed to create orders table: %v", err)
+	}
+
+	// Extract line items into separate table for easier analysis
+	allLineItems := []map[string]interface{}{}
+	for _, order := range allOrders {
+		orderID, _ := order["orderId"].(string)
+		if lineItems, ok := order["lineItems"].([]interface{}); ok {
+			for _, item := range lineItems {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					itemMap["orderId"] = orderID
+					allLineItems = append(allLineItems, itemMap)
+				}
+			}
+		}
+	}
+
+	if len(allLineItems) > 0 {
+		if err := s.createTableFromJSON(db, "order_line_items", allLineItems); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to create line items table: %v", err))
+		}
+	}
+
+	s.log(fmt.Sprintf("Imported %d orders from Fulfillment API", len(allOrders)))
+	return nil
+}
+
+// fetchEbayFinancesData fetches financial data from Finances API
+func (s *DataSourceService) fetchEbayFinancesData(client *http.Client, db *sql.DB, baseURL, accessToken string) error {
+	// Fetch transactions
+	allTransactions := []map[string]interface{}{}
+	offset := 0
+	limit := 200
+
+	for {
+		url := fmt.Sprintf("%s/sell/finances/v1/transaction?limit=%d&offset=%d", baseURL, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to fetch data: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			// Some accounts may not have access to Finances API
+			if resp.StatusCode == http.StatusForbidden {
+				s.log("Finances API access denied - skipping transactions")
+				break
+			}
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		if transactions, ok := result["transactions"].([]interface{}); ok {
+			for _, txn := range transactions {
+				if txnMap, ok := txn.(map[string]interface{}); ok {
+					allTransactions = append(allTransactions, txnMap)
+				}
+			}
+
+			if len(transactions) < limit {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allTransactions) > 0 {
+		if err := s.createTableFromJSON(db, "transactions", allTransactions); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to create transactions table: %v", err))
+		} else {
+			s.log(fmt.Sprintf("Imported %d transactions from Finances API", len(allTransactions)))
+		}
+	}
+
+	// Fetch payouts
+	allPayouts := []map[string]interface{}{}
+	offset = 0
+
+	for {
+		url := fmt.Sprintf("%s/sell/finances/v1/payout?limit=%d&offset=%d", baseURL, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			break
+		}
+
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			break
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			break
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			break
+		}
+
+		if payouts, ok := result["payouts"].([]interface{}); ok {
+			for _, payout := range payouts {
+				if payoutMap, ok := payout.(map[string]interface{}); ok {
+					allPayouts = append(allPayouts, payoutMap)
+				}
+			}
+
+			if len(payouts) < limit {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allPayouts) > 0 {
+		if err := s.createTableFromJSON(db, "payouts", allPayouts); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to create payouts table: %v", err))
+		} else {
+			s.log(fmt.Sprintf("Imported %d payouts from Finances API", len(allPayouts)))
+		}
+	}
+
+	return nil
+}
+
+// fetchEbayAnalyticsData fetches analytics data from Analytics API
+func (s *DataSourceService) fetchEbayAnalyticsData(client *http.Client, db *sql.DB, baseURL, accessToken string) error {
+	// Fetch traffic report
+	trafficURL := fmt.Sprintf("%s/sell/analytics/v1/traffic_report?dimension=DAY&metric=CLICK_THROUGH_RATE&metric=LISTING_IMPRESSION_TOTAL&metric=LISTING_VIEWS_TOTAL", baseURL)
+
+	req, err := http.NewRequest("GET", trafficURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err == nil {
+			// Extract dimension metrics
+			if dimensionMetrics, ok := result["dimensionMetrics"].([]interface{}); ok {
+				trafficData := []map[string]interface{}{}
+				for _, dm := range dimensionMetrics {
+					if dmMap, ok := dm.(map[string]interface{}); ok {
+						trafficData = append(trafficData, dmMap)
+					}
+				}
+				if len(trafficData) > 0 {
+					if err := s.createTableFromJSON(db, "traffic_report", trafficData); err != nil {
+						s.log(fmt.Sprintf("Warning: Failed to create traffic_report table: %v", err))
+					} else {
+						s.log(fmt.Sprintf("Imported %d traffic report records", len(trafficData)))
+					}
+				}
+			}
+		}
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		s.log(fmt.Sprintf("Traffic report API returned status %d: %s", resp.StatusCode, string(body)))
+	}
+
+	// Fetch seller standards profile
+	standardsURL := fmt.Sprintf("%s/sell/analytics/v1/seller_standards_profile?program=GLOBAL", baseURL)
+
+	req2, err := http.NewRequest("GET", standardsURL, nil)
+	if err != nil {
+		return nil // Non-fatal, continue
+	}
+
+	req2.Header.Set("Authorization", "Bearer "+accessToken)
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Accept", "application/json")
+
+	resp2, err := client.Do(req2)
+	if err != nil {
+		return nil
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode == http.StatusOK {
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp2.Body).Decode(&result); err == nil {
+			// Store as single-row table
+			standardsData := []map[string]interface{}{result}
+			if err := s.createTableFromJSON(db, "seller_standards", standardsData); err != nil {
+				s.log(fmt.Sprintf("Warning: Failed to create seller_standards table: %v", err))
+			} else {
+				s.log("Imported seller standards profile")
+			}
+		}
+	}
+
+	return nil
+}
+
+
+// ImportEtsy imports data from Etsy API
+func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportEtsy: %s (Shop: %s)", name, config.EtsyShopId))
+
+	// Validate configuration
+	if config.EtsyShopId == "" || config.EtsyApiKey == "" || config.EtsyAccessToken == "" {
+		return nil, fmt.Errorf("etsy shop ID, API key and access token are required")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create SQLite database
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Etsy data
+	if err := s.fetchEtsyData(db, config.EtsyShopId, config.EtsyApiKey, config.EtsyAccessToken); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Etsy data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "etsy",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:          relDBPath,
+			EtsyShopId:      config.EtsyShopId,
+			EtsyApiKey:      config.EtsyApiKey,
+			EtsyAccessToken: config.EtsyAccessToken,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Etsy data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchEtsyData fetches data from Etsy API and stores it in SQLite
+func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToken string) error {
+	baseURL := "https://openapi.etsy.com/v3"
+
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	importedCount := 0
+
+	// Fetch shop info
+	s.log("Fetching Etsy shop info...")
+	if err := s.fetchEtsyShopInfo(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+		s.log(fmt.Sprintf("Warning: Failed to fetch shop info: %v", err))
+	} else {
+		importedCount++
+	}
+
+	// Fetch listings (products)
+	s.log("Fetching Etsy listings...")
+	if err := s.fetchEtsyListings(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+		s.log(fmt.Sprintf("Warning: Failed to fetch listings: %v", err))
+	} else {
+		importedCount++
+	}
+
+	// Fetch receipts (orders)
+	s.log("Fetching Etsy receipts (orders)...")
+	if err := s.fetchEtsyReceipts(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+		s.log(fmt.Sprintf("Warning: Failed to fetch receipts: %v", err))
+	} else {
+		importedCount++
+	}
+
+	// Fetch transactions
+	s.log("Fetching Etsy transactions...")
+	if err := s.fetchEtsyTransactions(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+		s.log(fmt.Sprintf("Warning: Failed to fetch transactions: %v", err))
+	} else {
+		importedCount++
+	}
+
+	// Fetch reviews
+	s.log("Fetching Etsy reviews...")
+	if err := s.fetchEtsyReviews(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+		s.log(fmt.Sprintf("Warning: Failed to fetch reviews: %v", err))
+	} else {
+		importedCount++
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any Etsy data, please check your credentials")
+	}
+
+	return nil
+}
+
+// fetchEtsyShopInfo fetches shop information
+func (s *DataSourceService) fetchEtsyShopInfo(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+	url := fmt.Sprintf("%s/application/shops/%s", baseURL, shopId)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	// Store as single-row table
+	shopData := []map[string]interface{}{result}
+	return s.createTableFromJSON(db, "shop", shopData)
+}
+
+// fetchEtsyListings fetches all active listings
+func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+	allListings := []map[string]interface{}{}
+	offset := 0
+	limit := 100
+
+	for {
+		url := fmt.Sprintf("%s/application/shops/%s/listings?limit=%d&offset=%d&state=active", baseURL, shopId, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return err
+		}
+
+		if results, ok := result["results"].([]interface{}); ok {
+			for _, item := range results {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allListings = append(allListings, itemMap)
+				}
+			}
+
+			// Check pagination
+			count, _ := result["count"].(float64)
+			if offset+limit >= int(count) {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allListings) == 0 {
+		s.log("No listings found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("Imported %d listings", len(allListings)))
+	return s.createTableFromJSON(db, "listings", allListings)
+}
+
+// fetchEtsyReceipts fetches shop receipts (orders)
+func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+	allReceipts := []map[string]interface{}{}
+	offset := 0
+	limit := 100
+
+	for {
+		url := fmt.Sprintf("%s/application/shops/%s/receipts?limit=%d&offset=%d", baseURL, shopId, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return err
+		}
+
+		if results, ok := result["results"].([]interface{}); ok {
+			for _, item := range results {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allReceipts = append(allReceipts, itemMap)
+				}
+			}
+
+			count, _ := result["count"].(float64)
+			if offset+limit >= int(count) {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allReceipts) == 0 {
+		s.log("No receipts found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("Imported %d receipts", len(allReceipts)))
+	return s.createTableFromJSON(db, "receipts", allReceipts)
+}
+
+// fetchEtsyTransactions fetches shop transactions
+func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+	allTransactions := []map[string]interface{}{}
+	offset := 0
+	limit := 100
+
+	for {
+		url := fmt.Sprintf("%s/application/shops/%s/transactions?limit=%d&offset=%d", baseURL, shopId, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return err
+		}
+
+		if results, ok := result["results"].([]interface{}); ok {
+			for _, item := range results {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allTransactions = append(allTransactions, itemMap)
+				}
+			}
+
+			count, _ := result["count"].(float64)
+			if offset+limit >= int(count) {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allTransactions) == 0 {
+		s.log("No transactions found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("Imported %d transactions", len(allTransactions)))
+	return s.createTableFromJSON(db, "transactions", allTransactions)
+}
+
+// fetchEtsyReviews fetches shop reviews
+func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+	allReviews := []map[string]interface{}{}
+	offset := 0
+	limit := 100
+
+	for {
+		url := fmt.Sprintf("%s/application/shops/%s/reviews?limit=%d&offset=%d", baseURL, shopId, limit, offset)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return err
+		}
+
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// Reviews might not be accessible, skip silently
+			break
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return err
+		}
+
+		if results, ok := result["results"].([]interface{}); ok {
+			for _, item := range results {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					allReviews = append(allReviews, itemMap)
+				}
+			}
+
+			count, _ := result["count"].(float64)
+			if offset+limit >= int(count) {
+				break
+			}
+			offset += limit
+		} else {
+			break
+		}
+	}
+
+	if len(allReviews) == 0 {
+		s.log("No reviews found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("Imported %d reviews", len(allReviews)))
+	return s.createTableFromJSON(db, "reviews", allReviews)
 }
