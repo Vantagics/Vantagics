@@ -162,7 +162,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                             <Zap className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">数据源优化</h2>
+                            <h2 className="text-lg font-bold text-slate-800">数据源加速</h2>
                             <p className="text-xs text-slate-500">{dataSourceName}</p>
                         </div>
                     </div>
@@ -202,7 +202,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                                 <div className="flex items-start gap-2">
                                     <AlertTriangle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
                                     <div>
-                                        <h3 className="font-semibold text-sm text-blue-800 mb-0.5">确认优化操作</h3>
+                                        <h3 className="font-semibold text-sm text-blue-800 mb-0.5">确认加速操作</h3>
                                         <p className="text-xs text-blue-600">
                                             系统将执行以下 {suggestions.length} 个索引创建操作。
                                         </p>
@@ -314,7 +314,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                                 className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium flex items-center gap-1.5"
                             >
                                 <Zap className="w-3.5 h-3.5" />
-                                确认优化
+                                确认加速
                             </button>
                         </>
                     )}

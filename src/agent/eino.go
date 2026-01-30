@@ -16,8 +16,8 @@ import (
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 
-	"rapidbi/agent/templates"
-	"rapidbi/config"
+	"vantagedata/agent/templates"
+	"vantagedata/config"
 )
 
 // getProviderMaxTokens returns the maximum OUTPUT tokens for different providers
@@ -256,7 +256,7 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 	}
 
 	// Initialize Skills Manager
-	skillsDir := filepath.Join(dsService.dataCacheDir, "..", "skills") // Skills in RapidBI/skills
+	skillsDir := filepath.Join(dsService.dataCacheDir, "..", "skills") // Skills in VantageData/skills
 	skillManager := templates.NewSkillManager(skillsDir, logger)
 	if err := skillManager.LoadSkills(); err != nil {
 		if logger != nil {
@@ -1477,7 +1477,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: `RapidBI数据分析专家。快速、直接、可视化优先。
+		Content: `VantageData数据分析专家。快速、直接、可视化优先。
 
 🎯 目标: 高质量分析产出（图表+数据+洞察）
 

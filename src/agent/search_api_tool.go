@@ -13,7 +13,7 @@ import (
 	"github.com/AxT-Team/uapi-sdk-go/uapi"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"rapidbi/config"
+	"vantagedata/config"
 )
 
 // SearchAPITool provides unified search capabilities using various API services
@@ -185,7 +185,7 @@ func (t *SearchAPITool) searchDuckDuckGo(ctx context.Context, query string, maxR
 	}
 
 	// Add User-Agent header
-	req.Header.Set("User-Agent", "RapidBI/1.0")
+	req.Header.Set("User-Agent", "VantageData/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"rapidbi/agent"
+	"vantagedata/agent"
 )
 
 // appDataService holds the singleton instance

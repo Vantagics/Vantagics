@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# RapidBI Build Script
-# This script helps to build the RapidBI application using Wails.
+# VantageData Build Script
+# This script helps to build the VantageData application using Wails.
 
 set -e
 
 # Project configuration
-APP_NAME="RapidBI"
+APP_NAME="VantageData"
 SRC_DIR="src"
 BUILD_DIR="dist"
 
@@ -126,8 +126,8 @@ case $COMMAND in
             export MACOSX_DEPLOYMENT_TARGET=15.10
         fi
 
-        # Copy appdata.dat to src/agent for embedding (if exists in user's RapidBI directory)
-        APPDATA_SOURCE="$HOME/RapidBI/appdata.dat"
+        # Copy appdata.dat to src/agent for embedding (if exists in user's VantageData directory)
+        APPDATA_SOURCE="$HOME/VantageData/appdata.dat"
         APPDATA_DEST="$SRC_DIR/agent/appdata.dat"
         if [ -f "$APPDATA_SOURCE" ]; then
             echo "Embedding appdata.dat from $APPDATA_SOURCE..."
@@ -187,7 +187,7 @@ EOF
             if [ -d "$APP_BUNDLE" ]; then
                 pkgbuild --component "$APP_BUNDLE" \
                          --install-location "/Applications" \
-                         --identifier "${IDENTIFIER:-com.rapidbi.app}" \
+                         --identifier "${IDENTIFIER:-com.vantagedata.app}" \
                          --scripts "$SCRIPTS_DIR" \
                          "$PKG_OUTPUT"
                 echo "--------------------------------------------------"

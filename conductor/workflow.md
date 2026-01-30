@@ -172,7 +172,7 @@ cd src && go run .
 ```bash
 # Full Build (Frontend then Backend)
 cd src/frontend && npm run build
-cd src && CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o ../RapidBI.app/Contents/MacOS/RapidBI
+cd src && CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build -tags desktop,production -o ../VantageData.app/Contents/MacOS/VantageData
 ```
 
 ### Before Committing

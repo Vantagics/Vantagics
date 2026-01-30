@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"rapidbi/config"
+	"vantagedata/config"
 )
 
 // MemoryType enum
@@ -47,7 +47,7 @@ func NewMemoryService(cfg config.Config) *MemoryService {
 	dir := cfg.DataCacheDir
 	if dir == "" {
 		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, "RapidBI")
+		dir = filepath.Join(home, "VantageData")
 	}
 	
 	sessionsDir := filepath.Join(dir, "sessions")

@@ -13,7 +13,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"rapidbi/config"
+	"vantagedata/config"
 )
 
 // WebFetchTool provides web page fetching and parsing capabilities using HTTP client

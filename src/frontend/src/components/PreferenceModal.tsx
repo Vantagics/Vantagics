@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateRapidBIEnvironment, CheckRapidBIEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
@@ -1262,8 +1262,8 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                 env.type.toLowerCase().includes('venv')
             );
 
-            const hasRapidBIEnv = await CheckRapidBIEnvironmentExists();
-            setShowCreateButton(hasVirtualEnvSupport && !hasRapidBIEnv);
+            const hasVantageDataEnv = await CheckVantageDataEnvironmentExists();
+            setShowCreateButton(hasVirtualEnvSupport && !hasVantageDataEnv);
         } catch (error) {
             console.error('Failed to load environments:', error);
         } finally {
@@ -1315,10 +1315,10 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
         }
     };
 
-    const handleCreateRapidBIEnvironment = async () => {
+    const handleCreateVantageDataEnvironment = async () => {
         setCreatingEnv(true);
         try {
-            const pythonPath = await CreateRapidBIEnvironment();
+            const pythonPath = await CreateVantageDataEnvironment();
 
             // Refresh the environment list
             await loadEnvironments();
@@ -1558,7 +1558,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                     {showCreateButton && (
                         <div className="mt-3">
                             <button
-                                onClick={handleCreateRapidBIEnvironment}
+                                onClick={handleCreateVantageDataEnvironment}
                                 disabled={creatingEnv || loading}
                                 className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >

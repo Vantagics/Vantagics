@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"rapidbi/config"
+	"vantagedata/config"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -191,7 +191,7 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 	// This allows users to download all generated files from the session
 
 	// Create temp working directory
-	workDir, err := os.MkdirTemp("", "rapidbi_py_*")
+	workDir, err := os.MkdirTemp("", "vantagedata_py_*")
 	if err != nil {
 		return fmt.Sprintf("❌ Error: Failed to create work dir: %v", err), nil
 	}

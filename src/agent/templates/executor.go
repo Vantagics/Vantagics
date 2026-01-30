@@ -33,7 +33,7 @@ func (e *ServiceExecutor) ExecutePython(ctx context.Context, code, workDir strin
 	// Use provided workDir or create temp one
 	if workDir == "" {
 		var err error
-		workDir, err = os.MkdirTemp("", "rapidbi_template_*")
+		workDir, err = os.MkdirTemp("", "vantagedata_template_*")
 		if err != nil {
 			return "", fmt.Errorf("failed to create work dir: %v", err)
 		}

@@ -1,6 +1,6 @@
-# RapidBI Technology Stack
+# VantageData Technology Stack
 
-This document outlines the technologies used in the development of RapidBI.
+This document outlines the technologies used in the development of VantageData.
 
 ## Core Framework
 - **Wails (v2):** Used to build the cross-platform desktop application, bridging the Go backend and the React frontend.

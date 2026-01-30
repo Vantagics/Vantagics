@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -108,8 +107,8 @@ func decrypt(encoded string) ([]byte, error) {
 }
 
 func getDataPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "RapidBI", appDataFileName)
+	// 输出到当前目录，方便使用
+	return appDataFileName
 }
 
 func loadData() (*AppData, error) {
@@ -149,10 +148,6 @@ func saveData(data *AppData) error {
 	}
 
 	path := getDataPath()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %v", err)
-	}
 
 	if err := os.WriteFile(path, []byte(encoded), 0600); err != nil {
 		return fmt.Errorf("failed to write data file: %v", err)

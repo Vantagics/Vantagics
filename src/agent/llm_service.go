@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"rapidbi/config"
+	"vantagedata/config"
 )
 
 type LLMService struct {

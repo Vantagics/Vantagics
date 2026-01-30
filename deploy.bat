@@ -98,8 +98,8 @@ REM Backup current version (if not skipped)
 if "%SKIP_BACKUP%"=="false" (
     call :log "Creating backup of current version..."
     
-    if exist "%BACKEND_DIR%\rapidbi.exe" (
-        copy "%BACKEND_DIR%\rapidbi.exe" "%PROJECT_ROOT%backup\rapidbi_backup.exe" >nul
+    if exist "%BACKEND_DIR%\vantagedata.exe" (
+        copy "%BACKEND_DIR%\vantagedata.exe" "%PROJECT_ROOT%backup\vantagedata_backup.exe" >nul
         call :log "Binary backed up"
     )
     
@@ -150,7 +150,7 @@ call :log "Building backend..."
 cd /d "%BACKEND_DIR%"
 go mod tidy
 if errorlevel 1 call :error "Go module cleanup failed"
-go build -o rapidbi.exe
+go build -o vantagedata.exe
 if errorlevel 1 call :error "Backend build failed"
 call :success "Backend build completed"
 
@@ -182,7 +182,7 @@ REM Post-deployment validation
 call :log "Running post-deployment validation..."
 
 REM Check if binary exists
-if not exist "%BACKEND_DIR%\rapidbi.exe" call :error "Deployment failed - binary not found"
+if not exist "%BACKEND_DIR%\vantagedata.exe" call :error "Deployment failed - binary not found"
 
 REM Test binary startup (quick test)
 call :log "Testing application startup..."
@@ -224,7 +224,7 @@ echo - [x] Database migration
 echo - [x] Post-deployment validation
 echo.
 echo ## Files Modified
-echo - `src\rapidbi.exe` - Updated application binary
+echo - `src\vantagedata.exe` - Updated application binary
 echo - `src\frontend\dist\` - Updated frontend assets
 echo - Database schema updated ^(if applicable^)
 echo.
@@ -249,9 +249,9 @@ goto :eof
 :rollback
 call :log "Starting rollback procedure..."
 
-if exist "%PROJECT_ROOT%backup\rapidbi_backup.exe" (
+if exist "%PROJECT_ROOT%backup\vantagedata_backup.exe" (
     call :log "Restoring previous binary..."
-    copy "%PROJECT_ROOT%backup\rapidbi_backup.exe" "%BACKEND_DIR%\rapidbi.exe" >nul
+    copy "%PROJECT_ROOT%backup\vantagedata_backup.exe" "%BACKEND_DIR%\vantagedata.exe" >nul
     call :success "Binary restored from backup"
 ) else (
     call :warning "No backup binary found"

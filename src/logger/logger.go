@@ -98,10 +98,10 @@ func (l *Logger) Init(logDir string) error {
 	l.cleanupOldArchives()
 
 	dateStr := time.Now().Format("2006-01-02")
-	pattern := filepath.Join(actualLogDir, fmt.Sprintf("rapidbi_%s_*.log", dateStr))
+	pattern := filepath.Join(actualLogDir, fmt.Sprintf("vantagedata_%s_*.log", dateStr))
 	matches, _ := filepath.Glob(pattern)
 	runCount := len(matches) + 1
-	filename := filepath.Join(actualLogDir, fmt.Sprintf("rapidbi_%s_%d.log", dateStr, runCount))
+	filename := filepath.Join(actualLogDir, fmt.Sprintf("vantagedata_%s_%d.log", dateStr, runCount))
 
 	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -166,7 +166,7 @@ func (l *Logger) checkAndRotate() {
 	// Create new log file
 	dateStr := time.Now().Format("2006-01-02")
 	timeStr := time.Now().Format("150405")
-	newFilename := filepath.Join(l.logDir, fmt.Sprintf("rapidbi_%s_%s.log", dateStr, timeStr))
+	newFilename := filepath.Join(l.logDir, fmt.Sprintf("vantagedata_%s_%s.log", dateStr, timeStr))
 
 	f, err := os.OpenFile(newFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -395,7 +395,7 @@ func (l *Logger) CleanupAllLogs() error {
 		// Create new log file
 		dateStr := time.Now().Format("2006-01-02")
 		timeStr := time.Now().Format("150405")
-		newFilename := filepath.Join(l.logDir, fmt.Sprintf("rapidbi_%s_%s.log", dateStr, timeStr))
+		newFilename := filepath.Join(l.logDir, fmt.Sprintf("vantagedata_%s_%s.log", dateStr, timeStr))
 
 		f, err := os.OpenFile(newFilename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {

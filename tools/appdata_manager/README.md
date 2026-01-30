@@ -5,7 +5,7 @@
 ## 工作流程
 
 1. 开发者使用此工具配置商店凭证
-2. 凭证加密存储在 `~/RapidBI/appdata.dat`
+2. 凭证加密存储在当前目录的 `appdata.dat`
 3. 编译时，`build.sh` 自动将 `appdata.dat` 嵌入到应用程序中
 4. 应用程序运行时从嵌入的数据中读取凭证（只读）
 
@@ -56,7 +56,7 @@ go build -o appdata_manager .
 
 ## 数据存储位置
 
-凭证存储在：`~/RapidBI/appdata.dat`
+凭证存储在当前目录：`./appdata.dat`
 
 编译时会自动复制到 `src/agent/appdata.dat` 并嵌入程序。
 

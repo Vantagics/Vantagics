@@ -21,6 +21,8 @@ call :build_windows
 if errorlevel 1 exit /b 1
 call :build_macos
 if errorlevel 1 exit /b 1
+call :build_tools
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :build_windows
@@ -110,6 +112,60 @@ if errorlevel 1 (
 cd /d ..
 exit /b 0
 
+:build_tools
+echo.
+echo [Tools] Building standalone tools...
+set "TOOLS_OUTPUT_DIR=%DIST_DIR%\tools"
+if not exist "%TOOLS_OUTPUT_DIR%" mkdir "%TOOLS_OUTPUT_DIR%"
+
+REM Build appdata_manager for Windows
+echo   Building appdata_manager (Windows)...
+cd /d "tools\appdata_manager"
+set GOOS=windows
+set GOARCH=amd64
+set CGO_ENABLED=0
+go build -o "..\..\%DIST_DIR%\tools\appdata_manager.exe" .
+if errorlevel 1 (
+    echo Error: appdata_manager Windows build failed!
+    cd /d ..\..
+    exit /b 1
+)
+
+REM Build appdata_manager for macOS (Universal)
+echo   Building appdata_manager (macOS Universal)...
+set GOOS=darwin
+set GOARCH=arm64
+go build -o "..\..\%DIST_DIR%\tools\appdata_manager_arm64" .
+if errorlevel 1 (
+    echo Error: appdata_manager macOS arm64 build failed!
+    cd /d ..\..
+    exit /b 1
+)
+
+set GOARCH=amd64
+go build -o "..\..\%DIST_DIR%\tools\appdata_manager_amd64" .
+if errorlevel 1 (
+    echo Error: appdata_manager macOS amd64 build failed!
+    cd /d ..\..
+    exit /b 1
+)
+
+cd /d "..\..\%DIST_DIR%\tools"
+makefat appdata_manager appdata_manager_arm64 appdata_manager_amd64
+if errorlevel 1 (
+    echo Warning: Failed to create universal binary, keeping separate binaries
+) else (
+    del /q appdata_manager_arm64 appdata_manager_amd64 2>nul
+)
+
+cd /d ..\..
+echo   appdata_manager built successfully.
+echo.
+echo Tools directory: %DIST_DIR%\tools
+exit /b 0
+
 :clean
 if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
+if exist "tools\appdata_manager\appdata_manager.exe" del /q "tools\appdata_manager\appdata_manager.exe"
+if exist "tools\appdata_manager\appdata_manager" del /q "tools\appdata_manager\appdata_manager"
 exit /b 0

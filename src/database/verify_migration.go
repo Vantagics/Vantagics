@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"rapidbi/database"
+	"vantagedata/database"
 )
 
 // This is a standalone verification script to demonstrate the migration system

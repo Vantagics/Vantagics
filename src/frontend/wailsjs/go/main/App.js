@@ -30,12 +30,12 @@ export function CheckComponentHasData(arg1, arg2) {
   return window['go']['main']['App']['CheckComponentHasData'](arg1, arg2);
 }
 
-export function CheckRapidBIEnvironmentExists() {
-  return window['go']['main']['App']['CheckRapidBIEnvironmentExists']();
-}
-
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
+}
+
+export function CheckVantageDataEnvironmentExists() {
+  return window['go']['main']['App']['CheckVantageDataEnvironmentExists']();
 }
 
 export function CleanupLogs() {
@@ -50,8 +50,8 @@ export function CreateChatThread(arg1, arg2) {
   return window['go']['main']['App']['CreateChatThread'](arg1, arg2);
 }
 
-export function CreateRapidBIEnvironment() {
-  return window['go']['main']['App']['CreateRapidBIEnvironment']();
+export function CreateVantageDataEnvironment() {
+  return window['go']['main']['App']['CreateVantageDataEnvironment']();
 }
 
 export function DeleteColumn(arg1, arg2, arg3) {

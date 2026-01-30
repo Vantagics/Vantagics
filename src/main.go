@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"rapidbi/config"
+	"vantagedata/config"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -69,7 +69,7 @@ func loadLanguageFromConfig() string {
 	if err != nil {
 		return "English"
 	}
-	configPath := filepath.Join(home, "RapidBI", "config.json")
+	configPath := filepath.Join(home, "VantageData", "config.json")
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {

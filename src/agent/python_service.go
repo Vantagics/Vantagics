@@ -212,7 +212,7 @@ func (s *PythonService) getPythonVersion(pythonPath string) string {
 // ExecuteScript runs a Python script and returns the output
 func (s *PythonService) ExecuteScript(pythonPath string, script string) (string, error) {
 	// Create a temp file for the script
-	tmpFile, err := os.CreateTemp("", "rapidbi_script_*.py")
+	tmpFile, err := os.CreateTemp("", "vantagedata_script_*.py")
 	if err != nil {
 		return "", err
 	}
@@ -304,8 +304,8 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 	return nil
 }
 
-// CreateRapidBIEnvironment creates a dedicated virtual environment for RapidBI
-func (s *PythonService) CreateRapidBIEnvironment() (string, error) {
+// CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
+func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
 	// Find a suitable base Python interpreter
 	basePython, envManager, err := s.findBestPythonForVenv()
 	if err != nil {
@@ -324,8 +324,8 @@ func (s *PythonService) CreateRapidBIEnvironment() (string, error) {
 	switch envManager {
 	case "conda":
 		// Create conda environment
-		venvPath = "rapidbi" // conda env name
-		cmd := exec.Command("conda", "create", "-n", "rapidbi", "python", "-y")
+		venvPath = "vantagedata" // conda env name
+		cmd := exec.Command("conda", "create", "-n", "vantagedata", "python", "-y")
 		if runtime.GOOS == "windows" {
 			cmd.SysProcAttr = getSysProcAttr()
 		}
@@ -336,14 +336,14 @@ func (s *PythonService) CreateRapidBIEnvironment() (string, error) {
 		}
 
 		// Find the created environment's python path
-		pythonPath, err = s.getCondaEnvPythonPath("rapidbi")
+		pythonPath, err = s.getCondaEnvPythonPath("vantagedata")
 		if err != nil {
 			return "", fmt.Errorf("failed to locate created conda environment: %v", err)
 		}
 
 	case "venv":
 		// Create venv environment
-		venvPath = filepath.Join(home, ".rapidbi-venv")
+		venvPath = filepath.Join(home, ".vantagedata-venv")
 		cmd := exec.Command(basePython, "-m", "venv", venvPath)
 		if runtime.GOOS == "windows" {
 			cmd.SysProcAttr = getSysProcAttr()
@@ -525,7 +525,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 	errorMsg += "3. **Verify installation**\n"
 	errorMsg += "   - Open terminal and try: python --version\n"
 	errorMsg += "   - Try: python -m venv --help\n\n"
-	errorMsg += "After installation, restart RapidBI and try again."
+	errorMsg += "After installation, restart VantageData and try again."
 
 	return "", "", fmt.Errorf("%s", errorMsg)
 }
@@ -791,11 +791,11 @@ func (s *PythonService) cleanupFailedEnvironment(envManager, envPath string) {
 	}
 }
 
-// CheckRapidBIEnvironmentExists checks if a rapidbi environment already exists
-func (s *PythonService) CheckRapidBIEnvironmentExists() bool {
+// CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
+func (s *PythonService) CheckVantageDataEnvironmentExists() bool {
 	envs := s.ProbePythonEnvironments()
 	for _, env := range envs {
-		if strings.Contains(strings.ToLower(env.Type), "rapidbi") {
+		if strings.Contains(strings.ToLower(env.Type), "vantagedata") {
 			return true
 		}
 	}

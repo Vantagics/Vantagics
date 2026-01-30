@@ -113,8 +113,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                                     <strong>{t('data_source')}:</strong> {dataSourceName}
                                 </p>
                                 <p className="text-xs text-blue-600 mt-2">
-                                    {t('semantic_optimize_note') || '将创建名为 "{name}_语义优化" 的新数据源，原数据源保持不变。'}
-                                        .replace('{name}', dataSourceName)
+                                    {t('semantic_optimize_note')}
                                 </p>
                             </div>
                             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">

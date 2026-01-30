@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"rapidbi/agent"
+	"vantagedata/agent"
 	"strings"
 
 	_ "modernc.org/sqlite"

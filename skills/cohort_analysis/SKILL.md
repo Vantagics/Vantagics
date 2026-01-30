@@ -7,7 +7,7 @@
 v1.0.0
 
 ## 作者
-RapidBI Team
+VantageData Team
 
 ## 分类
 user_analytics

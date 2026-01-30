@@ -57,7 +57,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 <div className="p-6 border-b border-slate-200 flex items-center justify-between">
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">
-                            {t('onboarding_welcome') || '👋 欢迎使用 RapidBI'}
+                            {t('onboarding_welcome') || '👋 欢迎使用 VantageData'}
                         </h2>
                         <p className="text-sm text-slate-500 mt-1">
                             {t('onboarding_subtitle') || '让我们开始导入您的数据'}

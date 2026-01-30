@@ -1,13 +1,13 @@
-# RapidBI Product Guidelines
+# VantageData Product Guidelines
 
-These guidelines define the visual, tonal, and interactive identity of RapidBI, ensuring a consistent and high-quality experience for our users.
+These guidelines define the visual, tonal, and interactive identity of VantageData, ensuring a consistent and high-quality experience for our users.
 
 ## Tone and Voice
-- **Friendly and Approachable:** RapidBI should feel like a helpful assistant. The language used in the UI, error messages, and documentation should be encouraging, easy to understand, and free of unnecessary technical jargon.
+- **Friendly and Approachable:** VantageData should feel like a helpful assistant. The language used in the UI, error messages, and documentation should be encouraging, easy to understand, and free of unnecessary technical jargon.
 - **Supportive:** We acknowledge that data can be intimidating for some. Our communication should aim to reduce friction and build the user's confidence in their ability to gain insights.
 
 ## Visual Design Principles
-- **Visual Richness:** RapidBI utilizes a modern, vibrant aesthetic. We use a thoughtfully curated palette of colors, subtle gradients, and smooth animations to create an engaging and polished "desktop app" experience that feels premium and state-of-the-art.
+- **Visual Richness:** VantageData utilizes a modern, vibrant aesthetic. We use a thoughtfully curated palette of colors, subtle gradients, and smooth animations to create an engaging and polished "desktop app" experience that feels premium and state-of-the-art.
 - **Consistent Branding:** All elements should adhere to the core visual identity, maintaining a cohesive look across the dashboard, reports, and settings.
 
 ## User Experience & Interaction

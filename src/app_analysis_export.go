@@ -19,7 +19,7 @@ import (
 
 // AnalysisExport represents the complete export format
 type AnalysisExport struct {
-	FileType           string             `json:"file_type"`            // "RapidBI_Analysis_Export"
+	FileType           string             `json:"file_type"`            // "VantageData_Analysis_Export"
 	FormatVersion      string             `json:"format_version"`       // "2.0"
 	Description        string             `json:"description"`          // Human-readable description
 	ExportedAt         string             `json:"exported_at"`          // RFC3339 format
@@ -126,9 +126,9 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 	
 	// 5. Build export structure
 	export := AnalysisExport{
-		FileType:           "RapidBI_Analysis_Export",
+		FileType:           "VantageData_Analysis_Export",
 		FormatVersion:      "2.0",
-		Description:        "RapidBI 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
+		Description:        "VantageData 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
 		ExportedAt:         time.Now().Format(time.RFC3339),
 		DataSource:         dataSource,
 		SchemaRequirements: schemaReq,
@@ -147,7 +147,7 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 		Title:           "导出分析过程",
 		DefaultFilename: fmt.Sprintf("analysis_%s.rbi", time.Now().Format("20060102_150405")),
 		Filters: []runtime.FileFilter{
-			{DisplayName: "RapidBI Analysis", Pattern: "*.rbi"},
+			{DisplayName: "VantageData Analysis", Pattern: "*.rbi"},
 		},
 	})
 	

@@ -1,9 +1,9 @@
-# RapidBI
+# VantageData
 
 A commercially qualified Smart Business Intelligence Suite.
 
 ## Initial Concept
-RapidBI is a Wails-based desktop application designed to empower non-technical users with intuitive data insights. It bridges the gap between complex data and actionable intelligence through a user-friendly interface.
+VantageData is a Wails-based desktop application designed to empower non-technical users with intuitive data insights. It bridges the gap between complex data and actionable intelligence through a user-friendly interface.
 
 ## Target Audience
 The primary focus is on **non-technical users** who need to understand their data without needing specialized technical or analytical skills. This includes managers, small business owners, and departmental leads who require quick, clear answers from their business data.

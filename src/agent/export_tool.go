@@ -10,7 +10,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"rapidbi/export"
+	"vantagedata/export"
 )
 
 // ExportTool provides PDF, Excel, and PPT export capabilities

@@ -35,7 +35,7 @@ npm run build
 ```bash
 cd src
 go mod tidy
-go build -o rapidbi.exe
+go build -o vantagedata.exe
 ```
 
 **Output**: Executable binary with embedded frontend assets

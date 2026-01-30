@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"rapidbi/agent"
-	"rapidbi/config"
-	"rapidbi/database"
-	"rapidbi/logger"
+	"vantagedata/agent"
+	"vantagedata/config"
+	"vantagedata/database"
+	"vantagedata/logger"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
@@ -938,7 +938,7 @@ func (a *App) getStorageDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "RapidBI"), nil
+	return filepath.Join(home, "VantageData"), nil
 }
 
 func (a *App) getConfigPath() (string, error) {
@@ -949,7 +949,7 @@ func (a *App) getConfigPath() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
-// GetConfig loads the config from the ~/rapidbi/config.json
+// GetConfig loads the config from the ~/VantageData/config.json
 func (a *App) GetConfig() (config.Config, error) {
 	path, err := a.getConfigPath()
 	if err != nil {
@@ -957,21 +957,26 @@ func (a *App) GetConfig() (config.Config, error) {
 	}
 
 	home, _ := os.UserHomeDir()
-	defaultDataDir := filepath.Join(home, "RapidBI")
+	defaultDataDir := filepath.Join(home, "VantageData")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
-		return config.Config{
-				LLMProvider:       "OpenAI",
-				ModelName:         "gpt-4o",
-				MaxTokens:         8192, // Safe default, will be adjusted per provider
-				LocalCache:        true,
-				Language:          "English",
-				DataCacheDir:      defaultDataDir,
-				MaxPreviewRows:    100,
-				IntentEnhancement: config.DefaultIntentEnhancementConfig(),
-			},
-			nil
+		defaultCfg := config.Config{
+			LLMProvider:       "OpenAI",
+			ModelName:         "gpt-4o",
+			MaxTokens:         8192, // Safe default, will be adjusted per provider
+			LocalCache:        true,
+			Language:          "English",
+			DataCacheDir:      defaultDataDir,
+			MaxPreviewRows:    100,
+			IntentEnhancement: config.DefaultIntentEnhancementConfig(),
+		}
+		// Fill Shopify credentials from embedded appdata
+		if shopifyConfig, err := a.GetShopifyConfigFromAppData(); err == nil && shopifyConfig != nil {
+			defaultCfg.ShopifyClientID = shopifyConfig.ClientID
+			defaultCfg.ShopifyClientSecret = shopifyConfig.ClientSecret
+		}
+		return defaultCfg, nil
 	}
 
 	data, err := os.ReadFile(path)
@@ -1037,6 +1042,18 @@ func (a *App) GetConfig() (config.Config, error) {
 		cfg.IntentEnhancement.Validate()
 	}
 
+	// Fill Shopify credentials from embedded appdata if not set in config
+	if cfg.ShopifyClientID == "" || cfg.ShopifyClientSecret == "" {
+		if shopifyConfig, err := a.GetShopifyConfigFromAppData(); err == nil && shopifyConfig != nil {
+			if cfg.ShopifyClientID == "" {
+				cfg.ShopifyClientID = shopifyConfig.ClientID
+			}
+			if cfg.ShopifyClientSecret == "" {
+				cfg.ShopifyClientSecret = shopifyConfig.ClientSecret
+			}
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -1093,7 +1110,7 @@ func (a *App) GetDeviceLocation() map[string]interface{} {
 	}
 }
 
-// SaveConfig saves the config to the ~/rapidbi/config.json
+// SaveConfig saves the config to the ~/VantageData/config.json
 func (a *App) SaveConfig(cfg config.Config) error {
 	// Migrate legacy web search configuration to new MCP services format
 	if cfg.WebSearchProvider != "" && cfg.WebSearchAPIKey != "" {
@@ -1227,7 +1244,7 @@ type LogStats struct {
 func (a *App) GetLogStats() (LogStats, error) {
 	cfg, _ := a.GetConfig()
 	
-	// Get stats from logger (rapidbi_*.log files)
+	// Get stats from logger (vantagedata_*.log files)
 	totalSizeMB, logCount, archiveCount, err := a.logger.GetLogStats()
 	if err != nil {
 		// If logger not initialized, just count system.log
@@ -1274,7 +1291,7 @@ func (a *App) GetLogStats() (LogStats, error) {
 func (a *App) CleanupLogs() error {
 	a.Log("Starting manual log cleanup...")
 	
-	// Cleanup rapidbi_*.log files
+	// Cleanup vantagedata_*.log files
 	err := a.logger.CleanupAllLogs()
 	if err != nil {
 		a.Log(fmt.Sprintf("Logger cleanup failed: %v", err))
@@ -4349,14 +4366,14 @@ func (a *App) InstallPythonPackages(pythonPath string, packages []string) error 
 	return a.pythonService.InstallMissingPackages(pythonPath, packages)
 }
 
-// CreateRapidBIEnvironment creates a dedicated virtual environment for RapidBI
-func (a *App) CreateRapidBIEnvironment() (string, error) {
-	return a.pythonService.CreateRapidBIEnvironment()
+// CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
+func (a *App) CreateVantageDataEnvironment() (string, error) {
+	return a.pythonService.CreateVantageDataEnvironment()
 }
 
-// CheckRapidBIEnvironmentExists checks if a rapidbi environment already exists
-func (a *App) CheckRapidBIEnvironmentExists() bool {
-	return a.pythonService.CheckRapidBIEnvironmentExists()
+// CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
+func (a *App) CheckVantageDataEnvironmentExists() bool {
+	return a.pythonService.CheckVantageDataEnvironmentExists()
 }
 
 // DiagnosePythonInstallation provides detailed diagnostic information about Python installations

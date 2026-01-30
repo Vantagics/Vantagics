@@ -3,7 +3,7 @@
   "name": "销售漏斗分析",
   "description": "分析销售转化漏斗，识别各阶段转化率和流失点",
   "version": "1.0.0",
-  "author": "RapidBI System",
+  "author": "VantageData System",
   "category": "sales_analytics",
   "keywords": [
     "funnel",

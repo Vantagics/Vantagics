@@ -13,6 +13,7 @@ import DataSourceOptimizeModal from './DataSourceOptimizeModal';
 import RenameDataSourceModal from './RenameDataSourceModal';
 import SemanticOptimizeModal from './SemanticOptimizeModal';
 import OnboardingWizard from './OnboardingWizard';
+import DataSourceModeSelector from './DataSourceModeSelector';
 import { Trash2, Plus } from 'lucide-react';
 
 interface SidebarProps {
@@ -40,6 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
     const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
     const [showOnboardingWizard, setShowOnboardingWizard] = useState(false); // 新手向导
+    const [modeMenuPosition, setModeMenuPosition] = useState<{ x: number; y: number } | null>(null); // 模式菜单位置
     const [preSelectedDriverType, setPreSelectedDriverType] = useState<string | null>(null); // 预选的数据源类型
     const [hasShownOnboarding, setHasShownOnboarding] = useState(false); // 是否已显示过新手向导
 
@@ -214,7 +216,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         {isDataSourceExpanded ? '<<' : '>>'}
                     </button>
                     <button
-                        onClick={() => setIsAddModalOpen(true)}
+                        onClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setModeMenuPosition({ x: rect.left, y: rect.bottom + 4 });
+                        }}
                         className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
                         title={t('add_source')}
                     >
@@ -410,6 +415,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 }}
                 onSelectSelfImport={() => {
                     setShowOnboardingWizard(false);
+                    setPreSelectedDriverType(null);
+                    setIsAddModalOpen(true);
+                }}
+            />
+
+            <DataSourceModeSelector
+                isOpen={!!modeMenuPosition}
+                position={modeMenuPosition || { x: 0, y: 0 }}
+                onClose={() => setModeMenuPosition(null)}
+                onSelectBeginnerMode={() => {
+                    setModeMenuPosition(null);
+                    setShowOnboardingWizard(true);
+                }}
+                onSelectExpertMode={() => {
+                    setModeMenuPosition(null);
                     setPreSelectedDriverType(null);
                     setIsAddModalOpen(true);
                 }}

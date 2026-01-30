@@ -1,50 +1,50 @@
 # Export Package
 
-这个包提供了 PDF、Excel 和 PowerPoint 导出功能，用于导出仪表盘数据和分析结果。
+这个包提供了 PDF、Excel �?PowerPoint 导出功能，用于导出仪表盘数据和分析结果�?
 
-## 功能特性
+## 功能特�?
 
 ### PDF 导出 (使用 maroto v2)
 
-- ✅ 无需 Chrome 浏览器依赖
-- ✅ 更快的生成速度
-- ✅ 更小的二进制文件大小
-- ✅ 支持中文字体
-- ✅ 专业的报告布局
-- ✅ 支持图表、表格、指标卡片
+- �?无需 Chrome 浏览器依�?
+- �?更快的生成速度
+- �?更小的二进制文件大小
+- �?支持中文字体
+- �?专业的报告布局
+- �?支持图表、表格、指标卡�?
 
 ### Excel 导出 (使用 excelize v2)
 
-- ✅ 原生 Excel 格式 (.xlsx)
-- ✅ 支持多个工作表
-- ✅ 自动列宽调整
-- ✅ 表头样式美化
-- ✅ 自动筛选功能
-- ✅ 冻结首行
-- ✅ 完整的元数据
+- �?原生 Excel 格式 (.xlsx)
+- �?支持多个工作�?
+- �?自动列宽调整
+- �?表头样式美化
+- �?自动筛选功�?
+- �?冻结首行
+- �?完整的元数据
 
 ### PowerPoint 导出 (使用 unioffice)
 
-- ✅ 原生 PowerPoint 格式 (.pptx)
-- ✅ 专业的幻灯片布局
-- ✅ 支持图表、表格、指标卡片
-- ✅ 自动分页和排版
-- ✅ 精美的视觉设计
-- ✅ 完整的演示文稿结构
+- �?原生 PowerPoint 格式 (.pptx)
+- �?专业的幻灯片布局
+- �?支持图表、表格、指标卡�?
+- �?自动分页和排�?
+- �?精美的视觉设�?
+- �?完整的演示文稿结�?
 
 ## 使用方法
 
 ### PDF 导出
 
 ```go
-import "rapidbi/export"
+import "vantagedata/export"
 
 // 创建 PDF 导出服务
 pdfService := export.NewPDFExportService()
 
 // 准备数据
 data := export.DashboardData{
-    UserRequest: "分析销售数据",
+    UserRequest: "分析销售数�?,
     Metrics: []export.MetricData{
         {Title: "总销售额", Value: "¥1,234,567", Change: "+15.3%"},
     },
@@ -52,7 +52,7 @@ data := export.DashboardData{
         "销售额环比上月增长15.3%",
     },
     ChartImages: []string{
-        "data:image/png;base64,...", // base64 编码的图片
+        "data:image/png;base64,...", // base64 编码的图�?
     },
     TableData: &export.TableData{
         Columns: []export.TableColumn{
@@ -79,7 +79,7 @@ os.WriteFile("report.pdf", pdfBytes, 0644)
 ### Excel 导出
 
 ```go
-import "rapidbi/export"
+import "vantagedata/export"
 
 // 创建 Excel 导出服务
 excelService := export.NewExcelExportService()
@@ -96,8 +96,8 @@ tableData := &export.TableData{
     },
 }
 
-// 生成 Excel (单个工作表)
-excelBytes, err := excelService.ExportTableToExcel(tableData, "销售数据")
+// 生成 Excel (单个工作�?
+excelBytes, err := excelService.ExportTableToExcel(tableData, "销售数�?)
 if err != nil {
     log.Fatal(err)
 }
@@ -109,21 +109,21 @@ os.WriteFile("data.xlsx", excelBytes, 0644)
 ### PowerPoint 导出
 
 ```go
-import "rapidbi/export"
+import "vantagedata/export"
 
 // 创建 PPT 导出服务
 pptService := export.NewPPTExportService()
 
 // 准备数据（与PDF相同的数据结构）
 data := export.DashboardData{
-    UserRequest: "分析销售数据",
+    UserRequest: "分析销售数�?,
     Metrics: []export.MetricData{
         {Title: "总销售额", Value: "¥1,234,567", Change: "+15.3%"},
         {Title: "订单数量", Value: "3,456", Change: "+8.7%"},
     },
     Insights: []string{
         "销售额环比上月增长15.3%",
-        "新客户占比达到34%",
+        "新客户占比达�?4%",
     },
     ChartImages: []string{
         "data:image/png;base64,...",
@@ -155,7 +155,7 @@ os.WriteFile("presentation.pptx", pptBytes, 0644)
 ```go
 // 准备多个表格
 tables := map[string]*export.TableData{
-    "销售数据": salesTable,
+    "销售数�?: salesTable,
     "客户数据": customerTable,
     "产品数据": productTable,
 }
@@ -169,14 +169,14 @@ if err != nil {
 os.WriteFile("report.xlsx", excelBytes, 0644)
 ```
 
-## 在 App 中集成
+## �?App 中集�?
 
-在 `app_dashboard_export.go` 中已经集成了新的导出功能：
+�?`app_dashboard_export.go` 中已经集成了新的导出功能�?
 
 ### PDF 导出
 
 ```go
-// 优先使用 maroto，失败时回退到 chromedp
+// 优先使用 maroto，失败时回退�?chromedp
 func (a *App) ExportDashboardToPDF(data DashboardExportData) error
 ```
 
@@ -186,7 +186,7 @@ func (a *App) ExportDashboardToPDF(data DashboardExportData) error
 // 导出单个表格
 func (a *App) ExportTableToExcel(tableData *TableData, sheetName string) error
 
-// 导出仪表盘数据
+// 导出仪表盘数�?
 func (a *App) ExportDashboardToExcel(data DashboardExportData) error
 ```
 
@@ -199,7 +199,7 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error
 
 ## 前端调用
 
-在前端可以通过 Wails 绑定调用：
+在前端可以通过 Wails 绑定调用�?
 
 ```typescript
 import { ExportDashboardToPDF, ExportDashboardToExcel, ExportDashboardToPPT } from '../../wailsjs/go/main/App';
@@ -214,7 +214,7 @@ await ExportDashboardToExcel(dashboardData);
 await ExportDashboardToPPT(dashboardData);
 ```
 
-## 依赖库
+## 依赖�?
 
 - **maroto v2** (`github.com/johnfercher/maroto/v2`): PDF 生成
 - **excelize v2** (`github.com/xuri/excelize/v2`): Excel 生成
@@ -224,38 +224,38 @@ await ExportDashboardToPPT(dashboardData);
 
 ### PDF 导出
 
-| 特性 | maroto (新) | chromedp (旧) |
+| 特�?| maroto (�? | chromedp (�? |
 |------|------------|--------------|
-| Chrome 依赖 | ❌ 不需要 | ✅ 需要 |
-| 生成速度 | ⚡ 快 | 🐌 慢 |
-| 二进制大小 | 📦 小 | 📦 大 |
-| 跨平台 | ✅ 完全支持 | ⚠️ 需要 Chrome |
-| 自定义布局 | ✅ 灵活 | ⚠️ 受限于 HTML/CSS |
+| Chrome 依赖 | �?不需�?| �?需�?|
+| 生成速度 | �?�?| 🐌 �?|
+| 二进制大�?| 📦 �?| 📦 �?|
+| 跨平�?| �?完全支持 | ⚠️ 需�?Chrome |
+| 自定义布局 | �?灵活 | ⚠️ 受限�?HTML/CSS |
 
 ### Excel 导出
 
-| 特性 | excelize (新) | CSV (旧) |
+| 特�?| excelize (�? | CSV (�? |
 |------|--------------|----------|
 | 格式 | .xlsx | .csv |
-| 多工作表 | ✅ 支持 | ❌ 不支持 |
-| 样式 | ✅ 丰富 | ❌ 无 |
-| 公式 | ✅ 支持 | ❌ 不支持 |
-| 筛选 | ✅ 自动 | ❌ 无 |
-| 冻结窗格 | ✅ 支持 | ❌ 不支持 |
+| 多工作表 | �?支持 | �?不支�?|
+| 样式 | �?丰富 | �?�?|
+| 公式 | �?支持 | �?不支�?|
+| 筛�?| �?自动 | �?�?|
+| 冻结窗格 | �?支持 | �?不支�?|
 
 ### PowerPoint 导出
 
-| 特性 | unioffice | 手动制作 |
+| 特�?| unioffice | 手动制作 |
 |------|-----------|---------|
-| 自动化 | ✅ 完全自动 | ❌ 手动 |
-| 一致性 | ✅ 完美一致 | ⚠️ 可能不一致 |
-| 效率 | ⚡ 秒级生成 | 🐌 分钟级 |
-| 模板 | ✅ 可定制 | ⚠️ 需要设计 |
-| 批量生成 | ✅ 支持 | ❌ 困难 |
+| 自动�?| �?完全自动 | �?手动 |
+| 一致�?| �?完美一�?| ⚠️ 可能不一�?|
+| 效率 | �?秒级生成 | 🐌 分钟�?|
+| 模板 | �?可定�?| ⚠️ 需要设�?|
+| 批量生成 | �?支持 | �?困难 |
 
 ## 测试
 
-运行测试：
+运行测试�?
 
 ```bash
 cd src
@@ -270,28 +270,28 @@ go test -v ./export/
 
 ## 注意事项
 
-1. **图片格式**: 所有导出都支持 PNG 格式的 base64 图片
+1. **图片格式**: 所有导出都支持 PNG 格式�?base64 图片
 2. **表格大小**: 
-   - PDF 中表格限制为 50 行、6 列
-   - PPT 中表格限制为 10 行、6 列
-   - Excel 无限制
-3. **幻灯片数量**: PPT 会根据内容自动生成多张幻灯片
+   - PDF 中表格限制为 50 行�? �?
+   - PPT 中表格限制为 10 行�? �?
+   - Excel 无限�?
+3. **幻灯片数�?*: PPT 会根据内容自动生成多张幻灯片
 4. **中文支持**: 所有导出格式都完全支持中文
 5. **文件大小**: 
-   - Excel 文件通常最小
+   - Excel 文件通常最�?
    - PDF 文件适中
-   - PPT 文件可能较大（包含图片时）
+   - PPT 文件可能较大（包含图片时�?
 
-## PPT 幻灯片结构
+## PPT 幻灯片结�?
 
-生成的 PowerPoint 包含以下幻灯片：
+生成�?PowerPoint 包含以下幻灯片：
 
-1. **标题页** - 显示报告标题和用户请求
-2. **关键指标页** - 以卡片形式展示指标（最多6个）
-3. **智能洞察页** - 以项目符号列表展示洞察（最多8条）
-4. **图表页** - 每个图表一张幻灯片
-5. **数据表格页** - 展示表格数据（最多10行6列）
-6. **结束页** - 感谢页面
+1. **标题�?* - 显示报告标题和用户请�?
+2. **关键指标�?* - 以卡片形式展示指标（最�?个）
+3. **智能洞察�?* - 以项目符号列表展示洞察（最�?条）
+4. **图表�?* - 每个图表一张幻灯片
+5. **数据表格�?* - 展示表格数据（最�?0�?列）
+6. **结束�?* - 感谢页面
 
 ## 未来改进
 
@@ -299,8 +299,8 @@ go test -v ./export/
 - [ ] PDF 添加页眉页脚
 - [ ] Excel 添加图表
 - [ ] PPT 添加动画效果
-- [ ] 支持自定义样式主题
+- [ ] 支持自定义样式主�?
 - [ ] 批量导出功能
 - [ ] 导出进度回调
-- [ ] PPT 添加备注页
+- [ ] PPT 添加备注�?
 - [ ] 支持自定义幻灯片模板

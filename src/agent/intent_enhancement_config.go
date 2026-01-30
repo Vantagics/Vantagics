@@ -1,6 +1,6 @@
 package agent
 
-import "rapidbi/config"
+import "vantagedata/config"
 
 // IntentEnhancementConfig is an alias to config.IntentEnhancementConfig
 // This allows the agent package to use the config type while maintaining backward compatibility

@@ -19,9 +19,9 @@ export function CancelShopifyOAuth():Promise<void>;
 
 export function CheckComponentHasData(arg1:string,arg2:string):Promise<boolean>;
 
-export function CheckRapidBIEnvironmentExists():Promise<boolean>;
-
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
+
+export function CheckVantageDataEnvironmentExists():Promise<boolean>;
 
 export function CleanupLogs():Promise<void>;
 
@@ -29,7 +29,7 @@ export function ClearHistory():Promise<void>;
 
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
 
-export function CreateRapidBIEnvironment():Promise<string>;
+export function CreateVantageDataEnvironment():Promise<string>;
 
 export function DeleteColumn(arg1:string,arg2:string,arg3:string):Promise<void>;
 

@@ -1,4 +1,4 @@
-module rapidbi
+module vantagedata
 
 go 1.24.0
 

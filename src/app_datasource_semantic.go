@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"rapidbi/agent"
+	"vantagedata/agent"
 	
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
