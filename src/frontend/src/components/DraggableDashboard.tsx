@@ -157,12 +157,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     const exportDataFiles = async () => {
         try {
             if (!activeThreadId) {
-                setToast({ message: '无法导出：未选择会话', type: 'error' });
+                setToast({ message: t('export_no_session'), type: 'error' });
                 return;
             }
 
             if (!selectedMessageId) {
-                setToast({ message: '无法导出：未选择分析请求', type: 'error' });
+                setToast({ message: t('export_no_message'), type: 'error' });
                 return;
             }
 
@@ -172,11 +172,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             
             await ExportSessionFilesToZip(activeThreadId, selectedMessageId);
             
-            setToast({ message: '数据文件导出成功！', type: 'success' });
+            setToast({ message: t('export_data_files_success'), type: 'success' });
         } catch (error) {
             console.error('[DraggableDashboard] Data files export failed:', error);
             setToast({
-                message: '数据文件导出失败: ' + (error instanceof Error ? error.message : String(error)),
+                message: t('export_data_files_failed') + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -311,11 +311,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             await ExportDashboardToPDF(exportData);
 
             logger.debug('PDF export completed successfully');
-            setToast({ message: 'PDF导出成功！', type: 'success' });
+            setToast({ message: t('export_pdf_success'), type: 'success' });
         } catch (error) {
             console.error('[DraggableDashboard] PDF export failed:', error);
             setToast({
-                message: 'PDF导出失败: ' + (error instanceof Error ? error.message : String(error)),
+                message: t('export_pdf_failed') + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -450,11 +450,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             await ExportDashboardToPPT(exportData);
 
             logger.debug('PPT export completed successfully');
-            setToast({ message: 'PPT导出成功！', type: 'success' });
+            setToast({ message: t('export_ppt_success'), type: 'success' });
         } catch (error) {
             console.error('[DraggableDashboard] PPT export failed:', error);
             setToast({
-                message: 'PPT导出失败: ' + (error instanceof Error ? error.message : String(error)),
+                message: t('export_ppt_failed') + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -975,8 +975,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             switch (type) {
                 case 'metric':
                     return { 
-                        name: '关键指标卡片', 
-                        desc: '显示KPI数值',
+                        name: t('component_metric'), 
+                        desc: t('component_metric_desc'),
                         icon: '📊',
                         bgColor: 'bg-blue-50',
                         borderColor: 'border-blue-200',
@@ -984,8 +984,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     };
                 case 'insight':
                     return { 
-                        name: 'AI分析洞察', 
-                        desc: '智能分析结论',
+                        name: t('component_insight'), 
+                        desc: t('component_insight_desc'),
                         icon: '💡',
                         bgColor: 'bg-purple-50',
                         borderColor: 'border-purple-200',
@@ -993,8 +993,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     };
                 case 'chart':
                     return { 
-                        name: '数据可视化图表', 
-                        desc: '图形化展示数据',
+                        name: t('component_chart'), 
+                        desc: t('component_chart_desc'),
                         icon: '📈',
                         bgColor: 'bg-green-50',
                         borderColor: 'border-green-200',
@@ -1002,8 +1002,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     };
                 case 'table':
                     return { 
-                        name: '数据表格', 
-                        desc: '表格形式展示',
+                        name: t('component_table'), 
+                        desc: t('component_table_desc'),
                         icon: '📋',
                         bgColor: 'bg-amber-50',
                         borderColor: 'border-amber-200',
@@ -1011,8 +1011,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     };
                 case 'image':
                     return { 
-                        name: '图片展示区', 
-                        desc: '显示图片内容',
+                        name: t('component_image'), 
+                        desc: t('component_image_desc'),
                         icon: '🖼️',
                         bgColor: 'bg-cyan-50',
                         borderColor: 'border-cyan-200',
@@ -1021,8 +1021,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 case 'file_download':
                 case 'file':
                     return { 
-                        name: '文件下载区', 
-                        desc: '下载生成的文件',
+                        name: t('component_file'), 
+                        desc: t('component_file_desc'),
                         icon: '📁',
                         bgColor: 'bg-orange-50',
                         borderColor: 'border-orange-200',
@@ -1030,8 +1030,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     };
                 default:
                     return { 
-                        name: '通用组件', 
-                        desc: '自定义内容',
+                        name: t('component_generic'), 
+                        desc: t('component_generic_desc'),
                         icon: '📦',
                         bgColor: 'bg-gray-50',
                         borderColor: 'border-gray-200',
@@ -1045,13 +1045,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 获取区域标题
         const getAreaTitle = (type: string) => {
             switch (type) {
-                case 'metric': return '关键指标';
-                case 'insight': return '自动洞察';
-                case 'chart': return '数据图表';
-                case 'table': return '数据表格';
-                case 'image': return '图片';
-                case 'file_download': return '文件下载';
-                default: return '组件';
+                case 'metric': return t('area_metric');
+                case 'insight': return t('area_insight');
+                case 'chart': return t('area_chart');
+                case 'table': return t('area_table');
+                case 'image': return t('area_image');
+                case 'file_download': return t('area_file_download');
+                default: return t('area_component');
             }
         };
 
@@ -1524,12 +1524,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     ) : isCsv ? (
                                         <div className="flex flex-col items-center text-green-600">
                                             <FileSpreadsheet size={32} />
-                                            <span className="text-xs mt-1">数据表格</span>
+                                            <span className="text-xs mt-1">{t('area_table')}</span>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center text-orange-600">
                                             <FileText size={32} />
-                                            <span className="text-xs mt-1 uppercase">{ext || '文件'}</span>
+                                            <span className="text-xs mt-1 uppercase">{ext || t('file_label')}</span>
                                         </div>
                                     )}
                                 </div>
@@ -1676,13 +1676,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
     const getAreaTitleStatic = (type: string) => {
         switch (type) {
-            case 'metric': return '关键指标';
-            case 'insight': return '自动洞察';
-            case 'chart': return '数据图表';
-            case 'table': return '数据表格';
-            case 'image': return '图片';
-            case 'file_download': return '文件下载';
-            default: return '组件';
+            case 'metric': return t('area_metric');
+            case 'insight': return t('area_insight');
+            case 'chart': return t('area_chart');
+            case 'table': return t('area_table');
+            case 'image': return t('area_image');
+            case 'file_download': return t('area_file_download');
+            default: return t('area_component');
         }
     };
 
@@ -1708,17 +1708,17 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
                                 }
                             `}
-                            title={isEditMode ? "保存布局" : "编辑布局"}
+                            title={isEditMode ? t('save_layout') : t('edit_layout')}
                         >
                             {isEditMode ? (
                                 <>
                                     <Save size={14} />
-                                    <span>保存</span>
+                                    <span>{t('save')}</span>
                                 </>
                             ) : (
                                 <>
                                     <Edit3 size={14} />
-                                    <span>编辑</span>
+                                    <span>{t('edit')}</span>
                                 </>
                             )}
                         </button>
@@ -1746,10 +1746,10 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             <div className="flex items-center gap-3">
                                 <h1 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
                                     <span>📊</span>
-                                    智能分析仪表盘
+                                    {t('smart_analysis_dashboard')}
                                     {isEditMode && (
                                         <span className="text-xs font-normal px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-200 rounded-full">
-                                            编辑中
+                                            {t('editing')}
                                         </span>
                                     )}
                                 </h1>
@@ -1775,10 +1775,10 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     ${hasExportableContent() 
                                         ? 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100 cursor-pointer' 
                                         : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'}`}
-                                title={hasExportableContent() ? "导出仪表盘数据" : "暂无可导出的内容"}
+                                title={hasExportableContent() ? t('export_dashboard_data') : t('no_exportable_content_hint')}
                             >
                                 <Download size={14} />
-                                <span>导出</span>
+                                <span>{t('export')}</span>
                             </button>
 
                             {/* 导出下拉菜单 */}
@@ -1789,14 +1789,14 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                     >
                                         <FileImage size={16} className="text-red-600" />
-                                        <span>导出为 PDF</span>
+                                        <span>{t('export_as_pdf')}</span>
                                     </button>
                                     <button
                                         onClick={exportAsPPT}
                                         className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                     >
                                         <Presentation size={16} className="text-orange-600" />
-                                        <span>导出为 PPT</span>
+                                        <span>{t('export_as_ppt')}</span>
                                     </button>
                                     <button
                                         onClick={exportDataFiles}
@@ -2006,7 +2006,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 {isEditMode && layout.length > 0 && (
                     <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg z-50">
                         <p className="text-sm font-medium">
-                            💡 拖拽组件移动位置，拖拽右下角调整大小，点击 X 删除，完成后点击"保存布局"
+                            {t('edit_mode_hint')}
                         </p>
                     </div>
                 )}
