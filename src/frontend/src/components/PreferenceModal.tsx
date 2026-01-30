@@ -245,6 +245,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     if (!isOpen) return null;
 
     const isAnthropic = config.llmProvider === 'Anthropic';
+    const isGemini = config.llmProvider === 'Gemini';
     const isOpenAICompatible = config.llmProvider === 'OpenAI-Compatible';
     const isClaudeCompatible = config.llmProvider === 'Claude-Compatible';
 
@@ -293,6 +294,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         >
                                             <option value="OpenAI">OpenAI</option>
                                             <option value="Anthropic">Anthropic (Claude)</option>
+                                            <option value="Gemini">Google Gemini</option>
                                             <option value="OpenAI-Compatible">OpenAI-Compatible (Local, DeepSeek, etc.)</option>
                                             <option value="Claude-Compatible">Claude-Compatible (Proxies, Bedrock, etc.)</option>
                                         </select>
@@ -301,7 +303,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     {(isOpenAICompatible || isClaudeCompatible) && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                                             <label htmlFor="baseUrl" className="block text-sm font-medium text-slate-700 mb-1">
-                                                API Base URL
+                                                {t('api_base_url')}
                                             </label>
                                             <input
                                                 id="baseUrl"
@@ -319,8 +321,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             />
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
                                                 {isOpenAICompatible
-                                                    ? "Base URL for the compatible API (e.g., Ollama, LM Studio, DeepSeek)"
-                                                    : "Base URL for Claude proxy (e.g., AWS Bedrock, Vertex AI, One API)"}
+                                                    ? t('api_base_url_openai_compatible_desc')
+                                                    : t('api_base_url_claude_compatible_desc')}
                                             </p>
                                         </div>
                                     )}
@@ -328,7 +330,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     {isClaudeCompatible && (
                                         <div className="animate-in fade-in slide-in-from-top-1 duration-200">
                                             <label htmlFor="headerStyle" className="block text-sm font-medium text-slate-700 mb-1">
-                                                Header Style
+                                                {t('header_style')}
                                             </label>
                                             <select
                                                 id="headerStyle"
@@ -340,7 +342,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 <option value="OpenAI">OpenAI (Authorization: Bearer)</option>
                                             </select>
                                             <p className="mt-1 text-[10px] text-slate-400 italic">
-                                                Select "OpenAI" if your proxy uses Bearer tokens (e.g., some One API setups).
+                                                {t('header_style_desc')}
                                             </p>
                                         </div>
                                     )}
@@ -355,7 +357,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             value={config.apiKey}
                                             onChange={(e) => updateConfig({ apiKey: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder={isAnthropic ? "sk-ant-..." : "sk-..."}
+                                            placeholder={isAnthropic ? "sk-ant-..." : (isGemini ? "AIza..." : "sk-...")}
                                             autoCapitalize="none"
                                             autoCorrect="off"
                                             spellCheck={false}
@@ -369,7 +371,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             value={config.modelName}
                                             onChange={(e) => updateConfig({ modelName: e.target.value })}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                            placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isOpenAICompatible ? "llama3" : "gpt-4o")}
+                                            placeholder={isAnthropic ? "claude-3-5-sonnet-20240620" : (isGemini ? "gemini-3-pro" : (isOpenAICompatible ? "llama3" : "gpt-4o"))}
                                             autoCapitalize="none"
                                             autoCorrect="off"
                                             spellCheck={false}
@@ -394,13 +396,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             className={`px-4 py-2 text-xs font-semibold rounded-md transition-colors ${isTesting ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                                 }`}
                                         >
-                                            {isTesting ? 'Testing...' : 'Test Connection'}
+                                            {isTesting ? t('testing') : t('test_connection')}
                                         </button>
 
                                         {testResult && (
                                             <div className={`text-xs font-medium animate-in fade-in slide-in-from-left-1 ${testResult.success ? 'text-green-600' : 'text-red-600'
                                                 }`}>
-                                                {testResult.success ? '✓ Connection successful!' : `✗ ${testResult.message}`}
+                                                {testResult.success ? `✓ ${t('connection_successful')}` : `✗ ${testResult.message}`}
                                             </div>
                                         )}
                                     </div>
@@ -414,7 +416,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <span className="block text-sm font-medium text-slate-700">{t('dark_mode')}</span>
-                                            <span className="block text-xs text-slate-500">Enable dark appearance for the UI</span>
+                                            <span className="block text-xs text-slate-500">{t('dark_mode_desc')}</span>
                                         </div>
                                         <input
                                             type="checkbox"
@@ -425,7 +427,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <span className="block text-sm font-medium text-slate-700">{t('local_cache')}</span>
-                                            <span className="block text-xs text-slate-500">Store query results locally</span>
+                                            <span className="block text-xs text-slate-500">{t('local_cache_desc')}</span>
                                         </div>
                                         <input
                                             type="checkbox"
@@ -436,7 +438,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     <div className="flex items-center justify-between">
                                         <div>
                                             <span className="block text-sm font-medium text-slate-700">{t('detailed_log')}</span>
-                                            <span className="block text-xs text-slate-500">Enable detailed logging for debugging</span>
+                                            <span className="block text-xs text-slate-500">{t('detailed_log_desc')}</span>
                                         </div>
                                         <input
                                             type="checkbox"
@@ -472,7 +474,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 </div>
                                             </div>
                                         ) : (
-                                            <p className="text-xs text-slate-500 italic">Loading...</p>
+                                            <p className="text-xs text-slate-500 italic">{t('loading')}</p>
                                         )}
                                         
                                         <div className="mt-3 pt-3 border-t border-slate-200">
@@ -497,7 +499,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs bg-amber-100 text-amber-800 rounded hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >
                                             <Archive className="w-3 h-3" />
-                                            {isCleaningLogs ? 'Cleaning...' : t('log_cleanup')}
+                                            {isCleaningLogs ? t('cleaning') : t('log_cleanup')}
                                         </button>
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
                                             {t('log_cleanup_desc')}
@@ -527,7 +529,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             max="10000"
                                         />
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
-                                            Number of rows to display in the data preview window (default 100).
+                                            {t('max_preview_rows_desc')}
                                         </p>
                                     </div>
                                     <div>
@@ -539,7 +541,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 value={config.dataCacheDir}
                                                 onChange={(e) => updateConfig({ dataCacheDir: e.target.value })}
                                                 className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                placeholder="~/RapidBI"
+                                                placeholder="~/VantageData"
                                                 autoCapitalize="none"
                                                 autoCorrect="off"
                                                 spellCheck={false}
@@ -553,7 +555,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             </button>
                                         </div>
                                         <p className="mt-1 text-[10px] text-slate-400 italic">
-                                            The directory used to store application data. Must exist on your system.
+                                            {t('data_cache_dir_desc')}
                                         </p>
                                     </div>
                                     
@@ -722,8 +724,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                             <div className="space-y-6">
                                 <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                                     <div>
-                                        <h3 className="text-lg font-semibold text-slate-800">搜索API配置</h3>
-                                        <p className="text-sm text-slate-500 mt-1">配置用于网络搜索的API服务</p>
+                                        <h3 className="text-lg font-semibold text-slate-800">{t('search_api_config')}</h3>
+                                        <p className="text-sm text-slate-500 mt-1">{t('search_api_config_desc')}</p>
                                     </div>
                                 </div>
 
@@ -731,7 +733,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                 <div className="space-y-4">
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-3">
-                                            选择搜索API
+                                            {t('select_search_api')}
                                         </label>
                                         <div className="space-y-3">
                                             {(config.searchAPIs || getDefaultSearchAPIs()).map((api: SearchAPIConfig) => {
@@ -758,12 +760,12 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                                         {api.tested && (
                                                                             <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                                                                                 <CheckCircle className="w-3 h-3" />
-                                                                                已测试
+                                                                                {t('tested_badge')}
                                                                             </span>
                                                                         )}
                                                                         {isActive && (
                                                                             <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium text-blue-700 bg-blue-100 rounded-full">
-                                                                                活动
+                                                                                {t('active_badge')}
                                                                             </span>
                                                                         )}
                                                                     </div>
@@ -773,15 +775,15 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                                     {(api.id === 'serper' || api.id === 'uapi_pro') && (
                                                                         <div className="mb-3">
                                                                             <label className="block text-xs font-medium text-slate-700 mb-1">
-                                                                                API Key {api.id === 'serper' && <span className="text-red-500">*</span>}
-                                                                                {api.id === 'uapi_pro' && <span className="text-slate-400">(可选)</span>}
+                                                                                {t('api_key')} {api.id === 'serper' && <span className="text-red-500">*</span>}
+                                                                                {api.id === 'uapi_pro' && <span className="text-slate-400">({t('optional')})</span>}
                                                                             </label>
                                                                             <div className="flex gap-2">
                                                                                 <input
                                                                                     type="password"
                                                                                     value={api.apiKey || ''}
                                                                                     onChange={(e) => updateSearchAPIConfig(api.id, 'apiKey', e.target.value)}
-                                                                                    placeholder={`输入 ${api.name} API Key${api.id === 'uapi_pro' ? '（可选）' : ''}`}
+                                                                                    placeholder={api.id === 'uapi_pro' ? t('enter_api_key_optional_placeholder', api.name) : t('enter_api_key_placeholder', api.name)}
                                                                                     className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                                                                 />
                                                                                 <a
@@ -789,9 +791,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                                                     target="_blank"
                                                                                     rel="noopener noreferrer"
                                                                                     className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors whitespace-nowrap"
-                                                                                    title="获取API Key"
+                                                                                    title={t('get_api_key')}
                                                                                 >
-                                                                                    获取Key
+                                                                                    {t('get_key_button')}
                                                                                 </a>
                                                                             </div>
                                                                         </div>
@@ -803,7 +805,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                                         disabled={isTestingThis}
                                                                         className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed transition-colors"
                                                                     >
-                                                                        {isTestingThis ? '测试中...' : '测试连接'}
+                                                                        {isTestingThis ? t('testing') : t('test_connection_button')}
                                                                     </button>
                                                                     
                                                                     {/* Test Result */}
@@ -837,10 +839,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         <div className="flex items-start gap-3">
                                             <AlertCircle className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
                                             <div className="text-sm text-blue-800">
-                                                <p className="font-medium mb-1">关于搜索API</p>
+                                                <p className="font-medium mb-1">{t('search_api_info_title')}</p>
                                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                                    <li>Serper: 通过API获取Google搜索结果，需要API密钥</li>
-                                                    <li>UAPI Pro: 提供结构化数据和稳定的模式，API密钥可选</li>
+                                                    <li>{t('serper_info')}</li>
+                                                    <li>{t('uapi_pro_info')}</li>
                                                 </ul>
                                             </div>
                                         </div>
@@ -1225,6 +1227,7 @@ interface RunEnvSettingsProps {
 }
 
 const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, updateConfig }) => {
+    const { t } = useLanguage();
     const [envs, setEnvs] = useState<agent.PythonEnvironment[]>([]);
     const [loading, setLoading] = useState(false);
     const [validation, setValidation] = useState<agent.PythonValidationResult | null>(null);
@@ -1252,7 +1255,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             const environments = await GetPythonEnvironments();
             setEnvs(environments);
 
-            // Check if we should show the "Create RapidBI Environment" button
+            // Check if we should show the "Create VantageData Environment" button
             const hasVirtualEnvSupport = environments.some(env =>
                 env.type.toLowerCase().includes('conda') ||
                 env.type.toLowerCase().includes('virtualenv') ||
@@ -1299,13 +1302,13 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             setValidation(newValidation);
 
             if (newValidation.missingPackages && newValidation.missingPackages.length === 0) {
-                setNotification({ type: 'success', message: '所有缺失的包已成功安装！' });
+                setNotification({ type: 'success', message: t('packages_install_success') });
             } else {
-                setNotification({ type: 'info', message: `安装完成。仍有 ${newValidation.missingPackages?.length || 0} 个包未能安装。` });
+                setNotification({ type: 'info', message: t('packages_install_partial', newValidation.missingPackages?.length || 0) });
             }
         } catch (error) {
             console.error('Package installation failed:', error);
-            setNotification({ type: 'error', message: `包安装失败: ${error}` });
+            setNotification({ type: 'error', message: t('packages_install_failed', String(error)) });
         } finally {
             setInstalling(false);
             setValidating(false);
@@ -1323,13 +1326,13 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             // Auto-select the new environment
             updateConfig({ pythonPath });
 
-            setNotification({ type: 'success', message: 'RapidBI专用环境创建成功！已自动选择该环境。' });
+            setNotification({ type: 'success', message: t('env_create_success') });
         } catch (error) {
             console.error('Environment creation failed:', error);
 
             // Show detailed error message with suggestions
             const errorMessage = String(error);
-            let userMessage = '环境创建失败\n\n';
+            let userMessage = t('env_create_failed_title') + '\n\n';
 
             if (errorMessage.includes('No suitable Python interpreter found')) {
                 // Extract the detailed diagnostic information from the error
@@ -1338,47 +1341,47 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
 
                 if (diagnosticStart !== -1 && diagnosticEnd !== -1) {
                     const diagnosticInfo = errorMessage.substring(diagnosticStart, diagnosticEnd);
-                    userMessage += '诊断信息：\n' + diagnosticInfo + '\n\n';
+                    userMessage += t('diagnostic_info') + '\n' + diagnosticInfo + '\n\n';
                 }
 
-                userMessage += '解决方案：\n\n';
-                userMessage += '1. 安装Anaconda（推荐）\n';
-                userMessage += '   • 下载地址：https://www.anaconda.com/\n';
-                userMessage += '   • 安装后确保conda命令可用\n\n';
-                userMessage += '2. 安装Python 3.3+\n';
-                userMessage += '   • 下载地址：https://www.python.org/downloads/\n';
-                userMessage += '   • 安装时勾选"Add Python to PATH"\n';
-                userMessage += '   • Python 3.3+默认包含venv模块\n\n';
-                userMessage += '3. 验证安装\n';
-                userMessage += '   • 打开命令提示符/终端\n';
-                userMessage += '   • 尝试：conda --version（Anaconda）\n';
-                userMessage += '   • 尝试：python --version 或 python3 --version\n';
-                userMessage += '   • 尝试：python -m venv --help\n\n';
-                userMessage += '安装完成后，请重启RapidBI并重试。\n\n';
-                userMessage += '如果问题仍然存在，请将上述诊断信息发送给技术支持。';
+                userMessage += t('solution') + '\n\n';
+                userMessage += t('install_anaconda') + '\n';
+                userMessage += t('anaconda_download') + '\n';
+                userMessage += t('anaconda_verify') + '\n\n';
+                userMessage += t('install_python') + '\n';
+                userMessage += t('python_download') + '\n';
+                userMessage += t('python_add_path') + '\n';
+                userMessage += t('python_venv_included') + '\n\n';
+                userMessage += t('verify_installation') + '\n';
+                userMessage += t('verify_terminal') + '\n';
+                userMessage += t('verify_conda') + '\n';
+                userMessage += t('verify_python') + '\n';
+                userMessage += t('verify_venv') + '\n\n';
+                userMessage += t('restart_app_retry') + '\n\n';
+                userMessage += t('contact_support');
             } else if (errorMessage.includes('conda')) {
-                userMessage += 'Conda环境创建失败\n\n';
-                userMessage += '可能的解决方案：\n';
-                userMessage += '• 确保Anaconda/Miniconda已正确安装\n';
-                userMessage += '• 检查conda命令是否在PATH中\n';
-                userMessage += '• 尝试在命令行运行：conda --version\n';
-                userMessage += '• 重启命令提示符和RapidBI\n\n';
-                userMessage += `错误详情：${errorMessage}`;
+                userMessage += t('conda_env_failed') + '\n\n';
+                userMessage += t('conda_solution') + '\n';
+                userMessage += t('conda_verify_install') + '\n';
+                userMessage += t('conda_check_path') + '\n';
+                userMessage += t('conda_try_version') + '\n';
+                userMessage += t('restart_terminal_app') + '\n\n';
+                userMessage += t('error_details', errorMessage);
             } else if (errorMessage.includes('venv')) {
-                userMessage += 'Python虚拟环境创建失败\n\n';
-                userMessage += '可能的解决方案：\n';
-                userMessage += '• 确保Python版本为3.3或更高\n';
-                userMessage += '• 检查venv模块是否可用\n';
-                userMessage += '• 尝试在命令行运行：python -m venv --help\n';
-                userMessage += '• 重新安装Python并确保勾选"Add to PATH"\n\n';
-                userMessage += `错误详情：${errorMessage}`;
+                userMessage += t('venv_failed') + '\n\n';
+                userMessage += t('venv_solution') + '\n';
+                userMessage += t('venv_check_version') + '\n';
+                userMessage += t('venv_check_module') + '\n';
+                userMessage += t('venv_try_help') + '\n';
+                userMessage += t('venv_reinstall') + '\n\n';
+                userMessage += t('error_details', errorMessage);
             } else {
-                userMessage += `错误详情：${errorMessage}\n\n`;
-                userMessage += '建议：\n';
-                userMessage += '• 检查网络连接\n';
-                userMessage += '• 确保有足够的磁盘空间\n';
-                userMessage += '• 以管理员权限运行RapidBI\n';
-                userMessage += '• 重启应用程序后重试';
+                userMessage += t('error_details', errorMessage) + '\n\n';
+                userMessage += t('general_solution') + '\n';
+                userMessage += t('check_network') + '\n';
+                userMessage += t('check_disk_space') + '\n';
+                userMessage += t('run_as_admin') + '\n';
+                userMessage += t('restart_retry');
             }
 
             // Show error notification instead of blocking alert
@@ -1394,55 +1397,55 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             const diagnostics = await DiagnosePythonInstallation();
 
             // Format diagnostic information for display
-            let diagnosticText = 'Python安装诊断报告\n\n';
+            let diagnosticText = t('python_diagnostic_report') + '\n\n';
 
             // System info
-            diagnosticText += `系统信息：${diagnostics.os} ${diagnostics.arch}\n\n`;
+            diagnosticText += t('system_info', diagnostics.os, diagnostics.arch) + '\n\n';
 
             // Conda info
             const conda = diagnostics.conda as any;
-            diagnosticText += 'Conda检测：\n';
+            diagnosticText += t('conda_detection') + '\n';
             if (conda.found) {
-                diagnosticText += `  ✓ 找到conda：${conda.path}\n`;
+                diagnosticText += t('conda_found', conda.path) + '\n';
                 if (conda.working) {
-                    diagnosticText += `  ✓ 版本：${conda.version}\n`;
+                    diagnosticText += t('conda_version', conda.version) + '\n';
                 } else {
-                    diagnosticText += `  ✗ conda命令失败：${conda.error}\n`;
+                    diagnosticText += t('conda_failed', conda.error) + '\n';
                 }
             } else {
-                diagnosticText += `  ✗ 未找到conda：${conda.error}\n`;
+                diagnosticText += t('conda_not_found', conda.error) + '\n';
             }
             diagnosticText += '\n';
 
             // Python commands info
             const pythonCommands = diagnostics.python_commands as any;
-            diagnosticText += 'Python命令检测：\n';
+            diagnosticText += t('python_cmd_detection') + '\n';
             for (const [cmd, info] of Object.entries(pythonCommands)) {
                 const cmdInfo = info as any;
                 if (cmdInfo.found) {
-                    diagnosticText += `  ✓ ${cmd}：${cmdInfo.path}\n`;
+                    diagnosticText += t('cmd_found', cmd, cmdInfo.path) + '\n';
                     if (cmdInfo.working) {
-                        diagnosticText += `    版本：${cmdInfo.version}\n`;
+                        diagnosticText += t('cmd_version', cmdInfo.version) + '\n';
                         if (cmdInfo.venv_support) {
-                            diagnosticText += `    ✓ 支持venv\n`;
+                            diagnosticText += t('cmd_venv_support') + '\n';
                         } else {
-                            diagnosticText += `    ✗ 不支持venv：${cmdInfo.venv_error}\n`;
+                            diagnosticText += t('cmd_venv_no_support', cmdInfo.venv_error) + '\n';
                         }
                     } else {
-                        diagnosticText += `    ✗ 命令失败：${cmdInfo.error}\n`;
+                        diagnosticText += t('cmd_failed', cmdInfo.error) + '\n';
                     }
                 } else {
-                    diagnosticText += `  ✗ ${cmd}：未找到\n`;
+                    diagnosticText += t('cmd_not_found', cmd) + '\n';
                 }
             }
             diagnosticText += '\n';
 
             // Existing environments
-            const envs = diagnostics.existing_environments as any[];
-            diagnosticText += `现有Python环境（${envs.length}个）：\n`;
-            envs.forEach((env, index) => {
+            const existingEnvs = diagnostics.existing_environments as any[];
+            diagnosticText += t('existing_envs', existingEnvs.length) + '\n';
+            existingEnvs.forEach((env, index) => {
                 diagnosticText += `  ${index + 1}. ${env.type} - ${env.version}\n`;
-                diagnosticText += `     路径：${env.path}\n`;
+                diagnosticText += t('env_path', env.path) + '\n';
             });
 
             // Show diagnostic results
@@ -1475,11 +1478,11 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             content.style.overflow = 'auto';
 
             const title = document.createElement('h3');
-            title.textContent = 'Python安装诊断报告';
+            title.textContent = t('python_diagnostic_report');
             title.style.marginTop = '0';
 
             const closeBtn = document.createElement('button');
-            closeBtn.textContent = '关闭';
+            closeBtn.textContent = t('close');
             closeBtn.style.marginTop = '10px';
             closeBtn.style.padding = '8px 16px';
             closeBtn.style.backgroundColor = '#3b82f6';
@@ -1490,7 +1493,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             closeBtn.onclick = () => document.body.removeChild(modal);
 
             const copyBtn = document.createElement('button');
-            copyBtn.textContent = '复制到剪贴板';
+            copyBtn.textContent = t('copy_to_clipboard');
             copyBtn.style.marginTop = '10px';
             copyBtn.style.marginLeft = '10px';
             copyBtn.style.padding = '8px 16px';
@@ -1501,8 +1504,8 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             copyBtn.style.cursor = 'pointer';
             copyBtn.onclick = () => {
                 navigator.clipboard.writeText(diagnosticText);
-                copyBtn.textContent = '已复制！';
-                setTimeout(() => copyBtn.textContent = '复制到剪贴板', 2000);
+                copyBtn.textContent = t('copied');
+                setTimeout(() => copyBtn.textContent = t('copy_to_clipboard'), 2000);
             };
 
             content.appendChild(title);
@@ -1513,7 +1516,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             document.body.appendChild(modal);
 
         } catch (error) {
-            setNotification({ type: 'error', message: `诊断失败：${error}` });
+            setNotification({ type: 'error', message: t('diagnostic_failed', String(error)) });
         } finally {
             setDiagnosing(false);
         }
@@ -1524,12 +1527,12 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
 
     return (
         <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">Python Runtime Environment</h3>
+            <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('python_runtime_env')}</h3>
             <div className="space-y-4">
                 <div>
-                    <label htmlFor="pythonPath" className="block text-sm font-medium text-slate-700 mb-1">Select Python Environment</label>
+                    <label htmlFor="pythonPath" className="block text-sm font-medium text-slate-700 mb-1">{t('select_python_env')}</label>
                     {loading ? (
-                        <div className="text-sm text-slate-500 animate-pulse">Scanning for Python environments...</div>
+                        <div className="text-sm text-slate-500 animate-pulse">{t('scanning_python_envs')}</div>
                     ) : (
                         <select
                             id="pythonPath"
@@ -1537,10 +1540,10 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                             onChange={(e) => updateConfig({ pythonPath: e.target.value })}
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         >
-                            <option value="">Select an environment...</option>
+                            <option value="">{t('select_env_placeholder')}</option>
                             {config.pythonPath && !isKnownEnv && (
                                 <option value={config.pythonPath}>
-                                    {config.pythonPath} (Saved)
+                                    {config.pythonPath} ({t('saved_env')})
                                 </option>
                             )}
                             {envs.map((env) => (
@@ -1551,7 +1554,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                         </select>
                     )}
 
-                    {/* Create RapidBI Environment Button */}
+                    {/* Create VantageData Environment Button */}
                     {showCreateButton && (
                         <div className="mt-3">
                             <button
@@ -1562,25 +1565,25 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                                 {creatingEnv ? (
                                     <>
                                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        创建中...
+                                        {t('creating_env')}
                                     </>
                                 ) : (
                                     <>
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                         </svg>
-                                        创建RapidBI环境
+                                        {t('create_vantagedata_env')}
                                     </>
                                 )}
                             </button>
                             <p className="mt-1 text-xs text-slate-500">
-                                自动创建专用虚拟环境并安装所有必需的包
+                                {t('create_env_desc')}
                             </p>
                         </div>
                     )}
 
                     <p className="mt-1 text-[10px] text-slate-400 italic">
-                        Select the Python interpreter to use for executing generated scripts.
+                        {t('select_python_interpreter_desc')}
                     </p>
 
                     {/* Python Diagnostic Button */}
@@ -1593,19 +1596,19 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                             {diagnosing ? (
                                 <>
                                     <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                                    诊断中...
+                                    {t('diagnosing')}
                                 </>
                             ) : (
                                 <>
                                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    Python安装诊断
+                                    {t('python_diagnostic')}
                                 </>
                             )}
                         </button>
                         <p className="mt-1 text-xs text-slate-500">
-                            检测Python安装状态，帮助解决环境问题
+                            {t('python_diagnostic_desc')}
                         </p>
                     </div>
                 </div>
@@ -1615,22 +1618,22 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                         <div className="flex items-center gap-3">
                             <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                             <div>
-                                <p className="text-sm font-medium text-blue-800">正在创建RapidBI专用环境...</p>
-                                <p className="text-xs text-blue-600">这可能需要几分钟时间，请耐心等待</p>
+                                <p className="text-sm font-medium text-blue-800">{t('creating_vantagedata_env')}</p>
+                                <p className="text-xs text-blue-600">{t('creating_env_wait')}</p>
                             </div>
                         </div>
                     </div>
                 )}
 
                 {validating && (
-                    <div className="text-sm text-blue-600 animate-pulse">Validating environment...</div>
+                    <div className="text-sm text-blue-600 animate-pulse">{t('validating_env')}</div>
                 )}
 
                 {validation && !validating && (
                     <div className={`p-4 rounded-lg border ${validation.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                         <div className="flex items-center justify-between mb-2">
                             <span className={`font-semibold ${validation.valid ? 'text-green-800' : 'text-red-800'}`}>
-                                {validation.valid ? '✓ Environment Valid' : '✗ Environment Invalid'}
+                                {validation.valid ? '✓ ' + t('env_valid') : '✗ ' + t('env_invalid')}
                             </span>
                             <span className="text-xs text-slate-500">{validation.version}</span>
                         </div>
@@ -1642,13 +1645,13 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                         {validation.missingPackages && validation.missingPackages.length > 0 && (
                             <div>
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-amber-700">Missing Recommended Packages:</span>
+                                    <span className="text-sm font-medium text-amber-700">{t('missing_packages')}</span>
                                     <button
                                         onClick={handleInstallPackages}
                                         disabled={installing || validating}
                                         className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        {installing ? '安装中...' : '环境处置'}
+                                        {installing ? t('installing_packages') : t('install_packages')}
                                     </button>
                                 </div>
                                 <ul className="list-disc list-inside text-xs text-amber-600 mb-2">
@@ -1658,14 +1661,14 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                                 </ul>
                                 {installing && (
                                     <div className="text-xs text-blue-600 animate-pulse">
-                                        正在安装缺失的包，请稍候...
+                                        {t('installing_packages_wait')}
                                     </div>
                                 )}
                             </div>
                         )}
 
                         {validation.valid && (!validation.missingPackages || validation.missingPackages.length === 0) && (
-                            <div className="text-xs text-green-700">All required packages (matplotlib, numpy, pandas, mlxtend, sqlite3) are installed.</div>
+                            <div className="text-xs text-green-700">{t('all_packages_installed')}</div>
                         )}
                     </div>
                 )}
@@ -1697,9 +1700,9 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                                 </div>
                                 <div className="flex-1">
                                     <div className="text-sm font-medium mb-1">
-                                        {notification.type === 'success' && '操作成功'}
-                                        {notification.type === 'error' && '操作失败'}
-                                        {notification.type === 'info' && '提示信息'}
+                                        {notification.type === 'success' && t('operation_success')}
+                                        {notification.type === 'error' && t('operation_failed')}
+                                        {notification.type === 'info' && t('info_message')}
                                     </div>
                                     <div className="text-xs whitespace-pre-line">
                                         {notification.message}

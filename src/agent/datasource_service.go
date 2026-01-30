@@ -2938,6 +2938,22 @@ func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) 
 		return nil, fmt.Errorf("shopify store URL and access token are required")
 	}
 
+	// Normalize store URL - remove protocol and trailing slashes
+	store := config.ShopifyStore
+	store = strings.TrimPrefix(store, "https://")
+	store = strings.TrimPrefix(store, "http://")
+	store = strings.TrimSuffix(store, "/")
+	
+	// Ensure it has .myshopify.com suffix
+	if !strings.Contains(store, ".myshopify.com") {
+		if !strings.Contains(store, ".") {
+			store = store + ".myshopify.com"
+		}
+	}
+	
+	s.log(fmt.Sprintf("[SHOPIFY] Normalized store URL: %s", store))
+	s.log(fmt.Sprintf("[SHOPIFY] Token length: %d", len(config.ShopifyAccessToken)))
+
 	// Set default API version if not provided
 	apiVersion := config.ShopifyAPIVersion
 	if apiVersion == "" {
@@ -2967,7 +2983,7 @@ func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) 
 	defer db.Close()
 
 	// Fetch and import Shopify data
-	if err := s.fetchShopifyData(db, config.ShopifyStore, config.ShopifyAccessToken, apiVersion); err != nil {
+	if err := s.fetchShopifyData(db, store, config.ShopifyAccessToken, apiVersion); err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to fetch Shopify data: %v", err)
 	}
@@ -3000,6 +3016,9 @@ func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) 
 func (s *DataSourceService) fetchShopifyData(db *sql.DB, store, accessToken, apiVersion string) error {
 	baseURL := fmt.Sprintf("https://%s/admin/api/%s", store, apiVersion)
 	
+	s.log(fmt.Sprintf("[SHOPIFY] Starting data fetch from %s (API version: %s)", store, apiVersion))
+	s.log(fmt.Sprintf("[SHOPIFY] Token length: %d, prefix: %s...", len(accessToken), accessToken[:min(10, len(accessToken))]))
+	
 	// Create HTTP client
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -3021,21 +3040,30 @@ func (s *DataSourceService) fetchShopifyData(db *sql.DB, store, accessToken, api
 	}
 
 	importedCount := 0
+	var lastError error
 	for _, resource := range resources {
-		s.log(fmt.Sprintf("Fetching Shopify %s...", resource.name))
+		s.log(fmt.Sprintf("[SHOPIFY] Fetching %s...", resource.name))
 		
 		if err := s.fetchShopifyResource(client, db, baseURL, resource.endpoint, resource.key, resource.name, accessToken); err != nil {
-			s.log(fmt.Sprintf("Warning: Failed to fetch %s: %v", resource.name, err))
+			s.log(fmt.Sprintf("[SHOPIFY] Warning: Failed to fetch %s: %v", resource.name, err))
+			lastError = err
 			// Continue with other resources even if one fails
 		} else {
 			importedCount++
+			s.log(fmt.Sprintf("[SHOPIFY] Successfully fetched %s", resource.name))
 		}
 	}
 
 	if importedCount == 0 {
-		return fmt.Errorf("failed to import any Shopify data, please check your access token permissions")
+		errMsg := "failed to import any Shopify data"
+		if lastError != nil {
+			errMsg = fmt.Sprintf("%s: %v", errMsg, lastError)
+		}
+		s.log(fmt.Sprintf("[SHOPIFY] %s", errMsg))
+		return fmt.Errorf(errMsg)
 	}
 
+	s.log(fmt.Sprintf("[SHOPIFY] Successfully imported %d resource types", importedCount))
 	return nil
 }
 
@@ -3043,6 +3071,8 @@ func (s *DataSourceService) fetchShopifyData(db *sql.DB, store, accessToken, api
 func (s *DataSourceService) fetchShopifyResource(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, accessToken string) error {
 	allData := []map[string]interface{}{}
 	nextURL := baseURL + endpoint
+
+	s.log(fmt.Sprintf("[SHOPIFY] Fetching %s from %s", tableName, nextURL))
 
 	// Paginate through all results
 	for nextURL != "" {
@@ -3056,41 +3086,62 @@ func (s *DataSourceService) fetchShopifyResource(client *http.Client, db *sql.DB
 
 		resp, err := client.Do(req)
 		if err != nil {
+			s.log(fmt.Sprintf("[SHOPIFY] Request failed for %s: %v", tableName, err))
 			return fmt.Errorf("failed to fetch data: %v", err)
 		}
-		defer resp.Body.Close()
+
+		s.log(fmt.Sprintf("[SHOPIFY] Response status for %s: %d", tableName, resp.StatusCode))
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[SHOPIFY] Error response for %s: %s", tableName, string(body)))
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return fmt.Errorf("failed to decode response: %v", err)
 		}
 
+		// Get pagination link before closing body
+		linkHeader := resp.Header.Get("Link")
+		resp.Body.Close()
+
 		// Extract data from response
 		if data, ok := result[jsonKey].([]interface{}); ok {
+			s.log(fmt.Sprintf("[SHOPIFY] Got %d items for %s", len(data), tableName))
 			for _, item := range data {
 				if itemMap, ok := item.(map[string]interface{}); ok {
 					allData = append(allData, itemMap)
 				}
 			}
+		} else {
+			s.log(fmt.Sprintf("[SHOPIFY] No '%s' key in response for %s, keys: %v", jsonKey, tableName, getMapKeys(result)))
 		}
 
 		// Check for pagination link
-		linkHeader := resp.Header.Get("Link")
 		nextURL = s.extractNextLink(linkHeader)
 	}
 
 	if len(allData) == 0 {
-		s.log(fmt.Sprintf("No data found for %s", tableName))
+		s.log(fmt.Sprintf("[SHOPIFY] No data found for %s", tableName))
 		return nil
 	}
 
+	s.log(fmt.Sprintf("[SHOPIFY] Total %d items for %s, creating table...", len(allData), tableName))
 	// Create table and insert data
 	return s.createTableFromJSON(db, tableName, allData)
+}
+
+// getMapKeys returns the keys of a map for debugging
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // extractNextLink extracts the next page URL from Link header
@@ -3372,17 +3423,19 @@ func (s *DataSourceService) fetchBigCommerceResourceV3(client *http.Client, db *
 		if err != nil {
 			return fmt.Errorf("failed to fetch data: %v", err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return fmt.Errorf("failed to decode response: %v", err)
 		}
+		resp.Body.Close()
 
 		// Extract data from response
 		if data, ok := result[jsonKey].([]interface{}); ok {
@@ -3436,22 +3489,25 @@ func (s *DataSourceService) fetchBigCommerceResourceV2(client *http.Client, db *
 		if err != nil {
 			return fmt.Errorf("failed to fetch data: %v", err)
 		}
-		defer resp.Body.Close()
 
 		// V2 API returns 204 when no more data
 		if resp.StatusCode == http.StatusNoContent {
+			resp.Body.Close()
 			break
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result []map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return fmt.Errorf("failed to decode response: %v", err)
 		}
+		resp.Body.Close()
 
 		if len(result) == 0 {
 			break
@@ -3615,17 +3671,19 @@ func (s *DataSourceService) fetchEbayFulfillmentData(client *http.Client, db *sq
 		if err != nil {
 			return fmt.Errorf("failed to fetch data: %v", err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return fmt.Errorf("failed to decode response: %v", err)
 		}
+		resp.Body.Close()
 
 		// Extract orders
 		if orders, ok := result["orders"].([]interface{}); ok {
@@ -3702,10 +3760,10 @@ func (s *DataSourceService) fetchEbayFinancesData(client *http.Client, db *sql.D
 		if err != nil {
 			return fmt.Errorf("failed to fetch data: %v", err)
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			// Some accounts may not have access to Finances API
 			if resp.StatusCode == http.StatusForbidden {
 				s.log("Finances API access denied - skipping transactions")
@@ -3716,8 +3774,10 @@ func (s *DataSourceService) fetchEbayFinancesData(client *http.Client, db *sql.D
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return fmt.Errorf("failed to decode response: %v", err)
 		}
+		resp.Body.Close()
 
 		if transactions, ok := result["transactions"].([]interface{}); ok {
 			for _, txn := range transactions {
@@ -3763,16 +3823,18 @@ func (s *DataSourceService) fetchEbayFinancesData(client *http.Client, db *sql.D
 		if err != nil {
 			break
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
 			break
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			break
 		}
+		resp.Body.Close()
 
 		if payouts, ok := result["payouts"].([]interface{}); ok {
 			for _, payout := range payouts {
@@ -3886,8 +3948,8 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 	s.log(fmt.Sprintf("ImportEtsy: %s (Shop: %s)", name, config.EtsyShopId))
 
 	// Validate configuration
-	if config.EtsyShopId == "" || config.EtsyApiKey == "" || config.EtsyAccessToken == "" {
-		return nil, fmt.Errorf("etsy shop ID, API key and access token are required")
+	if config.EtsyAccessToken == "" {
+		return nil, fmt.Errorf("etsy access token is required")
 	}
 
 	// Create data source ID
@@ -3912,8 +3974,21 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 	}
 	defer db.Close()
 
+	// Auto-detect shop ID if not provided
+	shopId := config.EtsyShopId
+	if shopId == "" {
+		s.log("Auto-detecting Etsy shop ID...")
+		detectedShopId, err := s.getEtsyShopId(config.EtsyAccessToken)
+		if err != nil {
+			_ = os.RemoveAll(absDBDir)
+			return nil, fmt.Errorf("failed to detect shop ID: %v", err)
+		}
+		shopId = detectedShopId
+		s.log(fmt.Sprintf("Detected shop ID: %s", shopId))
+	}
+
 	// Fetch and import Etsy data
-	if err := s.fetchEtsyData(db, config.EtsyShopId, config.EtsyApiKey, config.EtsyAccessToken); err != nil {
+	if err := s.fetchEtsyData(db, shopId, config.EtsyAccessToken); err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to fetch Etsy data: %v", err)
 	}
@@ -3926,8 +4001,7 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 		CreatedAt: time.Now().UnixMilli(),
 		Config: DataSourceConfig{
 			DBPath:          relDBPath,
-			EtsyShopId:      config.EtsyShopId,
-			EtsyApiKey:      config.EtsyApiKey,
+			EtsyShopId:      shopId,
 			EtsyAccessToken: config.EtsyAccessToken,
 		},
 	}
@@ -3943,7 +4017,7 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 }
 
 // fetchEtsyData fetches data from Etsy API and stores it in SQLite
-func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, accessToken string) error {
 	baseURL := "https://openapi.etsy.com/v3"
 
 	// Create HTTP client
@@ -3955,7 +4029,7 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 
 	// Fetch shop info
 	s.log("Fetching Etsy shop info...")
-	if err := s.fetchEtsyShopInfo(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+	if err := s.fetchEtsyShopInfo(client, db, baseURL, shopId, accessToken); err != nil {
 		s.log(fmt.Sprintf("Warning: Failed to fetch shop info: %v", err))
 	} else {
 		importedCount++
@@ -3963,7 +4037,7 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 
 	// Fetch listings (products)
 	s.log("Fetching Etsy listings...")
-	if err := s.fetchEtsyListings(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+	if err := s.fetchEtsyListings(client, db, baseURL, shopId, accessToken); err != nil {
 		s.log(fmt.Sprintf("Warning: Failed to fetch listings: %v", err))
 	} else {
 		importedCount++
@@ -3971,7 +4045,7 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 
 	// Fetch receipts (orders)
 	s.log("Fetching Etsy receipts (orders)...")
-	if err := s.fetchEtsyReceipts(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+	if err := s.fetchEtsyReceipts(client, db, baseURL, shopId, accessToken); err != nil {
 		s.log(fmt.Sprintf("Warning: Failed to fetch receipts: %v", err))
 	} else {
 		importedCount++
@@ -3979,7 +4053,7 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 
 	// Fetch transactions
 	s.log("Fetching Etsy transactions...")
-	if err := s.fetchEtsyTransactions(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+	if err := s.fetchEtsyTransactions(client, db, baseURL, shopId, accessToken); err != nil {
 		s.log(fmt.Sprintf("Warning: Failed to fetch transactions: %v", err))
 	} else {
 		importedCount++
@@ -3987,7 +4061,7 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 
 	// Fetch reviews
 	s.log("Fetching Etsy reviews...")
-	if err := s.fetchEtsyReviews(client, db, baseURL, shopId, apiKey, accessToken); err != nil {
+	if err := s.fetchEtsyReviews(client, db, baseURL, shopId, accessToken); err != nil {
 		s.log(fmt.Sprintf("Warning: Failed to fetch reviews: %v", err))
 	} else {
 		importedCount++
@@ -4000,8 +4074,52 @@ func (s *DataSourceService) fetchEtsyData(db *sql.DB, shopId, apiKey, accessToke
 	return nil
 }
 
+// getEtsyShopId fetches the shop ID for the authenticated user
+func (s *DataSourceService) getEtsyShopId(accessToken string) (string, error) {
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Get user info first
+	req, err := http.NewRequest("GET", "https://openapi.etsy.com/v3/application/users/me", nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	// Extract shop_id from user info
+	if shopId, ok := result["shop_id"]; ok {
+		switch v := shopId.(type) {
+		case float64:
+			return fmt.Sprintf("%.0f", v), nil
+		case string:
+			return v, nil
+		}
+	}
+
+	return "", fmt.Errorf("shop_id not found in user info, user may not have a shop")
+}
+
 // fetchEtsyShopInfo fetches shop information
-func (s *DataSourceService) fetchEtsyShopInfo(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyShopInfo(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) error {
 	url := fmt.Sprintf("%s/application/shops/%s", baseURL, shopId)
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -4009,7 +4127,6 @@ func (s *DataSourceService) fetchEtsyShopInfo(client *http.Client, db *sql.DB, b
 		return err
 	}
 
-	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
 
@@ -4035,7 +4152,7 @@ func (s *DataSourceService) fetchEtsyShopInfo(client *http.Client, db *sql.DB, b
 }
 
 // fetchEtsyListings fetches all active listings
-func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) error {
 	allListings := []map[string]interface{}{}
 	offset := 0
 	limit := 100
@@ -4048,7 +4165,6 @@ func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, b
 			return err
 		}
 
-		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Accept", "application/json")
 
@@ -4056,17 +4172,19 @@ func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, b
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return err
 		}
+		resp.Body.Close()
 
 		if results, ok := result["results"].([]interface{}); ok {
 			for _, item := range results {
@@ -4096,7 +4214,7 @@ func (s *DataSourceService) fetchEtsyListings(client *http.Client, db *sql.DB, b
 }
 
 // fetchEtsyReceipts fetches shop receipts (orders)
-func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) error {
 	allReceipts := []map[string]interface{}{}
 	offset := 0
 	limit := 100
@@ -4109,7 +4227,6 @@ func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, b
 			return err
 		}
 
-		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Accept", "application/json")
 
@@ -4117,17 +4234,19 @@ func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, b
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return err
 		}
+		resp.Body.Close()
 
 		if results, ok := result["results"].([]interface{}); ok {
 			for _, item := range results {
@@ -4156,7 +4275,7 @@ func (s *DataSourceService) fetchEtsyReceipts(client *http.Client, db *sql.DB, b
 }
 
 // fetchEtsyTransactions fetches shop transactions
-func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) error {
 	allTransactions := []map[string]interface{}{}
 	offset := 0
 	limit := 100
@@ -4169,7 +4288,6 @@ func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.D
 			return err
 		}
 
-		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Accept", "application/json")
 
@@ -4177,17 +4295,19 @@ func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.D
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return err
 		}
+		resp.Body.Close()
 
 		if results, ok := result["results"].([]interface{}); ok {
 			for _, item := range results {
@@ -4216,7 +4336,7 @@ func (s *DataSourceService) fetchEtsyTransactions(client *http.Client, db *sql.D
 }
 
 // fetchEtsyReviews fetches shop reviews
-func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, baseURL, shopId, apiKey, accessToken string) error {
+func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) error {
 	allReviews := []map[string]interface{}{}
 	offset := 0
 	limit := 100
@@ -4229,7 +4349,6 @@ func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, ba
 			return err
 		}
 
-		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Accept", "application/json")
 
@@ -4237,17 +4356,19 @@ func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, ba
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			// Reviews might not be accessible, skip silently
+			resp.Body.Close()
 			break
 		}
 
 		var result map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
 			return err
 		}
+		resp.Body.Close()
 
 		if results, ok := result["results"].([]interface{}); ok {
 			for _, item := range results {

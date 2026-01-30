@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ReadChartDataFile } from '../../wailsjs/go/main/App';
 import { Table } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 interface TableFileLoaderProps {
     fileRef: string;
@@ -8,6 +9,7 @@ interface TableFileLoaderProps {
 }
 
 const TableFileLoader: React.FC<TableFileLoaderProps> = ({ fileRef, threadId }) => {
+    const { t } = useLanguage();
     const [fileData, setFileData] = useState<any[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -52,8 +54,8 @@ const TableFileLoader: React.FC<TableFileLoaderProps> = ({ fileRef, threadId }) 
                         </svg>
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-medium text-blue-800">Loading Table Data...</p>
-                        <p className="text-xs text-blue-600 mt-1">Reading table data from file</p>
+                        <p className="text-sm font-medium text-blue-800">{t('loading_table_data')}</p>
+                        <p className="text-xs text-blue-600 mt-1">{t('reading_table_data')}</p>
                     </div>
                 </div>
             </div>
@@ -71,7 +73,7 @@ const TableFileLoader: React.FC<TableFileLoaderProps> = ({ fileRef, threadId }) 
                         </svg>
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-medium text-red-800">Failed to Load Table Data</p>
+                        <p className="text-sm font-medium text-red-800">{t('failed_load_table')}</p>
                         <p className="text-xs text-red-600 mt-1">{error}</p>
                     </div>
                 </div>
@@ -91,8 +93,8 @@ const TableFileLoader: React.FC<TableFileLoaderProps> = ({ fileRef, threadId }) 
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
                 <div className="flex items-center gap-2">
                     <Table className="w-4 h-4 text-blue-500" />
-                    <span className="text-sm font-medium text-slate-700">Analysis Result</span>
-                    <span className="text-xs text-slate-400">({fileData.length} rows)</span>
+                    <span className="text-sm font-medium text-slate-700">{t('analysis_result_table')}</span>
+                    <span className="text-xs text-slate-400">({fileData.length} {t('rows')})</span>
                 </div>
             </div>
             <div className="overflow-x-auto max-h-96">

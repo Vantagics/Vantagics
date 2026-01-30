@@ -170,6 +170,11 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
         onClose();
     };
 
+    const openExternalURL = (url: string) => {
+        // @ts-ignore - OpenExternalURL is defined in App.go
+        window.go.main.App.OpenExternalURL(url);
+    };
+
     const getAPIIcon = (id: string) => {
         switch (id) {
             case 'serper':
@@ -311,16 +316,14 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                 placeholder={t('enter_serper_api_key') || 'Enter your Serper.dev API key'}
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
-                                            <a
-                                                href="https://serper.dev"
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                            <button
+                                                onClick={() => openExternalURL('https://serper.dev')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
                                                 title={t('get_api_key') || 'Get API Key'}
                                             >
                                                 <ExternalLink size={16} />
                                                 {t('get_key') || 'Get Key'}
-                                            </a>
+                                            </button>
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -345,16 +348,14 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                 placeholder={t('enter_uapi_api_key_optional') || 'Enter your UAPI Pro API key (optional)'}
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
-                                            <a
-                                                href="https://uapis.cn"
-                                                target="_blank"
-                                                rel="noopener noreferrer"
+                                            <button
+                                                onClick={() => openExternalURL('https://uapis.cn')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
                                                 title={t('get_api_key') || 'Get API Key'}
                                             >
                                                 <ExternalLink size={16} />
                                                 {t('get_key') || 'Get Key'}
-                                            </a>
+                                            </button>
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400">

@@ -355,7 +355,6 @@ export namespace agent {
 	    ebay_api_finances?: boolean;
 	    ebay_api_analytics?: boolean;
 	    etsy_shop_id?: string;
-	    etsy_api_key?: string;
 	    etsy_access_token?: string;
 	
 	    static createFrom(source: any = {}) {
@@ -386,7 +385,6 @@ export namespace agent {
 	        this.ebay_api_finances = source["ebay_api_finances"];
 	        this.ebay_api_analytics = source["ebay_api_analytics"];
 	        this.etsy_shop_id = source["etsy_shop_id"];
-	        this.etsy_api_key = source["etsy_api_key"];
 	        this.etsy_access_token = source["etsy_access_token"];
 	    }
 	
@@ -655,6 +653,22 @@ export namespace agent {
 		}
 	}
 	
+	export class ShopifyOAuthConfig {
+	    client_id: string;
+	    client_secret: string;
+	    scopes: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShopifyOAuthConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.client_id = source["client_id"];
+	        this.client_secret = source["client_secret"];
+	        this.scopes = source["scopes"];
+	    }
+	}
 	export class Skill {
 	    name: string;
 	    description: string;
@@ -697,6 +711,34 @@ export namespace agent {
 		}
 	}
 	
+	export class StoreCredentials {
+	    platform: string;
+	    client_id: string;
+	    client_secret: string;
+	    api_key?: string;
+	    api_secret?: string;
+	    scopes?: string;
+	    redirect_uri?: string;
+	    enabled: boolean;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StoreCredentials(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.client_id = source["client_id"];
+	        this.client_secret = source["client_secret"];
+	        this.api_key = source["api_key"];
+	        this.api_secret = source["api_secret"];
+	        this.scopes = source["scopes"];
+	        this.redirect_uri = source["redirect_uri"];
+	        this.enabled = source["enabled"];
+	        this.description = source["description"];
+	    }
+	}
 	
 
 }
@@ -888,6 +930,8 @@ export namespace config {
 	    webSearchMCPURL?: string;
 	    intentEnhancement?: IntentEnhancementConfig;
 	    location?: LocationConfig;
+	    shopifyClientId?: string;
+	    shopifyClientSecret?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -925,6 +969,8 @@ export namespace config {
 	        this.webSearchMCPURL = source["webSearchMCPURL"];
 	        this.intentEnhancement = this.convertValues(source["intentEnhancement"], IntentEnhancementConfig);
 	        this.location = this.convertValues(source["location"], LocationConfig);
+	        this.shopifyClientId = source["shopifyClientId"];
+	        this.shopifyClientSecret = source["shopifyClientSecret"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1884,6 +1930,20 @@ export namespace main {
 	
 	
 	
+	export class ShopifyOAuthConfig {
+	    client_id: string;
+	    client_secret: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ShopifyOAuthConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.client_id = source["client_id"];
+	        this.client_secret = source["client_secret"];
+	    }
+	}
 	export class SkillInfo {
 	    id: string;
 	    name: string;

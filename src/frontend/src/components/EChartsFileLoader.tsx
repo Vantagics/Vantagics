@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ReadChartDataFile } from '../../wailsjs/go/main/App';
 import Chart from './Chart';
+import { useLanguage } from '../i18n';
 
 interface EChartsFileLoaderProps {
     fileRef: string;
@@ -10,6 +11,7 @@ interface EChartsFileLoaderProps {
 }
 
 const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId, chartKey, onDoubleClick }) => {
+    const { t } = useLanguage();
     const [fileData, setFileData] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -52,8 +54,8 @@ const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId
                         </svg>
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-medium text-blue-800">Loading Chart Data...</p>
-                        <p className="text-xs text-blue-600 mt-1">Reading chart data from file</p>
+                        <p className="text-sm font-medium text-blue-800">{t('loading_chart_data')}</p>
+                        <p className="text-xs text-blue-600 mt-1">{t('reading_chart_data')}</p>
                     </div>
                 </div>
             </div>
@@ -71,7 +73,7 @@ const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId
                         </svg>
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-medium text-red-800">Failed to Load Chart Data</p>
+                        <p className="text-sm font-medium text-red-800">{t('failed_load_chart')}</p>
                         <p className="text-xs text-red-600 mt-1">{error}</p>
                     </div>
                 </div>
@@ -110,7 +112,7 @@ const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId
             <div
                 className="cursor-zoom-in group relative"
                 onDoubleClick={onDoubleClick}
-                title="Double click to expand"
+                title={t('double_click_expand')}
             >
                 <Chart
                     key={chartKey}
@@ -118,7 +120,7 @@ const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId
                     height="400px"
                 />
                 <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                    <span className="bg-slate-800/80 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-sm">Double click to expand</span>
+                    <span className="bg-slate-800/80 text-white px-3 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-sm">{t('double_click_expand')}</span>
                 </div>
             </div>
         );
@@ -133,8 +135,8 @@ const EChartsFileLoader: React.FC<EChartsFileLoaderProps> = ({ fileRef, threadId
                         </svg>
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-medium text-red-800">Cannot Display Chart</p>
-                        <p className="text-xs text-red-600 mt-1">Error: {(e as Error).message}</p>
+                        <p className="text-sm font-medium text-red-800">{t('cannot_display_chart')}</p>
+                        <p className="text-xs text-red-600 mt-1">{t('error')}: {(e as Error).message}</p>
                     </div>
                 </div>
             </div>

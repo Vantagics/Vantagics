@@ -12,6 +12,7 @@ import DataSourcePropertiesModal from './DataSourcePropertiesModal';
 import DataSourceOptimizeModal from './DataSourceOptimizeModal';
 import RenameDataSourceModal from './RenameDataSourceModal';
 import SemanticOptimizeModal from './SemanticOptimizeModal';
+import OnboardingWizard from './OnboardingWizard';
 import { Trash2, Plus } from 'lucide-react';
 
 interface SidebarProps {
@@ -38,11 +39,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [isReplayLoading, setIsReplayLoading] = useState(false);
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
     const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
+    const [showOnboardingWizard, setShowOnboardingWizard] = useState(false); // 新手向导
+    const [preSelectedDriverType, setPreSelectedDriverType] = useState<string | null>(null); // 预选的数据源类型
+    const [hasShownOnboarding, setHasShownOnboarding] = useState(false); // 是否已显示过新手向导
 
     const fetchSources = async () => {
         try {
             const data = await GetDataSources();
             setSources(data || []);
+            
+            // Show onboarding wizard if no data sources and haven't shown before
+            if ((!data || data.length === 0) && !hasShownOnboarding) {
+                setShowOnboardingWizard(true);
+                setHasShownOnboarding(true);
+            }
         } catch (err) {
             console.error('Failed to fetch data sources:', err);
         }
@@ -263,7 +273,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
             <AddDataSourceModal
                 isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
+                onClose={() => {
+                    setIsAddModalOpen(false);
+                    setPreSelectedDriverType(null);
+                }}
                 onSuccess={(newDataSource) => {
                     fetchSources();
                     // Check if we should auto-open optimize modal
@@ -272,6 +285,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         setOptimizeTarget({ id: newDataSource.id, name: newDataSource.name });
                     }
                 }}
+                preSelectedDriverType={preSelectedDriverType}
             />
 
             <DeleteConfirmationModal
@@ -385,6 +399,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                     }}
                 />
             )}
+
+            <OnboardingWizard
+                isOpen={showOnboardingWizard}
+                onClose={() => setShowOnboardingWizard(false)}
+                onSelectPlatform={(platform) => {
+                    setShowOnboardingWizard(false);
+                    setPreSelectedDriverType(platform);
+                    setIsAddModalOpen(true);
+                }}
+                onSelectSelfImport={() => {
+                    setShowOnboardingWizard(false);
+                    setPreSelectedDriverType(null);
+                    setIsAddModalOpen(true);
+                }}
+            />
         </div>
     );
 };

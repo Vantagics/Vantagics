@@ -97,4 +97,9 @@ type Config struct {
 	// Location 用户位置配置
 	// 用于位置相关查询（如天气、附近地点等）
 	Location *LocationConfig `json:"location,omitempty"`
+	
+	// Shopify OAuth configuration (for developers)
+	// These are set by the developer who registered the app with Shopify
+	ShopifyClientID     string `json:"shopifyClientId,omitempty"`
+	ShopifyClientSecret string `json:"shopifyClientSecret,omitempty"`
 }

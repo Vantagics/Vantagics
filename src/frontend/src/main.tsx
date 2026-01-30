@@ -38,7 +38,7 @@ if (!window.go) {
                     localCache: true,
                     language: 'English',
                     claudeHeaderStyle: 'Anthropic',
-                    dataCacheDir: '~/RapidBI',
+                    dataCacheDir: '~/VantageData',
                     pythonPath: ''
                 }),
                 SaveConfig: async () => {},
@@ -55,8 +55,8 @@ if (!window.go) {
                     error: ''
                 }),
                 InstallPythonPackages: async () => {},
-                CreateRapidBIEnvironment: async () => '/path/to/rapidbi/python',
-                CheckRapidBIEnvironmentExists: async () => false,
+                CreateVantageDataEnvironment: async () => '/path/to/vantagedata/python',
+                CheckVantageDataEnvironmentExists: async () => false,
                 // Add other mocks as needed
             }
         }

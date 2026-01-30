@@ -22,6 +22,10 @@ export function CancelAnalysis() {
   return window['go']['main']['App']['CancelAnalysis']();
 }
 
+export function CancelShopifyOAuth() {
+  return window['go']['main']['App']['CancelShopifyOAuth']();
+}
+
 export function CheckComponentHasData(arg1, arg2) {
   return window['go']['main']['App']['CheckComponentHasData'](arg1, arg2);
 }
@@ -278,12 +282,24 @@ export function GetSessionRecordings() {
   return window['go']['main']['App']['GetSessionRecordings']();
 }
 
+export function GetShopifyConfigFromAppData() {
+  return window['go']['main']['App']['GetShopifyConfigFromAppData']();
+}
+
+export function GetShopifyOAuthConfig() {
+  return window['go']['main']['App']['GetShopifyOAuthConfig']();
+}
+
 export function GetSkillCategories() {
   return window['go']['main']['App']['GetSkillCategories']();
 }
 
 export function GetSkills() {
   return window['go']['main']['App']['GetSkills']();
+}
+
+export function GetStoreConfig(arg1) {
+  return window['go']['main']['App']['GetStoreConfig'](arg1);
 }
 
 export function Greet(arg1) {
@@ -342,12 +358,20 @@ export function OpenDevTools() {
   return window['go']['main']['App']['OpenDevTools']();
 }
 
+export function OpenExternalURL(arg1) {
+  return window['go']['main']['App']['OpenExternalURL'](arg1);
+}
+
 export function OpenSessionFile(arg1, arg2) {
   return window['go']['main']['App']['OpenSessionFile'](arg1, arg2);
 }
 
 export function OpenSessionResultsDirectory(arg1) {
   return window['go']['main']['App']['OpenSessionResultsDirectory'](arg1);
+}
+
+export function OpenShopifyOAuthInBrowser(arg1) {
+  return window['go']['main']['App']['OpenShopifyOAuthInBrowser'](arg1);
 }
 
 export function PrepareImportAnalysis() {
@@ -454,6 +478,10 @@ export function StartDataSourceAnalysis(arg1) {
   return window['go']['main']['App']['StartDataSourceAnalysis'](arg1);
 }
 
+export function StartShopifyOAuth(arg1) {
+  return window['go']['main']['App']['StartShopifyOAuth'](arg1);
+}
+
 export function TestLLMConnection(arg1) {
   return window['go']['main']['App']['TestLLMConnection'](arg1);
 }
@@ -512,6 +540,10 @@ export function ValidateImportAnalysis(arg1, arg2) {
 
 export function ValidatePython(arg1) {
   return window['go']['main']['App']['ValidatePython'](arg1);
+}
+
+export function WaitForShopifyOAuth() {
+  return window['go']['main']['App']['WaitForShopifyOAuth']();
 }
 
 export function WriteSystemLog(arg1, arg2, arg3) {

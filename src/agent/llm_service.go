@@ -59,6 +59,8 @@ func (s *LLMService) Chat(ctx context.Context, message string) (string, error) {
 		resp, err = s.chatAnthropic(ctx, message)
 	case "Claude-Compatible":
 		resp, err = s.chatClaudeCompatible(ctx, message)
+	case "Gemini":
+		resp, err = s.chatGemini(ctx, message)
 	default:
 		return "Unsupported LLM provider.", nil
 	}
@@ -350,6 +352,8 @@ func (s *LLMService) ChatStream(ctx context.Context, message string, onChunk LLM
 		resp, err = s.chatAnthropicStream(ctx, message, onChunk)
 	case "Claude-Compatible":
 		resp, err = s.chatClaudeCompatibleStream(ctx, message, onChunk)
+	case "Gemini":
+		resp, err = s.chatGeminiStream(ctx, message, onChunk)
 	default:
 		return "Unsupported LLM provider.", nil
 	}
@@ -751,3 +755,169 @@ func (s *LLMService) chatClaudeCompatibleStream(ctx context.Context, message str
 	return fullContent.String(), nil
 }
 
+
+func (s *LLMService) chatGemini(ctx context.Context, message string) (string, error) {
+	baseURL := s.BaseURL
+	if baseURL == "" {
+		baseURL = "https://generativelanguage.googleapis.com"
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	fullURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", baseURL, s.ModelName, s.APIKey)
+
+	body := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"parts": []map[string]interface{}{
+					{"text": message},
+				},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"maxOutputTokens": getProviderMaxTokens(s.ModelName, s.MaxTokens),
+		},
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Gemini API error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Candidates []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		} `json:"candidates"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Candidates) > 0 && len(result.Candidates[0].Content.Parts) > 0 {
+		return result.Candidates[0].Content.Parts[0].Text, nil
+	}
+
+	return "", fmt.Errorf("no response from Gemini API")
+}
+
+func (s *LLMService) chatGeminiStream(ctx context.Context, message string, onChunk LLMStreamCallback) (string, error) {
+	baseURL := s.BaseURL
+	if baseURL == "" {
+		baseURL = "https://generativelanguage.googleapis.com"
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+	fullURL := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?key=%s&alt=sse", baseURL, s.ModelName, s.APIKey)
+
+	body := map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"parts": []map[string]interface{}{
+					{"text": message},
+				},
+			},
+		},
+		"generationConfig": map[string]interface{}{
+			"maxOutputTokens": getProviderMaxTokens(s.ModelName, s.MaxTokens),
+		},
+	}
+
+	jsonBody, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Gemini API error (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var fullContent strings.Builder
+	reader := resp.Body
+
+	buf := make([]byte, 4096)
+	var lineBuf strings.Builder
+
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			lineBuf.Write(buf[:n])
+
+			for {
+				content := lineBuf.String()
+				idx := strings.Index(content, "\n")
+				if idx == -1 {
+					break
+				}
+
+				line := content[:idx]
+				lineBuf.Reset()
+				lineBuf.WriteString(content[idx+1:])
+
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+
+				if strings.HasPrefix(line, "data: ") {
+					jsonData := strings.TrimPrefix(line, "data: ")
+					var chunk struct {
+						Candidates []struct {
+							Content struct {
+								Parts []struct {
+									Text string `json:"text"`
+								} `json:"parts"`
+							} `json:"content"`
+						} `json:"candidates"`
+					}
+
+					if err := json.Unmarshal([]byte(jsonData), &chunk); err == nil {
+						if len(chunk.Candidates) > 0 && len(chunk.Candidates[0].Content.Parts) > 0 {
+							text := chunk.Candidates[0].Content.Parts[0].Text
+							fullContent.WriteString(text)
+							if onChunk != nil {
+								onChunk(text)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fullContent.String(), err
+		}
+	}
+
+	return fullContent.String(), nil
+}

@@ -38,6 +38,12 @@ func getProviderMaxTokens(modelName string, configuredMax int) int {
 		"claude-3-opus":   8192,
 		"claude-3-haiku":  8192,
 		
+		// Google Gemini models - output limits
+		"gemini-3-pro":         16384,
+		"gemini-3-flash":       16384,
+		"gemini-2.5-pro":       16384,
+		"gemini-2.5-flash":     16384,
+		
 		// Default fallback
 		"default":         8192,
 	}
@@ -152,6 +158,16 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 			logger(fmt.Sprintf("[EINO-INIT] Initializing Anthropic model: %s", cfg.ModelName))
 		}
 		chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
+			APIKey:    cfg.APIKey,
+			BaseURL:   cfg.BaseURL,
+			Model:     cfg.ModelName,
+			MaxTokens: cfg.MaxTokens,
+		})
+	case "Gemini":
+		if logger != nil {
+			logger(fmt.Sprintf("[EINO-INIT] Initializing Gemini model: %s", cfg.ModelName))
+		}
+		chatModel, err = NewGeminiChatModel(context.Background(), &GeminiConfig{
 			APIKey:    cfg.APIKey,
 			BaseURL:   cfg.BaseURL,
 			Model:     cfg.ModelName,

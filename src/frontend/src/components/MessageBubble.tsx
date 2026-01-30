@@ -168,7 +168,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         if (loading) {
             return (
                 <div className="relative group my-4 bg-slate-100 rounded-lg p-8 flex items-center justify-center">
-                    <div className="animate-pulse text-slate-400 text-sm">Loading image...</div>
+                    <div className="animate-pulse text-slate-400 text-sm">{t('loading_preview')}</div>
                 </div>
             );
         }
@@ -176,7 +176,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         if (error || !imageSrc) {
             return (
                 <div className="relative group my-4 bg-blue-50 border border-blue-200 rounded-lg p-8 flex items-center justify-center">
-                    <div className="text-blue-600 text-sm">Failed to load image</div>
+                    <div className="text-blue-600 text-sm">{t('failed_load_image')}</div>
                 </div>
             );
         }

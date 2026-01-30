@@ -15,6 +15,8 @@ export function CanStartNewAnalysis():Promise<boolean|string>;
 
 export function CancelAnalysis():Promise<void>;
 
+export function CancelShopifyOAuth():Promise<void>;
+
 export function CheckComponentHasData(arg1:string,arg2:string):Promise<boolean>;
 
 export function CheckRapidBIEnvironmentExists():Promise<boolean>;
@@ -143,9 +145,15 @@ export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
 
 export function GetSessionRecordings():Promise<Array<agent.AnalysisRecording>>;
 
+export function GetShopifyConfigFromAppData():Promise<agent.ShopifyOAuthConfig>;
+
+export function GetShopifyOAuthConfig():Promise<main.ShopifyOAuthConfig>;
+
 export function GetSkillCategories():Promise<Array<string>>;
 
 export function GetSkills():Promise<Array<main.SkillInfo>>;
+
+export function GetStoreConfig(arg1:string):Promise<agent.StoreCredentials>;
 
 export function Greet(arg1:string):Promise<string>;
 
@@ -175,9 +183,13 @@ export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>
 
 export function OpenDevTools():Promise<void>;
 
+export function OpenExternalURL(arg1:string):Promise<void>;
+
 export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
+
+export function OpenShopifyOAuthInBrowser(arg1:string):Promise<void>;
 
 export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 
@@ -231,6 +243,8 @@ export function ShowMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function StartDataSourceAnalysis(arg1:string):Promise<string>;
 
+export function StartShopifyOAuth(arg1:string):Promise<string>;
+
 export function TestLLMConnection(arg1:config.Config):Promise<main.ConnectionResult>;
 
 export function TestMCPService(arg1:string):Promise<main.ConnectionResult>;
@@ -260,5 +274,7 @@ export function UpdateWorkingContext(arg1:string,arg2:Record<string, any>):Promi
 export function ValidateImportAnalysis(arg1:main.AnalysisExport,arg2:string):Promise<main.ValidationResult>;
 
 export function ValidatePython(arg1:string):Promise<agent.PythonValidationResult>;
+
+export function WaitForShopifyOAuth():Promise<Record<string, string>>;
 
 export function WriteSystemLog(arg1:string,arg2:string,arg3:string):Promise<void>;

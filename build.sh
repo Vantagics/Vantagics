@@ -71,6 +71,8 @@ case $COMMAND in
         rm -rf "$BUILD_DIR"
         rm -rf "$SRC_DIR/build/bin"
         rm -rf "$SRC_DIR/frontend/dist"
+        rm -f "tools/appdata_manager/appdata_manager"
+        rm -f "tools/appdata_manager/appdata_manager.exe"
         echo "Done."
         exit 0
         ;;
@@ -122,6 +124,19 @@ case $COMMAND in
         # Set macOS deployment target
         if [[ "$PLATFORM" == *"darwin"* ]]; then
             export MACOSX_DEPLOYMENT_TARGET=15.10
+        fi
+
+        # Copy appdata.dat to src/agent for embedding (if exists in user's RapidBI directory)
+        APPDATA_SOURCE="$HOME/RapidBI/appdata.dat"
+        APPDATA_DEST="$SRC_DIR/agent/appdata.dat"
+        if [ -f "$APPDATA_SOURCE" ]; then
+            echo "Embedding appdata.dat from $APPDATA_SOURCE..."
+            cp "$APPDATA_SOURCE" "$APPDATA_DEST"
+        else
+            echo "Note: No appdata.dat found at $APPDATA_SOURCE"
+            echo "      Use tools/appdata_manager to create store credentials first."
+            # Ensure empty file exists for embedding
+            touch "$APPDATA_DEST"
         fi
 
         echo "Starting $COMMAND for ${PLATFORM:-current platform}..."
@@ -187,9 +202,42 @@ EOF
             rm -rf "$SCRIPTS_DIR"
         fi
         
+        # Build standalone tools
+        echo ""
+        echo "Building standalone tools..."
+        TOOLS_OUTPUT_DIR="../$BUILD_DIR/tools"
+        mkdir -p "$TOOLS_OUTPUT_DIR"
+        
+        # Build appdata_manager
+        echo "  Building appdata_manager..."
+        cd "../tools/appdata_manager"
+        
+        if [[ "$PLATFORM" == *"darwin"* ]]; then
+            # Build for macOS
+            if [ "$PLATFORM" == "darwin/universal" ]; then
+                # Build Universal binary
+                GOOS=darwin GOARCH=amd64 go build -o appdata_manager_amd64 .
+                GOOS=darwin GOARCH=arm64 go build -o appdata_manager_arm64 .
+                lipo -create -output "../../$BUILD_DIR/tools/appdata_manager" appdata_manager_amd64 appdata_manager_arm64
+                rm -f appdata_manager_amd64 appdata_manager_arm64
+            else
+                go build -o "../../$BUILD_DIR/tools/appdata_manager" .
+            fi
+        elif [ "$PLATFORM" == "windows" ]; then
+            GOOS=windows GOARCH=amd64 go build -o "../../$BUILD_DIR/tools/appdata_manager.exe" .
+        elif [ "$PLATFORM" == "linux" ]; then
+            GOOS=linux GOARCH=amd64 go build -o "../../$BUILD_DIR/tools/appdata_manager" .
+        else
+            go build -o "../../$BUILD_DIR/tools/appdata_manager" .
+        fi
+        
+        echo "  appdata_manager built successfully."
+        cd "../../$SRC_DIR"
+        
         echo ""
         echo "$APP_NAME build finished successfully!"
         echo "Output directory: $BUILD_DIR"
+        echo "Tools directory: $BUILD_DIR/tools"
         ;;
     *)
         echo "Unknown command: $COMMAND"

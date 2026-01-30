@@ -4905,6 +4905,117 @@ func (a *App) ImportJSONDataSource(name string, filePath string) (*agent.DataSou
 	return ds, err
 }
 
+// ShopifyOAuthConfig holds the Shopify OAuth configuration
+type ShopifyOAuthConfig struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+// shopifyOAuthService holds the active OAuth service instance
+var shopifyOAuthService *agent.ShopifyOAuthService
+var shopifyOAuthMutex sync.Mutex
+
+// GetShopifyOAuthConfig returns the Shopify OAuth configuration
+// Developer should set these values
+func (a *App) GetShopifyOAuthConfig() ShopifyOAuthConfig {
+	// These should be configured by the developer
+	// For now, return empty - developer needs to set these
+	cfg, _ := a.GetConfig()
+	return ShopifyOAuthConfig{
+		ClientID:     cfg.ShopifyClientID,
+		ClientSecret: cfg.ShopifyClientSecret,
+	}
+}
+
+// StartShopifyOAuth initiates the Shopify OAuth flow
+// Returns the authorization URL that should be opened in browser
+func (a *App) StartShopifyOAuth(shop string) (string, error) {
+	shopifyOAuthMutex.Lock()
+	defer shopifyOAuthMutex.Unlock()
+
+	// Get OAuth config
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config: %v", err)
+	}
+
+	if cfg.ShopifyClientID == "" || cfg.ShopifyClientSecret == "" {
+		return "", fmt.Errorf("Shopify OAuth not configured. Please set Client ID and Client Secret in settings.")
+	}
+
+	// Create OAuth service
+	oauthConfig := agent.ShopifyOAuthConfig{
+		ClientID:     cfg.ShopifyClientID,
+		ClientSecret: cfg.ShopifyClientSecret,
+		Scopes:       "read_orders,read_products,read_customers,read_inventory",
+	}
+	shopifyOAuthService = agent.NewShopifyOAuthService(oauthConfig, a.Log)
+
+	// Get authorization URL
+	authURL, _, err := shopifyOAuthService.GetAuthURL(shop)
+	if err != nil {
+		return "", err
+	}
+
+	// Start callback server
+	if err := shopifyOAuthService.StartCallbackServer(a.ctx); err != nil {
+		return "", err
+	}
+
+	a.Log(fmt.Sprintf("[SHOPIFY-OAUTH] Started OAuth flow for shop: %s", shop))
+	return authURL, nil
+}
+
+// WaitForShopifyOAuth waits for the OAuth flow to complete
+// Returns the access token and shop URL on success
+func (a *App) WaitForShopifyOAuth() (map[string]string, error) {
+	shopifyOAuthMutex.Lock()
+	service := shopifyOAuthService
+	shopifyOAuthMutex.Unlock()
+
+	if service == nil {
+		return nil, fmt.Errorf("OAuth flow not started")
+	}
+
+	// Wait for result with 5 minute timeout
+	result := service.WaitForResult(5 * time.Minute)
+
+	// Stop the callback server
+	service.StopCallbackServer()
+
+	// Clear the service
+	shopifyOAuthMutex.Lock()
+	shopifyOAuthService = nil
+	shopifyOAuthMutex.Unlock()
+
+	if result.Error != "" {
+		return nil, fmt.Errorf(result.Error)
+	}
+
+	return map[string]string{
+		"accessToken": result.AccessToken,
+		"shop":        result.Shop,
+		"scope":       result.Scope,
+	}, nil
+}
+
+// CancelShopifyOAuth cancels the ongoing OAuth flow
+func (a *App) CancelShopifyOAuth() {
+	shopifyOAuthMutex.Lock()
+	defer shopifyOAuthMutex.Unlock()
+
+	if shopifyOAuthService != nil {
+		shopifyOAuthService.StopCallbackServer()
+		shopifyOAuthService = nil
+		a.Log("[SHOPIFY-OAUTH] OAuth flow cancelled")
+	}
+}
+
+// OpenShopifyOAuthInBrowser opens the Shopify OAuth URL in the default browser
+func (a *App) OpenShopifyOAuthInBrowser(url string) {
+	runtime.BrowserOpenURL(a.ctx, url)
+}
+
 // AddDataSource adds a new data source with generic configuration
 func (a *App) AddDataSource(name string, driverType string, config map[string]string) (*agent.DataSource, error) {
 	if a.dataSourceService == nil {
@@ -4930,7 +5041,6 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 		EbayApiFinances:        config["ebayApiFinances"] != "false",
 		EbayApiAnalytics:       config["ebayApiAnalytics"] != "false",
 		EtsyShopId:             config["etsyShopId"],
-		EtsyApiKey:             config["etsyApiKey"],
 		EtsyAccessToken:        config["etsyAccessToken"],
 	}
 
@@ -5281,6 +5391,11 @@ func (a *App) OpenSessionFile(threadID, fileName string) error {
 
 	runtime.BrowserOpenURL(a.ctx, "file://"+filePath)
 	return nil
+}
+
+// OpenExternalURL opens a URL in the system's default browser
+func (a *App) OpenExternalURL(url string) {
+	runtime.BrowserOpenURL(a.ctx, url)
 }
 
 // DeleteSessionFile deletes a specific file from a session

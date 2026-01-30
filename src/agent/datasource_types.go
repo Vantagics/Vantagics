@@ -114,8 +114,7 @@ type DataSourceConfig struct {
 	EbayApiFinances    bool   `json:"ebay_api_finances,omitempty"`
 	EbayApiAnalytics   bool   `json:"ebay_api_analytics,omitempty"`
 	// Etsy API configuration
-	EtsyShopId      string `json:"etsy_shop_id,omitempty"`
-	EtsyApiKey      string `json:"etsy_api_key,omitempty"`
+	EtsyShopId      string `json:"etsy_shop_id,omitempty"`      // Auto-detected if not provided
 	EtsyAccessToken string `json:"etsy_access_token,omitempty"`
 }
 

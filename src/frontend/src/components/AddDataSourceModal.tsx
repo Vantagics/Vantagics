@@ -1,15 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle } from 'lucide-react';
-import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases } from '../../wailsjs/go/main/App';
+import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
+import { SystemLog } from '../utils/systemLog';
+
+// Declare OAuth functions that will be available after rebuild
+declare function StartShopifyOAuth(shop: string): Promise<string>;
+declare function WaitForShopifyOAuth(): Promise<{accessToken: string, shop: string, scope: string}>;
+declare function CancelShopifyOAuth(): Promise<void>;
+declare function OpenShopifyOAuthInBrowser(url: string): Promise<void>;
 
 interface AddDataSourceModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: (dataSource: any) => void;
+    preSelectedDriverType?: string | null;
 }
 
-const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose, onSuccess, preSelectedDriverType }) => {
     const { t } = useLanguage();
     const [name, setName] = useState('');
     const [driverType, setDriverType] = useState('excel');
@@ -27,6 +35,35 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
     const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [showToast, setShowToast] = useState(false);
+    
+    // Shopify OAuth state
+    const [shopifyOAuthEnabled, setShopifyOAuthEnabled] = useState(false);
+    const [isOAuthInProgress, setIsOAuthInProgress] = useState(false);
+    const [oauthStatus, setOauthStatus] = useState<string>('');
+
+    // Check if Shopify OAuth is configured - run every time modal opens or driver type changes
+    useEffect(() => {
+        if (isOpen && driverType === 'shopify') {
+            SystemLog.info('AddDataSourceModal', 'Checking Shopify OAuth config...');
+            GetConfig().then((cfg: any) => {
+                const hasClientId = !!cfg.shopifyClientId;
+                const hasSecret = !!cfg.shopifyClientSecret;
+                SystemLog.info('AddDataSourceModal', `OAuth config check: ClientID=${hasClientId}, Secret=${hasSecret}`);
+                setShopifyOAuthEnabled(hasClientId && hasSecret);
+            }).catch((err) => {
+                SystemLog.error('AddDataSourceModal', `Failed to get config: ${err}`);
+                setShopifyOAuthEnabled(false);
+            });
+        }
+    }, [isOpen, driverType]);
+
+    // Set driver type from preSelectedDriverType prop
+    useEffect(() => {
+        if (isOpen && preSelectedDriverType) {
+            setDriverType(preSelectedDriverType);
+            setConfig(prev => ({ ...prev, filePath: '' }));
+        }
+    }, [isOpen, preSelectedDriverType]);
 
     if (!isOpen) return null;
 
@@ -108,8 +145,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setError('Please provide eBay OAuth access token');
             return;
         }
-        if (driverType === 'etsy' && (!config.etsyShopId || !config.etsyApiKey || !config.etsyAccessToken)) {
-            setError('Please provide Etsy shop ID, API key and access token');
+        if (driverType === 'etsy' && !config.etsyAccessToken) {
+            setError('Please provide Etsy OAuth access token');
             return;
         }
 
@@ -214,7 +251,14 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
 
                         {driverType === 'excel' || driverType === 'csv' || driverType === 'json' ? (
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">{t('file_path')}</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    {driverType === 'csv' ? (t('csv_folder_path') || 'CSV Folder Path') : t('file_path')}
+                                </label>
+                                {driverType === 'csv' && (
+                                    <p className="text-xs text-slate-500 mb-2">
+                                        {t('csv_folder_hint') || '📁 Select a folder containing CSV files. Each CSV file in the folder will be imported as a separate data table.'}
+                                    </p>
+                                )}
                                 <div className="flex gap-2">
                                     <input
                                         type="text"
@@ -233,54 +277,174 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         ) : driverType === 'shopify' ? (
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
-                                    <input
-                                        type="text"
-                                        value={config.shopifyStore || ''}
-                                        onChange={(e) => setConfig({ ...config, shopifyStore: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="your-store.myshopify.com"
-                                        spellCheck={false}
-                                        autoCorrect="off"
-                                        autoComplete="off"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_access_token') || 'Access Token'}</label>
-                                    <input
-                                        type="password"
-                                        value={config.shopifyAccessToken || ''}
-                                        onChange={(e) => setConfig({ ...config, shopifyAccessToken: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="shpat_..."
-                                        spellCheck={false}
-                                        autoCorrect="off"
-                                        autoComplete="off"
-                                    />
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {t('shopify_token_hint') || 'Admin API access token from your Shopify store'}
-                                    </p>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('api_version') || 'API Version'}</label>
-                                    <input
-                                        type="text"
-                                        value={config.shopifyAPIVersion || '2024-01'}
-                                        onChange={(e) => setConfig({ ...config, shopifyAPIVersion: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="2024-01"
-                                        spellCheck={false}
-                                        autoCorrect="off"
-                                        autoComplete="off"
-                                    />
-                                </div>
+                                {/* OAuth Mode (if configured) */}
+                                {shopifyOAuthEnabled ? (
+                                    <>
+                                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                                            <p className="text-sm font-medium text-green-800 mb-2">
+                                                🔐 {t('shopify_oauth_mode') || 'One-Click Authorization'}
+                                            </p>
+                                            <p className="text-xs text-green-700">
+                                                {t('shopify_oauth_desc') || 'Simply enter your store URL and click "Authorize" to connect securely.'}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
+                                            <input
+                                                type="text"
+                                                value={config.shopifyStore || ''}
+                                                onChange={(e) => setConfig({ ...config, shopifyStore: e.target.value })}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="your-store.myshopify.com"
+                                                spellCheck={false}
+                                                autoCorrect="off"
+                                                autoComplete="off"
+                                                disabled={isOAuthInProgress}
+                                            />
+                                        </div>
+                                        {config.shopifyAccessToken ? (
+                                            <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                                                <CheckCircle className="w-5 h-5 text-green-600" />
+                                                <span className="text-sm text-green-700">{t('shopify_authorized') || 'Store authorized successfully!'}</span>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={async () => {
+                                                    if (!config.shopifyStore) {
+                                                        setError(t('shopify_store_required') || 'Please enter your store URL');
+                                                        return;
+                                                    }
+                                                    setIsOAuthInProgress(true);
+                                                    setOauthStatus(t('shopify_oauth_starting') || 'Starting authorization...');
+                                                    setError(null);
+                                                    try {
+                                                        // @ts-ignore - Will be available after rebuild
+                                                        const authURL = await window.go.main.App.StartShopifyOAuth(config.shopifyStore);
+                                                        setOauthStatus(t('shopify_oauth_waiting') || 'Waiting for authorization in browser...');
+                                                        // @ts-ignore
+                                                        await window.go.main.App.OpenShopifyOAuthInBrowser(authURL);
+                                                        // @ts-ignore
+                                                        const result = await window.go.main.App.WaitForShopifyOAuth();
+                                                        setConfig({ 
+                                                            ...config, 
+                                                            shopifyStore: result.shop,
+                                                            shopifyAccessToken: result.accessToken 
+                                                        });
+                                                        setOauthStatus('');
+                                                    } catch (err: any) {
+                                                        setError(err.toString());
+                                                    } finally {
+                                                        setIsOAuthInProgress(false);
+                                                        setOauthStatus('');
+                                                    }
+                                                }}
+                                                disabled={isOAuthInProgress || !config.shopifyStore}
+                                                className={`w-full px-4 py-2 text-sm font-medium text-white rounded-md shadow-sm flex items-center justify-center gap-2 ${
+                                                    isOAuthInProgress || !config.shopifyStore
+                                                        ? 'bg-slate-400 cursor-not-allowed'
+                                                        : 'bg-green-600 hover:bg-green-700'
+                                                }`}
+                                            >
+                                                {isOAuthInProgress ? (
+                                                    <>
+                                                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                                                        {oauthStatus}
+                                                    </>
+                                                ) : (
+                                                    <>🔗 {t('shopify_authorize') || 'Authorize with Shopify'}</>
+                                                )}
+                                            </button>
+                                        )}
+                                        {isOAuthInProgress && (
+                                            <button
+                                                onClick={async () => {
+                                                    // @ts-ignore
+                                                    await window.go.main.App.CancelShopifyOAuth();
+                                                    setIsOAuthInProgress(false);
+                                                    setOauthStatus('');
+                                                }}
+                                                className="w-full px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md"
+                                            >
+                                                {t('cancel') || 'Cancel'}
+                                            </button>
+                                        )}
+                                    </>
+                                ) : (
+                                    /* Manual Token Mode (fallback) */
+                                    <>
+                                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                            <p className="text-sm font-medium text-amber-800 mb-2">
+                                                {t('shopify_setup_guide') || '📋 How to get your Access Token:'}
+                                            </p>
+                                            <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                                                <li>{t('shopify_step1') || 'Go to your Shopify Admin'} → Settings → Apps</li>
+                                                <li>{t('shopify_step2') || 'Click "Develop apps" → Create an app'}</li>
+                                                <li>{t('shopify_step3') || 'Configure Admin API scopes (read_orders, read_products, read_customers)'}</li>
+                                                <li>{t('shopify_step4') || 'Install app and copy the Admin API access token'}</li>
+                                            </ol>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
+                                            <input
+                                                type="text"
+                                                value={config.shopifyStore || ''}
+                                                onChange={(e) => setConfig({ ...config, shopifyStore: e.target.value })}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="your-store.myshopify.com"
+                                                spellCheck={false}
+                                                autoCorrect="off"
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_access_token') || 'Access Token'}</label>
+                                            <input
+                                                type="password"
+                                                value={config.shopifyAccessToken || ''}
+                                                onChange={(e) => setConfig({ ...config, shopifyAccessToken: e.target.value })}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="shpat_..."
+                                                spellCheck={false}
+                                                autoCorrect="off"
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('api_version') || 'API Version'}</label>
+                                            <input
+                                                type="text"
+                                                value={config.shopifyAPIVersion || '2024-01'}
+                                                onChange={(e) => setConfig({ ...config, shopifyAPIVersion: e.target.value })}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                                placeholder="2024-01"
+                                                spellCheck={false}
+                                                autoCorrect="off"
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         ) : driverType === 'bigcommerce' ? (
                             <div className="space-y-4">
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p className="text-sm font-medium text-amber-800 mb-2">
+                                        {t('bigcommerce_setup_guide') || '📋 How to get your credentials:'}
+                                    </p>
+                                    <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                                        <li>{t('bigcommerce_step1') || 'Go to BigCommerce Admin'} → Settings → API Accounts</li>
+                                        <li>{t('bigcommerce_step2') || 'Click "Create API Account" → "Create V2/V3 API Token"'}</li>
+                                        <li>{t('bigcommerce_step3') || 'Set OAuth Scopes: Products, Orders, Customers (read-only)'}</li>
+                                        <li>{t('bigcommerce_step4') || 'Save and copy the Access Token and API Path'}</li>
+                                    </ol>
+                                    <p className="text-xs text-amber-600 mt-2">
+                                        {t('bigcommerce_path_hint') || 'API Path format: https://api.bigcommerce.com/stores/{store_hash}/v3'}
+                                    </p>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_store_hash') || 'Store Hash'}</label>
                                     <input
@@ -318,6 +482,20 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         ) : driverType === 'ebay' ? (
                             <div className="space-y-4">
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p className="text-sm font-medium text-amber-800 mb-2">
+                                        {t('ebay_setup_guide') || '📋 How to get your Access Token:'}
+                                    </p>
+                                    <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                                        <li>{t('ebay_step1') || 'Go to eBay Developer Program'} → <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">developer.ebay.com</a></li>
+                                        <li>{t('ebay_step2') || 'Create or select an application'}</li>
+                                        <li>{t('ebay_step3') || 'Generate User Token with required OAuth scopes'}</li>
+                                        <li>{t('ebay_step4') || 'Copy the OAuth User Token and paste below'}</li>
+                                    </ol>
+                                    <p className="text-xs text-amber-600 mt-2">
+                                        {t('ebay_scopes_hint') || 'Required scopes: sell.fulfillment, sell.finances, sell.analytics.readonly'}
+                                    </p>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_access_token') || 'OAuth Access Token'}</label>
                                     <input
@@ -331,9 +509,6 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {t('ebay_token_hint') || 'OAuth User Token from eBay Developer Program'}
-                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_environment') || 'Environment'}</label>
@@ -384,36 +559,19 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         ) : driverType === 'etsy' ? (
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_shop_id') || 'Shop ID'}</label>
-                                    <input
-                                        type="text"
-                                        value={config.etsyShopId || ''}
-                                        onChange={(e) => setConfig({ ...config, etsyShopId: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="12345678"
-                                        spellCheck={false}
-                                        autoCorrect="off"
-                                        autoComplete="off"
-                                    />
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {t('etsy_shop_id_hint') || 'Your Etsy shop numeric ID'}
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p className="text-sm font-medium text-amber-800 mb-2">
+                                        {t('etsy_setup_guide') || '📋 How to get your Access Token:'}
                                     </p>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_api_key') || 'API Key (Keystring)'}</label>
-                                    <input
-                                        type="text"
-                                        value={config.etsyApiKey || ''}
-                                        onChange={(e) => setConfig({ ...config, etsyApiKey: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="xxxxxxxxxxxxxxxx"
-                                        spellCheck={false}
-                                        autoCorrect="off"
-                                        autoComplete="off"
-                                    />
+                                    <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                                        <li>{t('etsy_step1') || 'Go to Etsy Developer Portal'} → <a href="https://www.etsy.com/developers/your-apps" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">etsy.com/developers</a></li>
+                                        <li>{t('etsy_step2') || 'Create a new App (or use existing one)'}</li>
+                                        <li>{t('etsy_step3') || 'In App settings, generate an OAuth token with required scopes'}</li>
+                                        <li>{t('etsy_step4') || 'Copy the Access Token and paste below'}</li>
+                                    </ol>
+                                    <p className="text-xs text-amber-600 mt-2">
+                                        {t('etsy_scopes_hint') || 'Required scopes: listings_r, transactions_r, shops_r'}
+                                    </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_access_token') || 'OAuth Access Token'}</label>
@@ -423,13 +581,15 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         onChange={(e) => setConfig({ ...config, etsyAccessToken: e.target.value })}
                                         onKeyDown={(e) => e.stopPropagation()}
                                         className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="OAuth token"
+                                        placeholder="xxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxx"
                                         spellCheck={false}
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
-                                        {t('etsy_token_hint') || 'OAuth 2.0 access token from Etsy Developer Portal'}
+                                </div>
+                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-xs text-blue-700">
+                                        💡 {t('etsy_auto_detect_hint') || 'Shop ID will be automatically detected from your token'}
                                     </p>
                                 </div>
                             </div>

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
+import { useLanguage } from '../i18n';
 
 const ChatArea: React.FC = () => {
+    const { t } = useLanguage();
     const [messages, setMessages] = useState([
         { id: 1, role: 'ai', text: 'Hello! I am your AI Business Intelligence assistant. How can I help you analyze your data today?' },
         { id: 2, role: 'user', text: 'Show me the sales performance for the last quarter.' },
@@ -25,7 +27,7 @@ const ChatArea: React.FC = () => {
                 className="h-20 border-b border-slate-200 flex items-center px-4 pt-6 bg-white/80 backdrop-blur-sm z-10 sticky top-0"
                 style={{ WebkitAppRegion: 'drag' } as any}
             >
-                <span className="font-semibold text-slate-700">Chat Analysis</span>
+                <span className="font-semibold text-slate-700">{t('chat_analysis')}</span>
             </div>
 
             {/* Messages */}

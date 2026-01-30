@@ -1168,16 +1168,16 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                         setModalChartOptions(options);
                                         setChartModalOpen(true);
                                     }}
-                                    title="双击放大查看"
+                                    title={t('double_click_to_zoom')}
                                 >
                                     <Chart options={options} height={`${item.h - 32}px`} />
                                     <div className="absolute top-2 right-2 opacity-0 group-hover/chart:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                                        双击放大
+                                        {t('double_click_to_zoom')}
                                     </div>
                                 </div>
                             );
                         } catch (e) {
-                            return <div className="text-red-500">Chart error</div>;
+                            return <div className="text-red-500">{t('chart_error')}</div>;
                         }
                     } else if (item.data?.type === 'image') {
                         return (
@@ -1187,7 +1187,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     e.stopPropagation();
                                     handleImageDoubleClick(item.data.data);
                                 }}
-                                title="双击放大查看"
+                                title={t('double_click_to_zoom')}
                             >
                                 <img 
                                     src={item.data.data} 
@@ -1195,7 +1195,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     className="w-full h-full object-contain"
                                 />
                                 <div className="absolute top-2 right-2 opacity-0 group-hover/img:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                                    双击放大
+                                    {t('double_click_to_zoom')}
                                 </div>
                             </div>
                         );
@@ -1247,7 +1247,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 hover:text-red-600
                                 p-0.5 rounded transition-colors
                             `}
-                            title="删除组件"
+                            title={t('remove_component')}
                         >
                             <X size={14} />
                         </button>
@@ -1343,7 +1343,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             transition-colors duration-150
                             flex items-center justify-center
                         `}
-                        title="拖拽调整大小"
+                        title={t('drag_to_resize')}
                     >
                         <svg width="8" height="8" viewBox="0 0 8 8" className={componentInfo.textColor}>
                             <path d="M7 1v6H1" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -1442,17 +1442,17 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             setModalChartOptions(options);
                             setChartModalOpen(true);
                         }}
-                        title="双击放大查看"
+                        title={t('double_click_to_zoom')}
                     >
                         <Chart options={options} height="300px" />
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            双击放大
+                            {t('double_click_to_zoom')}
                         </div>
                     </div>
                 );
             } catch (e) {
                 console.error('Failed to render chart:', e);
-                return <div className="text-red-500 p-4">图表解析错误</div>;
+                return <div className="text-red-500 p-4">{t('chart_error')}</div>;
             }
         };
 
@@ -1460,7 +1460,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         const renderTable = () => {
             // 直接使用 dashboardData 中的表格数据
             if (!dashboardData.hasTables || !dashboardData.tableData) {
-                return <div className="p-4 text-center text-slate-400 text-sm">暂无表格数据</div>;
+                return <div className="p-4 text-center text-slate-400 text-sm">{t('no_data_available')}</div>;
             }
             
             // dashboardData.tableData 已经是规范化的格式 { columns, rows }
@@ -1584,11 +1584,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             <div 
                                 className="flex-1 cursor-zoom-in group relative flex items-center justify-center p-2"
                                 onDoubleClick={() => handleImageDoubleClick(currentImage)}
-                                title="双击放大查看"
+                                title={t('double_click_to_zoom')}
                             >
                                 <img src={currentImage} alt={`Image ${validIndex + 1}`} className="max-w-full max-h-full object-contain" />
                                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                                    双击放大
+                                    {t('double_click_to_zoom')}
                                 </div>
                             </div>
                             
@@ -1603,7 +1603,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                                 ? 'text-slate-300 cursor-not-allowed'
                                                 : 'text-slate-600 hover:bg-slate-200 hover:text-slate-800'
                                         }`}
-                                        title="前一张"
+                                        title={t('previous_chart')}
                                     >
                                         <ChevronLeft size={18} />
                                     </button>
@@ -1620,7 +1620,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                                 ? 'text-slate-300 cursor-not-allowed'
                                                 : 'text-slate-600 hover:bg-slate-200 hover:text-slate-800'
                                         }`}
-                                        title="后一张"
+                                        title={t('next_chart')}
                                     >
                                         <ChevronRight size={18} />
                                     </button>
@@ -1731,7 +1731,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 }}
                                 className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
                                     bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100"
-                                title="自动排列所有组件"
+                                title={t('auto_arrange')}
                             >
                                 <span>📐</span>
                                 <span>排列</span>
