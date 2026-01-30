@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
@@ -791,15 +791,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                                                     placeholder={api.id === 'uapi_pro' ? t('enter_api_key_optional_placeholder', api.name) : t('enter_api_key_placeholder', api.name)}
                                                                                     className="flex-1 px-2 py-1.5 text-xs border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                                                                 />
-                                                                                <a
-                                                                                    href={api.id === 'serper' ? 'https://serper.dev' : 'https://uapis.cn'}
-                                                                                    target="_blank"
-                                                                                    rel="noopener noreferrer"
+                                                                                <button
+                                                                                    onClick={() => OpenExternalURL(api.id === 'serper' ? 'https://serper.dev' : 'https://uapis.cn')}
                                                                                     className="px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition-colors whitespace-nowrap"
                                                                                     title={t('get_api_key')}
                                                                                 >
                                                                                     {t('get_key_button')}
-                                                                                </a>
+                                                                                </button>
                                                                             </div>
                                                                         </div>
                                                                     )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
 import { X, AlertCircle, CheckCircle, Key, Search, ExternalLink } from 'lucide-react';
+import { OpenExternalURL } from '../../wailsjs/go/main/App';
 
 interface SearchAPIConfig {
     id: string;
@@ -170,11 +171,6 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
         onClose();
     };
 
-    const openExternalURL = (url: string) => {
-        // @ts-ignore - OpenExternalURL is defined in App.go
-        window.go.main.App.OpenExternalURL(url);
-    };
-
     const getAPIIcon = (id: string) => {
         switch (id) {
             case 'serper':
@@ -317,7 +313,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
                                             <button
-                                                onClick={() => openExternalURL('https://serper.dev')}
+                                                onClick={() => OpenExternalURL('https://serper.dev')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
                                                 title={t('get_api_key') || 'Get API Key'}
                                             >
@@ -349,7 +345,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
                                             <button
-                                                onClick={() => openExternalURL('https://uapis.cn')}
+                                                onClick={() => OpenExternalURL('https://uapis.cn')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
                                                 title={t('get_api_key') || 'Get API Key'}
                                             >

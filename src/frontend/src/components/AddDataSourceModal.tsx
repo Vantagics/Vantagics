@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle } from 'lucide-react';
-import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig } from '../../wailsjs/go/main/App';
+import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig, OpenExternalURL } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
 import { SystemLog } from '../utils/systemLog';
 
@@ -487,7 +487,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         {t('ebay_setup_guide') || '📋 How to get your Access Token:'}
                                     </p>
                                     <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                        <li>{t('ebay_step1') || 'Go to eBay Developer Program'} → <a href="https://developer.ebay.com/my/keys" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">developer.ebay.com</a></li>
+                                        <li>{t('ebay_step1') || 'Go to eBay Developer Program'} → <button onClick={() => OpenExternalURL('https://developer.ebay.com/my/keys')} className="text-blue-600 underline hover:text-blue-800">developer.ebay.com</button></li>
                                         <li>{t('ebay_step2') || 'Create or select an application'}</li>
                                         <li>{t('ebay_step3') || 'Generate User Token with required OAuth scopes'}</li>
                                         <li>{t('ebay_step4') || 'Copy the OAuth User Token and paste below'}</li>
@@ -564,7 +564,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         {t('etsy_setup_guide') || '📋 How to get your Access Token:'}
                                     </p>
                                     <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                        <li>{t('etsy_step1') || 'Go to Etsy Developer Portal'} → <a href="https://www.etsy.com/developers/your-apps" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">etsy.com/developers</a></li>
+                                        <li>{t('etsy_step1') || 'Go to Etsy Developer Portal'} → <button onClick={() => OpenExternalURL('https://www.etsy.com/developers/your-apps')} className="text-blue-600 underline hover:text-blue-800">etsy.com/developers</button></li>
                                         <li>{t('etsy_step2') || 'Create a new App (or use existing one)'}</li>
                                         <li>{t('etsy_step3') || 'In App settings, generate an OAuth token with required scopes'}</li>
                                         <li>{t('etsy_step4') || 'Copy the Access Token and paste below'}</li>

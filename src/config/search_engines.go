@@ -14,9 +14,9 @@ func GetDefaultSearchAPIs() []SearchAPIConfig {
 		{
 			ID:          "uapi_pro",
 			Name:        "UAPI Pro",
-			Description: "UAPI Pro search service with structured data (requires API key)",
+			Description: "UAPI Pro search service with structured data (API key optional)",
 			APIKey:      "",
-			Enabled:     false,
+			Enabled:     true, // Default enabled
 			Tested:      false,
 		},
 	}
@@ -56,12 +56,23 @@ func (c *Config) InitializeSearchAPIs() {
 		c.ActiveSearchAPI = ""
 	}
 	
-	// Set default active search API if not set - prefer first enabled API
+	// Set default active search API if not set - default to uapi_pro
 	if c.ActiveSearchAPI == "" {
+		// First try to find uapi_pro
 		for i := range c.SearchAPIs {
-			if c.SearchAPIs[i].Enabled {
-				c.ActiveSearchAPI = c.SearchAPIs[i].ID
+			if c.SearchAPIs[i].ID == "uapi_pro" {
+				c.ActiveSearchAPI = "uapi_pro"
+				c.SearchAPIs[i].Enabled = true
 				break
+			}
+		}
+		// Fallback to first enabled API if uapi_pro not found
+		if c.ActiveSearchAPI == "" {
+			for i := range c.SearchAPIs {
+				if c.SearchAPIs[i].Enabled {
+					c.ActiveSearchAPI = c.SearchAPIs[i].ID
+					break
+				}
 			}
 		}
 	}

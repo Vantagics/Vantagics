@@ -1015,7 +1015,7 @@ func (a *App) GetConfig() (config.Config, error) {
 				Name:        "UAPI Pro",
 				Description: "UAPI Pro search service with structured data (API key optional)",
 				APIKey:      "",
-				Enabled:     false,
+				Enabled:     true, // Default enabled
 				Tested:      false,
 			},
 		}
@@ -1031,6 +1031,18 @@ func (a *App) GetConfig() (config.Config, error) {
 		// Reset active API if it was DuckDuckGo
 		if cfg.ActiveSearchAPI == "duckduckgo" {
 			cfg.ActiveSearchAPI = ""
+		}
+	}
+
+	// Set default active search API to uapi_pro if not set
+	if cfg.ActiveSearchAPI == "" {
+		cfg.ActiveSearchAPI = "uapi_pro"
+		// Ensure uapi_pro is enabled
+		for i := range cfg.SearchAPIs {
+			if cfg.SearchAPIs[i].ID == "uapi_pro" {
+				cfg.SearchAPIs[i].Enabled = true
+				break
+			}
 		}
 	}
 
