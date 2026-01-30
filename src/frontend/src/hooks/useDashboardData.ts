@@ -77,6 +77,10 @@ export interface DashboardDataSource {
   
   // 新增：清除所有数据的方法
   clearAllData: () => void;
+  
+  // 新增：是否有真正的分析结果（不包括数据源统计）
+  // 用于导出按钮的显示判断
+  hasRealAnalysisResults: boolean;
 }
 
 /**
@@ -281,6 +285,10 @@ export function useDashboardData(): DashboardDataSource {
     // 当正在查看历史请求的空结果时，不显示数据源统计
     const shouldShowDataSourceStats = !hasAnyAnalysisResults && !isViewingHistoricalEmptyResult;
     
+    // 新增：是否有真正的分析结果（不包括数据源统计）
+    // 用于导出按钮的显示判断
+    const hasRealAnalysisResults = hasAnyAnalysisResults;
+    
     // Metrics - 只有在没有分析结果且不是历史空结果时才显示数据源指标
     const analysisMetrics = analysisResults.metrics;
     const dataSourceMetrics: NormalizedMetricData[] = [];
@@ -368,6 +376,8 @@ export function useDashboardData(): DashboardDataSource {
       error: analysisResults.error,
       refreshDataSourceStats,
       clearAllData,
+      // 新增：是否有真正的分析结果（不包括数据源统计）
+      hasRealAnalysisResults,
     };
   }, [analysisResults, dataSourceStatistics, isDataSourceStatsLoading, hasAnyAnalysisResults, isViewingHistoricalEmptyResult, refreshDataSourceStats, clearAllData]);
   

@@ -552,6 +552,26 @@ export namespace agent {
 	        this.error = source["error"];
 	    }
 	}
+	export class RefreshResult {
+	    data_source_id: string;
+	    data_source_name: string;
+	    tables_updated: Record<string, number>;
+	    total_new_rows: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RefreshResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data_source_id = source["data_source_id"];
+	        this.data_source_name = source["data_source_name"];
+	        this.tables_updated = source["tables_updated"];
+	        this.total_new_rows = source["total_new_rows"];
+	        this.error = source["error"];
+	    }
+	}
 	export class TableMapping {
 	    source_table: string;
 	    target_table: string;

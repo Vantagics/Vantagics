@@ -171,6 +171,8 @@ export function InstallSkillsFromZip():Promise<Array<string>>;
 
 export function IsCancelRequested():Promise<boolean>;
 
+export function IsEcommerceDataSource(arg1:string):Promise<boolean>;
+
 export function ListSkills():Promise<Array<agent.Skill>>;
 
 export function LoadLayout(arg1:string):Promise<database.LayoutConfiguration>;
@@ -196,6 +198,8 @@ export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
 export function RecordIntentSelection(arg1:string,arg2:main.IntentSuggestion):Promise<void>;
+
+export function RefreshEcommerceDataSource(arg1:string):Promise<agent.RefreshResult>;
 
 export function ReloadSkills():Promise<void>;
 

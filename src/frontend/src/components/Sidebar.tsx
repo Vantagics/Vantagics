@@ -36,7 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [optimizeTarget, setOptimizeTarget] = useState<{ id: string, name: string } | null>(null);
     const [semanticOptimizeTarget, setSemanticOptimizeTarget] = useState<{ id: string, name: string } | null>(null);
     const [renameTarget, setRenameTarget] = useState<{ id: string, name: string } | null>(null);
-    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string, sourceName: string, hasLocalDB: boolean, isOptimized: boolean } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string, sourceName: string, sourceType: string, hasLocalDB: boolean, isOptimized: boolean } | null>(null);
     const [isReplayLoading, setIsReplayLoading] = useState(false);
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
     const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
@@ -151,6 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 y: e.clientY, 
                 sourceId,
                 sourceName: source.name,
+                sourceType: source.type || '',
                 hasLocalDB,
                 isOptimized
             });
@@ -368,6 +369,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                     position={{ x: contextMenu.x, y: contextMenu.y }}
                     sourceId={contextMenu.sourceId}
                     sourceName={contextMenu.sourceName}
+                    sourceType={contextMenu.sourceType}
                     hasLocalDB={contextMenu.hasLocalDB}
                     isOptimized={contextMenu.isOptimized}
                     onClose={() => setContextMenu(null)}

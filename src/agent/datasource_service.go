@@ -4395,3 +4395,735 @@ func (s *DataSourceService) fetchEtsyReviews(client *http.Client, db *sql.DB, ba
 	s.log(fmt.Sprintf("Imported %d reviews", len(allReviews)))
 	return s.createTableFromJSON(db, "reviews", allReviews)
 }
+
+
+// RefreshEcommerceDataSource performs incremental update for e-commerce data sources
+// It fetches new data from the API and merges it with existing data
+func (s *DataSourceService) RefreshEcommerceDataSource(id string) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("RefreshEcommerceDataSource: %s", id))
+
+	// Load data source
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load data sources: %v", err)
+	}
+
+	var ds *DataSource
+	for i := range sources {
+		if sources[i].ID == id {
+			ds = &sources[i]
+			break
+		}
+	}
+
+	if ds == nil {
+		return nil, fmt.Errorf("data source not found: %s", id)
+	}
+
+	// Check if it's an e-commerce data source
+	switch ds.Type {
+	case "shopify":
+		return s.refreshShopifyData(ds)
+	case "bigcommerce":
+		return s.refreshBigCommerceData(ds)
+	case "ebay":
+		return s.refreshEbayData(ds)
+	case "etsy":
+		return s.refreshEtsyData(ds)
+	default:
+		return nil, fmt.Errorf("data source type '%s' does not support incremental refresh", ds.Type)
+	}
+}
+
+// RefreshResult holds the result of a data refresh operation
+type RefreshResult struct {
+	DataSourceID   string            `json:"data_source_id"`
+	DataSourceName string            `json:"data_source_name"`
+	TablesUpdated  map[string]int    `json:"tables_updated"` // table name -> new rows count
+	TotalNewRows   int               `json:"total_new_rows"`
+	Error          string            `json:"error,omitempty"`
+}
+
+// refreshShopifyData performs incremental update for Shopify data source
+func (s *DataSourceService) refreshShopifyData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	// Validate configuration
+	if ds.Config.ShopifyStore == "" || ds.Config.ShopifyAccessToken == "" {
+		return nil, fmt.Errorf("shopify store URL and access token are required")
+	}
+
+	// Normalize store URL
+	store := ds.Config.ShopifyStore
+	store = strings.TrimPrefix(store, "https://")
+	store = strings.TrimPrefix(store, "http://")
+	store = strings.TrimSuffix(store, "/")
+	if !strings.Contains(store, ".myshopify.com") {
+		if !strings.Contains(store, ".") {
+			store = store + ".myshopify.com"
+		}
+	}
+
+	apiVersion := ds.Config.ShopifyAPIVersion
+	if apiVersion == "" {
+		apiVersion = "2024-01"
+	}
+
+	// Open existing database
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	baseURL := fmt.Sprintf("https://%s/admin/api/%s", store, apiVersion)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Resources to refresh - focus on frequently updated ones
+	resources := []struct {
+		name     string
+		endpoint string
+		key      string
+		idField  string
+	}{
+		{"orders", "/orders.json?status=any&limit=250&order=created_at desc", "orders", "id"},
+		{"customers", "/customers.json?limit=250&order=created_at desc", "customers", "id"},
+		{"products", "/products.json?limit=250", "products", "id"},
+	}
+
+	for _, resource := range resources {
+		s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Refreshing %s...", resource.name))
+		
+		newCount, err := s.refreshShopifyResource(client, db, baseURL, resource.endpoint, resource.key, resource.name, resource.idField, ds.Config.ShopifyAccessToken)
+		if err != nil {
+			s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Warning: Failed to refresh %s: %v", resource.name, err))
+			continue
+		}
+		
+		if newCount > 0 {
+			result.TablesUpdated[resource.name] = newCount
+			result.TotalNewRows += newCount
+			s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Added %d new rows to %s", newCount, resource.name))
+		}
+	}
+
+	// Invalidate cache after refresh
+	s.InvalidateCache(ds.ID)
+
+	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Completed. Total new rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshShopifyResource fetches new data for a specific resource and inserts only new records
+func (s *DataSourceService) refreshShopifyResource(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, idField, accessToken string) (int, error) {
+	// Get the maximum ID from existing records to use as a baseline
+	// This is more efficient than loading all IDs into memory
+	var maxID int64 = 0
+	row := db.QueryRow(fmt.Sprintf("SELECT MAX(CAST(`%s` AS INTEGER)) FROM `%s`", idField, tableName))
+	row.Scan(&maxID) // Ignore error - table might be empty or have non-numeric IDs
+	
+	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Max existing ID in %s: %d", tableName, maxID))
+
+	// Also build a set of existing IDs for accurate duplicate detection
+	// (in case IDs are not strictly sequential)
+	existingIDs := make(map[int64]bool)
+	rows, err := db.Query(fmt.Sprintf("SELECT CAST(`%s` AS INTEGER) FROM `%s`", idField, tableName))
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err == nil {
+				existingIDs[id] = true
+			}
+		}
+	}
+	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Found %d existing records in %s", len(existingIDs), tableName))
+
+	// Fetch new data
+	newData := []map[string]interface{}{}
+	nextURL := baseURL + endpoint
+
+	for nextURL != "" {
+		req, err := http.NewRequest("GET", nextURL, nil)
+		if err != nil {
+			return 0, fmt.Errorf("failed to create request: %v", err)
+		}
+
+		req.Header.Set("X-Shopify-Access-Token", accessToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, fmt.Errorf("failed to fetch data: %v", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return 0, fmt.Errorf("failed to decode response: %v", err)
+		}
+
+		linkHeader := resp.Header.Get("Link")
+		resp.Body.Close()
+
+		foundExisting := false
+		if data, ok := result[jsonKey].([]interface{}); ok {
+			for _, item := range data {
+				if itemMap, ok := item.(map[string]interface{}); ok {
+					// Check if this record already exists
+					if idVal, ok := itemMap[idField]; ok {
+						// Convert to int64 for comparison
+						var idInt int64
+						switch v := idVal.(type) {
+						case float64:
+							idInt = int64(v)
+						case int64:
+							idInt = v
+						case int:
+							idInt = int64(v)
+						default:
+							continue // Skip non-numeric IDs
+						}
+						
+						if !existingIDs[idInt] {
+							newData = append(newData, itemMap)
+						} else {
+							foundExisting = true
+						}
+					}
+				}
+			}
+		}
+
+		nextURL = s.extractNextLink(linkHeader)
+		
+		// Stop pagination if we've hit existing records (data is sorted by created_at desc)
+		// or if we've found enough new records
+		if foundExisting || len(newData) >= 500 {
+			break
+		}
+	}
+
+	if len(newData) == 0 {
+		return 0, nil
+	}
+
+	// Insert new data
+	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Inserting %d new records into %s", len(newData), tableName))
+	
+	// Get existing columns
+	colRows, err := db.Query(fmt.Sprintf("PRAGMA table_info(`%s`)", tableName))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get table info: %v", err)
+	}
+	defer colRows.Close()
+
+	var colNames []string
+	for colRows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			colNames = append(colNames, name)
+		}
+	}
+
+	// Prepare insert statement
+	quotedColNames := make([]string, len(colNames))
+	for i, name := range colNames {
+		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+	}
+	placeholders := make([]string, len(colNames))
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+		tableName,
+		strings.Join(quotedColNames, ", "),
+		strings.Join(placeholders, ", "))
+
+	stmt, err := db.Prepare(insertSQL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare insert: %v", err)
+	}
+	defer stmt.Close()
+
+	insertedCount := 0
+	for _, row := range newData {
+		flatRow := make(map[string]interface{})
+		s.flattenJSON("", row, flatRow)
+
+		values := make([]interface{}, len(colNames))
+		for i, colName := range colNames {
+			if val, ok := flatRow[colName]; ok {
+				values[i] = s.formatValue(val)
+			} else {
+				values[i] = nil
+			}
+		}
+
+		if _, err := stmt.Exec(values...); err != nil {
+			s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Warning: Failed to insert row: %v", err))
+		} else {
+			insertedCount++
+		}
+	}
+
+	return insertedCount, nil
+}
+
+// refreshBigCommerceData performs incremental update for BigCommerce data source
+func (s *DataSourceService) refreshBigCommerceData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[BIGCOMMERCE-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	// Validate configuration
+	if ds.Config.BigCommerceStoreHash == "" || ds.Config.BigCommerceAccessToken == "" {
+		return nil, fmt.Errorf("bigcommerce store hash and access token are required")
+	}
+
+	// Open existing database
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	baseURL := fmt.Sprintf("https://api.bigcommerce.com/stores/%s/v3", ds.Config.BigCommerceStoreHash)
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Resources to refresh
+	resources := []struct {
+		name     string
+		endpoint string
+		key      string
+		idField  string
+	}{
+		{"orders", "/orders?sort=date_created:desc&limit=250", "data", "id"},
+		{"customers", "/customers?sort=date_created:desc&limit=250", "data", "id"},
+		{"products", "/catalog/products?limit=250", "data", "id"},
+	}
+
+	for _, resource := range resources {
+		s.log(fmt.Sprintf("[BIGCOMMERCE-REFRESH] Refreshing %s...", resource.name))
+		
+		newCount, err := s.refreshBigCommerceResource(client, db, baseURL, resource.endpoint, resource.key, resource.name, resource.idField, ds.Config.BigCommerceAccessToken)
+		if err != nil {
+			s.log(fmt.Sprintf("[BIGCOMMERCE-REFRESH] Warning: Failed to refresh %s: %v", resource.name, err))
+			continue
+		}
+		
+		if newCount > 0 {
+			result.TablesUpdated[resource.name] = newCount
+			result.TotalNewRows += newCount
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[BIGCOMMERCE-REFRESH] Completed. Total new rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshBigCommerceResource fetches new data for a specific BigCommerce resource
+func (s *DataSourceService) refreshBigCommerceResource(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, idField, accessToken string) (int, error) {
+	// Get existing IDs using integer comparison
+	existingIDs := make(map[int64]bool)
+	rows, err := db.Query(fmt.Sprintf("SELECT CAST(`%s` AS INTEGER) FROM `%s`", idField, tableName))
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err == nil {
+				existingIDs[id] = true
+			}
+		}
+	}
+
+	// Fetch new data
+	newData := []map[string]interface{}{}
+	url := baseURL + endpoint
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("X-Auth-Token", accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if data, ok := result[jsonKey].([]interface{}); ok {
+		for _, item := range data {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if idVal, ok := itemMap[idField]; ok {
+					var idInt int64
+					switch v := idVal.(type) {
+					case float64:
+						idInt = int64(v)
+					case int64:
+						idInt = v
+					case int:
+						idInt = int64(v)
+					default:
+						continue
+					}
+					if !existingIDs[idInt] {
+						newData = append(newData, itemMap)
+					}
+				}
+			}
+		}
+	}
+
+	if len(newData) == 0 {
+		return 0, nil
+	}
+
+	// Insert new data using existing table schema
+	return s.insertNewRecords(db, tableName, newData)
+}
+
+// refreshEbayData performs incremental update for eBay data source
+func (s *DataSourceService) refreshEbayData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[EBAY-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.EbayAccessToken == "" {
+		return nil, fmt.Errorf("ebay access token is required")
+	}
+
+	// Open existing database
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Determine environment
+	env := ds.Config.EbayEnvironment
+	if env == "" {
+		env = "production"
+	}
+
+	var baseURL string
+	if env == "sandbox" {
+		baseURL = "https://api.sandbox.ebay.com"
+	} else {
+		baseURL = "https://api.ebay.com"
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Refresh orders (most commonly updated)
+	s.log("[EBAY-REFRESH] Refreshing orders...")
+	newCount, err := s.refreshEbayOrders(client, db, baseURL, ds.Config.EbayAccessToken)
+	if err != nil {
+		s.log(fmt.Sprintf("[EBAY-REFRESH] Warning: Failed to refresh orders: %v", err))
+	} else if newCount > 0 {
+		result.TablesUpdated["orders"] = newCount
+		result.TotalNewRows += newCount
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[EBAY-REFRESH] Completed. Total new rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshEbayOrders fetches new eBay orders
+func (s *DataSourceService) refreshEbayOrders(client *http.Client, db *sql.DB, baseURL, accessToken string) (int, error) {
+	// Get existing order IDs (eBay order IDs are strings like "12-34567-89012")
+	existingIDs := make(map[string]bool)
+	rows, err := db.Query("SELECT `orderId` FROM `orders`")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err == nil {
+				existingIDs[strings.TrimSpace(id)] = true
+			}
+		}
+	}
+
+	// Fetch recent orders
+	url := baseURL + "/sell/fulfillment/v1/order?limit=50"
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	newData := []map[string]interface{}{}
+	if orders, ok := result["orders"].([]interface{}); ok {
+		for _, item := range orders {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if idVal, ok := itemMap["orderId"]; ok {
+					idStr := strings.TrimSpace(fmt.Sprintf("%v", idVal))
+					if !existingIDs[idStr] {
+						newData = append(newData, itemMap)
+					}
+				}
+			}
+		}
+	}
+
+	if len(newData) == 0 {
+		return 0, nil
+	}
+
+	return s.insertNewRecords(db, "orders", newData)
+}
+
+// refreshEtsyData performs incremental update for Etsy data source
+func (s *DataSourceService) refreshEtsyData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[ETSY-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.EtsyAccessToken == "" || ds.Config.EtsyShopId == "" {
+		return nil, fmt.Errorf("etsy access token and shop ID are required")
+	}
+
+	// Open existing database
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	baseURL := "https://openapi.etsy.com/v3"
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// Refresh receipts (orders)
+	s.log("[ETSY-REFRESH] Refreshing receipts...")
+	newCount, err := s.refreshEtsyReceipts(client, db, baseURL, ds.Config.EtsyShopId, ds.Config.EtsyAccessToken)
+	if err != nil {
+		s.log(fmt.Sprintf("[ETSY-REFRESH] Warning: Failed to refresh receipts: %v", err))
+	} else if newCount > 0 {
+		result.TablesUpdated["receipts"] = newCount
+		result.TotalNewRows += newCount
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[ETSY-REFRESH] Completed. Total new rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshEtsyReceipts fetches new Etsy receipts
+func (s *DataSourceService) refreshEtsyReceipts(client *http.Client, db *sql.DB, baseURL, shopId, accessToken string) (int, error) {
+	// Get existing receipt IDs using integer comparison
+	existingIDs := make(map[int64]bool)
+	rows, err := db.Query("SELECT CAST(`receipt_id` AS INTEGER) FROM `receipts`")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err == nil {
+				existingIDs[id] = true
+			}
+		}
+	}
+
+	// Fetch recent receipts
+	url := fmt.Sprintf("%s/application/shops/%s/receipts?limit=25", baseURL, shopId)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("x-api-key", accessToken) // Etsy uses API key in header
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch data: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return 0, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	newData := []map[string]interface{}{}
+	if results, ok := result["results"].([]interface{}); ok {
+		for _, item := range results {
+			if itemMap, ok := item.(map[string]interface{}); ok {
+				if idVal, ok := itemMap["receipt_id"]; ok {
+					var idInt int64
+					switch v := idVal.(type) {
+					case float64:
+						idInt = int64(v)
+					case int64:
+						idInt = v
+					case int:
+						idInt = int64(v)
+					default:
+						continue
+					}
+					if !existingIDs[idInt] {
+						newData = append(newData, itemMap)
+					}
+				}
+			}
+		}
+	}
+
+	if len(newData) == 0 {
+		return 0, nil
+	}
+
+	return s.insertNewRecords(db, "receipts", newData)
+}
+
+// insertNewRecords inserts new records into an existing table
+func (s *DataSourceService) insertNewRecords(db *sql.DB, tableName string, newData []map[string]interface{}) (int, error) {
+	if len(newData) == 0 {
+		return 0, nil
+	}
+
+	// Get existing columns
+	colRows, err := db.Query(fmt.Sprintf("PRAGMA table_info(`%s`)", tableName))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get table info: %v", err)
+	}
+	defer colRows.Close()
+
+	var colNames []string
+	for colRows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			colNames = append(colNames, name)
+		}
+	}
+
+	if len(colNames) == 0 {
+		return 0, fmt.Errorf("table %s has no columns", tableName)
+	}
+
+	// Prepare insert statement
+	quotedColNames := make([]string, len(colNames))
+	for i, name := range colNames {
+		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+	}
+	placeholders := make([]string, len(colNames))
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+		tableName,
+		strings.Join(quotedColNames, ", "),
+		strings.Join(placeholders, ", "))
+
+	stmt, err := db.Prepare(insertSQL)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare insert: %v", err)
+	}
+	defer stmt.Close()
+
+	insertedCount := 0
+	for _, row := range newData {
+		flatRow := make(map[string]interface{})
+		s.flattenJSON("", row, flatRow)
+
+		values := make([]interface{}, len(colNames))
+		for i, colName := range colNames {
+			if val, ok := flatRow[colName]; ok {
+				values[i] = s.formatValue(val)
+			} else {
+				values[i] = nil
+			}
+		}
+
+		if _, err := stmt.Exec(values...); err != nil {
+			s.log(fmt.Sprintf("Warning: Failed to insert row: %v", err))
+		} else {
+			insertedCount++
+		}
+	}
+
+	return insertedCount, nil
+}
+
+// IsEcommerceDataSource checks if a data source is an e-commerce type
+func (s *DataSourceService) IsEcommerceDataSource(dsType string) bool {
+	switch strings.ToLower(dsType) {
+	case "shopify", "bigcommerce", "ebay", "etsy":
+		return true
+	default:
+		return false
+	}
+}

@@ -148,9 +148,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         };
     }, [exportDropdownOpen]);
 
-    // 检查是否有可导出的内容
+    // 检查是否有可导出的内容（只检查真正的分析结果，不包括数据源统计）
     const hasExportableContent = () => {
-        return dashboardData.hasMetrics || dashboardData.hasInsights || dashboardData.hasECharts || dashboardData.hasImages || dashboardData.hasTables;
+        return dashboardData.hasRealAnalysisResults;
     };
 
     // 导出数据文件（ZIP 格式）
@@ -1765,50 +1765,49 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         </div>
                     </div>
 
-                    {/* 右侧：数据导出按钮 - 始终显示，无内容时禁用 */}
-                    <div className="flex items-center gap-2">
-                        <div className="relative export-dropdown-container">
-                            <button
-                                onClick={() => hasExportableContent() && setExportDropdownOpen(!exportDropdownOpen)}
-                                disabled={!hasExportableContent()}
-                                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
-                                    ${hasExportableContent() 
-                                        ? 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100 cursor-pointer' 
-                                        : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed'}`}
-                                title={hasExportableContent() ? t('export_dashboard_data') : t('no_exportable_content_hint')}
-                            >
-                                <Download size={14} />
-                                <span>{t('export')}</span>
-                            </button>
+                    {/* 右侧：数据导出按钮 - 仅在有可导出内容时显示 */}
+                    {hasExportableContent() && (
+                        <div className="flex items-center gap-2">
+                            <div className="relative export-dropdown-container">
+                                <button
+                                    onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
+                                    className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
+                                        bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100 cursor-pointer"
+                                    title={t('export_dashboard_data')}
+                                >
+                                    <Download size={14} />
+                                    <span>{t('export')}</span>
+                                </button>
 
-                            {/* 导出下拉菜单 */}
-                            {exportDropdownOpen && hasExportableContent() && (
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
-                                    <button
-                                        onClick={exportAsPDF}
-                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                    >
-                                        <FileImage size={16} className="text-red-600" />
-                                        <span>{t('export_as_pdf')}</span>
-                                    </button>
-                                    <button
-                                        onClick={exportAsPPT}
-                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                    >
-                                        <Presentation size={16} className="text-orange-600" />
-                                        <span>{t('export_as_ppt')}</span>
-                                    </button>
-                                    <button
-                                        onClick={exportDataFiles}
-                                        className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                    >
-                                        <Download size={16} className="text-green-600" />
-                                        <span>导出数据文件</span>
-                                    </button>
-                                </div>
-                            )}
+                                {/* 导出下拉菜单 */}
+                                {exportDropdownOpen && (
+                                    <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 py-2 z-50">
+                                        <button
+                                            onClick={exportAsPDF}
+                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <FileImage size={16} className="text-red-600" />
+                                            <span>{t('export_as_pdf')}</span>
+                                        </button>
+                                        <button
+                                            onClick={exportAsPPT}
+                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <Presentation size={16} className="text-orange-600" />
+                                            <span>{t('export_as_ppt')}</span>
+                                        </button>
+                                        <button
+                                            onClick={exportDataFiles}
+                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <Download size={16} className="text-green-600" />
+                                            <span>导出数据文件</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 

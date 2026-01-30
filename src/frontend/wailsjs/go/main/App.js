@@ -334,6 +334,10 @@ export function IsCancelRequested() {
   return window['go']['main']['App']['IsCancelRequested']();
 }
 
+export function IsEcommerceDataSource(arg1) {
+  return window['go']['main']['App']['IsEcommerceDataSource'](arg1);
+}
+
 export function ListSkills() {
   return window['go']['main']['App']['ListSkills']();
 }
@@ -384,6 +388,10 @@ export function ReadChartDataFile(arg1, arg2) {
 
 export function RecordIntentSelection(arg1, arg2) {
   return window['go']['main']['App']['RecordIntentSelection'](arg1, arg2);
+}
+
+export function RefreshEcommerceDataSource(arg1) {
+  return window['go']['main']['App']['RefreshEcommerceDataSource'](arg1);
 }
 
 export function ReloadSkills() {

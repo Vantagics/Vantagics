@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { GetChatHistoryByDataSource } from '../../wailsjs/go/main/App';
+import { GetChatHistoryByDataSource, RefreshEcommerceDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles } from 'lucide-react';
+import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
     position: { x: number; y: number };
     sourceId: string;
     sourceName: string;
+    sourceType?: string; // Data source type (shopify, bigcommerce, etc.)
     hasLocalDB: boolean; // Whether this is a local SQLite database
     isOptimized?: boolean; // Whether the data source has been optimized (indexes)
     onClose: () => void;
@@ -20,20 +21,50 @@ interface SourceContextMenuProps {
     onSemanticOptimize?: () => void; // New: semantic optimization
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+
+    // Check if this is an e-commerce data source that supports refresh
+    const isEcommerceSource = ['shopify', 'bigcommerce', 'ebay', 'etsy'].includes(sourceType?.toLowerCase() || '');
 
     console.log('[DEBUG] SourceContextMenu render:', {
         sourceId,
         sourceName,
+        sourceType,
         hasLocalDB,
         isOptimized,
+        isEcommerceSource,
         hasOnOptimize: !!onOptimize,
         hasOnSemanticOptimize: !!onSemanticOptimize
     });
+
+    // Handle refresh e-commerce data
+    const handleRefreshData = async () => {
+        if (isRefreshing) return;
+        
+        setIsRefreshing(true);
+        try {
+            console.log('[DEBUG] Refreshing e-commerce data for:', sourceId);
+            const result = await RefreshEcommerceDataSource(sourceId);
+            console.log('[DEBUG] Refresh result:', result);
+            
+            if (result && result.total_new_rows > 0) {
+                alert(t('refresh_data_success').replace('{count}', String(result.total_new_rows)));
+            } else {
+                alert(t('refresh_data_no_new'));
+            }
+        } catch (error) {
+            console.error('[DEBUG] Refresh failed:', error);
+            alert(t('refresh_data_failed') + ': ' + (error instanceof Error ? error.message : String(error)));
+        } finally {
+            setIsRefreshing(false);
+            onClose();
+        }
+    };
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -134,6 +165,19 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 >
                     <Sparkles className="w-4 h-4 text-purple-500" />
                     <span>{t('semantic_optimize')}</span>
+                </button>
+            )}
+            
+            {isEcommerceSource && (
+                <button 
+                    onClick={handleRefreshData}
+                    disabled={isRefreshing}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 ${
+                        isRefreshing ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700'
+                    }`}
+                >
+                    <RefreshCw className={`w-4 h-4 text-green-500 ${isRefreshing ? 'animate-spin' : ''}`} />
+                    <span>{isRefreshing ? t('refreshing_data') : t('fetch_new_data')}</span>
                 </button>
             )}
             

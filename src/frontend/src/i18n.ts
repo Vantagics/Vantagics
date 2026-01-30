@@ -638,6 +638,12 @@ export const translations: Record<Language, Record<string, string>> = {
         'semantic_optimize_warning': 'The process may take several minutes depending on the size of your data.',
         'start_optimize': 'Start Optimization',
         'note': 'Note',
+        // E-commerce Data Refresh
+        'fetch_new_data': 'Fetch New Data',
+        'refreshing_data': 'Refreshing...',
+        'refresh_data_success': 'Successfully fetched {count} new records',
+        'refresh_data_no_new': 'No new data found',
+        'refresh_data_failed': 'Failed to refresh data',
         // Intent Enhancement Settings
         'intent_enhancement': 'Intent Enhancement',
         'intent_enhancement_settings': 'Intent Enhancement Settings',
@@ -1373,6 +1379,12 @@ export const translations: Record<Language, Record<string, string>> = {
         'semantic_optimize_warning': '此过程可能需要几分钟，具体取决于数据大小。',
         'start_optimize': '开始优化',
         'note': '注意',
+        // 电商数据刷新
+        'fetch_new_data': '获取新数据',
+        'refreshing_data': '正在刷新...',
+        'refresh_data_success': '成功获取 {count} 条新记录',
+        'refresh_data_no_new': '没有发现新数据',
+        'refresh_data_failed': '刷新数据失败',
         // Intent Enhancement Settings
         'intent_enhancement': '意图增强',
         'intent_enhancement_settings': '意图增强设置',

@@ -5092,6 +5092,23 @@ func (a *App) DeleteDataSource(id string) error {
 	return a.dataSourceService.DeleteDataSource(id)
 }
 
+// RefreshEcommerceDataSource performs incremental update for e-commerce data sources
+// Returns the refresh result with information about new data fetched
+func (a *App) RefreshEcommerceDataSource(id string) (*agent.RefreshResult, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.RefreshEcommerceDataSource(id)
+}
+
+// IsEcommerceDataSource checks if a data source type supports incremental refresh
+func (a *App) IsEcommerceDataSource(dsType string) bool {
+	if a.dataSourceService == nil {
+		return false
+	}
+	return a.dataSourceService.IsEcommerceDataSource(dsType)
+}
+
 // RenameDataSource renames a data source
 func (a *App) RenameDataSource(id string, newName string) error {
 	if a.dataSourceService == nil {
