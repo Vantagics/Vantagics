@@ -1,0 +1,6 @@
+{
+  "creator": "user",
+  "goal": "Add Excel data import support to Data Source Management",
+  "context": "User wants to import Excel files into a local SQLite cache for analysis.",
+  "status": "in_progress"
+}
