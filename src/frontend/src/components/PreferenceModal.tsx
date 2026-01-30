@@ -44,11 +44,12 @@ interface PreferenceModalProps {
     isOpen: boolean;
     onClose: () => void;
     onOpenSkills?: () => void;
+    initialTab?: Tab;
 }
 
-const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOpenSkills }) => {
+const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOpenSkills, initialTab }) => {
     const { t } = useLanguage();
-    const [activeTab, setActiveTab] = useState<Tab>('system');
+    const [activeTab, setActiveTab] = useState<Tab>(initialTab || 'system');
     const [config, setConfig] = useState<configModel.Config>(configModel.Config.createFrom({
         llmProvider: 'OpenAI',
         apiKey: '',
@@ -86,6 +87,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
 
     useEffect(() => {
         if (isOpen) {
+            // Set initial tab when modal opens
+            if (initialTab) {
+                setActiveTab(initialTab);
+            }
             GetConfig().then(data => {
                 // Filter out DuckDuckGo from search APIs (deprecated)
                 if (data.searchAPIs) {
@@ -101,7 +106,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
             }).catch(console.error);
             setTestResult(null);
         }
-    }, [isOpen]);
+    }, [isOpen, initialTab]);
 
     // Load log statistics
     const loadLogStats = async () => {

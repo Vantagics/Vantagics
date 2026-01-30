@@ -25,6 +25,7 @@ function AppContent() {
     const { t } = useLanguage();
     const { showToast } = useToast();
     const [isPreferenceOpen, setIsPreferenceOpen] = useState(false);
+    const [preferenceInitialTab, setPreferenceInitialTab] = useState<'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent' | undefined>(undefined);
     const [isAboutOpen, setIsAboutOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
@@ -263,6 +264,7 @@ function AppContent() {
             console.error("Startup check failed:", err);
             setStartupStatus("failed");
             setStartupMessage(err.message || String(err));
+            setPreferenceInitialTab('llm');
             setIsPreferenceOpen(true);
         }
     };
@@ -1236,7 +1238,11 @@ function AppContent() {
 
                 <PreferenceModal
                     isOpen={isPreferenceOpen}
-                    onClose={() => setIsPreferenceOpen(false)}
+                    onClose={() => {
+                        setIsPreferenceOpen(false);
+                        setPreferenceInitialTab(undefined);
+                    }}
+                    initialTab={preferenceInitialTab}
                 />
             </div>
         );
@@ -1322,11 +1328,16 @@ function AppContent() {
 
                 <PreferenceModal
                     isOpen={isPreferenceOpen}
-                    onClose={() => setIsPreferenceOpen(false)}
+                    onClose={() => {
+                        setIsPreferenceOpen(false);
+                        setPreferenceInitialTab(undefined);
+                    }}
                     onOpenSkills={() => {
                         setIsPreferenceOpen(false);
+                        setPreferenceInitialTab(undefined);
                         setIsSkillsOpen(true);
                     }}
+                    initialTab={preferenceInitialTab}
                 />
 
                 <SkillsManagementPage
