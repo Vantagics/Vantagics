@@ -144,6 +144,9 @@ func main() {
 		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.onBeforeClose,
 		Menu:             appMenu,
+		// Enable default context menu (right-click) for text inputs on all platforms
+		// This enables Cut/Copy/Paste context menu in production builds
+		EnableDefaultContextMenu: true,
 		Bind: []interface{}{
 			app,
 		},
