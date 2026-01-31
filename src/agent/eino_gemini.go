@@ -114,17 +114,14 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 		if msg.Role == schema.Assistant {
 			role = "model"
 		} else if msg.Role == schema.Tool {
-			// Tool response - add as function response
+			// Tool response - for Gemini 2.0+, we need thought_signature for function responses
+			// As a workaround, we convert tool responses to model text responses
+			// This avoids the thought_signature requirement
 			contents = append(contents, map[string]interface{}{
-				"role": "function",
+				"role": "model",
 				"parts": []map[string]interface{}{
 					{
-						"functionResponse": map[string]interface{}{
-							"name": msg.ToolCallID,
-							"response": map[string]interface{}{
-								"result": msg.Content,
-							},
-						},
+						"text": fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content),
 					},
 				},
 			})
@@ -140,18 +137,17 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 			})
 		}
 
-		// Handle tool calls from assistant
-		for _, tc := range msg.ToolCalls {
-			var args map[string]interface{}
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-				args = map[string]interface{}{}
+		// Handle tool calls from assistant - convert to text to avoid thought_signature requirement
+		if len(msg.ToolCalls) > 0 {
+			var toolCallTexts []string
+			for _, tc := range msg.ToolCalls {
+				toolCallTexts = append(toolCallTexts, fmt.Sprintf("[Calling tool: %s with args: %s]", tc.Function.Name, tc.Function.Arguments))
 			}
-			parts = append(parts, map[string]interface{}{
-				"functionCall": map[string]interface{}{
-					"name": tc.Function.Name,
-					"args": args,
-				},
-			})
+			if msg.Content == "" {
+				parts = append(parts, map[string]interface{}{
+					"text": strings.Join(toolCallTexts, "\n"),
+				})
+			}
 		}
 
 		if len(parts) > 0 {

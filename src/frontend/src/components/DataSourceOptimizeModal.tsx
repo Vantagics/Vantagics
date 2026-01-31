@@ -162,7 +162,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                             <Zap className="w-5 h-5 text-amber-600" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">数据源加速</h2>
+                            <h2 className="text-lg font-bold text-slate-800">数据源本地副本加速</h2>
                             <p className="text-xs text-slate-500">{dataSourceName}</p>
                         </div>
                     </div>

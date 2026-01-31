@@ -351,18 +351,63 @@ Return ONLY a JSON array of suggestions, no other text:
 		return nil, fmt.Errorf("failed to parse LLM suggestions: %w", err)
 	}
 
-	// Generate SQL commands for each suggestion
+	// Build a map of table -> columns for validation
+	tableColumns := make(map[string]map[string]bool)
+	for _, tableName := range tables {
+		columns, err := a.dataSourceService.GetDataSourceTableColumns(dataSourceID, tableName)
+		if err != nil {
+			continue
+		}
+		tableColumns[tableName] = make(map[string]bool)
+		for _, col := range columns {
+			tableColumns[tableName][col] = true
+		}
+	}
+
+	// Filter and generate SQL commands for each suggestion
+	validSuggestions := []IndexSuggestion{}
 	for i := range suggestions {
+		// Validate table exists
+		colMap, tableExists := tableColumns[suggestions[i].TableName]
+		if !tableExists {
+			a.Log(fmt.Sprintf("[OPTIMIZE] Skipping index %s: table %s does not exist", suggestions[i].IndexName, suggestions[i].TableName))
+			continue
+		}
+
+		// Validate all columns exist
+		allColumnsExist := true
+		for _, col := range suggestions[i].Columns {
+			if !colMap[col] {
+				a.Log(fmt.Sprintf("[OPTIMIZE] Skipping index %s: column '%s' does not exist in table '%s'. Available columns: %v", 
+					suggestions[i].IndexName, col, suggestions[i].TableName, getMapKeys(colMap)))
+				allColumnsExist = false
+				break
+			}
+		}
+
+		if !allColumnsExist {
+			continue
+		}
+
 		suggestions[i].SQLCommand = fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
 			suggestions[i].IndexName,
 			suggestions[i].TableName,
 			strings.Join(suggestions[i].Columns, ", "))
+		validSuggestions = append(validSuggestions, suggestions[i])
 	}
 
-	return suggestions, nil
+	a.Log(fmt.Sprintf("[OPTIMIZE] Filtered from %d to %d valid suggestions", len(suggestions), len(validSuggestions)))
+	return validSuggestions, nil
 }
 
-// getColumnTypes retrieves column types for a table
+// getMapKeys returns all keys from a map
+func getMapKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}// getColumnTypes retrieves column types for a table
 func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, error) {
 	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	rows, err := db.Query(query)
