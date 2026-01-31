@@ -246,6 +246,10 @@ export function GetFilesByCategory(arg1) {
   return window['go']['main']['App']['GetFilesByCategory'](arg1);
 }
 
+export function GetJiraProjects(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['GetJiraProjects'](arg1, arg2, arg3, arg4);
+}
+
 export function GetLogStats() {
   return window['go']['main']['App']['GetLogStats']();
 }
@@ -338,6 +342,10 @@ export function IsEcommerceDataSource(arg1) {
   return window['go']['main']['App']['IsEcommerceDataSource'](arg1);
 }
 
+export function IsRefreshableDataSource(arg1) {
+  return window['go']['main']['App']['IsRefreshableDataSource'](arg1);
+}
+
 export function ListSkills() {
   return window['go']['main']['App']['ListSkills']();
 }
@@ -388,6 +396,10 @@ export function ReadChartDataFile(arg1, arg2) {
 
 export function RecordIntentSelection(arg1, arg2) {
   return window['go']['main']['App']['RecordIntentSelection'](arg1, arg2);
+}
+
+export function RefreshDataSource(arg1) {
+  return window['go']['main']['App']['RefreshDataSource'](arg1);
 }
 
 export function RefreshEcommerceDataSource(arg1) {

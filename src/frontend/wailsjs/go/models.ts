@@ -356,6 +356,11 @@ export namespace agent {
 	    ebay_api_analytics?: boolean;
 	    etsy_shop_id?: string;
 	    etsy_access_token?: string;
+	    jira_instance_type?: string;
+	    jira_base_url?: string;
+	    jira_username?: string;
+	    jira_api_token?: string;
+	    jira_project_key?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSourceConfig(source);
@@ -386,6 +391,11 @@ export namespace agent {
 	        this.ebay_api_analytics = source["ebay_api_analytics"];
 	        this.etsy_shop_id = source["etsy_shop_id"];
 	        this.etsy_access_token = source["etsy_access_token"];
+	        this.jira_instance_type = source["jira_instance_type"];
+	        this.jira_base_url = source["jira_base_url"];
+	        this.jira_username = source["jira_username"];
+	        this.jira_api_token = source["jira_api_token"];
+	        this.jira_project_key = source["jira_project_key"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1846,6 +1856,22 @@ export namespace main {
 	        this.description = source["description"];
 	        this.icon = source["icon"];
 	        this.query = source["query"];
+	    }
+	}
+	export class JiraProject {
+	    key: string;
+	    name: string;
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new JiraProject(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.name = source["name"];
+	        this.id = source["id"];
 	    }
 	}
 	export class LogStats {

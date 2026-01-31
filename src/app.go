@@ -5071,6 +5071,11 @@ func (a *App) AddDataSource(name string, driverType string, config map[string]st
 		EbayApiAnalytics:       config["ebayApiAnalytics"] != "false",
 		EtsyShopId:             config["etsyShopId"],
 		EtsyAccessToken:        config["etsyAccessToken"],
+		JiraInstanceType:       config["jiraInstanceType"],
+		JiraBaseUrl:            config["jiraBaseUrl"],
+		JiraUsername:           config["jiraUsername"],
+		JiraApiToken:           config["jiraApiToken"],
+		JiraProjectKey:         config["jiraProjectKey"],
 	}
 
 	headerGen := func(prompt string) (string, error) {
@@ -5107,6 +5112,53 @@ func (a *App) IsEcommerceDataSource(dsType string) bool {
 		return false
 	}
 	return a.dataSourceService.IsEcommerceDataSource(dsType)
+}
+
+// JiraProject represents a Jira project for selection
+type JiraProject struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+// GetJiraProjects fetches available projects from Jira using provided credentials
+// This allows users to select which project(s) to import
+func (a *App) GetJiraProjects(instanceType, baseUrl, username, apiToken string) ([]JiraProject, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+	projects, err := a.dataSourceService.GetJiraProjects(instanceType, baseUrl, username, apiToken)
+	if err != nil {
+		return nil, err
+	}
+	// Convert agent.JiraProject to JiraProject
+	result := make([]JiraProject, len(projects))
+	for i, p := range projects {
+		result[i] = JiraProject{
+			Key:  p.Key,
+			Name: p.Name,
+			ID:   p.ID,
+		}
+	}
+	return result, nil
+}
+
+// IsRefreshableDataSource checks if a data source type supports incremental refresh
+// This includes both e-commerce platforms and project management tools like Jira
+func (a *App) IsRefreshableDataSource(dsType string) bool {
+	if a.dataSourceService == nil {
+		return false
+	}
+	return a.dataSourceService.IsRefreshableDataSource(dsType)
+}
+
+// RefreshDataSource performs incremental update for supported data sources
+// Works for both e-commerce platforms and Jira
+func (a *App) RefreshDataSource(id string) (*agent.RefreshResult, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+	return a.dataSourceService.RefreshDataSource(id)
 }
 
 // RenameDataSource renames a data source

@@ -116,6 +116,12 @@ type DataSourceConfig struct {
 	// Etsy API configuration
 	EtsyShopId      string `json:"etsy_shop_id,omitempty"`      // Auto-detected if not provided
 	EtsyAccessToken string `json:"etsy_access_token,omitempty"`
+	// Jira configuration (Cloud and Server/Data Center)
+	JiraInstanceType string `json:"jira_instance_type,omitempty"` // "cloud" or "server"
+	JiraBaseUrl      string `json:"jira_base_url,omitempty"`
+	JiraUsername     string `json:"jira_username,omitempty"` // Email for Cloud, username for Server
+	JiraApiToken     string `json:"jira_api_token,omitempty"` // API token for Cloud, password for Server
+	JiraProjectKey   string `json:"jira_project_key,omitempty"` // Optional: specific project to import
 }
 
 // DataSourceStatistics holds aggregated statistics about data sources

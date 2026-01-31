@@ -294,6 +294,8 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportEbay(name, config)
 	case "etsy":
 		return s.ImportEtsy(name, config)
+	case "jira":
+		return s.ImportJira(name, config)
 	case "postgresql":
 		return nil, fmt.Errorf("postgresql driver not supported yet")
 	default:
@@ -5126,4 +5128,1552 @@ func (s *DataSourceService) IsEcommerceDataSource(dsType string) bool {
 	default:
 		return false
 	}
+}
+
+// IsRefreshableDataSource checks if a data source type supports incremental refresh
+func (s *DataSourceService) IsRefreshableDataSource(dsType string) bool {
+	switch strings.ToLower(dsType) {
+	case "shopify", "bigcommerce", "ebay", "etsy", "jira":
+		return true
+	default:
+		return false
+	}
+}
+
+// JiraProject represents a Jira project
+type JiraProject struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	ID   string `json:"id"`
+}
+
+// GetJiraProjects fetches available projects from Jira
+func (s *DataSourceService) GetJiraProjects(instanceType, baseUrl, username, apiToken string) ([]JiraProject, error) {
+	// Normalize base URL
+	baseUrl = strings.TrimSuffix(baseUrl, "/")
+	if !strings.HasPrefix(baseUrl, "http://") && !strings.HasPrefix(baseUrl, "https://") {
+		baseUrl = "https://" + baseUrl
+	}
+
+	if instanceType == "" {
+		instanceType = "cloud"
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	url := fmt.Sprintf("%s/rest/api/2/project", baseUrl)
+
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Jira: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 401 {
+		if instanceType == "cloud" {
+			return nil, fmt.Errorf("authentication failed: Please verify your email and API token")
+		}
+		return nil, fmt.Errorf("authentication failed: Please verify your username and password")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Jira API error (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var projects []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %v", err)
+	}
+
+	result := make([]JiraProject, 0, len(projects))
+	for _, p := range projects {
+		if proj, ok := p.(map[string]interface{}); ok {
+			result = append(result, JiraProject{
+				Key:  fmt.Sprintf("%v", proj["key"]),
+				Name: fmt.Sprintf("%v", proj["name"]),
+				ID:   fmt.Sprintf("%v", proj["id"]),
+			})
+		}
+	}
+
+	return result, nil
+}
+
+// RefreshDataSource performs incremental update for supported data sources
+func (s *DataSourceService) RefreshDataSource(id string) (*RefreshResult, error) {
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var ds *DataSource
+	for i := range sources {
+		if sources[i].ID == id {
+			ds = &sources[i]
+			break
+		}
+	}
+
+	if ds == nil {
+		return nil, fmt.Errorf("data source not found")
+	}
+
+	switch strings.ToLower(ds.Type) {
+	case "shopify":
+		return s.refreshShopifyData(ds)
+	case "bigcommerce":
+		return s.refreshBigCommerceData(ds)
+	case "ebay":
+		return s.refreshEbayData(ds)
+	case "etsy":
+		return s.refreshEtsyData(ds)
+	case "jira":
+		return s.refreshJiraData(ds)
+	default:
+		return nil, fmt.Errorf("data source type '%s' does not support refresh", ds.Type)
+	}
+}
+
+// refreshJiraData performs incremental update for Jira data source
+func (s *DataSourceService) refreshJiraData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[JIRA] Starting refresh for data source: %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+		TotalNewRows:   0,
+	}
+
+	// Get database path
+	if ds.Config.DBPath == "" {
+		return nil, fmt.Errorf("data source has no local database")
+	}
+
+	dbPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	// Normalize base URL
+	baseURL := strings.TrimSuffix(ds.Config.JiraBaseUrl, "/")
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	instanceType := ds.Config.JiraInstanceType
+	if instanceType == "" {
+		instanceType = "cloud"
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+
+	// Fetch custom field definitions for proper field mapping
+	s.log("[JIRA] Fetching custom field definitions...")
+	customFields := s.fetchJiraCustomFields(client, baseURL, ds.Config.JiraUsername, ds.Config.JiraApiToken, instanceType)
+	s.log(fmt.Sprintf("[JIRA] Found %d custom fields", len(customFields)))
+
+	// Get the latest issue update time from existing data
+	var lastUpdated string
+	err = db.QueryRow("SELECT MAX(updated) FROM issues WHERE updated IS NOT NULL").Scan(&lastUpdated)
+	if err != nil || lastUpdated == "" {
+		s.log("[JIRA] No existing issues found, will fetch all")
+		lastUpdated = ""
+	} else {
+		s.log(fmt.Sprintf("[JIRA] Last updated issue: %s", lastUpdated))
+	}
+
+	// Build JQL to fetch only updated issues
+	jql := "ORDER BY updated DESC"
+	if ds.Config.JiraProjectKey != "" {
+		jql = fmt.Sprintf("project = %s ORDER BY updated DESC", ds.Config.JiraProjectKey)
+	}
+	if lastUpdated != "" {
+		// Fetch issues updated after the last known update
+		// Add a small buffer to avoid missing issues
+		if ds.Config.JiraProjectKey != "" {
+			jql = fmt.Sprintf("project = %s AND updated > '%s' ORDER BY updated DESC", ds.Config.JiraProjectKey, lastUpdated[:10])
+		} else {
+			jql = fmt.Sprintf("updated > '%s' ORDER BY updated DESC", lastUpdated[:10])
+		}
+	}
+
+	// Fetch updated issues with custom field support
+	newIssues, err := s.fetchJiraIssuesForRefresh(client, baseURL, ds.Config.JiraUsername, ds.Config.JiraApiToken, instanceType, jql, customFields)
+	if err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch issues: %v", err))
+	} else if len(newIssues) > 0 {
+		// Update or insert issues
+		count, err := s.upsertJiraIssues(db, newIssues)
+		if err != nil {
+			s.log(fmt.Sprintf("[JIRA] Warning: Failed to upsert issues: %v", err))
+		} else {
+			result.TablesUpdated["issues"] = count
+			result.TotalNewRows += count
+			s.log(fmt.Sprintf("[JIRA] Updated %d issues", count))
+		}
+	}
+
+	// Refresh worklogs
+	s.log("[JIRA] Refreshing worklogs...")
+	if err := s.refreshJiraWorklogs(client, db, baseURL, ds.Config.JiraUsername, ds.Config.JiraApiToken, instanceType, ds.Config.JiraProjectKey); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to refresh worklogs: %v", err))
+	} else {
+		s.log("[JIRA] Successfully refreshed worklogs")
+	}
+
+	// Refresh projects (full refresh as they don't change often)
+	if err := s.refreshJiraProjects(client, db, baseURL, ds.Config.JiraUsername, ds.Config.JiraApiToken, instanceType); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to refresh projects: %v", err))
+	}
+
+	// Refresh sprints
+	if err := s.refreshJiraSprints(client, db, baseURL, ds.Config.JiraUsername, ds.Config.JiraApiToken, instanceType); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to refresh sprints: %v", err))
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Refresh completed. Total new/updated rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// fetchJiraIssuesForRefresh fetches issues for refresh operation with custom field support
+func (s *DataSourceService) fetchJiraIssuesForRefresh(client *http.Client, baseURL, username, apiToken, instanceType, jql string, customFields map[string]JiraCustomField) ([]map[string]interface{}, error) {
+	allIssues := []map[string]interface{}{}
+	startAt := 0
+	maxResults := 100
+
+	encodedJQL := strings.ReplaceAll(jql, " ", "%20")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "=", "%3D")
+	encodedJQL = strings.ReplaceAll(encodedJQL, ">", "%3E")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "'", "%27")
+
+	for {
+		url := fmt.Sprintf("%s/rest/api/2/search?jql=%s&startAt=%d&maxResults=%d",
+			baseURL, encodedJQL, startAt, maxResults)
+
+		resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		if issues, ok := result["issues"].([]interface{}); ok {
+			for _, issue := range issues {
+				if issueMap, ok := issue.(map[string]interface{}); ok {
+					flatIssue := s.flattenJiraIssueWithCustomFields(issueMap, customFields)
+					allIssues = append(allIssues, flatIssue)
+				}
+			}
+		}
+
+		total := int(result["total"].(float64))
+		startAt += maxResults
+		if startAt >= total {
+			break
+		}
+	}
+
+	return allIssues, nil
+}
+
+// upsertJiraIssues updates or inserts issues into the database
+func (s *DataSourceService) upsertJiraIssues(db *sql.DB, issues []map[string]interface{}) (int, error) {
+	if len(issues) == 0 {
+		return 0, nil
+	}
+
+	// Get existing columns
+	rows, err := db.Query("PRAGMA table_info(issues)")
+	if err != nil {
+		return 0, err
+	}
+	existingCols := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue interface{}
+		rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk)
+		existingCols[name] = true
+	}
+	rows.Close()
+
+	// Collect all columns from new data
+	allCols := make(map[string]bool)
+	for _, issue := range issues {
+		for col := range issue {
+			allCols[col] = true
+		}
+	}
+
+	// Add missing columns
+	for col := range allCols {
+		if !existingCols[col] {
+			_, err := db.Exec(fmt.Sprintf("ALTER TABLE issues ADD COLUMN `%s` TEXT", col))
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to add column %s: %v", col, err))
+			}
+		}
+	}
+
+	// Upsert issues using key as unique identifier
+	updatedCount := 0
+	for _, issue := range issues {
+		key, ok := issue["key"].(string)
+		if !ok || key == "" {
+			continue
+		}
+
+		// Check if issue exists
+		var existingKey string
+		err := db.QueryRow("SELECT key FROM issues WHERE key = ?", key).Scan(&existingKey)
+		
+		if err == sql.ErrNoRows {
+			// Insert new issue
+			cols := []string{}
+			placeholders := []string{}
+			values := []interface{}{}
+			for col, val := range issue {
+				cols = append(cols, fmt.Sprintf("`%s`", col))
+				placeholders = append(placeholders, "?")
+				values = append(values, s.formatValue(val))
+			}
+			insertSQL := fmt.Sprintf("INSERT INTO issues (%s) VALUES (%s)", 
+				strings.Join(cols, ","), strings.Join(placeholders, ","))
+			_, err := db.Exec(insertSQL, values...)
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to insert issue %s: %v", key, err))
+			} else {
+				updatedCount++
+			}
+		} else if err == nil {
+			// Update existing issue
+			setClauses := []string{}
+			values := []interface{}{}
+			for col, val := range issue {
+				if col != "key" {
+					setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+					values = append(values, s.formatValue(val))
+				}
+			}
+			values = append(values, key)
+			updateSQL := fmt.Sprintf("UPDATE issues SET %s WHERE key = ?", strings.Join(setClauses, ", "))
+			_, err := db.Exec(updateSQL, values...)
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to update issue %s: %v", key, err))
+			} else {
+				updatedCount++
+			}
+		}
+	}
+
+	return updatedCount, nil
+}
+
+// refreshJiraProjects refreshes the projects table
+func (s *DataSourceService) refreshJiraProjects(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType string) error {
+	url := fmt.Sprintf("%s/rest/api/2/project", baseURL)
+
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	var projects []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		return err
+	}
+
+	// Drop and recreate projects table
+	db.Exec("DROP TABLE IF EXISTS projects")
+
+	projectMaps := []map[string]interface{}{}
+	for _, p := range projects {
+		if proj, ok := p.(map[string]interface{}); ok {
+			flatProj := map[string]interface{}{
+				"id":   proj["id"],
+				"key":  proj["key"],
+				"name": proj["name"],
+			}
+			if lead, ok := proj["lead"].(map[string]interface{}); ok {
+				flatProj["lead"] = lead["displayName"]
+			}
+			if projectType, ok := proj["projectTypeKey"].(string); ok {
+				flatProj["project_type"] = projectType
+			}
+			projectMaps = append(projectMaps, flatProj)
+		}
+	}
+
+	if len(projectMaps) > 0 {
+		return s.createTableFromJSON(db, "projects", projectMaps)
+	}
+	return nil
+}
+
+// refreshJiraWorklogs refreshes the worklogs table with recent entries
+func (s *DataSourceService) refreshJiraWorklogs(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType, projectKey string) error {
+	// Get the latest worklog update time from existing data
+	var lastUpdated string
+	err := db.QueryRow("SELECT MAX(updated) FROM worklogs WHERE updated IS NOT NULL").Scan(&lastUpdated)
+	if err != nil || lastUpdated == "" {
+		s.log("[JIRA] No existing worklogs found, fetching recent worklogs")
+	}
+
+	// Build JQL to fetch issues with recent worklogs
+	jql := "worklogDate >= -30d ORDER BY updated DESC"
+	if projectKey != "" {
+		jql = fmt.Sprintf("project = %s AND worklogDate >= -30d ORDER BY updated DESC", projectKey)
+	}
+
+	encodedJQL := strings.ReplaceAll(jql, " ", "%20")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "=", "%3D")
+	encodedJQL = strings.ReplaceAll(encodedJQL, ">", "%3E")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "-", "%2D")
+
+	url := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=100&fields=key,worklog", baseURL, encodedJQL)
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	allWorklogs := []map[string]interface{}{}
+
+	if issues, ok := result["issues"].([]interface{}); ok {
+		for _, issue := range issues {
+			if issueMap, ok := issue.(map[string]interface{}); ok {
+				issueKey := fmt.Sprintf("%v", issueMap["key"])
+
+				if fields, ok := issueMap["fields"].(map[string]interface{}); ok {
+					if worklog, ok := fields["worklog"].(map[string]interface{}); ok {
+						if worklogs, ok := worklog["worklogs"].([]interface{}); ok {
+							for _, wl := range worklogs {
+								if wlMap, ok := wl.(map[string]interface{}); ok {
+									flatWorklog := map[string]interface{}{
+										"id":                 wlMap["id"],
+										"issue_key":          issueKey,
+										"started":            wlMap["started"],
+										"time_spent":         wlMap["timeSpent"],
+										"time_spent_seconds": wlMap["timeSpentSeconds"],
+										"comment":            wlMap["comment"],
+										"created":            wlMap["created"],
+										"updated":            wlMap["updated"],
+									}
+
+									if author, ok := wlMap["author"].(map[string]interface{}); ok {
+										flatWorklog["author"] = author["displayName"]
+										flatWorklog["author_email"] = author["emailAddress"]
+										if accountId, ok := author["accountId"].(string); ok {
+											flatWorklog["author_id"] = accountId
+										} else if name, ok := author["name"].(string); ok {
+											flatWorklog["author_id"] = name
+										}
+									}
+
+									if updateAuthor, ok := wlMap["updateAuthor"].(map[string]interface{}); ok {
+										flatWorklog["update_author"] = updateAuthor["displayName"]
+									}
+
+									allWorklogs = append(allWorklogs, flatWorklog)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(allWorklogs) == 0 {
+		s.log("[JIRA] No worklogs found to refresh")
+		return nil
+	}
+
+	// Upsert worklogs
+	count, err := s.upsertJiraWorklogs(db, allWorklogs)
+	if err != nil {
+		return err
+	}
+	s.log(fmt.Sprintf("[JIRA] Refreshed %d worklogs", count))
+	return nil
+}
+
+// upsertJiraWorklogs updates or inserts worklogs into the database
+func (s *DataSourceService) upsertJiraWorklogs(db *sql.DB, worklogs []map[string]interface{}) (int, error) {
+	if len(worklogs) == 0 {
+		return 0, nil
+	}
+
+	// Check if worklogs table exists
+	var tableName string
+	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='worklogs'").Scan(&tableName)
+	if err == sql.ErrNoRows {
+		// Create table if it doesn't exist
+		return len(worklogs), s.createTableFromJSON(db, "worklogs", worklogs)
+	}
+
+	// Get existing columns
+	rows, err := db.Query("PRAGMA table_info(worklogs)")
+	if err != nil {
+		return 0, err
+	}
+	existingCols := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull, pk int
+		var dfltValue interface{}
+		rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk)
+		existingCols[name] = true
+	}
+	rows.Close()
+
+	// Collect all columns from new data
+	allCols := make(map[string]bool)
+	for _, wl := range worklogs {
+		for col := range wl {
+			allCols[col] = true
+		}
+	}
+
+	// Add missing columns
+	for col := range allCols {
+		if !existingCols[col] {
+			_, err := db.Exec(fmt.Sprintf("ALTER TABLE worklogs ADD COLUMN `%s` TEXT", col))
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to add column %s: %v", col, err))
+			}
+		}
+	}
+
+	// Upsert worklogs using id as unique identifier
+	updatedCount := 0
+	for _, wl := range worklogs {
+		id, ok := wl["id"].(string)
+		if !ok {
+			if idFloat, ok := wl["id"].(float64); ok {
+				id = fmt.Sprintf("%.0f", idFloat)
+			} else {
+				continue
+			}
+		}
+
+		// Check if worklog exists
+		var existingID string
+		err := db.QueryRow("SELECT id FROM worklogs WHERE id = ?", id).Scan(&existingID)
+
+		if err == sql.ErrNoRows {
+			// Insert new worklog
+			cols := []string{}
+			placeholders := []string{}
+			values := []interface{}{}
+			for col, val := range wl {
+				cols = append(cols, fmt.Sprintf("`%s`", col))
+				placeholders = append(placeholders, "?")
+				values = append(values, s.formatValue(val))
+			}
+			insertSQL := fmt.Sprintf("INSERT INTO worklogs (%s) VALUES (%s)",
+				strings.Join(cols, ","), strings.Join(placeholders, ","))
+			_, err := db.Exec(insertSQL, values...)
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to insert worklog %s: %v", id, err))
+			} else {
+				updatedCount++
+			}
+		} else if err == nil {
+			// Update existing worklog
+			setClauses := []string{}
+			values := []interface{}{}
+			for col, val := range wl {
+				if col != "id" {
+					setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+					values = append(values, s.formatValue(val))
+				}
+			}
+			values = append(values, id)
+			updateSQL := fmt.Sprintf("UPDATE worklogs SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+			_, err := db.Exec(updateSQL, values...)
+			if err != nil {
+				s.log(fmt.Sprintf("[JIRA] Warning: Failed to update worklog %s: %v", id, err))
+			} else {
+				updatedCount++
+			}
+		}
+	}
+
+	return updatedCount, nil
+}
+
+// refreshJiraSprints refreshes the sprints table
+func (s *DataSourceService) refreshJiraSprints(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType string) error {
+	boardsURL := fmt.Sprintf("%s/rest/agile/1.0/board", baseURL)
+
+	resp, err := s.makeJiraRequest(client, "GET", boardsURL, username, apiToken, instanceType)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode == 404 {
+		resp.Body.Close()
+		return nil // Agile API not available
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return fmt.Errorf("API returned status %d", resp.StatusCode)
+	}
+
+	var boardsResult map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&boardsResult); err != nil {
+		resp.Body.Close()
+		return err
+	}
+	resp.Body.Close()
+
+	boards, ok := boardsResult["values"].([]interface{})
+	if !ok || len(boards) == 0 {
+		return nil
+	}
+
+	// Drop and recreate sprints table
+	db.Exec("DROP TABLE IF EXISTS sprints")
+
+	allSprints := []map[string]interface{}{}
+	seenSprints := make(map[string]bool)
+
+	for _, b := range boards {
+		board, ok := b.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		boardID := fmt.Sprintf("%v", board["id"])
+		boardName := fmt.Sprintf("%v", board["name"])
+		boardType := ""
+		if bt, ok := board["type"].(string); ok {
+			boardType = bt
+		}
+
+		if boardType != "" && boardType != "scrum" {
+			continue
+		}
+
+		sprintsURL := fmt.Sprintf("%s/rest/agile/1.0/board/%s/sprint", baseURL, boardID)
+		sprintResp, err := s.makeJiraRequest(client, "GET", sprintsURL, username, apiToken, instanceType)
+		if err != nil || sprintResp.StatusCode != http.StatusOK {
+			if sprintResp != nil {
+				sprintResp.Body.Close()
+			}
+			continue
+		}
+
+		var sprintsResult map[string]interface{}
+		if err := json.NewDecoder(sprintResp.Body).Decode(&sprintsResult); err != nil {
+			sprintResp.Body.Close()
+			continue
+		}
+		sprintResp.Body.Close()
+
+		sprints, ok := sprintsResult["values"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, sp := range sprints {
+			sprint, ok := sp.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			sprintID := fmt.Sprintf("%v", sprint["id"])
+			if seenSprints[sprintID] {
+				continue
+			}
+			seenSprints[sprintID] = true
+
+			flatSprint := map[string]interface{}{
+				"id":              sprint["id"],
+				"name":            sprint["name"],
+				"state":           sprint["state"],
+				"start_date":      sprint["startDate"],
+				"end_date":        sprint["endDate"],
+				"complete_date":   sprint["completeDate"],
+				"board_id":        boardID,
+				"board_name":      boardName,
+				"origin_board_id": sprint["originBoardId"],
+				"goal":            sprint["goal"],
+			}
+			allSprints = append(allSprints, flatSprint)
+		}
+	}
+
+	if len(allSprints) > 0 {
+		return s.createTableFromJSON(db, "sprints", allSprints)
+	}
+	return nil
+}
+
+// ImportJira imports data from Jira REST API (Cloud or Server/Data Center)
+func (s *DataSourceService) ImportJira(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportJira: %s (Instance: %s, Type: %s)", name, config.JiraBaseUrl, config.JiraInstanceType))
+
+	// Validate configuration
+	if config.JiraBaseUrl == "" {
+		return nil, fmt.Errorf("Jira base URL is required")
+	}
+	if config.JiraUsername == "" {
+		return nil, fmt.Errorf("Jira username/email is required")
+	}
+	if config.JiraApiToken == "" {
+		return nil, fmt.Errorf("Jira API token/password is required")
+	}
+
+	// Normalize base URL
+	baseURL := strings.TrimSuffix(config.JiraBaseUrl, "/")
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		baseURL = "https://" + baseURL
+	}
+
+	// Determine instance type (default to cloud)
+	instanceType := config.JiraInstanceType
+	if instanceType == "" {
+		instanceType = "cloud"
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Base URL: %s, Instance Type: %s", baseURL, instanceType))
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create SQLite database
+	dbName := "data.db"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := sql.Open("sqlite", absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Jira data
+	if err := s.fetchJiraData(db, baseURL, config.JiraUsername, config.JiraApiToken, instanceType, config.JiraProjectKey); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Jira data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "jira",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:           relDBPath,
+			JiraInstanceType: instanceType,
+			JiraBaseUrl:      config.JiraBaseUrl,
+			JiraUsername:     config.JiraUsername,
+			JiraApiToken:     config.JiraApiToken,
+			JiraProjectKey:   config.JiraProjectKey,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Jira data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchJiraData fetches data from Jira REST API and stores it in SQLite
+func (s *DataSourceService) fetchJiraData(db *sql.DB, baseURL, username, apiToken, instanceType, projectKey string) error {
+	s.log(fmt.Sprintf("[JIRA] Starting data fetch from %s", baseURL))
+
+	// Create HTTP client
+	client := &http.Client{
+		Timeout: 60 * time.Second,
+	}
+
+	// Build JQL query
+	jql := "ORDER BY created DESC"
+	if projectKey != "" {
+		jql = fmt.Sprintf("project = %s ORDER BY created DESC", projectKey)
+	}
+
+	importedCount := 0
+	var lastError error
+
+	// First, fetch custom field definitions to map field IDs to names
+	s.log("[JIRA] Fetching custom field definitions...")
+	customFields := s.fetchJiraCustomFields(client, baseURL, username, apiToken, instanceType)
+	s.log(fmt.Sprintf("[JIRA] Found %d custom fields", len(customFields)))
+
+	// Fetch Issues (with custom field mapping)
+	s.log("[JIRA] Fetching issues...")
+	if err := s.fetchJiraIssuesWithCustomFields(client, db, baseURL, username, apiToken, instanceType, jql, customFields); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch issues: %v", err))
+		lastError = err
+	} else {
+		importedCount++
+		s.log("[JIRA] Successfully fetched issues")
+	}
+
+	// Fetch Worklogs
+	s.log("[JIRA] Fetching worklogs...")
+	if err := s.fetchJiraWorklogs(client, db, baseURL, username, apiToken, instanceType, projectKey); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch worklogs: %v", err))
+		// Don't set lastError for worklogs as it may not be critical
+	} else {
+		importedCount++
+		s.log("[JIRA] Successfully fetched worklogs")
+	}
+
+	// Fetch Projects
+	s.log("[JIRA] Fetching projects...")
+	if err := s.fetchJiraProjects(client, db, baseURL, username, apiToken, instanceType); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch projects: %v", err))
+		lastError = err
+	} else {
+		importedCount++
+		s.log("[JIRA] Successfully fetched projects")
+	}
+
+	// Fetch Users (if accessible)
+	s.log("[JIRA] Fetching users...")
+	if err := s.fetchJiraUsers(client, db, baseURL, username, apiToken, instanceType); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch users: %v", err))
+		// Don't set lastError for users as it may require admin permissions
+	} else {
+		importedCount++
+		s.log("[JIRA] Successfully fetched users")
+	}
+
+	// Fetch Sprints (if Jira Software)
+	s.log("[JIRA] Fetching sprints...")
+	if err := s.fetchJiraSprints(client, db, baseURL, username, apiToken, instanceType); err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch sprints: %v", err))
+		// Don't set lastError for sprints as it requires Jira Software
+	} else {
+		importedCount++
+		s.log("[JIRA] Successfully fetched sprints")
+	}
+
+	if importedCount == 0 {
+		errMsg := "failed to import any Jira data"
+		if lastError != nil {
+			errMsg = fmt.Sprintf("%s: %v", errMsg, lastError)
+		}
+		s.log(fmt.Sprintf("[JIRA] %s", errMsg))
+		return fmt.Errorf(errMsg)
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Successfully imported %d resource types", importedCount))
+	return nil
+}
+
+// JiraCustomField represents a custom field definition
+type JiraCustomField struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+// fetchJiraCustomFields fetches custom field definitions from Jira
+func (s *DataSourceService) fetchJiraCustomFields(client *http.Client, baseURL, username, apiToken, instanceType string) map[string]JiraCustomField {
+	result := make(map[string]JiraCustomField)
+
+	url := fmt.Sprintf("%s/rest/api/2/field", baseURL)
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch custom fields: %v", err))
+		return result
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return result
+	}
+
+	var fields []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&fields); err != nil {
+		return result
+	}
+
+	for _, f := range fields {
+		if field, ok := f.(map[string]interface{}); ok {
+			id := fmt.Sprintf("%v", field["id"])
+			name := fmt.Sprintf("%v", field["name"])
+			custom, _ := field["custom"].(bool)
+			
+			if custom && strings.HasPrefix(id, "customfield_") {
+				fieldType := ""
+				if schema, ok := field["schema"].(map[string]interface{}); ok {
+					fieldType = fmt.Sprintf("%v", schema["type"])
+				}
+				result[id] = JiraCustomField{
+					ID:   id,
+					Name: name,
+					Type: fieldType,
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// fetchJiraIssuesWithCustomFields fetches issues with proper custom field handling
+func (s *DataSourceService) fetchJiraIssuesWithCustomFields(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType, jql string, customFields map[string]JiraCustomField) error {
+	allIssues := []map[string]interface{}{}
+	startAt := 0
+	maxResults := 100
+
+	encodedJQL := strings.ReplaceAll(jql, " ", "%20")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "=", "%3D")
+
+	for {
+		url := fmt.Sprintf("%s/rest/api/2/search?jql=%s&startAt=%d&maxResults=%d&expand=changelog",
+			baseURL, encodedJQL, startAt, maxResults)
+
+		resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+		if err != nil {
+			return fmt.Errorf("request failed: %v", err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode == 401 {
+				if instanceType == "cloud" {
+					return fmt.Errorf("authentication failed (401): Please verify your email and API token")
+				}
+				return fmt.Errorf("authentication failed (401): Please verify your username and password")
+			}
+			return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return fmt.Errorf("failed to decode response: %v", err)
+		}
+		resp.Body.Close()
+
+		if issues, ok := result["issues"].([]interface{}); ok {
+			for _, issue := range issues {
+				if issueMap, ok := issue.(map[string]interface{}); ok {
+					flatIssue := s.flattenJiraIssueWithCustomFields(issueMap, customFields)
+					allIssues = append(allIssues, flatIssue)
+				}
+			}
+		}
+
+		total := int(result["total"].(float64))
+		startAt += maxResults
+		if startAt >= total {
+			break
+		}
+		s.log(fmt.Sprintf("[JIRA] Fetched %d/%d issues...", startAt, total))
+	}
+
+	if len(allIssues) == 0 {
+		s.log("[JIRA] No issues found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Total %d issues fetched, creating table...", len(allIssues)))
+	return s.createTableFromJSON(db, "issues", allIssues)
+}
+
+// flattenJiraIssueWithCustomFields flattens a Jira issue with proper custom field naming
+func (s *DataSourceService) flattenJiraIssueWithCustomFields(issue map[string]interface{}, customFields map[string]JiraCustomField) map[string]interface{} {
+	flat := make(map[string]interface{})
+
+	// Basic fields
+	flat["key"] = issue["key"]
+	flat["id"] = issue["id"]
+
+	if fields, ok := issue["fields"].(map[string]interface{}); ok {
+		// Standard fields
+		flat["summary"] = fields["summary"]
+		flat["description"] = fields["description"]
+		flat["created"] = fields["created"]
+		flat["updated"] = fields["updated"]
+		flat["resolutiondate"] = fields["resolutiondate"]
+		flat["duedate"] = fields["duedate"]
+
+		// Status
+		if status, ok := fields["status"].(map[string]interface{}); ok {
+			flat["status"] = status["name"]
+			if cat, ok := status["statusCategory"].(map[string]interface{}); ok {
+				flat["status_category"] = cat["name"]
+			}
+		}
+
+		// Priority
+		if priority, ok := fields["priority"].(map[string]interface{}); ok {
+			flat["priority"] = priority["name"]
+		}
+
+		// Issue Type
+		if issueType, ok := fields["issuetype"].(map[string]interface{}); ok {
+			flat["issue_type"] = issueType["name"]
+		}
+
+		// Project
+		if project, ok := fields["project"].(map[string]interface{}); ok {
+			flat["project_key"] = project["key"]
+			flat["project_name"] = project["name"]
+		}
+
+		// Assignee
+		if assignee, ok := fields["assignee"].(map[string]interface{}); ok {
+			flat["assignee"] = assignee["displayName"]
+			flat["assignee_email"] = assignee["emailAddress"]
+			if accountId, ok := assignee["accountId"].(string); ok {
+				flat["assignee_id"] = accountId
+			} else if name, ok := assignee["name"].(string); ok {
+				flat["assignee_id"] = name
+			}
+		}
+
+		// Reporter
+		if reporter, ok := fields["reporter"].(map[string]interface{}); ok {
+			flat["reporter"] = reporter["displayName"]
+			flat["reporter_email"] = reporter["emailAddress"]
+		}
+
+		// Creator
+		if creator, ok := fields["creator"].(map[string]interface{}); ok {
+			flat["creator"] = creator["displayName"]
+		}
+
+		// Resolution
+		if resolution, ok := fields["resolution"].(map[string]interface{}); ok {
+			flat["resolution"] = resolution["name"]
+		}
+
+		// Labels
+		if labels, ok := fields["labels"].([]interface{}); ok && len(labels) > 0 {
+			labelStrs := make([]string, len(labels))
+			for i, l := range labels {
+				labelStrs[i] = fmt.Sprintf("%v", l)
+			}
+			flat["labels"] = strings.Join(labelStrs, ",")
+		}
+
+		// Components
+		if components, ok := fields["components"].([]interface{}); ok && len(components) > 0 {
+			compNames := []string{}
+			for _, c := range components {
+				if comp, ok := c.(map[string]interface{}); ok {
+					compNames = append(compNames, fmt.Sprintf("%v", comp["name"]))
+				}
+			}
+			flat["components"] = strings.Join(compNames, ",")
+		}
+
+		// Fix Versions
+		if fixVersions, ok := fields["fixVersions"].([]interface{}); ok && len(fixVersions) > 0 {
+			versionNames := []string{}
+			for _, v := range fixVersions {
+				if ver, ok := v.(map[string]interface{}); ok {
+					versionNames = append(versionNames, fmt.Sprintf("%v", ver["name"]))
+				}
+			}
+			flat["fix_versions"] = strings.Join(versionNames, ",")
+		}
+
+		// Affected Versions
+		if versions, ok := fields["versions"].([]interface{}); ok && len(versions) > 0 {
+			versionNames := []string{}
+			for _, v := range versions {
+				if ver, ok := v.(map[string]interface{}); ok {
+					versionNames = append(versionNames, fmt.Sprintf("%v", ver["name"]))
+				}
+			}
+			flat["affected_versions"] = strings.Join(versionNames, ",")
+		}
+
+		// Time tracking
+		if timeTracking, ok := fields["timetracking"].(map[string]interface{}); ok {
+			flat["original_estimate"] = timeTracking["originalEstimate"]
+			flat["remaining_estimate"] = timeTracking["remainingEstimate"]
+			flat["time_spent"] = timeTracking["timeSpent"]
+			flat["original_estimate_seconds"] = timeTracking["originalEstimateSeconds"]
+			flat["remaining_estimate_seconds"] = timeTracking["remainingEstimateSeconds"]
+			flat["time_spent_seconds"] = timeTracking["timeSpentSeconds"]
+		}
+
+		// Worklog count
+		if worklog, ok := fields["worklog"].(map[string]interface{}); ok {
+			if total, ok := worklog["total"].(float64); ok {
+				flat["worklog_count"] = int(total)
+			}
+		}
+
+		// Comment count
+		if comment, ok := fields["comment"].(map[string]interface{}); ok {
+			if total, ok := comment["total"].(float64); ok {
+				flat["comment_count"] = int(total)
+			}
+		}
+
+		// Subtasks count
+		if subtasks, ok := fields["subtasks"].([]interface{}); ok {
+			flat["subtask_count"] = len(subtasks)
+		}
+
+		// Parent (for subtasks)
+		if parent, ok := fields["parent"].(map[string]interface{}); ok {
+			flat["parent_key"] = parent["key"]
+		}
+
+		// Environment
+		if env, ok := fields["environment"].(string); ok {
+			flat["environment"] = env
+		}
+
+		// Process custom fields with proper naming
+		for fieldID, fieldDef := range customFields {
+			if val, exists := fields[fieldID]; exists && val != nil {
+				// Use sanitized field name instead of ID
+				fieldName := s.sanitizeName(fieldDef.Name)
+				
+				// Handle different field types
+				switch v := val.(type) {
+				case []interface{}:
+					// Array fields (like Sprint, multi-select)
+					if len(v) > 0 {
+						values := []string{}
+						for _, item := range v {
+							if itemMap, ok := item.(map[string]interface{}); ok {
+								if name, ok := itemMap["name"].(string); ok {
+									values = append(values, name)
+								} else if value, ok := itemMap["value"].(string); ok {
+									values = append(values, value)
+								}
+							} else {
+								values = append(values, fmt.Sprintf("%v", item))
+							}
+						}
+						flat[fieldName] = strings.Join(values, ",")
+					}
+				case map[string]interface{}:
+					// Object fields (like single select, user picker)
+					if name, ok := v["name"].(string); ok {
+						flat[fieldName] = name
+					} else if value, ok := v["value"].(string); ok {
+						flat[fieldName] = value
+					} else if displayName, ok := v["displayName"].(string); ok {
+						flat[fieldName] = displayName
+					}
+				case string:
+					flat[fieldName] = v
+				case float64:
+					flat[fieldName] = v
+				case bool:
+					flat[fieldName] = v
+				default:
+					flat[fieldName] = fmt.Sprintf("%v", v)
+				}
+			}
+		}
+	}
+
+	return flat
+}
+
+// fetchJiraWorklogs fetches worklog entries from Jira
+func (s *DataSourceService) fetchJiraWorklogs(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType, projectKey string) error {
+	// First get all issue keys to fetch worklogs from
+	jql := "worklogDate >= -30d ORDER BY updated DESC" // Last 30 days of worklogs
+	if projectKey != "" {
+		jql = fmt.Sprintf("project = %s AND worklogDate >= -30d ORDER BY updated DESC", projectKey)
+	}
+
+	encodedJQL := strings.ReplaceAll(jql, " ", "%20")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "=", "%3D")
+	encodedJQL = strings.ReplaceAll(encodedJQL, ">", "%3E")
+	encodedJQL = strings.ReplaceAll(encodedJQL, "-", "%2D")
+
+	// Get issues with worklogs
+	url := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=100&fields=key,worklog", baseURL, encodedJQL)
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+
+	allWorklogs := []map[string]interface{}{}
+
+	if issues, ok := result["issues"].([]interface{}); ok {
+		for _, issue := range issues {
+			if issueMap, ok := issue.(map[string]interface{}); ok {
+				issueKey := fmt.Sprintf("%v", issueMap["key"])
+				
+				if fields, ok := issueMap["fields"].(map[string]interface{}); ok {
+					if worklog, ok := fields["worklog"].(map[string]interface{}); ok {
+						if worklogs, ok := worklog["worklogs"].([]interface{}); ok {
+							for _, wl := range worklogs {
+								if wlMap, ok := wl.(map[string]interface{}); ok {
+									flatWorklog := map[string]interface{}{
+										"id":           wlMap["id"],
+										"issue_key":    issueKey,
+										"started":      wlMap["started"],
+										"time_spent":   wlMap["timeSpent"],
+										"time_spent_seconds": wlMap["timeSpentSeconds"],
+										"comment":      wlMap["comment"],
+										"created":      wlMap["created"],
+										"updated":      wlMap["updated"],
+									}
+									
+									// Author
+									if author, ok := wlMap["author"].(map[string]interface{}); ok {
+										flatWorklog["author"] = author["displayName"]
+										flatWorklog["author_email"] = author["emailAddress"]
+										if accountId, ok := author["accountId"].(string); ok {
+											flatWorklog["author_id"] = accountId
+										} else if name, ok := author["name"].(string); ok {
+											flatWorklog["author_id"] = name
+										}
+									}
+									
+									// Update author
+									if updateAuthor, ok := wlMap["updateAuthor"].(map[string]interface{}); ok {
+										flatWorklog["update_author"] = updateAuthor["displayName"]
+									}
+									
+									allWorklogs = append(allWorklogs, flatWorklog)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if len(allWorklogs) == 0 {
+		s.log("[JIRA] No worklogs found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Total %d worklogs fetched, creating table...", len(allWorklogs)))
+	return s.createTableFromJSON(db, "worklogs", allWorklogs)
+}
+
+// makeJiraRequest creates and executes a Jira API request with proper authentication
+func (s *DataSourceService) makeJiraRequest(client *http.Client, method, url, username, apiToken, instanceType string) (*http.Response, error) {
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set authentication based on instance type
+	// Cloud uses email + API token with Basic Auth
+	// Server/Data Center uses username + password with Basic Auth
+	req.SetBasicAuth(username, apiToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	return client.Do(req)
+}
+
+// fetchJiraProjects fetches projects from Jira
+func (s *DataSourceService) fetchJiraProjects(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType string) error {
+	url := fmt.Sprintf("%s/rest/api/2/project", baseURL)
+
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var projects []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		return fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if len(projects) == 0 {
+		s.log("[JIRA] No projects found")
+		return nil
+	}
+
+	// Convert to map format
+	projectMaps := []map[string]interface{}{}
+	for _, p := range projects {
+		if proj, ok := p.(map[string]interface{}); ok {
+			flatProj := map[string]interface{}{
+				"id":   proj["id"],
+				"key":  proj["key"],
+				"name": proj["name"],
+			}
+			if lead, ok := proj["lead"].(map[string]interface{}); ok {
+				flatProj["lead"] = lead["displayName"]
+			}
+			if projectType, ok := proj["projectTypeKey"].(string); ok {
+				flatProj["project_type"] = projectType
+			}
+			projectMaps = append(projectMaps, flatProj)
+		}
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Total %d projects fetched, creating table...", len(projectMaps)))
+	return s.createTableFromJSON(db, "projects", projectMaps)
+}
+
+// fetchJiraUsers fetches users from Jira (requires admin permissions on some instances)
+func (s *DataSourceService) fetchJiraUsers(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType string) error {
+	// Cloud and Server have different user search endpoints
+	var url string
+	if instanceType == "cloud" {
+		// Jira Cloud: uses /rest/api/3/users/search (API v3 for better user data)
+		// Falls back to /rest/api/2/users/search if v3 fails
+		url = fmt.Sprintf("%s/rest/api/3/users/search?maxResults=1000", baseURL)
+	} else {
+		// Jira Server/Data Center: uses different endpoint with username query
+		// The "." matches all users
+		url = fmt.Sprintf("%s/rest/api/2/user/search?username=.&maxResults=1000&includeInactive=true", baseURL)
+	}
+
+	resp, err := s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+	if err != nil {
+		return fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// If Cloud API v3 fails, try v2
+	if resp.StatusCode != http.StatusOK && instanceType == "cloud" {
+		s.log("[JIRA] Cloud API v3 failed, trying v2...")
+		url = fmt.Sprintf("%s/rest/api/2/users/search?maxResults=1000", baseURL)
+		resp, err = s.makeJiraRequest(client, "GET", url, username, apiToken, instanceType)
+		if err != nil {
+			return fmt.Errorf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var users []interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&users); err != nil {
+		return fmt.Errorf("failed to decode response: %v", err)
+	}
+
+	if len(users) == 0 {
+		s.log("[JIRA] No users found")
+		return nil
+	}
+
+	// Convert to map format - handle differences between Cloud and Server
+	userMaps := []map[string]interface{}{}
+	for _, u := range users {
+		if user, ok := u.(map[string]interface{}); ok {
+			flatUser := map[string]interface{}{}
+			
+			if instanceType == "cloud" {
+				// Cloud uses accountId
+				flatUser["account_id"] = user["accountId"]
+				flatUser["display_name"] = user["displayName"]
+				flatUser["email_address"] = user["emailAddress"]
+				flatUser["active"] = user["active"]
+				if accountType, ok := user["accountType"].(string); ok {
+					flatUser["account_type"] = accountType
+				}
+			} else {
+				// Server uses key/name
+				flatUser["user_key"] = user["key"]
+				flatUser["username"] = user["name"]
+				flatUser["display_name"] = user["displayName"]
+				flatUser["email_address"] = user["emailAddress"]
+				flatUser["active"] = user["active"]
+			}
+			userMaps = append(userMaps, flatUser)
+		}
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Total %d users fetched, creating table...", len(userMaps)))
+	return s.createTableFromJSON(db, "users", userMaps)
+}
+
+// fetchJiraSprints fetches sprints from Jira Software boards
+// Note: This requires Jira Software (not just Jira Core) and the Agile REST API
+func (s *DataSourceService) fetchJiraSprints(client *http.Client, db *sql.DB, baseURL, username, apiToken, instanceType string) error {
+	// First, get all boards
+	// The Agile API endpoint is the same for both Cloud and Server
+	boardsURL := fmt.Sprintf("%s/rest/agile/1.0/board", baseURL)
+
+	resp, err := s.makeJiraRequest(client, "GET", boardsURL, username, apiToken, instanceType)
+	if err != nil {
+		return fmt.Errorf("request failed: %v", err)
+	}
+
+	if resp.StatusCode == 404 {
+		resp.Body.Close()
+		// Agile API not available - likely Jira Core without Software
+		s.log("[JIRA] Agile API not available (Jira Software may not be installed)")
+		return fmt.Errorf("Agile API not available - Jira Software may not be installed")
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var boardsResult map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&boardsResult); err != nil {
+		resp.Body.Close()
+		return fmt.Errorf("failed to decode boards response: %v", err)
+	}
+	resp.Body.Close()
+
+	boards, ok := boardsResult["values"].([]interface{})
+	if !ok || len(boards) == 0 {
+		s.log("[JIRA] No boards found")
+		return nil
+	}
+
+	// Fetch sprints from each board
+	allSprints := []map[string]interface{}{}
+	seenSprints := make(map[string]bool)
+
+	for _, b := range boards {
+		board, ok := b.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		boardID := fmt.Sprintf("%v", board["id"])
+		boardName := fmt.Sprintf("%v", board["name"])
+		boardType := ""
+		if bt, ok := board["type"].(string); ok {
+			boardType = bt
+		}
+
+		// Only scrum boards have sprints
+		if boardType != "" && boardType != "scrum" {
+			continue
+		}
+
+		// Get sprints for this board
+		sprintsURL := fmt.Sprintf("%s/rest/agile/1.0/board/%s/sprint", baseURL, boardID)
+		sprintResp, err := s.makeJiraRequest(client, "GET", sprintsURL, username, apiToken, instanceType)
+		if err != nil {
+			s.log(fmt.Sprintf("[JIRA] Warning: Failed to fetch sprints for board %s: %v", boardName, err))
+			continue
+		}
+
+		if sprintResp.StatusCode != http.StatusOK {
+			sprintResp.Body.Close()
+			continue
+		}
+
+		var sprintsResult map[string]interface{}
+		if err := json.NewDecoder(sprintResp.Body).Decode(&sprintsResult); err != nil {
+			sprintResp.Body.Close()
+			continue
+		}
+		sprintResp.Body.Close()
+
+		sprints, ok := sprintsResult["values"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, sp := range sprints {
+			sprint, ok := sp.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			sprintID := fmt.Sprintf("%v", sprint["id"])
+			if seenSprints[sprintID] {
+				continue
+			}
+			seenSprints[sprintID] = true
+
+			flatSprint := map[string]interface{}{
+				"id":              sprint["id"],
+				"name":            sprint["name"],
+				"state":           sprint["state"],
+				"start_date":      sprint["startDate"],
+				"end_date":        sprint["endDate"],
+				"complete_date":   sprint["completeDate"],
+				"board_id":        boardID,
+				"board_name":      boardName,
+				"origin_board_id": sprint["originBoardId"],
+				"goal":            sprint["goal"],
+			}
+			allSprints = append(allSprints, flatSprint)
+		}
+	}
+
+	if len(allSprints) == 0 {
+		s.log("[JIRA] No sprints found")
+		return nil
+	}
+
+	s.log(fmt.Sprintf("[JIRA] Total %d sprints fetched, creating table...", len(allSprints)))
+	return s.createTableFromJSON(db, "sprints", allSprints)
 }

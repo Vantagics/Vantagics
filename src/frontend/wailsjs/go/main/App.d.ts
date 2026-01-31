@@ -127,6 +127,8 @@ export function GetErrorKnowledgeSummary():Promise<main.ErrorKnowledgeSummary>;
 
 export function GetFilesByCategory(arg1:string):Promise<Array<database.FileInfo>>;
 
+export function GetJiraProjects(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<main.JiraProject>>;
+
 export function GetLogStats():Promise<main.LogStats>;
 
 export function GetMessageAnalysisData(arg1:string,arg2:string):Promise<Record<string, any>>;
@@ -173,6 +175,8 @@ export function IsCancelRequested():Promise<boolean>;
 
 export function IsEcommerceDataSource(arg1:string):Promise<boolean>;
 
+export function IsRefreshableDataSource(arg1:string):Promise<boolean>;
+
 export function ListSkills():Promise<Array<agent.Skill>>;
 
 export function LoadLayout(arg1:string):Promise<database.LayoutConfiguration>;
@@ -198,6 +202,8 @@ export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
 export function RecordIntentSelection(arg1:string,arg2:main.IntentSuggestion):Promise<void>;
+
+export function RefreshDataSource(arg1:string):Promise<agent.RefreshResult>;
 
 export function RefreshEcommerceDataSource(arg1:string):Promise<agent.RefreshResult>;
 

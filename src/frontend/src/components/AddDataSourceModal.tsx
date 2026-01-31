@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle } from 'lucide-react';
-import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig, OpenExternalURL } from '../../wailsjs/go/main/App';
+import { CheckCircle, Loader2 } from 'lucide-react';
+import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig, OpenExternalURL, GetJiraProjects } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
 import { SystemLog } from '../utils/systemLog';
 
@@ -40,6 +40,12 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
     const [shopifyOAuthEnabled, setShopifyOAuthEnabled] = useState(false);
     const [isOAuthInProgress, setIsOAuthInProgress] = useState(false);
     const [oauthStatus, setOauthStatus] = useState<string>('');
+
+    // Jira project selection state
+    const [jiraProjects, setJiraProjects] = useState<Array<{key: string, name: string, id: string}>>([]);
+    const [isLoadingJiraProjects, setIsLoadingJiraProjects] = useState(false);
+    const [jiraProjectsError, setJiraProjectsError] = useState<string | null>(null);
+    const [jiraCredentialsValid, setJiraCredentialsValid] = useState(false);
 
     // Check if Shopify OAuth is configured - run every time modal opens or driver type changes
     useEffect(() => {
@@ -124,6 +130,41 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         }
     };
 
+    // Fetch Jira projects when credentials are provided
+    const handleFetchJiraProjects = async () => {
+        if (!config.jiraBaseUrl || !config.jiraUsername || !config.jiraApiToken) {
+            setJiraProjectsError(t('jira_credentials_required') || 'Please fill in URL, username/email, and password/API token first');
+            return;
+        }
+
+        setIsLoadingJiraProjects(true);
+        setJiraProjectsError(null);
+        setJiraProjects([]);
+        setJiraCredentialsValid(false);
+
+        try {
+            const projects = await GetJiraProjects(
+                config.jiraInstanceType || 'cloud',
+                config.jiraBaseUrl,
+                config.jiraUsername,
+                config.jiraApiToken
+            );
+            setJiraProjects(projects || []);
+            setJiraCredentialsValid(true);
+            if (projects && projects.length > 0) {
+                // Auto-fill name if empty
+                if (!name && projects.length === 1) {
+                    setName(projects[0].name);
+                }
+            }
+        } catch (err: any) {
+            setJiraProjectsError(err.toString());
+            setJiraCredentialsValid(false);
+        } finally {
+            setIsLoadingJiraProjects(false);
+        }
+    };
+
     const handleImport = async () => {
         if (!name) {
             setError('Please enter a data source name');
@@ -147,6 +188,10 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         }
         if (driverType === 'etsy' && !config.etsyAccessToken) {
             setError('Please provide Etsy OAuth access token');
+            return;
+        }
+        if (driverType === 'jira' && (!config.jiraBaseUrl || !config.jiraUsername || !config.jiraApiToken)) {
+            setError('Please provide Jira URL, username/email, and password/API token');
             return;
         }
 
@@ -246,6 +291,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 <option value="bigcommerce">BigCommerce API</option>
                                 <option value="ebay">eBay API</option>
                                 <option value="etsy">Etsy API</option>
+                                <option value="jira">Jira</option>
                             </select>
                         </div>
 
@@ -593,6 +639,160 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     </p>
                                 </div>
                             </div>
+                        ) : driverType === 'jira' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_instance_type') || 'Instance Type'}</label>
+                                    <select
+                                        value={config.jiraInstanceType || 'cloud'}
+                                        onChange={(e) => setConfig({ ...config, jiraInstanceType: e.target.value })}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    >
+                                        <option value="cloud">{t('jira_cloud') || 'Jira Cloud'}</option>
+                                        <option value="server">{t('jira_server') || 'Jira Server / Data Center'}</option>
+                                    </select>
+                                </div>
+                                {/* Setup guide based on instance type */}
+                                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                                    <p className="text-sm font-medium text-indigo-800 mb-2">
+                                        {t('jira_setup_guide') || '📋 How to get your credentials:'}
+                                    </p>
+                                    {config.jiraInstanceType === 'server' ? (
+                                        <ol className="text-xs text-indigo-700 space-y-1 list-decimal list-inside">
+                                            <li>{t('jira_server_step1') || 'Use your Jira Server login credentials'}</li>
+                                            <li>{t('jira_server_step2') || 'Username is your Jira username (not email)'}</li>
+                                            <li>{t('jira_server_step3') || 'Password is your Jira password'}</li>
+                                            <li>{t('jira_server_step4') || 'Ensure your account has project access'}</li>
+                                        </ol>
+                                    ) : (
+                                        <ol className="text-xs text-indigo-700 space-y-1 list-decimal list-inside">
+                                            <li>{t('jira_cloud_step1') || 'Go to Atlassian Account Settings'}</li>
+                                            <li>{t('jira_cloud_step2') || 'Navigate to Security → API tokens'}</li>
+                                            <li>{t('jira_cloud_step3') || 'Click "Create API token" and copy it'}</li>
+                                            <li>{t('jira_cloud_step4') || 'Use your Atlassian email as username'}</li>
+                                        </ol>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_base_url') || 'Jira URL'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.jiraBaseUrl || ''}
+                                        onChange={(e) => setConfig({ ...config, jiraBaseUrl: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder={config.jiraInstanceType === 'server' ? 'https://jira.yourcompany.com' : 'https://yourcompany.atlassian.net'}
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {config.jiraInstanceType === 'server' 
+                                            ? (t('jira_server_url_hint') || 'e.g., jira.your-company.com')
+                                            : (t('jira_cloud_url_hint') || 'e.g., your-domain.atlassian.net')}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        {config.jiraInstanceType === 'server' ? (t('jira_username') || 'Username') : (t('jira_email') || 'Email')}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={config.jiraUsername || ''}
+                                        onChange={(e) => setConfig({ ...config, jiraUsername: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder={config.jiraInstanceType === 'server' ? 'username' : 'your.email@company.com'}
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        {config.jiraInstanceType === 'server' ? (t('jira_password') || 'Password') : (t('jira_api_token') || 'API Token')}
+                                    </label>
+                                    <input
+                                        type="password"
+                                        value={config.jiraApiToken || ''}
+                                        onChange={(e) => setConfig({ ...config, jiraApiToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder={config.jiraInstanceType === 'server' ? '••••••••' : 'ATATT3xFfGF0...'}
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    {config.jiraInstanceType === 'cloud' && (
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            {t('jira_api_token_hint') || 'Generate from Atlassian Account Settings → Security → API tokens'}
+                                        </p>
+                                    )}
+                                </div>
+                                {/* Fetch Projects Button */}
+                                <div>
+                                    <button
+                                        type="button"
+                                        onClick={handleFetchJiraProjects}
+                                        disabled={isLoadingJiraProjects || !config.jiraBaseUrl || !config.jiraUsername || !config.jiraApiToken}
+                                        className="w-full px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                                    >
+                                        {isLoadingJiraProjects ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                {t('jira_loading_projects') || 'Loading projects...'}
+                                            </>
+                                        ) : jiraCredentialsValid ? (
+                                            <>
+                                                <CheckCircle className="w-4 h-4" />
+                                                {t('jira_credentials_valid') || 'Credentials verified'}
+                                            </>
+                                        ) : (
+                                            t('jira_fetch_projects') || 'Verify & Fetch Projects'
+                                        )}
+                                    </button>
+                                    {jiraProjectsError && (
+                                        <p className="text-xs text-red-600 mt-1">{jiraProjectsError}</p>
+                                    )}
+                                </div>
+                                {/* Project Selection */}
+                                {jiraProjects.length > 0 && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                                            {t('jira_select_project') || 'Select Project (Optional)'}
+                                        </label>
+                                        <select
+                                            value={config.jiraProjectKey || ''}
+                                            onChange={(e) => {
+                                                setConfig({ ...config, jiraProjectKey: e.target.value });
+                                                // Auto-fill name if empty
+                                                if (!name && e.target.value) {
+                                                    const selectedProject = jiraProjects.find(p => p.key === e.target.value);
+                                                    if (selectedProject) {
+                                                        setName(selectedProject.name);
+                                                    }
+                                                }
+                                            }}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        >
+                                            <option value="">{t('jira_all_projects') || '-- All accessible projects --'}</option>
+                                            {jiraProjects.map((project) => (
+                                                <option key={project.key} value={project.key}>
+                                                    {project.key} - {project.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="text-xs text-slate-500 mt-1">
+                                            {t('jira_project_select_hint') || 'Select a specific project or leave empty to import all'}
+                                        </p>
+                                    </div>
+                                )}
+                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-xs text-blue-700">
+                                        💡 {t('jira_import_hint') || 'Will import: Issues, Projects, Users, Sprints'}
+                                    </p>
+                                </div>
+                            </div>
                         ) : (
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-2">
@@ -704,7 +904,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         )}
 
                         {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || isStoreLocally) && (
+                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'jira' || isStoreLocally) && (
                             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <input
                                     type="checkbox"
