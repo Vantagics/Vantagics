@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL } from '../../wailsjs/go/main/App';
-import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense } from '../../wailsjs/go/main/App';
+import { EventsOn, EventsEmit, Quit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
 import Toast, { ToastType } from './Toast';
 import MCPServiceModal from './MCPServiceModal';
-import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin, Archive } from 'lucide-react';
+import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin, Archive, Shield } from 'lucide-react';
 import { countries, getCityDisplayName, getCountryDisplayName, City, Country } from '../data/cities';
 
 type Tab = 'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent';
@@ -45,11 +45,20 @@ interface PreferenceModalProps {
     onClose: () => void;
     onOpenSkills?: () => void;
     initialTab?: Tab;
+    isStartupMode?: boolean;  // 是否是首次启动设置模式
 }
 
-const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOpenSkills, initialTab }) => {
+const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOpenSkills, initialTab, isStartupMode = false }) => {
     const { t } = useLanguage();
     const [activeTab, setActiveTab] = useState<Tab>(initialTab || 'system');
+    const [showExitConfirm, setShowExitConfirm] = useState(false);  // 退出确认对话框状态
+    const [isCommercialMode, setIsCommercialMode] = useState(false);  // 是否是商业模式（已激活）
+    const [activationInfo, setActivationInfo] = useState<{
+        llm_type?: string;
+        search_type?: string;
+        expires_at?: string;
+        sn?: string;
+    } | null>(null);
     const [config, setConfig] = useState<configModel.Config>(configModel.Config.createFrom({
         llmProvider: 'OpenAI',
         apiKey: '',
@@ -79,6 +88,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     const [searchAPITestResults, setSearchAPITestResults] = useState<{ [key: string]: { success: boolean; message: string } | null }>({});
     const [logStats, setLogStats] = useState<{ totalSizeMB: number; logCount: number; archiveCount: number; logDir: string } | null>(null);
     const [isCleaningLogs, setIsCleaningLogs] = useState(false);
+    const [isRefreshingLicense, setIsRefreshingLicense] = useState(false);
 
     // Helper function to update config while maintaining Config class instance
     const updateConfig = (updates: Partial<configModel.Config>) => {
@@ -91,6 +101,22 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
             if (initialTab) {
                 setActiveTab(initialTab);
             }
+            
+            // Check if commercial mode is activated
+            IsLicenseActivated().then(activated => {
+                setIsCommercialMode(activated);
+                if (activated) {
+                    GetActivationStatus().then(status => {
+                        setActivationInfo({
+                            llm_type: status.llm_type,
+                            search_type: status.search_type,
+                            expires_at: status.expires_at,
+                            sn: status.sn,
+                        });
+                    }).catch(console.error);
+                }
+            }).catch(console.error);
+            
             GetConfig().then(data => {
                 // Filter out DuckDuckGo from search APIs (deprecated)
                 if (data.searchAPIs) {
@@ -132,6 +158,32 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
             setToast({ message: t('log_cleanup_error') + ': ' + err, type: 'error' });
         } finally {
             setIsCleaningLogs(false);
+        }
+    };
+
+    // Handle license refresh
+    const handleRefreshLicense = async () => {
+        setIsRefreshingLicense(true);
+        try {
+            const result = await RefreshLicense();
+            if (result.success) {
+                setToast({ message: result.message || '授权刷新成功', type: 'success' });
+                // Reload activation info
+                const status = await GetActivationStatus();
+                setActivationInfo({
+                    llm_type: status.llm_type,
+                    search_type: status.search_type,
+                    expires_at: status.expires_at,
+                    sn: status.sn,
+                });
+            } else {
+                setToast({ message: result.message || '授权刷新失败', type: 'error' });
+            }
+        } catch (err) {
+            console.error('Failed to refresh license:', err);
+            setToast({ message: '授权刷新失败: ' + err, type: 'error' });
+        } finally {
+            setIsRefreshingLicense(false);
         }
     };
 
@@ -260,8 +312,40 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                 {/* Sidebar */}
                 <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
+                    
+                    {/* Commercial Mode Indicator */}
+                    {isCommercialMode && (
+                        <div className="mb-4 px-2">
+                            <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                                <Shield className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                <div className="text-xs flex-1 min-w-0">
+                                    <div className="font-medium text-green-700">{t('commercial_mode_active') || '商业版已激活'}</div>
+                                    {activationInfo?.expires_at && (
+                                        <div className="text-green-600">{t('expires') || '到期'}: {activationInfo.expires_at}</div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={handleRefreshLicense}
+                                    disabled={isRefreshingLicense}
+                                    className="p-1 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors disabled:opacity-50"
+                                    title={t('refresh_license') || '刷新授权'}
+                                >
+                                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingLicense ? 'animate-spin' : ''}`} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    
                     <nav className="space-y-1">
-                        {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent'] as const).map((tab) => (
+                        {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent'] as const)
+                            .filter(tab => {
+                                // Hide LLM and Search tabs in commercial mode
+                                if (isCommercialMode && (tab === 'llm' || tab === 'search')) {
+                                    return false;
+                                }
+                                return true;
+                            })
+                            .map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
@@ -988,7 +1072,16 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
 
                     {/* Footer */}
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
-                        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md">
+                        <button 
+                            onClick={() => {
+                                if (isStartupMode) {
+                                    setShowExitConfirm(true);
+                                } else {
+                                    onClose();
+                                }
+                            }} 
+                            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md"
+                        >
                             {t('cancel')}
                         </button>
                         <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm">
@@ -996,6 +1089,34 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                         </button>
                     </div>
                 </div>
+
+                {/* 退出确认对话框 */}
+                {showExitConfirm && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                        <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
+                            <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                                {t('confirm_exit_title') || '确认退出'}
+                            </h3>
+                            <p className="text-sm text-slate-600 mb-4">
+                                {t('cancel_will_exit_app') || '取消将退出程序，确定要退出吗？'}
+                            </p>
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowExitConfirm(false)}
+                                    className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md"
+                                >
+                                    {t('back') || '返回'}
+                                </button>
+                                <button
+                                    onClick={() => Quit()}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
+                                >
+                                    {t('confirm_exit') || '确认退出'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
             {toast && (
                 <Toast

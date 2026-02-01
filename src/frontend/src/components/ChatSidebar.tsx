@@ -2568,6 +2568,29 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 return false;
                             })();
 
+                            // 检查用户消息是否失败（没有对应的assistant回复，且不是最后一条消息，且不在加载中）
+                            const isUserMessageFailed = msg.role === 'user' && (() => {
+                                // 如果正在加载，不算失败
+                                if (isLoading && loadingThreadId === activeThreadId) {
+                                    return false;
+                                }
+                                const msgIndex = activeThread.messages.findIndex(m => m.id === msg.id);
+                                if (msgIndex !== -1) {
+                                    // 如果是最后一条消息，不算失败（可能还没开始处理）
+                                    if (msgIndex === activeThread.messages.length - 1) {
+                                        return false;
+                                    }
+                                    // 如果没有对应的助手回复，且没有chart_data，则算失败
+                                    if (msgIndex < activeThread.messages.length - 1) {
+                                        const nextMsg = activeThread.messages[msgIndex + 1];
+                                        if (nextMsg.role !== 'assistant' && !msg.chart_data) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                                return false;
+                            })();
+
                             return (
                                 <MessageBubble
                                     key={msg.id || index}
@@ -2577,6 +2600,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     userMessageId={userMessageId || undefined}
                                     dataSourceId={activeThread?.data_source_id}
                                     threadId={activeThreadId || undefined}
+                                    isFailed={isUserMessageFailed}
+                                    onRetryAnalysis={() => {
+                                        // 重新分析：使用相同的消息内容重新发送
+                                        if (msg.content && activeThreadId && activeThread) {
+                                            console.log('[ChatSidebar] Retrying analysis for message:', msg.id);
+                                            // skipIntentUnderstanding=true 跳过意图理解，直接分析
+                                            handleSendMessage(msg.content, activeThreadId, activeThread, undefined, true);
+                                        }
+                                    }}
                                     onActionClick={(action) => {
                                         systemLog.info(`[onActionClick] START: id=${action.id}`);
                                         systemLog.info(`[onActionClick] Label length: ${action.label?.length || 0}`);

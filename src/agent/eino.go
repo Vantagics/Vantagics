@@ -209,13 +209,22 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 				logger(fmt.Sprintf("[EINO-INIT] Normalized BaseURL: %s -> %s", cfg.BaseURL, normalizedBaseURL))
 			}
 			
-			chatModel, err = openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
+			innerModel, innerErr := openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
 				APIKey:    cfg.APIKey,
 				BaseURL:   normalizedBaseURL,
 				Model:     cfg.ModelName,
 				MaxTokens: &maxTokens, // Use pointer to int
 				Timeout:   0, // Default
 			})
+			if innerErr != nil {
+				err = innerErr
+			} else {
+				// Wrap with error handler for better Gemini compatibility
+				chatModel = NewOpenAICompatibleWrapper(innerModel, normalizedBaseURL, logger)
+				if logger != nil && strings.Contains(normalizedBaseURL, "generativelanguage.googleapis.com") {
+					logger("[EINO-INIT] Detected Gemini OpenAI-compatible endpoint, error handling wrapper enabled")
+				}
+			}
 		}
 	}
 

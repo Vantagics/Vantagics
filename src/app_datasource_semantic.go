@@ -287,7 +287,7 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 	prompt := a.buildSemanticOptimizationPrompt(schemas, language)
 
 	// 获取配置并创建 LLM 服务
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}

@@ -133,6 +133,8 @@ type App struct {
 	exportService *database.ExportService
 	// Event aggregator for analysis results
 	eventAggregator *EventAggregator
+	// License client for activation
+	licenseClient *agent.LicenseClient
 }
 
 // AgentMemoryView structure for frontend
@@ -402,6 +404,47 @@ func (a *App) startup(ctx context.Context) {
 		// Initialize search keywords manager for intelligent web search detection
 		a.searchKeywordsManager = agent.NewSearchKeywordsManager(dataDir, a.Log)
 		a.Log("[STARTUP] Search keywords manager initialized")
+
+		// Initialize license client and try auto-activation if SN is saved
+		a.licenseClient = agent.NewLicenseClient(a.Log)
+		if cfg.LicenseSN != "" && cfg.LicenseServerURL != "" {
+			a.Log("[STARTUP] Found saved license SN, attempting auto-activation...")
+			_, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
+			if err != nil {
+				a.Log(fmt.Sprintf("[STARTUP] Auto-activation failed: %v", err))
+			} else {
+				a.Log("[STARTUP] License auto-activated successfully")
+				// Update config with activated LLM settings
+				if activationData := a.licenseClient.GetData(); activationData != nil && activationData.LLMAPIKey != "" {
+					// Map license server LLM types to the expected provider names
+					llmType := activationData.LLMType
+					baseURL := activationData.LLMBaseURL
+					switch strings.ToLower(llmType) {
+					case "openai":
+						llmType = "OpenAI"
+					case "anthropic":
+						llmType = "Anthropic"
+					case "gemini":
+						llmType = "Gemini"
+					case "deepseek":
+						llmType = "OpenAI-Compatible"
+						if baseURL == "" {
+							baseURL = "https://api.deepseek.com"
+						}
+					case "openai-compatible":
+						llmType = "OpenAI-Compatible"
+					case "claude-compatible":
+						llmType = "Claude-Compatible"
+					}
+					cfg.LLMProvider = llmType
+					cfg.APIKey = activationData.LLMAPIKey
+					cfg.BaseURL = baseURL
+					cfg.ModelName = activationData.LLMModel
+					a.Log(fmt.Sprintf("[STARTUP] Using activated LLM config: provider=%s (mapped from %s), model=%s, baseURL=%s",
+						cfg.LLMProvider, activationData.LLMType, cfg.ModelName, cfg.BaseURL))
+				}
+			}
+		}
 
 		a.Log(fmt.Sprintf("[STARTUP] Initializing EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
 		es, err := agent.NewEinoService(cfg, a.dataSourceService, a.memoryService, a.workingContextManager, a.Log)
@@ -1069,6 +1112,69 @@ func (a *App) GetConfig() (config.Config, error) {
 	return cfg, nil
 }
 
+// GetEffectiveConfig returns the config with activated license settings merged in
+// This should be used when creating LLM services to ensure activated LLM config is used
+func (a *App) GetEffectiveConfig() (config.Config, error) {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return cfg, err
+	}
+
+	// Merge activated license LLM config if available
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		activationData := a.licenseClient.GetData()
+		if activationData != nil && activationData.LLMAPIKey != "" {
+			// Map license server LLM types to the expected provider names
+			llmType := activationData.LLMType
+			baseURL := activationData.LLMBaseURL
+			switch strings.ToLower(llmType) {
+			case "openai":
+				llmType = "OpenAI"
+			case "anthropic":
+				llmType = "Anthropic"
+			case "gemini":
+				llmType = "Gemini"
+			case "deepseek":
+				// DeepSeek uses OpenAI-compatible API
+				llmType = "OpenAI-Compatible"
+				// Set default BaseURL for DeepSeek if not provided
+				if baseURL == "" {
+					baseURL = "https://api.deepseek.com"
+				}
+			case "openai-compatible":
+				llmType = "OpenAI-Compatible"
+			case "claude-compatible":
+				llmType = "Claude-Compatible"
+			}
+			cfg.LLMProvider = llmType
+			cfg.APIKey = activationData.LLMAPIKey
+			cfg.BaseURL = baseURL
+			cfg.ModelName = activationData.LLMModel
+		}
+
+		// Merge activated search config if available
+		if activationData != nil && activationData.SearchAPIKey != "" && activationData.SearchType != "" {
+			// Update the search API config based on activation data
+			found := false
+			for i := range cfg.SearchAPIs {
+				if cfg.SearchAPIs[i].ID == activationData.SearchType {
+					cfg.SearchAPIs[i].APIKey = activationData.SearchAPIKey
+					cfg.SearchAPIs[i].Enabled = true
+					cfg.ActiveSearchAPI = activationData.SearchType
+					found = true
+					break
+				}
+			}
+			// If search type not found in existing config, add it
+			if !found {
+				cfg.ActiveSearchAPI = activationData.SearchType
+			}
+		}
+	}
+
+	return cfg, nil
+}
+
 // GetActiveSearchAPIInfo returns information about the currently active search API
 // Returns: apiName, apiID, isEnabled, error
 func (a *App) GetActiveSearchAPIInfo() (string, string, bool, error) {
@@ -1354,6 +1460,40 @@ func (a *App) UpdateApplicationMenu(language string) {
 
 // reinitializeServices reinitializes services that depend on configuration
 func (a *App) reinitializeServices(cfg config.Config) {
+	// Check if we have activated license with LLM config
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		activationData := a.licenseClient.GetData()
+		if activationData != nil && activationData.LLMAPIKey != "" {
+			// Use activated LLM config
+			a.Log("[REINIT] Using activated license LLM configuration")
+			// Map license server LLM types to the expected provider names
+			llmType := activationData.LLMType
+			baseURL := activationData.LLMBaseURL
+			switch strings.ToLower(llmType) {
+			case "openai":
+				llmType = "OpenAI"
+			case "anthropic":
+				llmType = "Anthropic"
+			case "gemini":
+				llmType = "Gemini"
+			case "deepseek":
+				llmType = "OpenAI-Compatible"
+				if baseURL == "" {
+					baseURL = "https://api.deepseek.com"
+				}
+			case "openai-compatible":
+				llmType = "OpenAI-Compatible"
+			case "claude-compatible":
+				llmType = "Claude-Compatible"
+			}
+			cfg.LLMProvider = llmType
+			cfg.APIKey = activationData.LLMAPIKey
+			cfg.BaseURL = baseURL
+			cfg.ModelName = activationData.LLMModel
+			a.Log(fmt.Sprintf("[REINIT] Mapped LLM config: Provider=%s, Model=%s, BaseURL=%s", cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
+		}
+	}
+	
 	// Reinitialize MemoryService if configuration changed
 	if a.memoryService != nil { // Original condition, keeping it as the provided `oldPath != path` is out of context.
 		a.memoryService = agent.NewMemoryService(cfg)
@@ -1407,6 +1547,19 @@ type ConnectionResult struct {
 
 // TestLLMConnection tests the connection to an LLM provider
 func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
+	// Check if we have activated license with LLM config
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		activationData := a.licenseClient.GetData()
+		if activationData != nil && activationData.LLMAPIKey != "" {
+			// Use activated LLM config
+			a.Log("[TEST-LLM] Using activated license LLM configuration")
+			cfg.LLMProvider = activationData.LLMType
+			cfg.APIKey = activationData.LLMAPIKey
+			cfg.BaseURL = activationData.LLMBaseURL
+			cfg.ModelName = activationData.LLMModel
+		}
+	}
+	
 	llm := agent.NewLLMService(cfg, a.Log)
 	_, err := llm.Chat(a.ctx, "hi LLM, I'm just test the connection. Just answer ok to me without other infor.")
 	if err != nil {
@@ -1802,7 +1955,7 @@ func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentS
 // excluding previously generated suggestions
 // Validates: Requirements 5.1, 5.2, 5.3, 2.3, 6.5, 2.2, 7.1
 func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage string, excludedSuggestions []IntentSuggestion) ([]IntentSuggestion, error) {
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -2259,7 +2412,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		return "", fmt.Errorf("chat service not initialized")
 	}
 
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return "", err
 	}
@@ -2438,6 +2591,30 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 	a.activeThreadsMutex.Lock()
 	a.activeThreads[threadID] = true
 	a.activeThreadsMutex.Unlock()
+
+	// Check license analysis limit before proceeding
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		canAnalyze, limitMsg := a.licenseClient.CanAnalyze()
+		if !canAnalyze {
+			// Remove from active threads since we're not proceeding
+			a.activeThreadsMutex.Lock()
+			delete(a.activeThreads, threadID)
+			a.activeThreadsMutex.Unlock()
+			
+			// Clear loading state
+			if threadID != "" {
+				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+					"loading":  false,
+					"threadId": threadID,
+				})
+			}
+			
+			return "", fmt.Errorf(limitMsg)
+		}
+		// Increment analysis count
+		a.licenseClient.IncrementAnalysis()
+		a.Log("[LICENSE] Analysis count incremented")
+	}
 
 	// Notify frontend that loading has started
 	if threadID != "" {
@@ -3174,7 +3351,7 @@ func (a *App) SendFreeChatMessage(threadID, message, userMessageID string) (stri
 		return "", fmt.Errorf("chat service not initialized")
 	}
 
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return "", err
 	}
@@ -3500,7 +3677,7 @@ func (a *App) formatToolResultsForUser(results []string, langPrompt string) stri
 
 // runFreeChatWithTools runs free chat with web search and fetch tools using Eino agent
 func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyContext, langPrompt string, onChunk func(string)) (string, error) {
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return "", err
 	}
@@ -4523,7 +4700,7 @@ func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataS
 		"threadId": threadID,
 	})
 
-	cfg, _ := a.GetConfig()
+	cfg, _ := a.GetEffectiveConfig()
 	langPrompt := a.getLangPrompt(cfg)
 
 	// Construct prompt
@@ -4620,7 +4797,7 @@ func (a *App) analyzeDataSource(dataSourceID string) {
 
 	// 2. Sample Data & Construct Prompt
 	startSample := time.Now()
-	cfg, _ := a.GetConfig()
+	cfg, _ := a.GetEffectiveConfig()
 	langPrompt := a.getLangPrompt(cfg)
 
 	var sb strings.Builder
@@ -6074,7 +6251,7 @@ func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string
 
 // getConfigForExtraction gets config for metrics extraction
 func (a *App) getConfigForExtraction() config.Config {
-	cfg, _ := a.GetConfig()
+	cfg, _ := a.GetEffectiveConfig()
 	// Return config as-is since Temperature field doesn't exist
 	return cfg
 }
@@ -6411,7 +6588,7 @@ func (a *App) ReplayAnalysisRecording(recordingID, targetSourceID string, autoFi
 	// Create SQL and Python tools
 	sqlTool := agent.NewSQLExecutorTool(a.dataSourceService)
 
-	cfg, _ := a.GetConfig()
+	cfg, _ := a.GetEffectiveConfig()
 	pythonTool := agent.NewPythonExecutorTool(cfg)
 
 	// Create LLM service for intelligent field matching
@@ -6847,4 +7024,201 @@ func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []A
 		return fmt.Errorf("chat service not initialized")
 	}
 	return a.chatService.SaveAnalysisResults(threadID, messageID, results)
+}
+
+// ============ License Activation Methods ============
+
+// ActivationResult represents the result of license activation
+type ActivationResult struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+// ActivateLicense activates the application with a license server
+func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
+	if a.licenseClient == nil {
+		a.licenseClient = agent.NewLicenseClient(a.Log)
+	}
+
+	data, err := a.licenseClient.Activate(serverURL, sn)
+	if err != nil {
+		return &ActivationResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	// Save encrypted activation data to local storage
+	if err := a.licenseClient.SaveActivationData(); err != nil {
+		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save activation data: %v", err))
+	}
+
+	// Reinitialize services with the new license configuration
+	cfg, _ := a.GetConfig()
+	a.reinitializeServices(cfg)
+
+	return &ActivationResult{
+		Success:   true,
+		Message:   "激活成功",
+		ExpiresAt: data.ExpiresAt,
+	}, nil
+}
+
+// RequestSNResult represents the result of SN request
+type RequestSNResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	SN      string `json:"sn,omitempty"`
+	Code    string `json:"code,omitempty"`
+}
+
+// RequestSN requests a serial number from the license server
+func (a *App) RequestSN(serverURL, email string) (*RequestSNResult, error) {
+	if a.licenseClient == nil {
+		a.licenseClient = agent.NewLicenseClient(a.Log)
+	}
+
+	result, err := a.licenseClient.RequestSN(serverURL, email)
+	if err != nil {
+		return &RequestSNResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &RequestSNResult{
+		Success: result.Success,
+		Message: result.Message,
+		SN:      result.SN,
+		Code:    result.Code,
+	}, nil
+}
+
+// GetActivationStatus returns the current activation status
+func (a *App) GetActivationStatus() map[string]interface{} {
+	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+		return map[string]interface{}{
+			"activated": false,
+		}
+	}
+
+	data := a.licenseClient.GetData()
+	count, limit, date := a.licenseClient.GetAnalysisStatus()
+	
+	return map[string]interface{}{
+		"activated":            true,
+		"expires_at":           data.ExpiresAt,
+		"has_llm":              data.LLMAPIKey != "",
+		"has_search":           data.SearchAPIKey != "",
+		"llm_type":             data.LLMType,
+		"search_type":          data.SearchType,
+		"sn":                   a.licenseClient.GetSN(),
+		"server_url":           a.licenseClient.GetServerURL(),
+		"daily_analysis_limit": limit,
+		"daily_analysis_count": count,
+		"daily_analysis_date":  date,
+	}
+}
+
+// LoadSavedActivation attempts to load saved activation data from local storage
+func (a *App) LoadSavedActivation(sn string) (*ActivationResult, error) {
+	if a.licenseClient == nil {
+		a.licenseClient = agent.NewLicenseClient(a.Log)
+	}
+
+	err := a.licenseClient.LoadActivationData(sn)
+	if err != nil {
+		return &ActivationResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	data := a.licenseClient.GetData()
+	return &ActivationResult{
+		Success:   true,
+		Message:   "从本地加载激活数据成功",
+		ExpiresAt: data.ExpiresAt,
+	}, nil
+}
+
+// GetActivatedLLMConfig returns the LLM config from activation (for internal use)
+func (a *App) GetActivatedLLMConfig() *agent.ActivationData {
+	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+		return nil
+	}
+	return a.licenseClient.GetData()
+}
+
+// DeactivateLicense clears the activation
+func (a *App) DeactivateLicense() {
+	if a.licenseClient != nil {
+		a.licenseClient.ClearSavedData()
+	}
+}
+
+// RefreshLicense refreshes the license from server using stored SN
+func (a *App) RefreshLicense() (*ActivationResult, error) {
+	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+		return &ActivationResult{
+			Success: false,
+			Message: "未激活，无法刷新",
+		}, nil
+	}
+
+	sn := a.licenseClient.GetSN()
+	if sn == "" {
+		return &ActivationResult{
+			Success: false,
+			Message: "未找到序列号",
+		}, nil
+	}
+
+	serverURL := a.licenseClient.GetServerURL()
+	if serverURL == "" {
+		// Try from config
+		cfg, _ := a.GetConfig()
+		serverURL = cfg.LicenseServerURL
+	}
+	if serverURL == "" {
+		return &ActivationResult{
+			Success: false,
+			Message: "未找到授权服务器地址",
+		}, nil
+	}
+
+	a.Log(fmt.Sprintf("[LICENSE] Refreshing license with SN: %s, Server: %s", sn, serverURL))
+
+	// Re-activate with the same SN
+	data, err := a.licenseClient.Activate(serverURL, sn)
+	if err != nil {
+		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %v", err))
+		return &ActivationResult{
+			Success: false,
+			Message: fmt.Sprintf("刷新失败: %v", err),
+		}, nil
+	}
+
+	// Save updated activation data
+	if err := a.licenseClient.SaveActivationData(); err != nil {
+		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save refreshed data: %v", err))
+	}
+
+	// Reinitialize services with updated config
+	cfg, _ := a.GetConfig()
+	a.reinitializeServices(cfg)
+
+	a.Log(fmt.Sprintf("[LICENSE] License refreshed successfully, expires: %s", data.ExpiresAt))
+
+	return &ActivationResult{
+		Success:   true,
+		Message:   "授权刷新成功",
+		ExpiresAt: data.ExpiresAt,
+	}, nil
+}
+
+// IsLicenseActivated returns true if license is activated
+func (a *App) IsLicenseActivated() bool {
+	return a.licenseClient != nil && a.licenseClient.IsActivated()
 }

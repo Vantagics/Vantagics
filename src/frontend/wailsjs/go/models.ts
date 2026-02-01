@@ -1,5 +1,31 @@
 export namespace agent {
 	
+	export class ActivationData {
+	    llm_type: string;
+	    llm_base_url: string;
+	    llm_api_key: string;
+	    llm_model: string;
+	    search_type: string;
+	    search_api_key: string;
+	    expires_at: string;
+	    daily_analysis: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActivationData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.llm_type = source["llm_type"];
+	        this.llm_base_url = source["llm_base_url"];
+	        this.llm_api_key = source["llm_api_key"];
+	        this.llm_model = source["llm_model"];
+	        this.search_type = source["search_type"];
+	        this.search_api_key = source["search_api_key"];
+	        this.expires_at = source["expires_at"];
+	        this.daily_analysis = source["daily_analysis"];
+	    }
+	}
 	export class ConfirmedFinding {
 	    finding_id: string;
 	    content: string;
@@ -962,6 +988,8 @@ export namespace config {
 	    location?: LocationConfig;
 	    shopifyClientId?: string;
 	    shopifyClientSecret?: string;
+	    licenseSN?: string;
+	    licenseServerURL?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1001,6 +1029,8 @@ export namespace config {
 	        this.location = this.convertValues(source["location"], LocationConfig);
 	        this.shopifyClientId = source["shopifyClientId"];
 	        this.shopifyClientSecret = source["shopifyClientSecret"];
+	        this.licenseSN = source["licenseSN"];
+	        this.licenseServerURL = source["licenseServerURL"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1190,6 +1220,22 @@ export namespace database {
 
 export namespace main {
 	
+	export class ActivationResult {
+	    success: boolean;
+	    message: string;
+	    expires_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActivationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.expires_at = source["expires_at"];
+	    }
+	}
 	export class AgentMemoryView {
 	    long_term: string[];
 	    medium_term: string[];
@@ -1973,6 +2019,24 @@ export namespace main {
 	}
 	
 	
+	export class RequestSNResult {
+	    success: boolean;
+	    message: string;
+	    sn?: string;
+	    code?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RequestSNResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.message = source["message"];
+	        this.sn = source["sn"];
+	        this.code = source["code"];
+	    }
+	}
 	
 	
 	

@@ -16,8 +16,9 @@ import (
 
 // GeminiChatModel implements the Eino ChatModel interface for Google Gemini
 type GeminiChatModel struct {
-	config *GeminiConfig
-	tools  []*schema.ToolInfo
+	config          *GeminiConfig
+	tools           []*schema.ToolInfo
+	thoughtSignature string // Store the thought signature from model responses
 }
 
 // GeminiConfig holds configuration for Gemini API
@@ -115,21 +116,27 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 			role = "model"
 		} else if msg.Role == schema.Tool {
 			// Tool response - for Gemini 2.0+, we need thought_signature for function responses
-			// As a workaround, we convert tool responses to model text responses
-			// This avoids the thought_signature requirement
-			contents = append(contents, map[string]interface{}{
-				"role": "model",
-				"parts": []map[string]interface{}{
-					{
-						"text": fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content),
+			functionResponsePart := map[string]interface{}{
+				"functionResponse": map[string]interface{}{
+					"name": msg.ToolCallID,
+					"response": map[string]interface{}{
+						"result": msg.Content,
 					},
 				},
+			}
+			// Add thought signature if available (required for Gemini 2.0 thinking models)
+			if m.thoughtSignature != "" {
+				functionResponsePart["thoughtSignature"] = m.thoughtSignature
+			}
+			contents = append(contents, map[string]interface{}{
+				"role":  "user",
+				"parts": []interface{}{functionResponsePart},
 			})
 			continue
 		}
 
 		// Build parts
-		var parts []map[string]interface{}
+		var parts []interface{}
 
 		if msg.Content != "" {
 			parts = append(parts, map[string]interface{}{
@@ -137,16 +144,22 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 			})
 		}
 
-		// Handle tool calls from assistant - convert to text to avoid thought_signature requirement
+		// Handle tool calls from assistant - include proper functionCall format
 		if len(msg.ToolCalls) > 0 {
-			var toolCallTexts []string
 			for _, tc := range msg.ToolCalls {
-				toolCallTexts = append(toolCallTexts, fmt.Sprintf("[Calling tool: %s with args: %s]", tc.Function.Name, tc.Function.Arguments))
-			}
-			if msg.Content == "" {
-				parts = append(parts, map[string]interface{}{
-					"text": strings.Join(toolCallTexts, "\n"),
-				})
+				var args map[string]interface{}
+				json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				functionCallPart := map[string]interface{}{
+					"functionCall": map[string]interface{}{
+						"name": tc.Function.Name,
+						"args": args,
+					},
+				}
+				// Add thought signature if available
+				if m.thoughtSignature != "" {
+					functionCallPart["thoughtSignature"] = m.thoughtSignature
+				}
+				parts = append(parts, functionCallPart)
 			}
 		}
 
@@ -205,8 +218,9 @@ func (m *GeminiChatModel) parseResponse(respBody []byte) (*schema.Message, error
 		Candidates []struct {
 			Content struct {
 				Parts []struct {
-					Text         string `json:"text,omitempty"`
-					FunctionCall *struct {
+					Text             string `json:"text,omitempty"`
+					ThoughtSignature string `json:"thoughtSignature,omitempty"`
+					FunctionCall     *struct {
 						Name string                 `json:"name"`
 						Args map[string]interface{} `json:"args"`
 					} `json:"functionCall,omitempty"`
@@ -241,6 +255,10 @@ func (m *GeminiChatModel) parseResponse(respBody []byte) (*schema.Message, error
 
 	candidate := result.Candidates[0]
 	for _, part := range candidate.Content.Parts {
+		// Capture thought signature for use in subsequent function responses
+		if part.ThoughtSignature != "" {
+			m.thoughtSignature = part.ThoughtSignature
+		}
 		if part.Text != "" {
 			responseMsg.Content += part.Text
 		}

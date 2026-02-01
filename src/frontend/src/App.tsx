@@ -10,8 +10,9 @@ import ChatSidebar from './components/ChatSidebar';
 import ContextMenu from './components/ContextMenu';
 import MessageModal from './components/MessageModal';
 import SkillsManagementPage from './components/SkillsManagementPage';
+import StartupModeModal from './components/StartupModeModal';
 import { EventsOn, EventsEmit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -215,8 +216,9 @@ function AppContent() {
 
     // Startup State
     const [isAppReady, setIsAppReady] = useState(false);
-    const [startupStatus, setStartupStatus] = useState<"checking" | "failed">("checking");
+    const [startupStatus, setStartupStatus] = useState<"checking" | "failed" | "need_mode_select">("checking");
     const [startupMessage, setStartupMessage] = useState(t('initializing'));
+    const [showStartupModeModal, setShowStartupModeModal] = useState(false);
 
     // Layout State
     const [sidebarWidth, setSidebarWidth] = useState(256);
@@ -231,13 +233,31 @@ function AppContent() {
     const checkLLM = async () => {
         setStartupStatus("checking");
         
-        // Check LLM configuration
+        // First check if LLM is configured at all
         setStartupMessage(t('checking_llm_config'));
         try {
             const config = await GetConfig();
+            
+            // Check if this is first run (no LLM configured)
+            const hasLLMConfig = config.apiKey || 
+                config.llmProvider === 'OpenAI-Compatible' || 
+                config.llmProvider === 'Claude-Compatible';
+            
+            // Also check if already activated with commercial license
+            const activationStatus = await GetActivationStatus();
+            const isActivated = activationStatus.activated && activationStatus.has_llm;
+            
+            if (!hasLLMConfig && !isActivated) {
+                // No LLM configured and not activated - show mode selection
+                logger.info("No LLM configuration found, showing mode selection");
+                setStartupStatus("need_mode_select");
+                setStartupMessage(t('select_usage_mode') || '请选择使用模式');
+                setShowStartupModeModal(true);
+                return;
+            }
 
-            // Basic validation
-            if (!config.apiKey && config.llmProvider !== 'OpenAI-Compatible' && config.llmProvider !== 'Claude-Compatible') {
+            // Basic validation for non-compatible providers
+            if (!config.apiKey && config.llmProvider !== 'OpenAI-Compatible' && config.llmProvider !== 'Claude-Compatible' && !isActivated) {
                 throw new Error(t('api_key_missing'));
             }
 
@@ -246,6 +266,7 @@ function AppContent() {
 
             if (result.success) {
                 setIsAppReady(true);
+                setShowStartupModeModal(false);
                 // Fetch dashboard data only after ready
                 GetDashboardData().then(data => {
                     setDashboardData(data);
@@ -267,6 +288,21 @@ function AppContent() {
             setPreferenceInitialTab('llm');
             setIsPreferenceOpen(true);
         }
+    };
+
+    const handleStartupModeComplete = () => {
+        setShowStartupModeModal(false);
+        checkLLM();
+    };
+
+    // 跟踪是否是从启动模式打开的设置
+    const [isStartupSettingsMode, setIsStartupSettingsMode] = useState(false);
+
+    const handleOpenSettingsFromStartup = () => {
+        setShowStartupModeModal(false);
+        setPreferenceInitialTab('llm');
+        setIsStartupSettingsMode(true);  // 标记为启动模式
+        setIsPreferenceOpen(true);
     };
 
     useEffect(() => {
@@ -1209,40 +1245,51 @@ function AppContent() {
             <div className="flex h-screen w-screen bg-slate-50 items-center justify-center flex-col gap-6 relative">
                 {/* Removed draggable area - using system window border for dragging */}
 
-                <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                {/* Only show spinner when not in mode selection */}
+                {startupStatus !== 'need_mode_select' && (
+                    <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                )}
 
-                {/* Normal startup UI */}
-                <div className="text-center max-w-md px-6">
-                    <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('system_startup')}</h2>
-                    <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
-                        {startupMessage}
-                    </p>
+                {/* Normal startup UI - hide when mode selection is shown */}
+                {startupStatus !== 'need_mode_select' && (
+                    <div className="text-center max-w-md px-6">
+                        <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('system_startup')}</h2>
+                        <p className={`text-sm ${startupStatus === 'failed' ? 'text-red-600' : 'text-slate-600'}`}>
+                            {startupMessage}
+                        </p>
 
-                    {startupStatus === 'failed' && (
-                        <div className="mt-6 flex flex-col gap-3">
-                            <button
-                                onClick={() => setIsPreferenceOpen(true)}
-                                className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
-                            >
-                                {t('open_settings')}
-                            </button>
-                            <button
-                                onClick={checkLLM}
-                                className="px-6 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-md hover:bg-slate-50 transition-colors"
-                            >
-                                {t('retry_connection')}
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                <PreferenceModal
+                        {startupStatus === 'failed' && (
+                            <div className="mt-6 flex flex-col gap-3">
+                                <button
+                                    onClick={() => setIsPreferenceOpen(true)}
+                                    className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors shadow-sm"
+                                >
+                                    {t('open_settings')}
+                                </button>
+                                <button
+                                    onClick={checkLLM}
+                                    className="px-6 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-md hover:bg-slate-50 transition-colors"
+                                >
+                                    {t('retry_connection')}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}                <PreferenceModal
                     isOpen={isPreferenceOpen}
                     onClose={() => {
                         setIsPreferenceOpen(false);
                         setPreferenceInitialTab(undefined);
+                        setIsStartupSettingsMode(false);  // 重置启动模式标记
                     }}
                     initialTab={preferenceInitialTab}
+                    isStartupMode={isStartupSettingsMode}
+                />
+
+                <StartupModeModal
+                    isOpen={showStartupModeModal}
+                    onComplete={handleStartupModeComplete}
+                    onOpenSettings={handleOpenSettingsFromStartup}
                 />
             </div>
         );
@@ -1331,13 +1378,16 @@ function AppContent() {
                     onClose={() => {
                         setIsPreferenceOpen(false);
                         setPreferenceInitialTab(undefined);
+                        setIsStartupSettingsMode(false);  // 重置启动模式标记
                     }}
                     onOpenSkills={() => {
                         setIsPreferenceOpen(false);
                         setPreferenceInitialTab(undefined);
+                        setIsStartupSettingsMode(false);  // 重置启动模式标记
                         setIsSkillsOpen(true);
                     }}
                     initialTab={preferenceInitialTab}
+                    isStartupMode={isStartupSettingsMode}
                 />
 
                 <SkillsManagementPage

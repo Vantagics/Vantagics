@@ -102,4 +102,8 @@ type Config struct {
 	// These are set by the developer who registered the app with Shopify
 	ShopifyClientID     string `json:"shopifyClientId,omitempty"`
 	ShopifyClientSecret string `json:"shopifyClientSecret,omitempty"`
+	
+	// License configuration (for commercial mode)
+	LicenseSN        string `json:"licenseSN,omitempty"`        // Saved license serial number
+	LicenseServerURL string `json:"licenseServerURL,omitempty"` // License server URL
 }

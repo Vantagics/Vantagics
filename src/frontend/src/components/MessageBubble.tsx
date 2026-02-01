@@ -26,9 +26,11 @@ interface MessageBubbleProps {
     isDisabled?: boolean;  // 新增：是否禁用点击（用于未完成的用户消息）
     timingData?: any;  // 新增：耗时数据
     threadId?: string;  // 新增：线程ID用于加载图片
+    isFailed?: boolean;  // 新增：分析是否失败
+    onRetryAnalysis?: () => void;  // 新增：重新分析回调
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId, isFailed, onRetryAnalysis }) => {
     const { t } = useLanguage();
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -583,6 +585,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         }
     };
 
+    // Handle retry analysis action
+    const handleRetryAnalysis = () => {
+        setExportMenu(null);
+        if (onRetryAnalysis) {
+            onRetryAnalysis();
+        }
+    };
+
     // Close context menu when clicking outside
     useEffect(() => {
         const handleClickOutside = () => {
@@ -1091,6 +1101,42 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         <span style={{ fontSize: '16px' }}>📋</span>
                         <span style={{ fontWeight: 500 }}>{isUser ? '导出分析过程' : '导出为PDF'}</span>
                     </button>
+
+                    {/* Retry Analysis Option - Only show for failed user messages */}
+                    {isUser && isFailed && onRetryAnalysis && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleRetryAnalysis();
+                            }}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                fontSize: '13px',
+                                color: '#dc2626',
+                                backgroundColor: 'white',
+                                border: 'none',
+                                borderTop: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#fef2f2';
+                                e.currentTarget.style.color = '#b91c1c';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'white';
+                                e.currentTarget.style.color = '#dc2626';
+                            }}
+                        >
+                            <span style={{ fontSize: '16px' }}>🔄</span>
+                            <span style={{ fontWeight: 500 }}>重新分析</span>
+                        </button>
+                    )}
 
                     {/* Timing Analysis Option - Only show if timing data exists */}
                     {timingData && (

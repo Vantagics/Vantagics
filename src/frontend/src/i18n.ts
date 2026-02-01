@@ -40,6 +40,9 @@ export const translations: Record<Language, Record<string, string>> = {
         'clear_history_confirm_title': 'Clear All History?',
         'clear_history_confirm_desc': 'This action cannot be undone. All your chat threads will be permanently deleted.',
         'cancel': 'Cancel',
+        'confirm_exit_title': 'Confirm Exit',
+        'cancel_will_exit_app': 'Canceling will exit the application. Are you sure you want to exit?',
+        'confirm_exit': 'Confirm Exit',
         'clear': 'Clear History',
         'preferences': 'Preferences',
         'llm_config': 'LLM Configuration',
@@ -298,8 +301,60 @@ export const translations: Record<Language, Record<string, string>> = {
         'no': 'No',
         'close': 'Close',
         'about': 'About',
+        'activation': 'Activation',
+        'activation_title': 'Product Activation',
+        // Startup Mode Selection
+        'welcome_to_vantagedata': 'Welcome to VantageData',
+        'select_usage_mode': 'Please select your usage mode',
+        'mode_selection_desc': 'First-time setup requires selecting a usage mode. Commercial mode provides cloud LLM service, while open source mode requires self-configured LLM.',
+        'commercial_mode': 'Commercial Mode',
+        'commercial_mode_desc': 'Activate with serial number, enjoy cloud LLM service, no configuration needed',
+        'opensource_mode': 'Open Source Mode',
+        'opensource_mode_desc': 'Configure your own LLM API, supports OpenAI, Anthropic, local models, etc.',
+        'no_config_needed': 'No configuration needed',
+        'cloud_llm_service': 'Cloud LLM service',
+        'custom_llm_config': 'Custom LLM config',
+        'full_control': 'Full control',
+        'activate_with_sn': 'Activate with serial number',
+        'license_server': 'License Server',
+        'serial_number': 'Serial Number (SN)',
+        'no_sn_request_trial': "Don't have a serial number? Request trial",
+        'please_fill_server_and_sn': 'Please fill in server address and serial number',
+        'please_fill_server': 'Please fill in server address first',
+        'please_enter_valid_email': 'Please enter a valid email address',
+        'activation_success': 'Activation successful!',
+        'activation_loaded': 'Activation loaded from local storage',
+        'activating': 'Activating...',
+        'activate': 'Activate',
+        'request_trial_desc': 'Enter your email address and we will send you a trial serial number.',
+        'email_address': 'Email Address',
+        'requesting': 'Requesting...',
+        'request_trial_sn': 'Request Trial SN',
+        'trial_limit_note': '* Each email can only request one trial',
+        'sn_sent_to_email': 'Serial number has been sent to your email',
+        'sn_request_success': 'Serial number request successful!',
+        'request_rate_limit': 'Request limit reached, please try again tomorrow',
+        'server_connection_failed': 'Failed to connect to server',
+        'email_not_invited': 'You are not currently invited. Please visit https://vantagedata.chat/invite for help.',
+        'email_not_invited_text': 'You are not currently invited. Please click the link below for help.',
+        'activating_and_verifying': 'Activating and verifying LLM service...',
+        'llm_connection_failed': 'LLM connection failed, please check configuration',
+        'commercial_mode_active': 'Commercial Mode Active',
+        'expires': 'Expires',
+        'expired': 'Expired',
+        'days_remaining': ' days left',
+        'trial_license': 'Trial',
+        'official_license': 'Official',
+        'subscribe_now': 'Subscribe Now',
+        'renew_subscription': 'Renew Subscription',
+        'daily_analysis_usage': 'Daily Analysis Usage',
+        'times': 'times',
+        'daily_limit_reached': 'Daily analysis limit reached, please try again tomorrow',
         'version': 'Version',
         'build_date': 'Build Date',
+        'working_mode': 'Working Mode',
+        'commercial_license': 'Commercial License',
+        'opensource_license': 'Open Source License',
         // Search API
         'search_engine': 'Search API',
         'search_engine_settings': 'Search API Settings',
@@ -817,6 +872,9 @@ export const translations: Record<Language, Record<string, string>> = {
         'clear_history_confirm_title': '清空所有历史记录？',
         'clear_history_confirm_desc': '此操作无法撤销。您的所有聊天记录都将被永久删除。',
         'cancel': '取消',
+        'confirm_exit_title': '确认退出',
+        'cancel_will_exit_app': '取消将退出程序，确定要退出吗？',
+        'confirm_exit': '确认退出',
         'clear': '清空历史',
         'preferences': '系统偏好设置',
         'llm_config': 'LLM 配置',
@@ -1075,8 +1133,60 @@ export const translations: Record<Language, Record<string, string>> = {
         'no': '否',
         'close': '关闭',
         'about': '关于',
+        'activation': '激活',
+        'activation_title': '产品激活',
+        // 启动模式选择
+        'welcome_to_vantagedata': '欢迎使用 VantageData',
+        'select_usage_mode': '请选择您的使用模式',
+        'mode_selection_desc': '首次使用需要选择使用模式。商业模式提供云端LLM服务，开源模式需要自行配置LLM。',
+        'commercial_mode': '商业软件模式',
+        'commercial_mode_desc': '使用序列号激活，享受云端LLM服务，无需自行配置',
+        'opensource_mode': '开源模式',
+        'opensource_mode_desc': '自行配置LLM API，支持OpenAI、Anthropic、本地模型等',
+        'no_config_needed': '无需配置',
+        'cloud_llm_service': '云端LLM服务',
+        'custom_llm_config': '自定义LLM配置',
+        'full_control': '完全控制',
+        'activate_with_sn': '使用序列号激活',
+        'license_server': '授权服务器',
+        'serial_number': '序列号 (SN)',
+        'no_sn_request_trial': '没有序列号？申请试用',
+        'please_fill_server_and_sn': '请填写服务器地址和序列号',
+        'please_fill_server': '请先填写服务器地址',
+        'please_enter_valid_email': '请输入有效的邮箱地址',
+        'activation_success': '激活成功！',
+        'activation_loaded': '已从本地加载激活信息',
+        'activating': '正在激活...',
+        'activate': '激活',
+        'request_trial_desc': '输入您的邮箱地址，我们将发送试用序列号给您。',
+        'email_address': '邮箱地址',
+        'requesting': '正在申请...',
+        'request_trial_sn': '申请试用序列号',
+        'trial_limit_note': '* 每个邮箱仅可申请一次试用',
+        'sn_sent_to_email': '序列号已发送到您的邮箱',
+        'sn_request_success': '序列号申请成功！',
+        'request_rate_limit': '请求次数已达上限，请明天再试',
+        'server_connection_failed': '连接服务器失败',
+        'email_not_invited': '当前未被邀请使用，请访问 https://vantagedata.chat/invite 获取帮助。',
+        'email_not_invited_text': '当前未被邀请使用，请点击下方链接获取帮助。',
+        'activating_and_verifying': '正在激活并验证LLM服务...',
+        'llm_connection_failed': 'LLM连接失败，请检查配置',
+        'commercial_mode_active': '商业版已激活',
+        'expires': '到期',
+        'expired': '已过期',
+        'days_remaining': '天后到期',
+        'trial_license': '试用版',
+        'official_license': '正式版',
+        'subscribe_now': '立即订阅',
+        'renew_subscription': '续订授权',
+        'daily_analysis_usage': '今日分析使用情况',
+        'times': '次',
+        'daily_limit_reached': '今日分析次数已达上限，请明天再试',
         'version': '版本',
         'build_date': '构建日期',
+        'working_mode': '工作模式',
+        'commercial_license': '商业软件授权',
+        'opensource_license': '开源软件授权',
         // 搜索 API
         'search_engine': '搜索 API',
         'search_engine_settings': '搜索 API 设置',
@@ -1562,14 +1672,31 @@ export const translations: Record<Language, Record<string, string>> = {
 };
 
 export function useLanguage() {
-    const [language, setLanguage] = useState<Language>('English');
+    // Detect system language and use it as default
+    const getSystemLanguage = (): Language => {
+        const browserLang = navigator.language || (navigator as any).userLanguage || '';
+        // Check if system language is Chinese (zh, zh-CN, zh-TW, zh-HK, etc.)
+        if (browserLang.toLowerCase().startsWith('zh')) {
+            return '简体中文';
+        }
+        // Default to English for all other languages
+        return 'English';
+    };
+
+    const [language, setLanguage] = useState<Language>(getSystemLanguage());
 
     const updateLanguage = () => {
         GetConfig().then(config => {
             if (config.language === '简体中文' || config.language === 'English') {
                 setLanguage(config.language as Language);
+            } else {
+                // If config language is not set or invalid, use system language
+                setLanguage(getSystemLanguage());
             }
-        }).catch(console.error);
+        }).catch(() => {
+            // On error, use system language
+            setLanguage(getSystemLanguage());
+        });
     };
 
     useEffect(() => {

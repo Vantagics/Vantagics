@@ -304,7 +304,7 @@ func (a *App) generateOptimizeSuggestions(db *sql.DB, dataSourceID string) ([]In
 	}
 
 	// Ask LLM for index suggestions
-	cfg, err := a.GetConfig()
+	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
@@ -352,14 +352,17 @@ Return ONLY a JSON array of suggestions, no other text:
 	}
 
 	// Build a map of table -> columns for validation
+	// Use direct database query instead of cache to ensure accuracy
 	tableColumns := make(map[string]map[string]bool)
 	for _, tableName := range tables {
-		columns, err := a.dataSourceService.GetDataSourceTableColumns(dataSourceID, tableName)
+		// Get columns directly from database to avoid cache inconsistency
+		columnTypes, err := a.getColumnTypes(db, tableName)
 		if err != nil {
+			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get columns for table %s: %v", tableName, err))
 			continue
 		}
 		tableColumns[tableName] = make(map[string]bool)
-		for _, col := range columns {
+		for col := range columnTypes {
 			tableColumns[tableName][col] = true
 		}
 	}
