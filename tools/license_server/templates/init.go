@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadSearchConfigs();
         loadEmailRecords();
         loadSSLConfig();
+        loadSMTPConfig();
         loadFilterSettings();
         loadBlacklist();
         loadWhitelist();

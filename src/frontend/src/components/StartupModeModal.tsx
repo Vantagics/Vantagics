@@ -174,8 +174,10 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 if (result.code === 'not_invited' || result.message?.includes('not invited') || result.message?.includes('未被邀请')) {
                     setError(t('email_not_invited_text') || '当前未被邀请使用，请点击下方链接获取帮助。');
                     setIsNotInvitedError(true);
-                } else if (result.code === 'rate_limit') {
-                    setError(result.message || t('request_rate_limit') || '请求次数已达上限，请明天再试');
+                } else if (result.code) {
+                    // Use localized error message based on error code
+                    const localizedError = t(`license_error_${result.code}`);
+                    setError(localizedError || result.message);
                     setIsNotInvitedError(false);
                 } else {
                     setError(result.message);

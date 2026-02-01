@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,13 +21,16 @@ import (
 	"math"
 	mrand "math/rand"
 	"net/http"
+	"net/smtp"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	_ "github.com/mutecomm/go-sqlcipher/v4"
+	"license_server/templates"
 )
 
 const (
@@ -155,6 +159,19 @@ type RequestSNResponse struct {
 	Message string `json:"message"`
 	SN      string `json:"sn,omitempty"`
 	Code    string `json:"code,omitempty"`
+}
+
+// SMTPConfig holds SMTP server configuration
+type SMTPConfig struct {
+	Enabled    bool   `json:"enabled"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	FromEmail  string `json:"from_email"`
+	FromName   string `json:"from_name"`
+	UseTLS     bool   `json:"use_tls"`
+	UseSTARTTLS bool  `json:"use_starttls"`
 }
 
 var (
@@ -350,6 +367,274 @@ func loadSSLConfig() {
 	}
 }
 
+// getSMTPConfig retrieves SMTP configuration from database
+func getSMTPConfig() SMTPConfig {
+	config := SMTPConfig{
+		Port:    587,
+		UseTLS:  false,
+		UseSTARTTLS: true,
+	}
+	
+	if val := getSetting("smtp_enabled"); val == "true" || val == "1" {
+		config.Enabled = true
+	}
+	if val := getSetting("smtp_host"); val != "" {
+		config.Host = val
+	}
+	if val := getSetting("smtp_port"); val != "" {
+		if port, err := strconv.Atoi(val); err == nil {
+			config.Port = port
+		}
+	}
+	if val := getSetting("smtp_username"); val != "" {
+		config.Username = val
+	}
+	if val := getSetting("smtp_password"); val != "" {
+		config.Password = val
+	}
+	if val := getSetting("smtp_from_email"); val != "" {
+		config.FromEmail = val
+	}
+	if val := getSetting("smtp_from_name"); val != "" {
+		config.FromName = val
+	}
+	if val := getSetting("smtp_use_tls"); val == "true" || val == "1" {
+		config.UseTLS = true
+	}
+	if val := getSetting("smtp_use_starttls"); val == "true" || val == "1" {
+		config.UseSTARTTLS = true
+	}
+	
+	return config
+}
+
+// saveSMTPConfig saves SMTP configuration to database
+func saveSMTPConfig(config SMTPConfig) {
+	setSetting("smtp_enabled", fmt.Sprintf("%v", config.Enabled))
+	setSetting("smtp_host", config.Host)
+	setSetting("smtp_port", fmt.Sprintf("%d", config.Port))
+	setSetting("smtp_username", config.Username)
+	setSetting("smtp_password", config.Password)
+	setSetting("smtp_from_email", config.FromEmail)
+	setSetting("smtp_from_name", config.FromName)
+	setSetting("smtp_use_tls", fmt.Sprintf("%v", config.UseTLS))
+	setSetting("smtp_use_starttls", fmt.Sprintf("%v", config.UseSTARTTLS))
+}
+
+// sendEmail sends an email using SMTP
+func sendEmail(to, subject, htmlBody string) error {
+	config := getSMTPConfig()
+	
+	if !config.Enabled {
+		log.Printf("[EMAIL] SMTP not enabled, skipping email to %s", to)
+		return nil
+	}
+	
+	if config.Host == "" || config.FromEmail == "" {
+		return fmt.Errorf("SMTP configuration incomplete")
+	}
+	
+	// Build email headers
+	fromHeader := config.FromEmail
+	if config.FromName != "" {
+		fromHeader = fmt.Sprintf("%s <%s>", config.FromName, config.FromEmail)
+	}
+	
+	headers := make(map[string]string)
+	headers["From"] = fromHeader
+	headers["To"] = to
+	headers["Subject"] = subject
+	headers["MIME-Version"] = "1.0"
+	headers["Content-Type"] = "text/html; charset=UTF-8"
+	
+	// Build message
+	var msg bytes.Buffer
+	for k, v := range headers {
+		msg.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
+	}
+	msg.WriteString("\r\n")
+	msg.WriteString(htmlBody)
+	
+	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	
+	// Create auth
+	var auth smtp.Auth
+	if config.Username != "" && config.Password != "" {
+		auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
+	}
+	
+	// Send email based on TLS configuration
+	if config.UseTLS {
+		// Direct TLS connection (port 465)
+		return sendEmailTLS(config, to, msg.Bytes())
+	} else if config.UseSTARTTLS {
+		// STARTTLS connection (port 587)
+		return sendEmailSTARTTLS(config, to, msg.Bytes(), auth, addr)
+	} else {
+		// Plain connection (not recommended)
+		return smtp.SendMail(addr, auth, config.FromEmail, []string{to}, msg.Bytes())
+	}
+}
+
+// sendEmailTLS sends email using direct TLS connection (port 465)
+func sendEmailTLS(config SMTPConfig, to string, msg []byte) error {
+	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	
+	tlsConfig := &tls.Config{
+		ServerName: config.Host,
+	}
+	
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("TLS dial failed: %v", err)
+	}
+	defer conn.Close()
+	
+	client, err := smtp.NewClient(conn, config.Host)
+	if err != nil {
+		return fmt.Errorf("SMTP client creation failed: %v", err)
+	}
+	defer client.Close()
+	
+	// Auth
+	if config.Username != "" && config.Password != "" {
+		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP auth failed: %v", err)
+		}
+	}
+	
+	// Set sender and recipient
+	if err := client.Mail(config.FromEmail); err != nil {
+		return fmt.Errorf("SMTP MAIL command failed: %v", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("SMTP RCPT command failed: %v", err)
+	}
+	
+	// Send data
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP DATA command failed: %v", err)
+	}
+	_, err = w.Write(msg)
+	if err != nil {
+		return fmt.Errorf("SMTP write failed: %v", err)
+	}
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("SMTP close failed: %v", err)
+	}
+	
+	return client.Quit()
+}
+
+// sendEmailSTARTTLS sends email using STARTTLS (port 587)
+func sendEmailSTARTTLS(config SMTPConfig, to string, msg []byte, auth smtp.Auth, addr string) error {
+	client, err := smtp.Dial(addr)
+	if err != nil {
+		return fmt.Errorf("SMTP dial failed: %v", err)
+	}
+	defer client.Close()
+	
+	// STARTTLS
+	tlsConfig := &tls.Config{
+		ServerName: config.Host,
+	}
+	if err := client.StartTLS(tlsConfig); err != nil {
+		return fmt.Errorf("STARTTLS failed: %v", err)
+	}
+	
+	// Auth
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP auth failed: %v", err)
+		}
+	}
+	
+	// Set sender and recipient
+	if err := client.Mail(config.FromEmail); err != nil {
+		return fmt.Errorf("SMTP MAIL command failed: %v", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("SMTP RCPT command failed: %v", err)
+	}
+	
+	// Send data
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP DATA command failed: %v", err)
+	}
+	_, err = w.Write(msg)
+	if err != nil {
+		return fmt.Errorf("SMTP write failed: %v", err)
+	}
+	err = w.Close()
+	if err != nil {
+		return fmt.Errorf("SMTP close failed: %v", err)
+	}
+	
+	return client.Quit()
+}
+
+// sendSNEmail sends the serial number to the user's email
+func sendSNEmail(email, sn string, expiresAt time.Time) error {
+	subject := "VantageData - Your Serial Number"
+	
+	daysLeft := int(expiresAt.Sub(time.Now()).Hours() / 24)
+	expiryDate := expiresAt.Format("2006-01-02")
+	
+	htmlBody := fmt.Sprintf(`
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.5; color: #333; margin: 0; padding: 0; background: #f0f0f0; }
+        .container { max-width: 520px; margin: 15px auto; }
+        .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+        .header h1 { margin: 0; font-size: 22px; }
+        .content { background: white; padding: 20px; }
+        .no-reply { background: #fff3cd; color: #856404; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; font-size: 12px; }
+        .sn-box { background: #f8f9fa; border: 2px dashed #667eea; padding: 15px; text-align: center; margin: 15px 0; border-radius: 6px; }
+        .sn { font-size: 22px; font-weight: bold; color: #667eea; letter-spacing: 2px; font-family: 'Courier New', monospace; }
+        .info { background: #e8f4fd; padding: 12px 15px; border-radius: 6px; margin: 12px 0; font-size: 13px; }
+        .info p { margin: 4px 0; }
+        .info ol { margin: 6px 0; padding-left: 18px; }
+        .info li { margin: 2px 0; }
+        .help { font-size: 13px; margin-top: 12px; }
+        .footer { background: #f8f9fa; padding: 12px; text-align: center; border-radius: 0 0 8px 8px; border-top: 1px solid #eee; }
+        .footer p { margin: 2px 0; font-size: 11px; color: #888; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎉 VantageData - Your Serial Number</h1>
+        </div>
+        <div class="content">
+            <div class="no-reply">⚠️ This is an automated message. Please do not reply.</div>
+            <p style="margin:0 0 10px 0;">Thank you for requesting a VantageData serial number:</p>
+            <div class="sn-box">
+                <div class="sn">%s</div>
+            </div>
+            <div class="info">
+                <p><strong>📅 Valid until:</strong> %s (%d days)</p>
+                <p><strong>💡 How to use:</strong> Open VantageData → Select Commercial Mode → Enter serial number → Activate</p>
+            </div>
+            <p class="help">Questions? Visit <a href="https://vantagedata.chat" style="color:#667eea;">vantagedata.chat</a></p>
+        </div>
+        <div class="footer">
+            <p>© VantageData - Intelligent Data Analytics Platform</p>
+        </div>
+    </div>
+</body>
+</html>
+`, sn, expiryDate, daysLeft)
+	
+	return sendEmail(email, subject, htmlBody)
+}
+
 func getSetting(key string) string {
 	var value string
 	db.QueryRow("SELECT value FROM settings WHERE key=?", key).Scan(&value)
@@ -452,6 +737,8 @@ func startManageServer() {
 	mux.HandleFunc("/api/username", authMiddleware(handleChangeUsername))
 	mux.HandleFunc("/api/ports", authMiddleware(handleChangePorts))
 	mux.HandleFunc("/api/ssl", authMiddleware(handleSSLConfig))
+	mux.HandleFunc("/api/smtp", authMiddleware(handleSMTPConfig))
+	mux.HandleFunc("/api/smtp/test", authMiddleware(handleSMTPTest))
 	mux.HandleFunc("/api/settings/request-limits", authMiddleware(handleRequestLimits))
 	mux.HandleFunc("/api/email-records", authMiddleware(handleEmailRecords))
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
@@ -798,7 +1085,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		AuthPort   int
 		Username   string
 	}{ManagePort: managePort, AuthPort: authPort, Username: getSetting("admin_username")}
-	tmpl := template.Must(template.New("dashboard").Parse(dashboardHTML))
+	tmpl := template.Must(template.New("dashboard").Parse(templates.GetDashboardHTML()))
 	tmpl.Execute(w, data)
 }
 
@@ -1732,6 +2019,77 @@ func handleSSLConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleSMTPConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		config := getSMTPConfig()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(config)
+		return
+	}
+	if r.Method == "POST" {
+		var config SMTPConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求数据"})
+			return
+		}
+		
+		saveSMTPConfig(config)
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "SMTP配置已保存"})
+		return
+	}
+}
+
+func handleSMTPTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "请提供测试邮箱地址"})
+		return
+	}
+	
+	config := getSMTPConfig()
+	if !config.Enabled {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "SMTP未启用"})
+		return
+	}
+	
+	// Send test email
+	subject := "VantageData SMTP 测试邮件"
+	htmlBody := `
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: sans-serif; padding: 20px;">
+    <h2>🎉 SMTP 配置测试成功！</h2>
+    <p>如果您收到这封邮件，说明 SMTP 配置正确。</p>
+    <p style="color: #666; font-size: 12px;">此邮件由 VantageData 授权服务器发送。</p>
+</body>
+</html>
+`
+	
+	if err := sendEmail(req.Email, subject, htmlBody); err != nil {
+		log.Printf("[SMTP-TEST] Failed to send test email to %s: %v", req.Email, err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("发送失败: %v", err)})
+		return
+	}
+	
+	log.Printf("[SMTP-TEST] Test email sent successfully to %s", req.Email)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "测试邮件已发送，请检查收件箱"})
+}
+
 func handleRequestLimits(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		dailyRequestLimit := getSetting("daily_request_limit")
@@ -2519,6 +2877,15 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	var expiresAt time.Time
 	db.QueryRow("SELECT expires_at FROM licenses WHERE sn = ?", sn).Scan(&expiresAt)
 	daysLeft := int(expiresAt.Sub(now).Hours() / 24)
+	
+	// Send email with SN (async, don't block response)
+	go func() {
+		if err := sendSNEmail(email, sn, expiresAt); err != nil {
+			log.Printf("[EMAIL] Failed to send SN email to %s: %v", email, err)
+		} else {
+			log.Printf("[EMAIL] SN email sent successfully to %s", email)
+		}
+	}()
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: fmt.Sprintf("序列号分配成功，有效期还剩 %d 天", daysLeft), SN: sn})
