@@ -1,8 +1,0 @@
-{
-  "track_id": "fix_browse_dialog_20260101",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-01T12:00:00Z",
-  "updated_at": "2026-01-01T12:00:00Z",
-  "description": "点击 data cache dir边的browse 按钮后，对话框一闪而消失。"
-}

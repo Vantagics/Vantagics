@@ -1,8 +1,0 @@
-{
-  "track_id": "fix_chat_font_weight_20260101",
-  "type": "style",
-  "status": "new",
-  "created_at": "2026-01-01T13:30:00Z",
-  "updated_at": "2026-01-01T13:30:00Z",
-  "description": "In AI assistant, the font style is bold, we prefer the non-bold style."
-}

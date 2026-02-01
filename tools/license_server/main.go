@@ -188,6 +188,14 @@ func initDB() {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 	
+	// Enable WAL mode for better concurrent read/write performance
+	_, err = db.Exec("PRAGMA journal_mode=WAL")
+	if err != nil {
+		log.Printf("Warning: Failed to enable WAL mode: %v", err)
+	} else {
+		log.Println("SQLite WAL mode enabled")
+	}
+	
 	// Create tables
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS settings (
@@ -2113,7 +2121,7 @@ func handleConditions(w http.ResponseWriter, r *http.Request) {
 // isEmailAllowed checks if an email is allowed based on whitelist/blacklist settings
 // Logic: Default blacklist mode. If both enabled, whitelist takes precedence (whitelist match = allow, even if blacklisted)
 func isEmailAllowed(email string) (bool, string) {
-	allowed, reason, _, _ := isEmailAllowedWithGroups(email)
+	allowed, _, reason, _, _ := isEmailAllowedWithGroups(email)
 	return allowed, reason
 }
 
@@ -2124,7 +2132,7 @@ func isEmailAllowed(email string) (bool, string) {
 // 2. Check whitelist (if enabled) - if enabled and no match, deny
 // 3. Check conditions list (if enabled) - if match, return group bindings
 // 4. If passed all checks, allow with no group binding
-func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
+func isEmailAllowedWithGroups(email string) (bool, string, string, string, string) {
 	email = strings.ToLower(email)
 	
 	whitelistEnabled := getSetting("whitelist_enabled") == "true"
@@ -2143,7 +2151,7 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 			var pattern string
 			rows.Scan(&pattern)
 			if matchEmailPattern(email, pattern) {
-				return false, "您的邮箱已被限制申请", "", ""
+				return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
 			}
 		}
 	}
@@ -2162,7 +2170,7 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 			}
 		}
 		if !matched {
-			return false, "您的邮箱不在白名单中", "", ""
+			return false, CodeEmailNotWhitelisted, "您的邮箱不在白名单中", "", ""
 		}
 	}
 	
@@ -2174,13 +2182,13 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 			var pattern, llmGroupID, searchGroupID string
 			rows.Scan(&pattern, &llmGroupID, &searchGroupID)
 			if matchEmailPattern(email, pattern) {
-				return true, "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+				return true, "", "", llmGroupID, searchGroupID // Condition match = allow with group bindings
 			}
 		}
 	}
 	
 	// Step 4: Passed all checks, allow with no group binding
-	return true, "", "", ""
+	return true, "", "", "", ""
 }
 
 // matchEmailPattern checks if email matches a pattern
@@ -2370,22 +2378,22 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	var req struct{ Email string `json:"email"` }
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: "无效的请求格式"})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidRequest, Message: "无效的请求格式"})
 		return
 	}
 	
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: "请输入有效的邮箱地址"})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidEmail, Message: "请输入有效的邮箱地址"})
 		return
 	}
 	
 	// Check email whitelist/blacklist and get group bindings
-	allowed, reason, llmGroupID, searchGroupID := isEmailAllowedWithGroups(email)
+	allowed, code, reason, llmGroupID, searchGroupID := isEmailAllowedWithGroups(email)
 	if !allowed {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: reason})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: code, Message: reason})
 		return
 	}
 	
@@ -2397,7 +2405,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE sn=?", existingSN).Scan(&snExists)
 		if snExists > 0 {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Message: "您已申请过序列号", SN: existingSN})
+			json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeEmailAlreadyUsed, Message: "您已申请过序列号", SN: existingSN})
 			return
 		}
 		// SN was deleted, remove the old email record and continue to generate new SN
@@ -2429,7 +2437,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT count FROM request_limits WHERE ip=? AND date=?", clientIP, today).Scan(&count)
 	if count >= dailyRequestLimit {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: fmt.Sprintf("今日申请次数已达上限（%d次），请明天再试", dailyRequestLimit), Code: "rate_limit"})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeRateLimitExceeded, Message: fmt.Sprintf("今日申请次数已达上限（%d次），请明天再试", dailyRequestLimit)})
 		return
 	}
 	
@@ -2438,7 +2446,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT COUNT(DISTINCT email) FROM email_records WHERE ip=? AND DATE(created_at)=?", clientIP, today).Scan(&emailCount)
 	if emailCount >= dailyEmailLimit {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: fmt.Sprintf("同一IP今日使用不同邮箱申请次数已达上限（%d个），请明天再试", dailyEmailLimit), Code: "rate_limit"})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeEmailLimitExceeded, Message: fmt.Sprintf("同一IP今日使用不同邮箱申请次数已达上限（%d个），请明天再试", dailyEmailLimit)})
 		return
 	}
 	
@@ -2495,7 +2503,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 			msg = "暂无可用序列号，请联系管理员"
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Message: msg})
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeNoAvailableSN, Message: msg})
 		return
 	}
 	
@@ -2513,5 +2521,5 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	daysLeft := int(expiresAt.Sub(now).Hours() / 24)
 	
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Message: fmt.Sprintf("序列号分配成功，有效期还剩 %d 天", daysLeft), SN: sn})
+	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: fmt.Sprintf("序列号分配成功，有效期还剩 %d 天", daysLeft), SN: sn})
 }

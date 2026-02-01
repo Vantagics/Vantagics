@@ -1,8 +1,0 @@
-{
-  "track_id": "fix_chat_input_overlap_20260101",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-01T15:30:00Z",
-  "updated_at": "2026-01-01T15:30:00Z",
-  "description": "聊天对话框中，用户输入框与纸飞机图标重叠了。纸飞机图标应该在输入框右侧。"
-}

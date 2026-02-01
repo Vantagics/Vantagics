@@ -1,8 +1,0 @@
-{
-  "track_id": "data_cache_dir_20260101",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-01T11:30:00Z",
-  "updated_at": "2026-01-01T11:30:00Z",
-  "description": "系统参数设置中，添加数据缓存目录设置。默认指定为用户目录下的RapidBI目录，修改时需要验证目录是否存在。"
-}

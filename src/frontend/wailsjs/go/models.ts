@@ -1222,6 +1222,7 @@ export namespace main {
 	
 	export class ActivationResult {
 	    success: boolean;
+	    code: string;
 	    message: string;
 	    expires_at?: string;
 	
@@ -1232,6 +1233,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
+	        this.code = source["code"];
 	        this.message = source["message"];
 	        this.expires_at = source["expires_at"];
 	    }

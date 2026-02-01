@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
-import DashboardTest from './components/DashboardTest';
 import DraggableDashboard from './components/DraggableDashboard';
 import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';

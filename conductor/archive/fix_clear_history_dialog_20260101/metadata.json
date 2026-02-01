@@ -1,8 +1,0 @@
-{
-  "track_id": "fix_clear_history_dialog_20260101",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-01T15:00:00Z",
-  "updated_at": "2026-01-01T15:00:00Z",
-  "description": "点击 Clear History 按钮，没有反应 (Native confirm blocked on macOS)."
-}

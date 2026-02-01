@@ -1,8 +1,0 @@
-{
-  "track_id": "disable_auto_correct_settings_20260101",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-01T14:00:00Z",
-  "updated_at": "2026-01-01T14:00:00Z",
-  "description": "LLM 设置中，模型名称输入框取消自动将首字母改为大写功能（不能修改输入模型名，防止服务器出错）"
-}

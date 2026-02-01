@@ -1,8 +1,0 @@
-{
-  "track_id": "fix_browse_dialog_retry_20260101",
-  "type": "bug",
-  "status": "new",
-  "created_at": "2026-01-01T12:30:00Z",
-  "updated_at": "2026-01-01T12:30:00Z",
-  "description": "Retry to correct the issue: Browse directory dialog flashes and disappears on macOS."
-}

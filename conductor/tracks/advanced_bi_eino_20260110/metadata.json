@@ -1,8 +1,0 @@
-{
-  "track_id": "advanced_bi_eino_20260110",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-10T12:00:00Z",
-  "updated_at": "2026-01-10T12:00:00Z",
-  "description": "使用eino作为agent framework, 实现数据高级分析（主要是business intelligence) 功能，使用软件的会话区作为交互区域，以数据源为中心，引导用户进行数据深度分析，考虑集成anthropic skills 能力，方便高级用户编写插件。"
-}

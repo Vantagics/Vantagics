@@ -7031,6 +7031,7 @@ func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []A
 // ActivationResult represents the result of license activation
 type ActivationResult struct {
 	Success   bool   `json:"success"`
+	Code      string `json:"code"`
 	Message   string `json:"message"`
 	ExpiresAt string `json:"expires_at,omitempty"`
 }
@@ -7041,11 +7042,20 @@ func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
 		a.licenseClient = agent.NewLicenseClient(a.Log)
 	}
 
-	data, err := a.licenseClient.Activate(serverURL, sn)
+	result, err := a.licenseClient.Activate(serverURL, sn)
 	if err != nil {
 		return &ActivationResult{
 			Success: false,
+			Code:    "INTERNAL_ERROR",
 			Message: err.Error(),
+		}, nil
+	}
+
+	if !result.Success {
+		return &ActivationResult{
+			Success: false,
+			Code:    result.Code,
+			Message: result.Message,
 		}, nil
 	}
 
@@ -7060,8 +7070,9 @@ func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
 
 	return &ActivationResult{
 		Success:   true,
+		Code:      "SUCCESS",
 		Message:   "激活成功",
-		ExpiresAt: data.ExpiresAt,
+		ExpiresAt: result.Data.ExpiresAt,
 	}, nil
 }
 
@@ -7131,6 +7142,7 @@ func (a *App) LoadSavedActivation(sn string) (*ActivationResult, error) {
 	if err != nil {
 		return &ActivationResult{
 			Success: false,
+			Code:    "LOAD_FAILED",
 			Message: err.Error(),
 		}, nil
 	}
@@ -7138,6 +7150,7 @@ func (a *App) LoadSavedActivation(sn string) (*ActivationResult, error) {
 	data := a.licenseClient.GetData()
 	return &ActivationResult{
 		Success:   true,
+		Code:      "SUCCESS",
 		Message:   "从本地加载激活数据成功",
 		ExpiresAt: data.ExpiresAt,
 	}, nil
@@ -7163,6 +7176,7 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
 		return &ActivationResult{
 			Success: false,
+			Code:    "NOT_ACTIVATED",
 			Message: "未激活，无法刷新",
 		}, nil
 	}
@@ -7171,6 +7185,7 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	if sn == "" {
 		return &ActivationResult{
 			Success: false,
+			Code:    "NO_SN",
 			Message: "未找到序列号",
 		}, nil
 	}
@@ -7184,6 +7199,7 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	if serverURL == "" {
 		return &ActivationResult{
 			Success: false,
+			Code:    "NO_SERVER",
 			Message: "未找到授权服务器地址",
 		}, nil
 	}
@@ -7191,12 +7207,22 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	a.Log(fmt.Sprintf("[LICENSE] Refreshing license with SN: %s, Server: %s", sn, serverURL))
 
 	// Re-activate with the same SN
-	data, err := a.licenseClient.Activate(serverURL, sn)
+	result, err := a.licenseClient.Activate(serverURL, sn)
 	if err != nil {
 		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %v", err))
 		return &ActivationResult{
 			Success: false,
+			Code:    "INTERNAL_ERROR",
 			Message: fmt.Sprintf("刷新失败: %v", err),
+		}, nil
+	}
+
+	if !result.Success {
+		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %s", result.Message))
+		return &ActivationResult{
+			Success: false,
+			Code:    result.Code,
+			Message: fmt.Sprintf("刷新失败: %s", result.Message),
 		}, nil
 	}
 
@@ -7209,12 +7235,13 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	cfg, _ := a.GetConfig()
 	a.reinitializeServices(cfg)
 
-	a.Log(fmt.Sprintf("[LICENSE] License refreshed successfully, expires: %s", data.ExpiresAt))
+	a.Log(fmt.Sprintf("[LICENSE] License refreshed successfully, expires: %s", result.Data.ExpiresAt))
 
 	return &ActivationResult{
 		Success:   true,
+		Code:      "SUCCESS",
 		Message:   "授权刷新成功",
-		ExpiresAt: data.ExpiresAt,
+		ExpiresAt: result.Data.ExpiresAt,
 	}, nil
 }
 

@@ -1,8 +1,0 @@
-{
-  "track_id": "claude_compatible_20260101",
-  "type": "feature",
-  "status": "new",
-  "created_at": "2026-01-01T10:05:00Z",
-  "updated_at": "2026-01-01T10:05:00Z",
-  "description": "参数设置中的LLM配置中，实现Claude兼容服务配置，包括url, apikey等。"
-}
