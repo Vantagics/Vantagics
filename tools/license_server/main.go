@@ -34,6 +34,24 @@ const (
 	DefaultAdminPassword = "sunion123"
 )
 
+// Error codes for API responses (for client-side localization)
+const (
+	CodeSuccess           = "SUCCESS"
+	CodeInvalidRequest    = "INVALID_REQUEST"
+	CodeInvalidSN         = "INVALID_SN"
+	CodeSNDisabled        = "SN_DISABLED"
+	CodeSNExpired         = "SN_EXPIRED"
+	CodeEncryptFailed     = "ENCRYPT_FAILED"
+	CodeInvalidEmail      = "INVALID_EMAIL"
+	CodeEmailBlacklisted  = "EMAIL_BLACKLISTED"
+	CodeEmailNotWhitelisted = "EMAIL_NOT_WHITELISTED"
+	CodeEmailAlreadyUsed  = "EMAIL_ALREADY_USED"
+	CodeNoAvailableSN     = "NO_AVAILABLE_SN"
+	CodeRateLimitExceeded = "RATE_LIMIT_EXCEEDED"
+	CodeEmailLimitExceeded = "EMAIL_LIMIT_EXCEEDED"
+	CodeInternalError     = "INTERNAL_ERROR"
+)
+
 
 // LLMGroup holds LLM API group information
 type LLMGroup struct {
@@ -108,6 +126,7 @@ type EmailRecord struct {
 // ActivationResponse is sent to client
 type ActivationResponse struct {
 	Success       bool   `json:"success"`
+	Code          string `json:"code"`
 	Message       string `json:"message"`
 	EncryptedData string `json:"encrypted_data,omitempty"`
 	ExpiresAt     string `json:"expires_at,omitempty"`
@@ -415,6 +434,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/licenses/search", authMiddleware(handleSearchLicenses))
 	mux.HandleFunc("/api/licenses/delete-unused-by-group", authMiddleware(handleDeleteUnusedByGroup))
 	mux.HandleFunc("/api/licenses/purge-disabled", authMiddleware(handlePurgeDisabledLicenses))
+	mux.HandleFunc("/api/licenses/force-delete", authMiddleware(handleForceDeleteLicense))
 	mux.HandleFunc("/api/llm", authMiddleware(handleLLMConfig))
 	mux.HandleFunc("/api/llm-groups", authMiddleware(handleLLMGroups))
 	mux.HandleFunc("/api/search", authMiddleware(handleSearchConfig))
@@ -424,6 +444,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/username", authMiddleware(handleChangeUsername))
 	mux.HandleFunc("/api/ports", authMiddleware(handleChangePorts))
 	mux.HandleFunc("/api/ssl", authMiddleware(handleSSLConfig))
+	mux.HandleFunc("/api/settings/request-limits", authMiddleware(handleRequestLimits))
 	mux.HandleFunc("/api/email-records", authMiddleware(handleEmailRecords))
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
 	mux.HandleFunc("/api/email-filter", authMiddleware(handleEmailFilter))
@@ -484,23 +505,63 @@ var digitPatterns = map[rune][]string{
 	'7': {"11111", "00001", "00010", "00100", "01000", "01000", "01000"},
 	'8': {"01110", "10001", "10001", "01110", "10001", "10001", "01110"},
 	'9': {"01110", "10001", "10001", "01111", "00001", "00001", "01110"},
+	'+': {"00000", "00100", "00100", "11111", "00100", "00100", "00000"},
+	'-': {"00000", "00000", "00000", "11111", "00000", "00000", "00000"},
+	'*': {"00000", "10101", "01110", "11111", "01110", "10101", "00000"},
+	'/': {"00001", "00010", "00010", "00100", "01000", "01000", "10000"},
+	'=': {"00000", "00000", "11111", "00000", "11111", "00000", "00000"},
+	'?': {"01110", "10001", "00001", "00110", "00100", "00000", "00100"},
 }
 
-// Generate image captcha with random 4-digit code
+// Generate math expression captcha - returns captchaID and base64 image
 func generateCaptcha() (string, string) {
 	mrand.Seed(time.Now().UnixNano())
 	
-	// Generate 4 random digits
-	code := fmt.Sprintf("%04d", mrand.Intn(10000))
+	// Generate a math expression: one-digit op two-digit or two-digit op one-digit
+	var num1, num2, result int
+	var expression string
+	
+	// Randomly choose operation
+	opIndex := mrand.Intn(4)
+	
+	switch opIndex {
+	case 0: // Addition
+		num1 = mrand.Intn(9) + 1      // 1-9
+		num2 = mrand.Intn(90) + 10    // 10-99
+		if mrand.Intn(2) == 0 {
+			num1, num2 = num2, num1
+		}
+		result = num1 + num2
+		expression = fmt.Sprintf("%d+%d=?", num1, num2)
+	case 1: // Subtraction
+		num2 = mrand.Intn(9) + 1      // 1-9
+		num1 = mrand.Intn(90) + 10    // 10-99
+		result = num1 - num2
+		expression = fmt.Sprintf("%d-%d=?", num1, num2)
+	case 2: // Multiplication
+		num1 = mrand.Intn(9) + 1      // 1-9
+		num2 = mrand.Intn(9) + 2      // 2-10
+		if mrand.Intn(2) == 0 {
+			num1, num2 = num2, num1
+		}
+		result = num1 * num2
+		expression = fmt.Sprintf("%d*%d=?", num1, num2)
+	case 3: // Division (ensure clean division)
+		num2 = mrand.Intn(8) + 2      // 2-9 (divisor)
+		result = mrand.Intn(9) + 2    // 2-10 (quotient)
+		num1 = num2 * result          // dividend
+		expression = fmt.Sprintf("%d/%d=?", num1, num2)
+	}
 	
 	// Generate captcha ID
 	idBytes := make([]byte, 16)
 	rand.Read(idBytes)
 	captchaID := hex.EncodeToString(idBytes)
 	
-	// Store captcha with 5 minute expiry
+	// Store captcha answer with 5 minute expiry
+	answer := fmt.Sprintf("%d", result)
 	captchaLock.Lock()
-	captchas[captchaID] = code
+	captchas[captchaID] = answer
 	captchaLock.Unlock()
 	
 	// Clean old captchas periodically
@@ -511,14 +572,17 @@ func generateCaptcha() (string, string) {
 		captchaLock.Unlock()
 	}()
 	
-	// Generate image
-	imgBase64 := generateCaptchaImage(code)
+	// Generate image with the expression
+	captchaImage := generateCaptchaImage(expression)
 	
-	return captchaID, imgBase64
+	return captchaID, captchaImage
 }
 
 func generateCaptchaImage(code string) string {
-	width, height := 120, 40
+	// Calculate width based on expression length (e.g., "12+34=?" = 7 chars)
+	charWidth := 18
+	width := len(code)*charWidth + 20
+	height := 40
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
 	
 	// Background with slight color variation
@@ -560,7 +624,7 @@ func generateCaptchaImage(code string) string {
 		drawLine(img, x1, y1, x2, y2, lineColor)
 	}
 	
-	// Draw digits with random colors and positions
+	// Draw characters with random colors and positions
 	digitColors := []color.RGBA{
 		{180, 50, 50, 255},   // Red
 		{50, 50, 180, 255},   // Blue
@@ -570,10 +634,10 @@ func generateCaptchaImage(code string) string {
 	}
 	
 	startX := 10
-	for i, digit := range code {
+	for i, char := range code {
 		digitColor := digitColors[mrand.Intn(len(digitColors))]
 		offsetY := mrand.Intn(8) - 4 // Random vertical offset
-		drawDigit(img, rune(digit), startX+i*28, 8+offsetY, digitColor)
+		drawDigit(img, char, startX+i*charWidth, 8+offsetY, digitColor)
 	}
 	
 	// Encode to base64
@@ -660,7 +724,12 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	captchaID, captchaImage := generateCaptcha()
 	tmpl := template.Must(template.New("login").Parse(loginHTML))
-	tmpl.Execute(w, map[string]string{"CaptchaID": captchaID, "CaptchaImage": captchaImage})
+	tmpl.Execute(w, map[string]interface{}{
+		"CaptchaID":    captchaID,
+		"CaptchaImage": captchaImage,
+		"ManagePort":   managePort,
+		"AuthPort":     authPort,
+	})
 }
 
 func handleLoginPost(w http.ResponseWriter, r *http.Request) {
@@ -678,7 +747,13 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	if !validateCaptcha(captchaID, captchaAnswer) {
 		newCaptchaID, newCaptchaImage := generateCaptcha()
 		tmpl := template.Must(template.New("login").Parse(loginHTML))
-		tmpl.Execute(w, map[string]string{"Error": "验证码错误", "CaptchaID": newCaptchaID, "CaptchaImage": newCaptchaImage})
+		tmpl.Execute(w, map[string]interface{}{
+			"Error":        "验证码错误",
+			"CaptchaID":    newCaptchaID,
+			"CaptchaImage": newCaptchaImage,
+			"ManagePort":   managePort,
+			"AuthPort":     authPort,
+		})
 		return
 	}
 	
@@ -690,7 +765,13 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	if username != validUsername || password != validPassword {
 		newCaptchaID, newCaptchaImage := generateCaptcha()
 		tmpl := template.Must(template.New("login").Parse(loginHTML))
-		tmpl.Execute(w, map[string]string{"Error": "用户名或密码错误", "CaptchaID": newCaptchaID, "CaptchaImage": newCaptchaImage})
+		tmpl.Execute(w, map[string]interface{}{
+			"Error":        "用户名或密码错误",
+			"CaptchaID":    newCaptchaID,
+			"CaptchaImage": newCaptchaImage,
+			"ManagePort":   managePort,
+			"AuthPort":     authPort,
+		})
 		return
 	}
 	token := createSession()
@@ -707,7 +788,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		ManagePort int
 		AuthPort   int
-	}{ManagePort: managePort, AuthPort: authPort}
+		Username   string
+	}{ManagePort: managePort, AuthPort: authPort, Username: getSetting("admin_username")}
 	tmpl := template.Must(template.New("dashboard").Parse(dashboardHTML))
 	tmpl.Execute(w, data)
 }
@@ -974,6 +1056,7 @@ func handleDeleteUnusedByGroup(w http.ResponseWriter, r *http.Request) {
 		LicenseGroupID string `json:"license_group_id"`
 		LLMGroupID     string `json:"llm_group_id"`
 		SearchGroupID  string `json:"search_group_id"`
+		DeleteAll      bool   `json:"delete_all"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -984,7 +1067,7 @@ func handleDeleteUnusedByGroup(w http.ResponseWriter, r *http.Request) {
 	whereConditions := []string{"usage_count = 0"}
 	args := []interface{}{}
 	
-	// At least one group filter must be specified
+	// Check if any group filter is specified
 	hasFilter := false
 	
 	if req.LicenseGroupID != "" {
@@ -1017,9 +1100,10 @@ func handleDeleteUnusedByGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
-	if !hasFilter {
+	// If no filter and delete_all is not explicitly set, reject
+	if !hasFilter && !req.DeleteAll {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "必须指定至少一个分组条件"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "必须指定至少一个分组条件，或明确指定删除全部"})
 		return
 	}
 	
@@ -1055,6 +1139,7 @@ func handleDeleteUnusedByGroup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
+		"count":   deleted,
 		"deleted": deleted,
 		"message": fmt.Sprintf("成功删除 %d 个未使用的序列号", deleted),
 	})
@@ -1116,6 +1201,97 @@ func handlePurgeDisabledLicenses(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleForceDeleteLicense(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		SN string `json:"sn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求"})
+		return
+	}
+	
+	sn := strings.TrimSpace(strings.ToUpper(req.SN))
+	if sn == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不能为空"})
+		return
+	}
+	
+	// Check if license exists in licenses table
+	var licenseExists int
+	db.QueryRow("SELECT COUNT(*) FROM licenses WHERE sn = ?", sn).Scan(&licenseExists)
+	
+	// Check if email record exists
+	var emailExists int
+	db.QueryRow("SELECT COUNT(*) FROM email_records WHERE sn = ?", sn).Scan(&emailExists)
+	
+	if licenseExists == 0 && emailExists == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不存在（licenses 表和 email_records 表中都没有找到）"})
+		return
+	}
+	
+	var description string
+	var isActive bool
+	var email string
+	
+	// Get license info for logging (if exists)
+	if licenseExists > 0 {
+		db.QueryRow("SELECT description, is_active FROM licenses WHERE sn = ?", sn).Scan(&description, &isActive)
+	}
+	
+	// Get email info (if exists)
+	if emailExists > 0 {
+		db.QueryRow("SELECT email FROM email_records WHERE sn = ?", sn).Scan(&email)
+	}
+	
+	// Delete from email_records first
+	emailResult, _ := db.Exec("DELETE FROM email_records WHERE sn = ?", sn)
+	emailDeleted, _ := emailResult.RowsAffected()
+	
+	// Delete the license (if exists)
+	var licenseDeleted int64
+	if licenseExists > 0 {
+		result, err := db.Exec("DELETE FROM licenses WHERE sn = ?", sn)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		licenseDeleted, _ = result.RowsAffected()
+	}
+	
+	log.Printf("[FORCE-DELETE] License %s forcefully deleted (license existed: %v, was active: %v, description: %s, bound email: %s)", sn, licenseExists > 0, isActive, description, email)
+	
+	var messages []string
+	if licenseDeleted > 0 {
+		messages = append(messages, "序列号已删除")
+	}
+	if emailDeleted > 0 {
+		messages = append(messages, fmt.Sprintf("删除了 %d 条邮箱申请记录", emailDeleted))
+	}
+	if licenseExists == 0 && emailDeleted > 0 {
+		messages = append(messages, "（注意：序列号本身不存在于 licenses 表，只清理了孤立的邮箱记录）")
+	}
+	
+	message := strings.Join(messages, "，")
+	if message == "" {
+		message = "没有找到需要删除的记录"
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": message,
+	})
+}
+
 func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1127,6 +1303,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	llmGroupFilter := query.Get("llm_group")
 	searchGroupFilter := query.Get("search_group")
 	licenseGroupFilter := query.Get("license_group")
+	hideUsed := query.Get("hide_used") != "false" // Default to hide used (bound to email)
 	page, pageSize := 1, 20
 	fmt.Sscanf(query.Get("page"), "%d", &page)
 	fmt.Sscanf(query.Get("pageSize"), "%d", &pageSize)
@@ -1141,6 +1318,11 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	// Build WHERE clause
 	whereConditions := []string{}
 	args := []interface{}{}
+	
+	// Hide licenses that are bound to email (already used)
+	if hideUsed {
+		whereConditions = append(whereConditions, "sn NOT IN (SELECT sn FROM email_records)")
+	}
 	
 	if search != "" {
 		searchLower := strings.ToLower(search)
@@ -1542,6 +1724,50 @@ func handleSSLConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleRequestLimits(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		dailyRequestLimit := getSetting("daily_request_limit")
+		dailyEmailLimit := getSetting("daily_email_limit")
+		
+		reqLimit := 5
+		emailLimit := 5
+		if dailyRequestLimit != "" {
+			fmt.Sscanf(dailyRequestLimit, "%d", &reqLimit)
+		}
+		if dailyEmailLimit != "" {
+			fmt.Sscanf(dailyEmailLimit, "%d", &emailLimit)
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"daily_request_limit": reqLimit,
+			"daily_email_limit":   emailLimit,
+		})
+		return
+	}
+	if r.Method == "POST" {
+		var req struct {
+			DailyRequestLimit int `json:"daily_request_limit"`
+			DailyEmailLimit   int `json:"daily_email_limit"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		
+		if req.DailyRequestLimit < 1 {
+			req.DailyRequestLimit = 5
+		}
+		if req.DailyEmailLimit < 1 {
+			req.DailyEmailLimit = 5
+		}
+		
+		setSetting("daily_request_limit", fmt.Sprintf("%d", req.DailyRequestLimit))
+		setSetting("daily_email_limit", fmt.Sprintf("%d", req.DailyEmailLimit))
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+}
+
 func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1658,6 +1884,7 @@ func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
 		if blacklistEnabled == "" {
 			blacklistEnabled = "true" // Default to blacklist mode
 		}
+		conditionsEnabled := getSetting("conditions_enabled") == "true"
 		dailyRequestLimit := getSetting("daily_request_limit")
 		if dailyRequestLimit == "" {
 			dailyRequestLimit = "5"
@@ -1670,6 +1897,7 @@ func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"whitelist_enabled":   whitelistEnabled,
 			"blacklist_enabled":   blacklistEnabled == "true",
+			"conditions_enabled":  conditionsEnabled,
 			"daily_request_limit": dailyRequestLimit,
 			"daily_email_limit":   dailyEmailLimit,
 		})
@@ -1679,6 +1907,7 @@ func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			WhitelistEnabled  bool   `json:"whitelist_enabled"`
 			BlacklistEnabled  bool   `json:"blacklist_enabled"`
+			ConditionsEnabled bool   `json:"conditions_enabled"`
 			DailyRequestLimit string `json:"daily_request_limit"`
 			DailyEmailLimit   string `json:"daily_email_limit"`
 		}
@@ -1692,6 +1921,11 @@ func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
 			setSetting("blacklist_enabled", "true")
 		} else {
 			setSetting("blacklist_enabled", "false")
+		}
+		if req.ConditionsEnabled {
+			setSetting("conditions_enabled", "true")
+		} else {
+			setSetting("conditions_enabled", "false")
 		}
 		if req.DailyRequestLimit != "" {
 			setSetting("daily_request_limit", req.DailyRequestLimit)
@@ -1888,7 +2122,7 @@ func isEmailAllowed(email string) (bool, string) {
 // Logic:
 // 1. Check blacklist first - if match, deny
 // 2. Check whitelist (if enabled) - if enabled and no match, deny
-// 3. Check conditions list - if match, return group bindings
+// 3. Check conditions list (if enabled) - if match, return group bindings
 // 4. If passed all checks, allow with no group binding
 func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 	email = strings.ToLower(email)
@@ -1899,6 +2133,7 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 		blacklistEnabled = "true" // Default to blacklist mode
 	}
 	blacklistOn := blacklistEnabled == "true"
+	conditionsEnabled := getSetting("conditions_enabled") == "true"
 	
 	// Step 1: Check blacklist first (blacklist always takes precedence when enabled)
 	if blacklistOn {
@@ -1931,14 +2166,16 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string) {
 		}
 	}
 	
-	// Step 3: Check conditions list for group bindings
-	rows, _ := db.Query("SELECT pattern, COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM email_conditions")
-	defer rows.Close()
-	for rows.Next() {
-		var pattern, llmGroupID, searchGroupID string
-		rows.Scan(&pattern, &llmGroupID, &searchGroupID)
-		if matchEmailPattern(email, pattern) {
-			return true, "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+	// Step 3: Check conditions list for group bindings (only if enabled)
+	if conditionsEnabled {
+		rows, _ := db.Query("SELECT pattern, COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM email_conditions")
+		defer rows.Close()
+		for rows.Next() {
+			var pattern, llmGroupID, searchGroupID string
+			rows.Scan(&pattern, &llmGroupID, &searchGroupID)
+			if matchEmailPattern(email, pattern) {
+				return true, "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+			}
 		}
 	}
 	
@@ -2003,7 +2240,7 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	var req struct{ SN string `json:"sn"` }
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Message: "无效的请求格式"})
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeInvalidRequest, Message: "无效的请求格式"})
 		return
 	}
 	
@@ -2016,17 +2253,17 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	
 	if err == sql.ErrNoRows {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Message: "序列号无效"})
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeInvalidSN, Message: "序列号无效"})
 		return
 	}
 	if !license.IsActive {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Message: "序列号已被禁用"})
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNDisabled, Message: "序列号已被禁用"})
 		return
 	}
 	if time.Now().After(license.ExpiresAt) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Message: "序列号已过期"})
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNExpired, Message: "序列号已过期"})
 		return
 	}
 	
@@ -2107,13 +2344,13 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	encryptedData, err := encryptData(dataJSON, sn)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Message: "加密失败"})
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeEncryptFailed, Message: "加密失败"})
 		return
 	}
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(ActivationResponse{
-		Success: true, Message: "激活成功", EncryptedData: encryptedData, ExpiresAt: license.ExpiresAt.Format("2006-01-02"),
+		Success: true, Code: CodeSuccess, Message: "激活成功", EncryptedData: encryptedData, ExpiresAt: license.ExpiresAt.Format("2006-01-02"),
 	})
 }
 
