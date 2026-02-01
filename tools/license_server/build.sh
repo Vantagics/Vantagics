@@ -32,7 +32,9 @@ echo "      Creating remote directory..."
 sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "mkdir -p $REMOTE_DIR"
 
 echo "      Uploading source files..."
-sshpass -p "$PASS" scp -o StrictHostKeyChecking=no main.go templates.go go.mod go.sum "$USER@$SERVER:$REMOTE_DIR/"
+sshpass -p "$PASS" scp -o StrictHostKeyChecking=no main.go go.mod go.sum "$USER@$SERVER:$REMOTE_DIR/"
+sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "mkdir -p $REMOTE_DIR/templates"
+sshpass -p "$PASS" scp -o StrictHostKeyChecking=no templates/*.go "$USER@$SERVER:$REMOTE_DIR/templates/"
 
 echo "      Compiling on server..."
 sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "cd $REMOTE_DIR && go mod tidy && CGO_ENABLED=1 go build -o license_server ."

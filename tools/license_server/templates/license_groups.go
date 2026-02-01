@@ -25,13 +25,13 @@ function loadLicenseGroups() {
             list.innerHTML = '<p class="text-slate-500 text-center py-4 text-sm col-span-3">暂无分组</p>'; 
         } else {
             var html = '';
-            licenseGroups.forEach(function(g) { 
+            licenseGroups.forEach(function(g, idx) { 
                 html += '<div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">';
-                html += '<div><span class="font-bold text-sm">' + g.name + '</span>';
-                html += '<p class="text-xs text-slate-400">' + (g.description || '无描述') + '</p></div>';
+                html += '<div><span class="font-bold text-sm">' + escapeHtml(g.name) + '</span>';
+                html += '<p class="text-xs text-slate-400">' + escapeHtml(g.description || '无描述') + '</p></div>';
                 html += '<div class="flex gap-1">';
-                html += '<button onclick="editLicenseGroup(\\'' + g.id + '\\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
-                html += '<button onclick="deleteLicenseGroup(\\'' + g.id + '\\')" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+                html += '<button data-action="edit-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
+                html += '<button data-action="delete-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
                 html += '</div></div>'; 
             });
             list.innerHTML = html;
@@ -42,21 +42,37 @@ function loadLicenseGroups() {
         if (filterSelect) {
             var currentValue = filterSelect.value;
             var opts = '<option value="">全部序列号组</option><option value="none">默认(无组)</option>';
-            licenseGroups.forEach(function(g) { opts += '<option value="' + g.id + '">' + g.name + '</option>'; });
+            licenseGroups.forEach(function(g) { opts += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
             filterSelect.innerHTML = opts;
             filterSelect.value = currentValue;
         }
     });
 }
 
+// Event delegation for license groups
+document.getElementById('license-groups-list').addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    var action = btn.getAttribute('data-action');
+    var idx = parseInt(btn.getAttribute('data-idx'));
+    var group = licenseGroups[idx];
+    if (!group) return;
+    
+    if (action === 'edit-license-group') {
+        showLicenseGroupForm(group);
+    } else if (action === 'delete-license-group') {
+        deleteLicenseGroup(group.id);
+    }
+});
+
 function showLicenseGroupForm(group) {
     var g = group || {id: '', name: '', description: ''};
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">' + (g.id ? '编辑' : '添加') + '序列号分组</h3><div class="space-y-3">' +
-        '<input type="hidden" id="license-group-id" value="' + g.id + '">' +
+        '<input type="hidden" id="license-group-id" value="' + escapeHtml(g.id) + '">' +
         '<div><label class="text-sm text-slate-600">分组名称</label>' +
-        '<input type="text" id="license-group-name" value="' + g.name + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<input type="text" id="license-group-name" value="' + escapeHtml(g.name) + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">描述</label>' +
-        '<input type="text" id="license-group-desc" value="' + (g.description || '') + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<input type="text" id="license-group-desc" value="' + escapeHtml(g.description || '') + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
         '<button onclick="saveLicenseGroup()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>' +
         '</div></div>');

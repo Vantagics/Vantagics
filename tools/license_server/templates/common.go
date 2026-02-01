@@ -46,6 +46,16 @@ function hideModal() {
 }
 
 // Helper functions
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escapeJs(str) {
+    if (!str) return '';
+    return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
 function getLLMGroupName(id) {
     if (!id) return '';
     var g = llmGroups.find(function(g) { return g.id === id; });

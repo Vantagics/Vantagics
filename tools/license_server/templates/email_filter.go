@@ -59,12 +59,16 @@ const EmailFilterHTML = `
 
 // EmailFilterScripts contains the email filter JavaScript
 const EmailFilterScripts = `
+// Store filter data for button handlers
+var blacklistData = [];
+var whitelistData = [];
+var conditionsData = [];
+
 function loadFilterSettings() {
     fetch('/api/email-filter').then(function(resp) { return resp.json(); }).then(function(data) {
         document.getElementById('whitelist-enabled').checked = data.whitelist_enabled;
         document.getElementById('blacklist-enabled').checked = data.blacklist_enabled;
-        document.getElementById('daily-request-limit').value = data.daily_request_limit || '5';
-        document.getElementById('daily-email-limit').value = data.daily_email_limit || '5';
+        document.getElementById('conditions-enabled').checked = data.conditions_enabled;
     });
 }
 
@@ -72,25 +76,25 @@ function saveFilterSettings() {
     var data = {
         whitelist_enabled: document.getElementById('whitelist-enabled').checked,
         blacklist_enabled: document.getElementById('blacklist-enabled').checked,
-        daily_request_limit: document.getElementById('daily-request-limit').value,
-        daily_email_limit: document.getElementById('daily-email-limit').value
+        conditions_enabled: document.getElementById('conditions-enabled').checked
     };
     fetch('/api/email-filter', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
 }
 
 function loadBlacklist() {
     fetch('/api/blacklist').then(function(resp) { return resp.json(); }).then(function(items) {
+        blacklistData = items || [];
         var list = document.getElementById('blacklist-items');
         if (!items || items.length === 0) { 
             list.innerHTML = '<p class="text-slate-500 text-center py-4 text-sm">暂无黑名单</p>'; 
             return; 
         }
         var html = '';
-        items.forEach(function(item) { 
+        items.forEach(function(item, idx) { 
             html += '<div class="flex items-center justify-between p-2 bg-red-50 rounded-lg">';
-            html += '<div><code class="text-sm font-mono text-red-700">' + item.pattern + '</code>';
+            html += '<div><code class="text-sm font-mono text-red-700">' + escapeHtml(item.pattern) + '</code>';
             html += '<p class="text-xs text-slate-400">' + new Date(item.created_at).toLocaleString() + '</p></div>';
-            html += '<button onclick="deleteBlacklist(\\'' + item.pattern + '\\')" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+            html += '<button data-action="delete-blacklist" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
             html += '</div>'; 
         });
         list.innerHTML = html;
@@ -99,17 +103,18 @@ function loadBlacklist() {
 
 function loadWhitelist() {
     fetch('/api/whitelist').then(function(resp) { return resp.json(); }).then(function(items) {
+        whitelistData = items || [];
         var list = document.getElementById('whitelist-items');
         if (!items || items.length === 0) { 
             list.innerHTML = '<p class="text-slate-500 text-center py-4 text-sm">暂无白名单</p>'; 
             return; 
         }
         var html = '';
-        items.forEach(function(item) { 
+        items.forEach(function(item, idx) { 
             html += '<div class="flex items-center justify-between p-2 bg-green-50 rounded-lg">';
-            html += '<div><code class="text-sm font-mono text-green-700">' + item.pattern + '</code>';
+            html += '<div><code class="text-sm font-mono text-green-700">' + escapeHtml(item.pattern) + '</code>';
             html += '<p class="text-xs text-slate-400">' + new Date(item.created_at).toLocaleString() + '</p></div>';
-            html += '<button onclick="deleteWhitelist(\\'' + item.pattern + '\\')" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+            html += '<button data-action="delete-whitelist" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
             html += '</div>'; 
         });
         list.innerHTML = html;
@@ -123,6 +128,7 @@ function loadConditions() {
         fetch('/api/search-groups').then(function(r){return r.json();})
     ]).then(function(results) {
         var items = results[0] || [];
+        conditionsData = items;
         var llmGroupsList = results[1] || [];
         var searchGroupsList = results[2] || [];
         var list = document.getElementById('condition-items');
@@ -133,18 +139,18 @@ function loadConditions() {
         }
         
         var html = '';
-        items.forEach(function(item) {
+        items.forEach(function(item, idx) {
             var llmGroupName = item.llm_group_id ? (llmGroupsList.find(function(g){return g.id===item.llm_group_id;}) || {}).name || item.llm_group_id : '无限制';
             var searchGroupName = item.search_group_id ? (searchGroupsList.find(function(g){return g.id===item.search_group_id;}) || {}).name || item.search_group_id : '无限制';
             
             html += '<div class="p-3 bg-amber-50 rounded-lg">';
             html += '<div class="flex items-center justify-between">';
-            html += '<code class="text-sm font-mono text-amber-700">' + item.pattern + '</code>';
-            html += '<button onclick="deleteCondition(\\'' + item.pattern + '\\')" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+            html += '<code class="text-sm font-mono text-amber-700">' + escapeHtml(item.pattern) + '</code>';
+            html += '<button data-action="delete-condition" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
             html += '</div>';
             html += '<div class="mt-2 text-xs text-slate-500">';
-            html += '<span class="mr-3">LLM组: <span class="text-blue-600">' + llmGroupName + '</span></span>';
-            html += '<span>搜索组: <span class="text-purple-600">' + searchGroupName + '</span></span>';
+            html += '<span class="mr-3">LLM组: <span class="text-blue-600">' + escapeHtml(llmGroupName) + '</span></span>';
+            html += '<span>搜索组: <span class="text-purple-600">' + escapeHtml(searchGroupName) + '</span></span>';
             html += '</div>';
             html += '<p class="text-xs text-slate-400 mt-1">' + new Date(item.created_at).toLocaleString() + '</p>';
             html += '</div>';
@@ -152,6 +158,31 @@ function loadConditions() {
         list.innerHTML = html;
     });
 }
+
+// Event delegation for filter lists
+document.getElementById('blacklist-items').addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action="delete-blacklist"]');
+    if (!btn) return;
+    var idx = parseInt(btn.getAttribute('data-idx'));
+    var item = blacklistData[idx];
+    if (item) deleteBlacklist(item.pattern);
+});
+
+document.getElementById('whitelist-items').addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action="delete-whitelist"]');
+    if (!btn) return;
+    var idx = parseInt(btn.getAttribute('data-idx'));
+    var item = whitelistData[idx];
+    if (item) deleteWhitelist(item.pattern);
+});
+
+document.getElementById('condition-items').addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action="delete-condition"]');
+    if (!btn) return;
+    var idx = parseInt(btn.getAttribute('data-idx'));
+    var item = conditionsData[idx];
+    if (item) deleteCondition(item.pattern);
+});
 
 function showAddBlacklist() {
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">添加黑名单</h3><div class="space-y-3">' +
@@ -182,9 +213,9 @@ function showAddCondition() {
         var searchGroupsList = results[1] || [];
         
         var llmOptions = '<option value="">无限制（随机）</option>';
-        llmGroupsList.forEach(function(g) { llmOptions += '<option value="' + g.id + '">' + g.name + '</option>'; });
+        llmGroupsList.forEach(function(g) { llmOptions += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
         var searchOptions = '<option value="">无限制（随机）</option>';
-        searchGroupsList.forEach(function(g) { searchOptions += '<option value="' + g.id + '">' + g.name + '</option>'; });
+        searchGroupsList.forEach(function(g) { searchOptions += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
         
         showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">添加条件名单</h3><div class="space-y-3">' +
             '<div><label class="text-sm text-slate-600">邮箱或域名</label>' +

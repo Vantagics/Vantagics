@@ -1018,7 +1018,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	captchaID, captchaImage := generateCaptcha()
-	tmpl := template.Must(template.New("login").Parse(loginHTML))
+	tmpl := template.Must(template.New("login").Parse(templates.LoginHTML))
 	tmpl.Execute(w, map[string]interface{}{
 		"CaptchaID":    captchaID,
 		"CaptchaImage": captchaImage,
@@ -1041,7 +1041,7 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Validate captcha first
 	if !validateCaptcha(captchaID, captchaAnswer) {
 		newCaptchaID, newCaptchaImage := generateCaptcha()
-		tmpl := template.Must(template.New("login").Parse(loginHTML))
+		tmpl := template.Must(template.New("login").Parse(templates.LoginHTML))
 		tmpl.Execute(w, map[string]interface{}{
 			"Error":        "验证码错误",
 			"CaptchaID":    newCaptchaID,
@@ -1059,7 +1059,7 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	validPassword := getSetting("admin_password")
 	if username != validUsername || password != validPassword {
 		newCaptchaID, newCaptchaImage := generateCaptcha()
-		tmpl := template.Must(template.New("login").Parse(loginHTML))
+		tmpl := template.Must(template.New("login").Parse(templates.LoginHTML))
 		tmpl.Execute(w, map[string]interface{}{
 			"Error":        "用户名或密码错误",
 			"CaptchaID":    newCaptchaID,

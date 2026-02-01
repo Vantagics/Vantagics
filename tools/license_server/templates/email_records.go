@@ -19,6 +19,9 @@ const EmailRecordsHTML = `
 
 // EmailRecordsScripts contains the email records JavaScript
 const EmailRecordsScripts = `
+// Store email records data for button handlers
+var emailRecordsData = {};
+
 function loadEmailRecords(page, search) {
     page = page || 1;
     search = search || '';
@@ -46,8 +49,11 @@ function loadEmailRecords(page, search) {
                 }
             });
             
+            // Clear and rebuild data store
+            emailRecordsData = {};
+            
             var html = '<div class="space-y-3">';
-            data.records.forEach(function(r) {
+            data.records.forEach(function(r, idx) {
                 var license = licenseMap[r.sn] || {};
                 var isActive = license.is_active === true || license.is_active === 1;
                 var expiresAt = license.expires_at ? new Date(license.expires_at) : null;
@@ -58,12 +64,26 @@ function loadEmailRecords(page, search) {
                 var dailyAnalysis = license.daily_analysis !== undefined ? license.daily_analysis : 20;
                 var opacityClass = !isActive ? 'opacity-50' : '';
                 
+                // Store data for this record
+                var dataKey = 'rec_' + idx;
+                emailRecordsData[dataKey] = {
+                    id: r.id,
+                    email: r.email,
+                    sn: r.sn,
+                    licenseGroupId: license.license_group_id || '',
+                    llmGroupId: license.llm_group_id || '',
+                    searchGroupId: license.search_group_id || '',
+                    expiresAt: license.expires_at || '',
+                    dailyAnalysis: dailyAnalysis,
+                    isActive: isActive
+                };
+                
                 html += '<div class="p-3 bg-slate-50 rounded-lg ' + opacityClass + '">';
                 html += '<div class="flex items-start justify-between">';
                 html += '<div class="flex-1">';
                 html += '<div class="flex items-center gap-3 mb-1">';
-                html += '<span class="text-sm text-slate-600">' + r.email + '</span>';
-                html += '<code class="font-mono text-blue-600 font-bold">' + r.sn + '</code>';
+                html += '<span class="text-sm text-slate-600">' + escapeHtml(r.email) + '</span>';
+                html += '<code class="font-mono text-blue-600 font-bold">' + escapeHtml(r.sn) + '</code>';
                 if (!isActive) html += '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">已禁用</span>';
                 if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
                 html += '</div>';
@@ -77,11 +97,11 @@ function loadEmailRecords(page, search) {
                 html += '</p>';
                 html += '</div>';
                 html += '<div class="flex gap-2 flex-shrink-0">';
-                html += '<button onclick="editEmailRecord(' + r.id + ', \\'' + r.email + '\\', \\'' + r.sn + '\\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">修改</button>';
-                html += '<button onclick="setLicenseGroups(\\'' + r.sn + '\\', \\'' + (license.license_group_id || '') + '\\', \\'' + (license.llm_group_id || '') + '\\', \\'' + (license.search_group_id || '') + '\\')" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs hover:bg-indigo-200">分组</button>';
-                html += '<button onclick="extendLicense(\\'' + r.sn + '\\', \\'' + (license.expires_at || '') + '\\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">展期</button>';
-                html += '<button onclick="setDailyAnalysis(\\'' + r.sn + '\\', ' + dailyAnalysis + ')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">分析次数</button>';
-                html += '<button onclick="toggleLicenseFromEmail(\\'' + r.sn + '\\')" class="px-2 py-1 ' + (isActive ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs hover:opacity-80">' + (isActive ? '禁用' : '启用') + '</button>';
+                html += '<button data-action="edit" data-key="' + dataKey + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">修改</button>';
+                html += '<button data-action="groups" data-key="' + dataKey + '" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs hover:bg-indigo-200">分组</button>';
+                html += '<button data-action="extend" data-key="' + dataKey + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">展期</button>';
+                html += '<button data-action="analysis" data-key="' + dataKey + '" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">分析次数</button>';
+                html += '<button data-action="toggle" data-key="' + dataKey + '" class="px-2 py-1 ' + (isActive ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs hover:opacity-80">' + (isActive ? '禁用' : '启用') + '</button>';
                 html += '</div>';
                 html += '</div>';
                 html += '</div>';
@@ -104,6 +124,35 @@ function loadEmailRecords(page, search) {
     });
 }
 
+// Event delegation for email records buttons
+document.getElementById('email-records-list').addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    
+    var action = btn.getAttribute('data-action');
+    var key = btn.getAttribute('data-key');
+    var data = emailRecordsData[key];
+    if (!data) return;
+    
+    switch(action) {
+        case 'edit':
+            editEmailRecord(data.id, data.email, data.sn);
+            break;
+        case 'groups':
+            setLicenseGroups(data.sn, data.licenseGroupId, data.llmGroupId, data.searchGroupId);
+            break;
+        case 'extend':
+            extendLicense(data.sn, data.expiresAt);
+            break;
+        case 'analysis':
+            setDailyAnalysis(data.sn, data.dailyAnalysis);
+            break;
+        case 'toggle':
+            toggleLicenseFromEmail(data.sn);
+            break;
+    }
+});
+
 function searchEmails() { 
     loadEmailRecords(1, document.getElementById('email-search').value); 
 }
@@ -115,8 +164,8 @@ function toggleLicenseFromEmail(sn) {
 
 function editEmailRecord(id, email, sn) {
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">修改申请记录</h3><div class="space-y-3">' +
-        '<div><label class="text-sm text-slate-600">邮箱</label><input type="email" id="edit-email" value="' + email + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
-        '<div><label class="text-sm text-slate-600">序列号</label><input type="text" id="edit-sn" value="' + sn + '" class="w-full px-3 py-2 border rounded-lg font-mono"></div>' +
+        '<div><label class="text-sm text-slate-600">邮箱</label><input type="email" id="edit-email" value="' + escapeHtml(email) + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div><label class="text-sm text-slate-600">序列号</label><input type="text" id="edit-sn" value="' + escapeHtml(sn) + '" class="w-full px-3 py-2 border rounded-lg font-mono"></div>' +
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doEditEmailRecord(' + id + ')" class="flex-1 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>' +
         '</div></div>');
 }
