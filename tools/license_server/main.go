@@ -34,7 +34,15 @@ import (
 )
 
 const (
+	// DBPassword is the encryption password for the SQLite database.
+	// SECURITY WARNING: In production, this should be loaded from environment
+	// variables or a secure configuration file, not hardcoded.
+	// Example: DBPassword = os.Getenv("LICENSE_DB_PASSWORD")
 	DBPassword    = "sunion123!"
+	
+	// DefaultAdminPassword is the initial admin password.
+	// SECURITY WARNING: Users should be prompted to change this on first login.
+	// This default is only for initial setup convenience.
 	DefaultAdminPassword = "sunion123"
 )
 
@@ -648,16 +656,31 @@ func setSetting(key, value string) {
 func generateSN() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 16)
-	rand.Read(b)
-	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use math/rand with time seed if crypto/rand fails
+		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
+		mrand.Seed(time.Now().UnixNano())
+		for i := range b {
+			b[i] = charset[mrand.Intn(len(charset))]
+		}
+	} else {
+		for i := range b {
+			b[i] = charset[int(b[i])%len(charset)]
+		}
 	}
 	return fmt.Sprintf("%s-%s-%s-%s", string(b[0:4]), string(b[4:8]), string(b[8:12]), string(b[12:16]))
 }
 
 func generateShortID() string {
 	b := make([]byte, 8)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use math/rand with time seed if crypto/rand fails
+		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
+		mrand.Seed(time.Now().UnixNano())
+		for i := range b {
+			b[i] = byte(mrand.Intn(256))
+		}
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -770,7 +793,14 @@ var captchaLock sync.RWMutex
 
 func createSession() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use math/rand with time seed if crypto/rand fails
+		log.Printf("Warning: crypto/rand failed for session token: %v, using fallback", err)
+		mrand.Seed(time.Now().UnixNano())
+		for i := range b {
+			b[i] = byte(mrand.Intn(256))
+		}
+	}
 	token := hex.EncodeToString(b)
 	sessionLock.Lock()
 	sessions[token] = time.Now().Add(24 * time.Hour)
@@ -850,7 +880,14 @@ func generateCaptcha() (string, string) {
 	
 	// Generate captcha ID
 	idBytes := make([]byte, 16)
-	rand.Read(idBytes)
+	if _, err := rand.Read(idBytes); err != nil {
+		// Fallback: use math/rand with time seed if crypto/rand fails
+		log.Printf("Warning: crypto/rand failed for captcha ID: %v, using fallback", err)
+		mrand.Seed(time.Now().UnixNano())
+		for i := range idBytes {
+			idBytes[i] = byte(mrand.Intn(256))
+		}
+	}
 	captchaID := hex.EncodeToString(idBytes)
 	
 	// Store captcha answer with 5 minute expiry

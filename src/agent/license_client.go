@@ -102,7 +102,7 @@ func (c *LicenseClient) encryptData(data []byte, sn string) (string, error) {
 
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to generate nonce: %v", err)
 	}
 
 	ciphertext := gcm.Seal(nonce, nonce, data, nil)

@@ -88,7 +88,10 @@ func (m *GeminiChatModel) Generate(ctx context.Context, input []*schema.Message,
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Gemini API error (%d): %s", resp.StatusCode, string(respBody))

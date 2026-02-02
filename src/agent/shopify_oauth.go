@@ -53,7 +53,12 @@ func NewShopifyOAuthService(config ShopifyOAuthConfig, log func(string)) *Shopif
 // generateState generates a random state string for CSRF protection
 func (s *ShopifyOAuthService) generateState() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to a less secure but functional state if crypto/rand fails
+		s.log(fmt.Sprintf("[SHOPIFY-OAUTH] Warning: crypto/rand failed: %v, using fallback", err))
+		// Use current timestamp as fallback (less secure but functional)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -291,6 +296,13 @@ func (s *ShopifyOAuthService) sendSuccessResponse(w http.ResponseWriter) {
 
 // sendErrorResponse sends an error HTML response to the browser
 func (s *ShopifyOAuthService) sendErrorResponse(w http.ResponseWriter, message string) {
+	// Escape HTML special characters to prevent XSS
+	escapedMessage := strings.ReplaceAll(message, "&", "&amp;")
+	escapedMessage = strings.ReplaceAll(escapedMessage, "<", "&lt;")
+	escapedMessage = strings.ReplaceAll(escapedMessage, ">", "&gt;")
+	escapedMessage = strings.ReplaceAll(escapedMessage, "\"", "&quot;")
+	escapedMessage = strings.ReplaceAll(escapedMessage, "'", "&#39;")
+	
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadRequest)
 	html := fmt.Sprintf(`<!DOCTYPE html>
@@ -316,6 +328,6 @@ func (s *ShopifyOAuthService) sendErrorResponse(w http.ResponseWriter, message s
         <p style="margin-top: 20px;">Please close this window and try again.</p>
     </div>
 </body>
-</html>`, message)
+</html>`, escapedMessage)
 	w.Write([]byte(html))
 }

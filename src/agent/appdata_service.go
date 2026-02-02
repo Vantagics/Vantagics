@@ -40,6 +40,11 @@ type AppDataService struct {
 }
 
 const (
+	// encryptionKey is used to decrypt embedded application data (appdata.dat).
+	// This is intentionally a simple key as it only provides obfuscation for
+	// embedded OAuth credentials, not true security. The actual security comes
+	// from the OAuth flow itself and the fact that credentials are per-installation.
+	// For production deployments, consider using environment variables or a key vault.
 	encryptionKey  = "vantagedata"
 	currentVersion = "1.0"
 )

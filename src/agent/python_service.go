@@ -186,7 +186,30 @@ func (s *PythonService) ValidatePythonEnvironment(path string) PythonValidationR
 	return result
 }
 
+// isValidPackageName validates that a package name is safe for use in import statements
+// This prevents command injection through malicious package names
+func isValidPackageName(name string) bool {
+	if name == "" {
+		return false
+	}
+	// Package names should only contain alphanumeric characters and underscores
+	// They should not start with a number
+	for i, r := range name {
+		if i == 0 && r >= '0' && r <= '9' {
+			return false
+		}
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *PythonService) checkPackage(pythonPath, packageName string) bool {
+	// Validate package name to prevent command injection
+	if !isValidPackageName(packageName) {
+		return false
+	}
 	// Run python -c "import package"
 	cmd := exec.Command(pythonPath, "-c", "import "+packageName)
 	if runtime.GOOS == "windows" {

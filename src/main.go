@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -76,9 +77,33 @@ func getSystemLanguage() string {
 		locale = os.Getenv("LANG")
 	}
 	
-	// Check if locale starts with "zh" (Chinese)
+	// On macOS, also check AppleLocale and AppleLanguages
+	if runtime.GOOS == "darwin" && locale == "" {
+		// Try to get locale from defaults command
+		// This is more reliable on macOS
+		if out, err := exec.Command("defaults", "read", "-g", "AppleLocale").Output(); err == nil {
+			locale = strings.TrimSpace(string(out))
+		}
+	}
+	
+	// On Windows, check system locale
+	if runtime.GOOS == "windows" && locale == "" {
+		// Try PowerShell to get culture
+		if out, err := exec.Command("powershell", "-Command", "(Get-Culture).Name").Output(); err == nil {
+			locale = strings.TrimSpace(string(out))
+		}
+	}
+	
+	// Normalize and check locale
 	locale = strings.ToLower(locale)
-	if strings.HasPrefix(locale, "zh") {
+	
+	// Check for Chinese variants
+	if strings.HasPrefix(locale, "zh") ||
+		strings.Contains(locale, "chinese") ||
+		strings.Contains(locale, "cn") ||
+		strings.Contains(locale, "tw") ||
+		strings.Contains(locale, "hk") ||
+		strings.Contains(locale, "sg") {
 		return "简体中文"
 	}
 	

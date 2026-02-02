@@ -5772,6 +5772,17 @@ func (a *App) OpenSessionResultsDirectory(threadID string) error {
 		return fmt.Errorf("chat service not initialized")
 	}
 
+	// Validate threadID to prevent path traversal and command injection
+	// threadID should only contain digits (generated from UnixNano timestamp)
+	if threadID == "" {
+		return fmt.Errorf("thread ID cannot be empty")
+	}
+	for _, r := range threadID {
+		if r < '0' || r > '9' {
+			return fmt.Errorf("invalid thread ID format")
+		}
+	}
+
 	// Get the session directory (where files are saved)
 	sessionDir := a.chatService.GetSessionDirectory(threadID)
 

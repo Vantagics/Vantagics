@@ -2,8 +2,10 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // FileCategory represents the category of a file
@@ -122,6 +124,29 @@ func (s *FileService) HasFiles() (bool, error) {
 
 // DownloadFile returns the file path for download given a file ID
 func (s *FileService) DownloadFile(fileID string) (string, error) {
+	// Validate fileID to prevent path traversal attacks
+	// fileID should only contain safe characters (alphanumeric, dash, underscore, dot)
+	// and should not contain path separators or parent directory references
+	if fileID == "" {
+		return "", fmt.Errorf("file ID cannot be empty")
+	}
+	
+	// Check for path traversal attempts
+	if strings.Contains(fileID, "..") || 
+	   strings.Contains(fileID, "/") || 
+	   strings.Contains(fileID, "\\") ||
+	   strings.HasPrefix(fileID, ".") {
+		return "", fmt.Errorf("invalid file ID: contains forbidden characters")
+	}
+	
+	// Additional validation: only allow safe filename characters
+	for _, r := range fileID {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || 
+		     (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
+			return "", fmt.Errorf("invalid file ID: contains forbidden characters")
+		}
+	}
+	
 	// Try to find the file in both categories
 	categories := []FileCategory{AllFiles, UserRequestRelated}
 	
@@ -135,6 +160,19 @@ func (s *FileService) DownloadFile(fileID string) (string, error) {
 		}
 		
 		filePath := filepath.Join(s.dataDir, categoryDir, fileID)
+		
+		// Double-check that the resolved path is still within the expected directory
+		absFilePath, err := filepath.Abs(filePath)
+		if err != nil {
+			continue
+		}
+		absDataDir, err := filepath.Abs(s.dataDir)
+		if err != nil {
+			continue
+		}
+		if !strings.HasPrefix(absFilePath, absDataDir) {
+			return "", fmt.Errorf("invalid file path: outside data directory")
+		}
 		
 		// Check if file exists
 		if _, err := os.Stat(filePath); err == nil {

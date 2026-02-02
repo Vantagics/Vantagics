@@ -497,7 +497,12 @@ func (s *DataSourceService) sanitizeName(name string) string {
 		} else if r > 127 { // Unicode character (including Chinese)
 			// Check if it's a valid Unicode letter or number
 			// This preserves Chinese, Japanese, Korean, etc.
-			result.WriteRune(r)
+			// But explicitly exclude backticks and other dangerous characters
+			if r != '`' && r != '\'' && r != '"' && r != ';' && r != '\\' {
+				result.WriteRune(r)
+			} else {
+				result.WriteRune('_')
+			}
 		} else if r == ' ' || r == '-' {
 			// Replace spaces and hyphens with underscore
 			result.WriteRune('_')
@@ -511,6 +516,12 @@ func (s *DataSourceService) sanitizeName(name string) string {
 	if name == "" {
 		return "unknown"
 	}
+	
+	// Additional safety: ensure the name doesn't start with a number
+	if len(name) > 0 && name[0] >= '0' && name[0] <= '9' {
+		name = "_" + name
+	}
+	
 	return name
 }
 
@@ -2150,6 +2161,17 @@ func (s *DataSourceService) RenameDataSource(id string, newName string) error {
 func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	s.log(fmt.Sprintf("DeleteTable: DataSource=%s, Table=%s", id, tableName))
 	
+	// Validate table name for defense in depth
+	if tableName == "" {
+		return fmt.Errorf("table name cannot be empty")
+	}
+	invalidChars := []string{"'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
+	for _, char := range invalidChars {
+		if strings.Contains(tableName, char) {
+			return fmt.Errorf("table name contains invalid character")
+		}
+	}
+	
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return err
@@ -2481,11 +2503,18 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 		return fmt.Errorf("column name cannot be empty")
 	}
 
-	// Check for invalid characters in column name
-	invalidChars := []string{" ", "'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r"}
+	// Check for invalid characters in column name (applies to both old and new names)
+	invalidChars := []string{" ", "'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
 	for _, char := range invalidChars {
 		if strings.Contains(newColumnName, char) {
 			return fmt.Errorf("column name contains invalid character: %s", char)
+		}
+		// Also validate oldColumnName and tableName for defense in depth
+		if strings.Contains(oldColumnName, char) {
+			return fmt.Errorf("old column name contains invalid character")
+		}
+		if strings.Contains(tableName, char) {
+			return fmt.Errorf("table name contains invalid character")
 		}
 	}
 
@@ -2610,6 +2639,17 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 
 	if columnName == "" {
 		return fmt.Errorf("column name cannot be empty")
+	}
+
+	// Validate column name and table name for defense in depth
+	invalidChars := []string{"'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
+	for _, char := range invalidChars {
+		if strings.Contains(columnName, char) {
+			return fmt.Errorf("column name contains invalid character")
+		}
+		if strings.Contains(tableName, char) {
+			return fmt.Errorf("table name contains invalid character")
+		}
 	}
 
 	sources, err := s.LoadDataSources()
