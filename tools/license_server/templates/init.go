@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', function() {
         licenseGroups = results[2] || [];
         productTypes = results[3] || [];
         
+        // Initialize product filter dropdown for email records
+        initEmailProductFilter();
+        
         // Load all data
         loadLLMGroups();
         loadSearchGroups();

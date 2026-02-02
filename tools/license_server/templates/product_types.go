@@ -27,8 +27,9 @@ function loadProductTypes() {
         var html = '<div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-2 border-blue-200">';
         html += '<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-blue-700">VantageData</span><span class="px-2 py-0.5 bg-blue-600 text-white text-xs rounded font-mono">ID: 0</span></div>';
         html += '<p class="text-xs text-slate-500 mt-1">默认产品（不可删除）</p></div>';
-        html += '<div class="text-xs text-blue-600 font-medium">系统默认</div>';
-        html += '</div>';
+        html += '<div class="flex gap-1">';
+        html += '<button onclick="showExtraInfoModal(0, \'VantageData\')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">额外信息</button>';
+        html += '</div></div>';
         
         if (productTypes && productTypes.length > 0) { 
             productTypes.forEach(function(p, idx) { 
@@ -36,6 +37,7 @@ function loadProductTypes() {
                 html += '<div><div class="flex items-center gap-2"><span class="font-bold text-sm">' + escapeHtml(p.name) + '</span><span class="px-2 py-0.5 bg-amber-600 text-white text-xs rounded font-mono">ID: ' + p.id + '</span></div>';
                 html += '<p class="text-xs text-slate-400 mt-1">' + escapeHtml(p.description || '无描述') + '</p></div>';
                 html += '<div class="flex gap-1">';
+                html += '<button onclick="showExtraInfoModal(' + p.id + ', \'' + escapeJs(p.name) + '\')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">额外信息</button>';
                 html += '<button data-action="edit-product-type" data-idx="' + idx + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
                 html += '<button data-action="delete-product-type" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
                 html += '</div></div>'; 
@@ -125,5 +127,108 @@ function deleteProductType(id) {
                 alert('删除失败: ' + (result.error || '未知错误'));
             }
         });
+}
+
+// Extra Info Management
+var currentExtraInfoProductId = 0;
+var currentExtraInfoProductName = '';
+
+function showExtraInfoModal(productId, productName) {
+    currentExtraInfoProductId = productId;
+    currentExtraInfoProductName = productName;
+    
+    var html = '<div class="p-6" style="min-width: 500px;">';
+    html += '<h3 class="text-lg font-bold mb-2">额外授权信息 - ' + escapeHtml(productName) + '</h3>';
+    html += '<p class="text-xs text-slate-500 mb-4">这些信息会在激活时发送给客户端，用于扩展授权功能。</p>';
+    html += '<div id="extra-info-list" class="space-y-2 mb-4 max-h-64 overflow-y-auto"></div>';
+    html += '<div class="border-t pt-4">';
+    html += '<p class="text-sm font-medium mb-2">添加新项</p>';
+    html += '<div class="flex gap-2">';
+    html += '<input type="text" id="new-extra-key" placeholder="Key" class="flex-1 px-3 py-2 border rounded-lg text-sm">';
+    html += '<input type="text" id="new-extra-value" placeholder="Value" class="flex-1 px-3 py-2 border rounded-lg text-sm">';
+    html += '<select id="new-extra-type" class="px-3 py-2 border rounded-lg text-sm">';
+    html += '<option value="string">字符串</option>';
+    html += '<option value="number">数字</option>';
+    html += '</select>';
+    html += '<button onclick="addExtraInfo()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">添加</button>';
+    html += '</div></div>';
+    html += '<div class="flex justify-end mt-4"><button onclick="hideModal()" class="px-4 py-2 bg-slate-200 rounded-lg">关闭</button></div>';
+    html += '</div>';
+    
+    showModal(html);
+    loadExtraInfo(productId);
+}
+
+function loadExtraInfo(productId) {
+    fetch('/api/product-extra-info?product_id=' + productId)
+        .then(function(resp) { return resp.json(); })
+        .then(function(data) {
+            var list = document.getElementById('extra-info-list');
+            if (!data || data.length === 0) {
+                list.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">暂无额外信息</p>';
+                return;
+            }
+            var html = '';
+            data.forEach(function(item) {
+                html += '<div class="flex items-center gap-2 p-2 bg-slate-50 rounded">';
+                html += '<code class="text-blue-600 font-mono text-sm flex-shrink-0">' + escapeHtml(item.key) + '</code>';
+                html += '<span class="text-slate-400">=</span>';
+                html += '<span class="text-sm flex-1 truncate ' + (item.value_type === 'number' ? 'text-orange-600' : 'text-green-600') + '">' + escapeHtml(item.value) + '</span>';
+                html += '<span class="text-xs text-slate-400">(' + (item.value_type === 'number' ? '数字' : '字符串') + ')</span>';
+                html += '<button onclick="deleteExtraInfo(' + item.id + ')" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">删除</button>';
+                html += '</div>';
+            });
+            list.innerHTML = html;
+        });
+}
+
+function addExtraInfo() {
+    var key = document.getElementById('new-extra-key').value.trim();
+    var value = document.getElementById('new-extra-value').value.trim();
+    var valueType = document.getElementById('new-extra-type').value;
+    
+    if (!key) { alert('Key 不能为空'); return; }
+    if (valueType === 'number' && isNaN(parseFloat(value))) {
+        alert('数字类型的值必须是有效数字');
+        return;
+    }
+    
+    fetch('/api/product-extra-info', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            product_id: currentExtraInfoProductId,
+            key: key,
+            value: value,
+            value_type: valueType
+        })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(result) {
+        if (result.success) {
+            document.getElementById('new-extra-key').value = '';
+            document.getElementById('new-extra-value').value = '';
+            loadExtraInfo(currentExtraInfoProductId);
+        } else {
+            alert('添加失败: ' + (result.error || '未知错误'));
+        }
+    });
+}
+
+function deleteExtraInfo(id) {
+    if (!confirm('确定要删除此项吗？')) return;
+    fetch('/api/product-extra-info', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: id})
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(result) {
+        if (result.success) {
+            loadExtraInfo(currentExtraInfoProductId);
+        } else {
+            alert('删除失败: ' + (result.error || '未知错误'));
+        }
+    });
 }
 `

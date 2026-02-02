@@ -156,19 +156,22 @@ type ActivationResponse struct {
 
 // ActivationData contains the decrypted configuration
 type ActivationData struct {
-	LLMType         string `json:"llm_type"`
-	LLMBaseURL      string `json:"llm_base_url"`
-	LLMAPIKey       string `json:"llm_api_key"`
-	LLMModel        string `json:"llm_model"`
-	LLMStartDate    string `json:"llm_start_date"`
-	LLMEndDate      string `json:"llm_end_date"`
-	SearchType      string `json:"search_type"`
-	SearchAPIKey    string `json:"search_api_key"`
-	SearchStartDate string `json:"search_start_date"`
-	SearchEndDate   string `json:"search_end_date"`
-	ExpiresAt       string `json:"expires_at"`
-	ActivatedAt     string `json:"activated_at"`
-	DailyAnalysis   int    `json:"daily_analysis"`   // Daily analysis limit
+	LLMType         string                 `json:"llm_type"`
+	LLMBaseURL      string                 `json:"llm_base_url"`
+	LLMAPIKey       string                 `json:"llm_api_key"`
+	LLMModel        string                 `json:"llm_model"`
+	LLMStartDate    string                 `json:"llm_start_date"`
+	LLMEndDate      string                 `json:"llm_end_date"`
+	SearchType      string                 `json:"search_type"`
+	SearchAPIKey    string                 `json:"search_api_key"`
+	SearchStartDate string                 `json:"search_start_date"`
+	SearchEndDate   string                 `json:"search_end_date"`
+	ExpiresAt       string                 `json:"expires_at"`
+	ActivatedAt     string                 `json:"activated_at"`
+	DailyAnalysis   int                    `json:"daily_analysis"`   // Daily analysis limit
+	ProductID       int                    `json:"product_id"`       // Product ID
+	ProductName     string                 `json:"product_name"`     // Product name
+	ExtraInfo       map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
 }
 
 // RequestSNResponse is sent to client for SN request
@@ -343,6 +346,15 @@ func initDB() {
 		created_at DATETIME,
 		llm_group_id TEXT DEFAULT '',
 		search_group_id TEXT DEFAULT ''
+	)`)
+	// Migration: Create product_extra_info table for product-specific key-value pairs
+	db.Exec(`CREATE TABLE IF NOT EXISTS product_extra_info (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		product_id INTEGER NOT NULL,
+		key TEXT NOT NULL,
+		value TEXT,
+		value_type TEXT DEFAULT 'string',
+		UNIQUE(product_id, key)
 	)`)
 	// Migration: Move whitelist entries with groups to conditions table
 	db.Exec(`INSERT OR IGNORE INTO email_conditions (pattern, created_at, llm_group_id, search_group_id)
@@ -608,9 +620,39 @@ func sendEmailSTARTTLS(config SMTPConfig, to string, msg []byte, auth smtp.Auth,
 	return client.Quit()
 }
 
+// getProductName returns the product name for a given product ID
+func getProductName(productID int) string {
+	if productID == 0 {
+		return "VantageData"
+	}
+	var name string
+	err := db.QueryRow("SELECT name FROM product_types WHERE id = ?", productID).Scan(&name)
+	if err != nil || name == "" {
+		return "VantageData"
+	}
+	return name
+}
+
+// getProductInfo returns the product name and description for a given product ID
+func getProductInfo(productID int) (string, string) {
+	if productID == 0 {
+		return "VantageData", "Intelligent Data Analytics Platform"
+	}
+	var name, description string
+	err := db.QueryRow("SELECT name, COALESCE(description, '') FROM product_types WHERE id = ?", productID).Scan(&name, &description)
+	if err != nil || name == "" {
+		return "VantageData", "Intelligent Data Analytics Platform"
+	}
+	if description == "" {
+		description = name
+	}
+	return name, description
+}
+
 // sendSNEmail sends the serial number to the user's email
-func sendSNEmail(email, sn string, expiresAt time.Time) error {
-	subject := "VantageData - Your Serial Number"
+func sendSNEmail(email, sn string, expiresAt time.Time, productID int) error {
+	productName, productDesc := getProductInfo(productID)
+	subject := fmt.Sprintf("%s - Your Serial Number", productName)
 	
 	daysLeft := int(expiresAt.Sub(time.Now()).Hours() / 24)
 	expiryDate := expiresAt.Format("2006-01-02")
@@ -641,27 +683,27 @@ func sendSNEmail(email, sn string, expiresAt time.Time) error {
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎉 VantageData - Your Serial Number</h1>
+            <h1>🎉 %s - Your Serial Number</h1>
         </div>
         <div class="content">
             <div class="no-reply">⚠️ This is an automated message. Please do not reply.</div>
-            <p style="margin:0 0 10px 0;">Thank you for requesting a VantageData serial number:</p>
+            <p style="margin:0 0 10px 0;">Thank you for requesting a %s serial number:</p>
             <div class="sn-box">
                 <div class="sn">%s</div>
             </div>
             <div class="info">
                 <p><strong>📅 Valid until:</strong> %s (%d days)</p>
-                <p><strong>💡 How to use:</strong> Open VantageData → Select Commercial Mode → Enter serial number → Activate</p>
+                <p><strong>💡 How to use:</strong> Open %s → Select Commercial Mode → Enter serial number → Activate</p>
             </div>
             <p class="help">Questions? Visit <a href="https://vantagedata.chat" style="color:#667eea;">vantagedata.chat</a></p>
         </div>
         <div class="footer">
-            <p>© VantageData - Intelligent Data Analytics Platform</p>
+            <p>© %s - %s</p>
         </div>
     </div>
 </body>
 </html>
-`, sn, expiryDate, daysLeft)
+`, productName, productName, sn, expiryDate, daysLeft, productName, productName, productDesc)
 	
 	return sendEmail(email, subject, htmlBody)
 }
@@ -780,6 +822,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/search-groups", authMiddleware(handleSearchGroups))
 	mux.HandleFunc("/api/license-groups", authMiddleware(handleLicenseGroups))
 	mux.HandleFunc("/api/product-types", authMiddleware(handleProductTypes))
+	mux.HandleFunc("/api/product-extra-info", authMiddleware(handleProductExtraInfo))
 	mux.HandleFunc("/api/password", authMiddleware(handleChangePassword))
 	mux.HandleFunc("/api/username", authMiddleware(handleChangeUsername))
 	mux.HandleFunc("/api/ports", authMiddleware(handleChangePorts))
@@ -2050,6 +2093,120 @@ func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 		
 		// No licenses using this product type, safe to delete
 		db.Exec("DELETE FROM product_types WHERE id=?", req.ID)
+		// Also delete extra info for this product
+		db.Exec("DELETE FROM product_extra_info WHERE product_id=?", req.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+}
+
+// getProductExtraInfo retrieves extra info for a product as a map
+func getProductExtraInfo(productID int) map[string]interface{} {
+	result := make(map[string]interface{})
+	rows, err := db.Query("SELECT key, value, value_type FROM product_extra_info WHERE product_id = ?", productID)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	
+	for rows.Next() {
+		var key, value, valueType string
+		rows.Scan(&key, &value, &valueType)
+		if valueType == "number" {
+			if f, err := strconv.ParseFloat(value, 64); err == nil {
+				// Check if it's an integer
+				if f == float64(int64(f)) {
+					result[key] = int64(f)
+				} else {
+					result[key] = f
+				}
+			} else {
+				result[key] = value
+			}
+		} else {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+// handleProductExtraInfo manages product extra info key-value pairs
+func handleProductExtraInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		productIDStr := r.URL.Query().Get("product_id")
+		productID := 0
+		fmt.Sscanf(productIDStr, "%d", &productID)
+		
+		rows, err := db.Query("SELECT id, product_id, key, value, value_type FROM product_extra_info WHERE product_id = ? ORDER BY key", productID)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]interface{}{})
+			return
+		}
+		defer rows.Close()
+		
+		var items []map[string]interface{}
+		for rows.Next() {
+			var id, pid int
+			var key, value, valueType string
+			rows.Scan(&id, &pid, &key, &value, &valueType)
+			items = append(items, map[string]interface{}{
+				"id": id, "product_id": pid, "key": key, "value": value, "value_type": valueType,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(items)
+		return
+	}
+	
+	if r.Method == "POST" {
+		var req struct {
+			ID        int    `json:"id"`
+			ProductID int    `json:"product_id"`
+			Key       string `json:"key"`
+			Value     string `json:"value"`
+			ValueType string `json:"value_type"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		
+		if req.Key == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Key 不能为空"})
+			return
+		}
+		if req.ValueType == "" {
+			req.ValueType = "string"
+		}
+		
+		if req.ID == 0 {
+			// Insert new
+			_, err := db.Exec("INSERT OR REPLACE INTO product_extra_info (product_id, key, value, value_type) VALUES (?, ?, ?, ?)",
+				req.ProductID, req.Key, req.Value, req.ValueType)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+		} else {
+			// Update existing
+			_, err := db.Exec("UPDATE product_extra_info SET key=?, value=?, value_type=? WHERE id=?",
+				req.Key, req.Value, req.ValueType, req.ID)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+	
+	if r.Method == "DELETE" {
+		var req struct{ ID int `json:"id"` }
+		json.NewDecoder(r.Body).Decode(&req)
+		db.Exec("DELETE FROM product_extra_info WHERE id=?", req.ID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
@@ -2294,6 +2451,7 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	search := query.Get("search")
+	productFilter := query.Get("product_id") // -1 or empty = all, >= 0 = specific product
 	page, pageSize := 1, 20
 	fmt.Sscanf(query.Get("page"), "%d", &page)
 	fmt.Sscanf(query.Get("pageSize"), "%d", &pageSize)
@@ -2305,13 +2463,31 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	var rows *sql.Rows
 	var err error
 	
-	if search != "" {
+	// Build query based on filters
+	hasProductFilter := productFilter != "" && productFilter != "-1"
+	productID := -1
+	if hasProductFilter {
+		fmt.Sscanf(productFilter, "%d", &productID)
+	}
+	
+	if search != "" && hasProductFilter {
+		searchPattern := "%" + strings.ToLower(search) + "%"
+		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE (LOWER(email) LIKE ? OR LOWER(sn) LIKE ?) AND COALESCE(product_id, 0) = ?", 
+			searchPattern, searchPattern, productID).Scan(&total)
+		rows, err = db.Query(`SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records 
+			WHERE (LOWER(email) LIKE ? OR LOWER(sn) LIKE ?) AND COALESCE(product_id, 0) = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+			searchPattern, searchPattern, productID, pageSize, (page-1)*pageSize)
+	} else if search != "" {
 		searchPattern := "%" + strings.ToLower(search) + "%"
 		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ?", 
 			searchPattern, searchPattern).Scan(&total)
 		rows, err = db.Query(`SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records 
 			WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 			searchPattern, searchPattern, pageSize, (page-1)*pageSize)
+	} else if hasProductFilter {
+		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE COALESCE(product_id, 0) = ?", productID).Scan(&total)
+		rows, err = db.Query("SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records WHERE COALESCE(product_id, 0) = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+			productID, pageSize, (page-1)*pageSize)
 	} else {
 		db.QueryRow("SELECT COUNT(*) FROM email_records").Scan(&total)
 		rows, err = db.Query("SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -2947,8 +3123,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	
 	var license License
 	var lastUsed sql.NullTime
-	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM licenses WHERE sn=?", sn).
-		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID)
+	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0) FROM licenses WHERE sn=?", sn).
+		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID, &license.ProductID)
 	
 	if err == sql.ErrNoRows {
 		w.Header().Set("Content-Type", "application/json")
@@ -3019,10 +3195,16 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 	
 	// Build activation data
+	productName := getProductName(license.ProductID)
+	extraInfo := getProductExtraInfo(license.ProductID)
+	
 	activationData := ActivationData{
 		ExpiresAt:     license.ExpiresAt.Format(time.RFC3339),
 		ActivatedAt:   time.Now().Format(time.RFC3339),
 		DailyAnalysis: license.DailyAnalysis,
+		ProductID:     license.ProductID,
+		ProductName:   productName,
+		ExtraInfo:     extraInfo,
 	}
 	if bestLLM != nil {
 		activationData.LLMType = bestLLM.Type
@@ -3282,7 +3464,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	
 	// Send email with SN (async, don't block response)
 	go func() {
-		if err := sendSNEmail(email, sn, expiresAt); err != nil {
+		if err := sendSNEmail(email, sn, expiresAt, productID); err != nil {
 			log.Printf("[EMAIL] Failed to send SN email to %s: %v", email, err)
 		} else {
 			log.Printf("[EMAIL] SN email sent successfully to %s", email)

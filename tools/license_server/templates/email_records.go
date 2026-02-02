@@ -7,6 +7,10 @@ const EmailRecordsHTML = `
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-bold text-slate-800">邮箱申请记录</h2>
             <div class="flex items-center gap-2">
+                <select id="email-product-filter" onchange="filterEmailsByProduct()" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <option value="-1">全部产品</option>
+                    <option value="0">VantageData (ID: 0)</option>
+                </select>
                 <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64" onkeypress="if(event.key==='Enter')searchEmails()">
                 <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
                 <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工申请</button>
@@ -22,6 +26,24 @@ const EmailRecordsHTML = `
 const EmailRecordsScripts = `
 // Store email records data for button handlers
 var emailRecordsData = {};
+var emailProductFilter = -1;
+
+function initEmailProductFilter() {
+    var select = document.getElementById('email-product-filter');
+    if (!select) return;
+    // Add product types from global productTypes array
+    productTypes.forEach(function(p) {
+        var opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name + ' (ID: ' + p.id + ')';
+        select.appendChild(opt);
+    });
+}
+
+function filterEmailsByProduct() {
+    emailProductFilter = parseInt(document.getElementById('email-product-filter').value);
+    loadEmailRecords(1, emailSearchTerm);
+}
 
 function loadEmailRecords(page, search) {
     page = page || 1;
@@ -30,6 +52,9 @@ function loadEmailRecords(page, search) {
     emailSearchTerm = search;
     
     var params = new URLSearchParams({page: page.toString(), pageSize: '15', search: search});
+    if (emailProductFilter >= 0) {
+        params.set('product_id', emailProductFilter.toString());
+    }
     fetch('/api/email-records?' + params).then(function(resp) { return resp.json(); }).then(function(data) {
         var list = document.getElementById('email-records-list');
         if (!data.records || data.records.length === 0) { 
@@ -216,6 +241,9 @@ function doManualRequest() {
         hideModal(); 
         if (result.success) { 
             alert('申请成功！\\n\\n序列号: ' + result.sn + '\\n' + result.message);
+            // Reset product filter to show all, then search by email
+            emailProductFilter = -1;
+            document.getElementById('email-product-filter').value = '-1';
             loadEmailRecords(1, email); 
         } else { 
             alert('申请失败: ' + result.message); 
