@@ -141,6 +141,7 @@ type EmailRecord struct {
 	SN        string    `json:"sn"`
 	IP        string    `json:"ip"`
 	CreatedAt time.Time `json:"created_at"`
+	ProductID int       `json:"product_id"`
 }
 
 // ActivationResponse is sent to client
@@ -292,10 +293,12 @@ func initDB() {
 		);
 		CREATE TABLE IF NOT EXISTS email_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			email TEXT UNIQUE,
+			email TEXT,
 			sn TEXT,
 			ip TEXT,
-			created_at DATETIME
+			created_at DATETIME,
+			product_id INTEGER DEFAULT 0,
+			UNIQUE(email, product_id)
 		);
 		CREATE TABLE IF NOT EXISTS request_limits (
 			ip TEXT,
@@ -329,6 +332,8 @@ func initDB() {
 	db.Exec("ALTER TABLE licenses ADD COLUMN product_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE llm_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE search_configs ADD COLUMN group_id TEXT DEFAULT ''")
+	// Migration: Add product_id to email_records if not exists
+	db.Exec("ALTER TABLE email_records ADD COLUMN product_id INTEGER DEFAULT 0")
 	// Migration: Create email_conditions table if not exists (for existing databases)
 	db.Exec(`CREATE TABLE IF NOT EXISTS email_conditions (
 		pattern TEXT PRIMARY KEY,
@@ -2296,12 +2301,12 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 		searchPattern := "%" + strings.ToLower(search) + "%"
 		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ?", 
 			searchPattern, searchPattern).Scan(&total)
-		rows, err = db.Query(`SELECT id, email, sn, ip, created_at FROM email_records 
+		rows, err = db.Query(`SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records 
 			WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
 			searchPattern, searchPattern, pageSize, (page-1)*pageSize)
 	} else {
 		db.QueryRow("SELECT COUNT(*) FROM email_records").Scan(&total)
-		rows, err = db.Query("SELECT id, email, sn, ip, created_at FROM email_records ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		rows, err = db.Query("SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records ORDER BY created_at DESC LIMIT ? OFFSET ?",
 			pageSize, (page-1)*pageSize)
 	}
 	if err != nil {
@@ -2313,7 +2318,7 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	var records []EmailRecord
 	for rows.Next() {
 		var r EmailRecord
-		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt)
+		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID)
 		records = append(records, r)
 	}
 	
@@ -2901,26 +2906,21 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	
 	// Check if email already has SN for this product
 	var existingSN string
-	var existingProductID int
-	if err := db.QueryRow(`SELECT e.sn, COALESCE(l.product_id, 0) FROM email_records e 
-		LEFT JOIN licenses l ON e.sn = l.sn WHERE e.email=?`, email).Scan(&existingSN, &existingProductID); err == nil {
-		// Check if the SN still exists in licenses table
-		var snExists int
-		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE sn=?", existingSN).Scan(&snExists)
-		if snExists > 0 {
-			// If same product, return existing SN; if different product, allow new request
-			if existingProductID == productID {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeEmailAlreadyUsed, Message: "您已申请过序列号", SN: existingSN})
-				return
-			}
-			// Different product, continue to allocate new SN
-			log.Printf("[REQUEST-SN] Email %s has SN for product %d, requesting for product %d", email, existingProductID, productID)
-		} else {
-			// SN was deleted, remove the old email record and continue to generate new SN
-			db.Exec("DELETE FROM email_records WHERE email=?", email)
-			log.Printf("[REQUEST-SN] Old SN %s for email %s was deleted, generating new one", existingSN, email)
-		}
+	if err := db.QueryRow(`SELECT e.sn FROM email_records e 
+		JOIN licenses l ON e.sn = l.sn 
+		WHERE e.email=? AND e.product_id=?`, email, productID).Scan(&existingSN); err == nil {
+		// Email already has SN for this product
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeEmailAlreadyUsed, Message: "您已申请过该产品的序列号", SN: existingSN})
+		return
+	}
+	
+	// Check if there's an orphaned record (SN was deleted) for this email+product
+	var orphanedSN string
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=?`, email, productID).Scan(&orphanedSN); err == nil {
+		// SN was deleted, remove the old email record
+		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=?", email, productID)
+		log.Printf("[REQUEST-SN] Old SN %s for email %s product %d was deleted, generating new one", orphanedSN, email, productID)
 	}
 	
 	// Get rate limit settings
@@ -3062,7 +3062,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Bind the SN to the email
-	db.Exec("INSERT INTO email_records (email, sn, ip, created_at) VALUES (?, ?, ?, ?)", email, sn, clientIP, now)
+	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, clientIP, now, productID)
 	
 	// Update the license description to include the email
 	db.Exec("UPDATE licenses SET description = ? WHERE sn = ?", fmt.Sprintf("Email申请: %s", email), sn)

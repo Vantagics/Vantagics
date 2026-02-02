@@ -61,7 +61,8 @@ function loadEmailRecords(page, search) {
                 var llmGroupName = getLLMGroupName(license.llm_group_id || '');
                 var searchGroupName = getSearchGroupName(license.search_group_id || '');
                 var licenseGroupName = getLicenseGroupName(license.license_group_id || '');
-                var productName = getProductTypeName(license.product_id || 0);
+                var recordProductId = r.product_id || 0;
+                var productName = getProductTypeName(recordProductId);
                 var dailyAnalysis = license.daily_analysis !== undefined ? license.daily_analysis : 20;
                 var opacityClass = !isActive ? 'opacity-50' : '';
                 
@@ -86,6 +87,7 @@ function loadEmailRecords(page, search) {
                 html += '<div class="flex items-center gap-3 mb-1">';
                 html += '<span class="text-sm text-slate-600">' + escapeHtml(r.email) + '</span>';
                 html += '<code class="font-mono text-blue-600 font-bold">' + escapeHtml(r.sn) + '</code>';
+                html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + (productName || 'VantageData') + '</span>';
                 if (!isActive) html += '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">已禁用</span>';
                 if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
                 html += '</div>';
@@ -93,7 +95,6 @@ function loadEmailRecords(page, search) {
                 html += '<p class="text-xs text-slate-400">';
                 if (expiresAt) html += '过期: <span class="' + (isExpired ? 'text-red-600' : '') + '">' + expiresAt.toLocaleDateString() + '</span> | ';
                 html += '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次') + ' | ';
-                html += '产品: <span class="text-amber-600">' + (productName || 'VantageData') + '</span> | ';
                 html += '序列号分组: <span class="text-purple-600">' + (licenseGroupName || '默认') + '</span> | ';
                 html += 'LLM分组: <span class="text-blue-600">' + (llmGroupName || '默认') + '</span> | ';
                 html += '搜索分组: <span class="text-green-600">' + (searchGroupName || '默认') + '</span>';
