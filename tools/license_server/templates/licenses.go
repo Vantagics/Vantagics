@@ -23,7 +23,7 @@ const LicensesHTML = `
                     <option value="">全部搜索组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <input type="text" id="license-search" placeholder="搜索序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48">
+                <input type="text" id="license-search" placeholder="搜索序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchLicenses()">
                 <button onclick="searchLicenses()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
                 <button onclick="showBatchCreate()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">批量生成</button>
                 <button onclick="deleteUnusedByGroup()" class="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm">🗑️ 删除未使用</button>

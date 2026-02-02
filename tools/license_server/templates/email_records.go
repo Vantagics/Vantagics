@@ -7,7 +7,7 @@ const EmailRecordsHTML = `
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-bold text-slate-800">邮箱申请记录</h2>
             <div class="flex items-center gap-2">
-                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64">
+                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64" onkeypress="if(event.key==='Enter')searchEmails()">
                 <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
             </div>
         </div>
@@ -40,7 +40,7 @@ function loadEmailRecords(page, search) {
         // Fetch license info for all SNs
         var sns = data.records.map(function(r) { return r.sn; });
         Promise.all(sns.map(function(sn) {
-            return fetch('/api/licenses/search?search=' + encodeURIComponent(sn) + '&pageSize=1').then(function(r) { return r.json(); });
+            return fetch('/api/licenses/search?search=' + encodeURIComponent(sn) + '&pageSize=1&hide_used=false').then(function(r) { return r.json(); });
         })).then(function(licenseResults) {
             var licenseMap = {};
             licenseResults.forEach(function(result, idx) {
@@ -61,6 +61,7 @@ function loadEmailRecords(page, search) {
                 var llmGroupName = getLLMGroupName(license.llm_group_id || '');
                 var searchGroupName = getSearchGroupName(license.search_group_id || '');
                 var licenseGroupName = getLicenseGroupName(license.license_group_id || '');
+                var productName = getProductTypeName(license.product_id || 0);
                 var dailyAnalysis = license.daily_analysis !== undefined ? license.daily_analysis : 20;
                 var opacityClass = !isActive ? 'opacity-50' : '';
                 
@@ -73,6 +74,7 @@ function loadEmailRecords(page, search) {
                     licenseGroupId: license.license_group_id || '',
                     llmGroupId: license.llm_group_id || '',
                     searchGroupId: license.search_group_id || '',
+                    productId: license.product_id || 0,
                     expiresAt: license.expires_at || '',
                     dailyAnalysis: dailyAnalysis,
                     isActive: isActive
@@ -91,6 +93,7 @@ function loadEmailRecords(page, search) {
                 html += '<p class="text-xs text-slate-400">';
                 if (expiresAt) html += '过期: <span class="' + (isExpired ? 'text-red-600' : '') + '">' + expiresAt.toLocaleDateString() + '</span> | ';
                 html += '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次') + ' | ';
+                html += '产品: <span class="text-amber-600">' + (productName || 'VantageData') + '</span> | ';
                 html += '序列号分组: <span class="text-purple-600">' + (licenseGroupName || '默认') + '</span> | ';
                 html += 'LLM分组: <span class="text-blue-600">' + (llmGroupName || '默认') + '</span> | ';
                 html += '搜索分组: <span class="text-green-600">' + (searchGroupName || '默认') + '</span>';
@@ -139,7 +142,7 @@ document.getElementById('email-records-list').addEventListener('click', function
             editEmailRecord(data.id, data.email, data.sn);
             break;
         case 'groups':
-            setLicenseGroups(data.sn, data.licenseGroupId, data.llmGroupId, data.searchGroupId);
+            setLicenseGroups(data.sn, data.licenseGroupId, data.llmGroupId, data.searchGroupId, data.productId);
             break;
         case 'extend':
             extendLicense(data.sn, data.expiresAt);
