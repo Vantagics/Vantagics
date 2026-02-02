@@ -85,6 +85,13 @@ type LicenseGroup struct {
 	Description string `json:"description"`
 }
 
+// ProductType holds product type information for license categorization
+type ProductType struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 // LLMConfig holds LLM API configuration
 type LLMConfig struct {
 	ID        string `json:"id"`
@@ -124,6 +131,7 @@ type License struct {
 	LLMGroupID     string    `json:"llm_group_id"`    // Bound LLM group
 	LicenseGroupID string    `json:"license_group_id"` // License group for organization
 	SearchGroupID  string    `json:"search_group_id"` // Bound Search group
+	ProductID      int       `json:"product_id"`      // Product type ID, 0 = unclassified
 }
 
 // EmailRecord stores email request information
@@ -237,7 +245,8 @@ func initDB() {
 			last_used_at DATETIME,
 			daily_analysis INTEGER DEFAULT 20,
 			llm_group_id TEXT DEFAULT '',
-			search_group_id TEXT DEFAULT ''
+			search_group_id TEXT DEFAULT '',
+			product_id INTEGER DEFAULT 0
 		);
 		CREATE TABLE IF NOT EXISTS llm_groups (
 			id TEXT PRIMARY KEY,
@@ -252,6 +261,11 @@ func initDB() {
 		CREATE TABLE IF NOT EXISTS license_groups (
 			id TEXT PRIMARY KEY,
 			name TEXT,
+			description TEXT
+		);
+		CREATE TABLE IF NOT EXISTS product_types (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
 			description TEXT
 		);
 		CREATE TABLE IF NOT EXISTS llm_configs (
@@ -312,6 +326,7 @@ func initDB() {
 	db.Exec("ALTER TABLE licenses ADD COLUMN llm_group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE licenses ADD COLUMN search_group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE licenses ADD COLUMN license_group_id TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE licenses ADD COLUMN product_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE llm_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE search_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	// Migration: Create email_conditions table if not exists (for existing databases)
@@ -756,6 +771,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/search", authMiddleware(handleSearchConfig))
 	mux.HandleFunc("/api/search-groups", authMiddleware(handleSearchGroups))
 	mux.HandleFunc("/api/license-groups", authMiddleware(handleLicenseGroups))
+	mux.HandleFunc("/api/product-types", authMiddleware(handleProductTypes))
 	mux.HandleFunc("/api/password", authMiddleware(handleChangePassword))
 	mux.HandleFunc("/api/username", authMiddleware(handleChangeUsername))
 	mux.HandleFunc("/api/ports", authMiddleware(handleChangePorts))
@@ -1154,12 +1170,13 @@ func handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Description   string `json:"description"`
-		Days          int    `json:"days"`
-		DailyAnalysis int    `json:"daily_analysis"`
-		LLMGroupID    string `json:"llm_group_id"`
+		Description    string `json:"description"`
+		Days           int    `json:"days"`
+		DailyAnalysis  int    `json:"daily_analysis"`
+		LLMGroupID     string `json:"llm_group_id"`
 		LicenseGroupID string `json:"license_group_id"`
-		SearchGroupID string `json:"search_group_id"`
+		SearchGroupID  string `json:"search_group_id"`
+		ProductID      int    `json:"product_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1175,14 +1192,14 @@ func handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	expires := now.AddDate(0, 0, req.Days)
 	
-	_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
-		sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID)
+	_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+		sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	
-	license := License{SN: sn, CreatedAt: now, ExpiresAt: expires, Description: req.Description, IsActive: true, DailyAnalysis: req.DailyAnalysis, LLMGroupID: req.LLMGroupID, SearchGroupID: req.SearchGroupID}
+	license := License{SN: sn, CreatedAt: now, ExpiresAt: expires, Description: req.Description, IsActive: true, DailyAnalysis: req.DailyAnalysis, LLMGroupID: req.LLMGroupID, SearchGroupID: req.SearchGroupID, ProductID: req.ProductID}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(license)
 }
@@ -1221,13 +1238,14 @@ func handleBatchCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Description   string `json:"description"`
-		Days          int    `json:"days"`
-		Count         int    `json:"count"`
-		DailyAnalysis int    `json:"daily_analysis"`
-		LLMGroupID    string `json:"llm_group_id"`
+		Description    string `json:"description"`
+		Days           int    `json:"days"`
+		Count          int    `json:"count"`
+		DailyAnalysis  int    `json:"daily_analysis"`
+		LLMGroupID     string `json:"llm_group_id"`
 		LicenseGroupID string `json:"license_group_id"`
-		SearchGroupID string `json:"search_group_id"`
+		SearchGroupID  string `json:"search_group_id"`
+		ProductID      int    `json:"product_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1252,8 +1270,8 @@ func handleBatchCreateLicense(w http.ResponseWriter, r *http.Request) {
 	
 	for i := 0; i < req.Count; i++ {
 		sn := generateSN()
-		_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
-			sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID)
+		_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+			sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID)
 		if err == nil {
 			created = append(created, sn)
 		}
@@ -1351,6 +1369,7 @@ func handleSetLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		SN             string `json:"sn"`
+		ProductID      int    `json:"product_id"`
 		LicenseGroupID string `json:"license_group_id"`
 		LLMGroupID     string `json:"llm_group_id"`
 		SearchGroupID  string `json:"search_group_id"`
@@ -1360,7 +1379,7 @@ func handleSetLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	result, err := db.Exec("UPDATE licenses SET license_group_id=?, llm_group_id=?, search_group_id=? WHERE sn=?", req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.SN)
+	result, err := db.Exec("UPDATE licenses SET product_id=?, license_group_id=?, llm_group_id=?, search_group_id=? WHERE sn=?", req.ProductID, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.SN)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
@@ -1635,6 +1654,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	llmGroupFilter := query.Get("llm_group")
 	searchGroupFilter := query.Get("search_group")
 	licenseGroupFilter := query.Get("license_group")
+	productFilter := query.Get("product_id")
 	hideUsed := query.Get("hide_used") != "false" // Default to hide used (bound to email)
 	page, pageSize := 1, 20
 	fmt.Sscanf(query.Get("page"), "%d", &page)
@@ -1689,6 +1709,17 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	if productFilter != "" {
+		if productFilter == "0" || productFilter == "none" {
+			whereConditions = append(whereConditions, "(product_id IS NULL OR product_id = 0)")
+		} else {
+			var productID int
+			fmt.Sscanf(productFilter, "%d", &productID)
+			whereConditions = append(whereConditions, "product_id = ?")
+			args = append(args, productID)
+		}
+	}
+	
 	whereClause := ""
 	if len(whereConditions) > 0 {
 		whereClause = " WHERE " + strings.Join(whereConditions, " AND ")
@@ -1699,7 +1730,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow(countQuery, args...).Scan(&total)
 	
 	// Get paginated results
-	selectQuery := `SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') 
+	selectQuery := `SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0) 
 		FROM licenses` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err = db.Query(selectQuery, args...)
@@ -1714,7 +1745,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var l License
 		var lastUsed sql.NullTime
-		rows.Scan(&l.SN, &l.CreatedAt, &l.ExpiresAt, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID)
+		rows.Scan(&l.SN, &l.CreatedAt, &l.ExpiresAt, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID)
 		if lastUsed.Valid {
 			l.LastUsedAt = lastUsed.Time
 		}
@@ -1934,6 +1965,78 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		
 		// No licenses using this group, safe to delete
 		db.Exec("DELETE FROM license_groups WHERE id=?", req.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+}
+
+// handleProductTypes manages product types for license categorization
+func handleProductTypes(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		rows, _ := db.Query("SELECT id, name, description FROM product_types ORDER BY id")
+		defer rows.Close()
+		var products []ProductType
+		for rows.Next() {
+			var p ProductType
+			rows.Scan(&p.ID, &p.Name, &p.Description)
+			products = append(products, p)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(products)
+		return
+	}
+	if r.Method == "POST" {
+		var p ProductType
+		json.NewDecoder(r.Body).Decode(&p)
+		
+		if p.ID == 0 {
+			// Insert new product type
+			result, err := db.Exec("INSERT INTO product_types (name, description) VALUES (?, ?)", p.Name, p.Description)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+			id, _ := result.LastInsertId()
+			p.ID = int(id)
+		} else {
+			// Update existing product type
+			_, err := db.Exec("UPDATE product_types SET name=?, description=? WHERE id=?", p.Name, p.Description, p.ID)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": p.ID})
+		return
+	}
+	if r.Method == "DELETE" {
+		var req struct{ ID int `json:"id"` }
+		json.NewDecoder(r.Body).Decode(&req)
+		
+		// Check if this product type is being used by any licenses
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM licenses WHERE product_id=?", req.ID).Scan(&count)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "查询失败"})
+			return
+		}
+		
+		if count > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, 
+				"error": fmt.Sprintf("此产品类型下还有 %d 个序列号，无法删除", count),
+			})
+			return
+		}
+		
+		// No licenses using this product type, safe to delete
+		db.Exec("DELETE FROM product_types WHERE id=?", req.ID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return

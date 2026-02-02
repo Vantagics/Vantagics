@@ -494,6 +494,10 @@ func (a *App) startup(ctx context.Context) {
 		// Just set the log directory for management purposes without enabling logging
 		a.logger.SetLogDir(dataDir)
 	}
+
+	// Auto-detect location on startup if not configured
+	// This runs in background to avoid blocking startup
+	go a.autoDetectLocation(&cfg)
 }
 
 // UpdateWorkingContext updates the working context from frontend events
@@ -990,6 +994,46 @@ func (a *App) getConfigPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "config.json"), nil
+}
+
+// autoDetectLocation attempts to detect location via IP and save to config if not already set
+func (a *App) autoDetectLocation(cfg *config.Config) {
+	// Skip if location is already configured
+	if cfg.Location != nil && cfg.Location.City != "" {
+		a.Log("[STARTUP] Location already configured, skipping auto-detection")
+		return
+	}
+
+	a.Log("[STARTUP] Attempting to auto-detect location via IP...")
+
+	// Try to get IP-based location
+	ipLoc, err := agent.GetIPBasedLocation()
+	if err != nil {
+		a.Log(fmt.Sprintf("[STARTUP] IP location detection failed: %v", err))
+		return
+	}
+
+	if ipLoc == nil || !ipLoc.Available || ipLoc.City == "" {
+		a.Log("[STARTUP] IP location returned no valid data")
+		return
+	}
+
+	// Update config with detected location
+	cfg.Location = &config.LocationConfig{
+		Country:   ipLoc.Country,
+		City:      ipLoc.City,
+		Latitude:  ipLoc.Latitude,
+		Longitude: ipLoc.Longitude,
+	}
+
+	// Save the updated config
+	if err := a.SaveConfig(*cfg); err != nil {
+		a.Log(fmt.Sprintf("[STARTUP] Failed to save auto-detected location: %v", err))
+		return
+	}
+
+	a.Log(fmt.Sprintf("[STARTUP] Auto-detected location saved: %s, %s (%.4f, %.4f)",
+		ipLoc.City, ipLoc.Country, ipLoc.Latitude, ipLoc.Longitude))
 }
 
 // GetConfig loads the config from the ~/VantageData/config.json

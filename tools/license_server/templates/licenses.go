@@ -6,7 +6,11 @@ const LicensesHTML = `
     <div class="bg-white rounded-xl shadow-sm p-6">
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-bold text-slate-800">序列号列表</h2>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+                <select id="product-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <option value="">全部产品</option>
+                    <option value="0">不分类 (ID: 0)</option>
+                </select>
                 <select id="license-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
                     <option value="">全部序列号组</option>
                     <option value="none">默认(无组)</option>
@@ -32,6 +36,7 @@ const LicensesHTML = `
 </div>
 `
 
+
 // LicensesScripts contains the licenses management JavaScript
 const LicensesScripts = `
 function loadLicenses(page, search) {
@@ -40,6 +45,7 @@ function loadLicenses(page, search) {
     licenseCurrentPage = page;
     licenseSearchTerm = search;
     
+    var productFilter = document.getElementById('product-filter').value;
     var licenseGroupFilter = document.getElementById('license-group-filter').value;
     var llmGroupFilter = document.getElementById('llm-group-filter').value;
     var searchGroupFilter = document.getElementById('search-group-filter').value;
@@ -48,6 +54,7 @@ function loadLicenses(page, search) {
         page: page.toString(), 
         pageSize: '20', 
         search: search,
+        product_id: productFilter,
         license_group: licenseGroupFilter,
         llm_group: llmGroupFilter,
         search_group: searchGroupFilter
@@ -68,13 +75,15 @@ function loadLicenses(page, search) {
             var llmGroupName = getLLMGroupName(l.llm_group_id);
             var searchGroupName = getSearchGroupName(l.search_group_id);
             var licenseGroupName = getLicenseGroupName(l.license_group_id);
+            var productName = getProductTypeName(l.product_id);
             
             html += '<div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg ' + statusClass + '">';
             html += '<div class="flex-1">';
-            html += '<div class="flex items-center gap-2">';
+            html += '<div class="flex items-center gap-2 flex-wrap">';
             html += '<code class="font-mono font-bold text-blue-600">' + l.sn + '</code>';
             if (!l.is_active) html += '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">已禁用</span>';
             if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
+            if (productName) html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + productName + '</span>';
             if (licenseGroupName) html += '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">' + licenseGroupName + '</span>';
             if (llmGroupName) html += '<span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">' + llmGroupName + '</span>';
             if (searchGroupName) html += '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">' + searchGroupName + '</span>';
@@ -83,7 +92,7 @@ function loadLicenses(page, search) {
             html += '<p class="text-xs text-slate-400">过期: ' + new Date(l.expires_at).toLocaleDateString() + ' | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
             html += '</div>';
             html += '<div class="flex gap-2">';
-            html += '<button onclick="setLicenseGroups(\'' + l.sn + '\', \'' + (l.license_group_id || '') + '\', \'' + (l.llm_group_id || '') + '\', \'' + (l.search_group_id || '') + '\')" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">分组</button>';
+            html += '<button onclick="setLicenseGroups(\'' + l.sn + '\', \'' + (l.license_group_id || '') + '\', \'' + (l.llm_group_id || '') + '\', \'' + (l.search_group_id || '') + '\', ' + (l.product_id || 0) + ')" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">分组</button>';
             html += '<button onclick="extendLicense(\'' + l.sn + '\', \'' + l.expires_at + '\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">展期</button>';
             html += '<button onclick="setDailyAnalysis(\'' + l.sn + '\', ' + l.daily_analysis + ')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">分析次数</button>';
             html += '<button onclick="toggleLicense(\'' + l.sn + '\')" class="px-2 py-1 ' + (l.is_active ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs">' + (l.is_active ? '禁用' : '启用') + '</button>';
@@ -111,6 +120,8 @@ function searchLicenses() {
 }
 
 function showBatchCreate() {
+    var productOpts = '<option value="0">VantageData (ID: 0)</option>';
+    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + p.name + ' (ID: ' + p.id + ')</option>'; });
     var licenseGroupOpts = '<option value="">无分组</option>';
     licenseGroups.forEach(function(g) { licenseGroupOpts += '<option value="' + g.id + '">' + g.name + '</option>'; });
     var llmGroupOpts = '<option value="">无分组</option>';
@@ -125,6 +136,7 @@ function showBatchCreate() {
         '<div><label class="text-sm text-slate-600">生成数量</label><input type="number" id="batch-count" value="100" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '</div>' +
         '<div><label class="text-sm text-slate-600">每日分析次数 (0=无限)</label><input type="number" id="batch-daily" value="20" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div><label class="text-sm text-slate-600">产品类型</label><select id="batch-product" class="w-full px-3 py-2 border rounded-lg">' + productOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">序列号分组</label><select id="batch-license-group" class="w-full px-3 py-2 border rounded-lg">' + licenseGroupOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">LLM分组</label><select id="batch-llm-group" class="w-full px-3 py-2 border rounded-lg">' + llmGroupOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">搜索分组</label><select id="batch-search-group" class="w-full px-3 py-2 border rounded-lg">' + searchGroupOpts + '</select></div>' +
@@ -138,6 +150,7 @@ function doBatchCreate() {
         days: parseInt(document.getElementById('batch-days').value) || 365,
         count: parseInt(document.getElementById('batch-count').value) || 100,
         daily_analysis: parseInt(document.getElementById('batch-daily').value) || 0,
+        product_id: parseInt(document.getElementById('batch-product').value) || 0,
         license_group_id: document.getElementById('batch-license-group').value,
         llm_group_id: document.getElementById('batch-llm-group').value,
         search_group_id: document.getElementById('batch-search-group').value
@@ -182,7 +195,9 @@ function doSetDailyAnalysis(sn) {
         .then(function() { hideModal(); loadLicenses(licenseCurrentPage, licenseSearchTerm); });
 }
 
-function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId) {
+function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId, productId) {
+    var productOpts = '<option value="0">VantageData (ID: 0)</option>';
+    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '"' + (p.id === productId ? ' selected' : '') + '>' + p.name + ' (ID: ' + p.id + ')</option>'; });
     var licenseGroupOpts = '<option value="">无分组</option>';
     licenseGroups.forEach(function(g) { licenseGroupOpts += '<option value="' + g.id + '"' + (g.id === licenseGroupId ? ' selected' : '') + '>' + g.name + '</option>'; });
     var llmGroupOpts = '<option value="">无分组</option>';
@@ -192,6 +207,7 @@ function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId) {
     
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">设置分组</h3><div class="space-y-3">' +
         '<p class="text-sm text-slate-600">序列号: <code class="font-mono text-blue-600">' + sn + '</code></p>' +
+        '<div><label class="text-sm text-slate-600">产品类型</label><select id="set-product" class="w-full px-3 py-2 border rounded-lg">' + productOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">序列号分组</label><select id="set-license-group" class="w-full px-3 py-2 border rounded-lg">' + licenseGroupOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">LLM分组</label><select id="set-llm-group" class="w-full px-3 py-2 border rounded-lg">' + llmGroupOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">搜索分组</label><select id="set-search-group" class="w-full px-3 py-2 border rounded-lg">' + searchGroupOpts + '</select></div>' +
@@ -202,6 +218,7 @@ function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId) {
 function doSetLicenseGroups(sn) {
     var data = {
         sn: sn,
+        product_id: parseInt(document.getElementById('set-product').value) || 0,
         license_group_id: document.getElementById('set-license-group').value,
         llm_group_id: document.getElementById('set-llm-group').value,
         search_group_id: document.getElementById('set-search-group').value
@@ -211,16 +228,18 @@ function doSetLicenseGroups(sn) {
 }
 
 function deleteUnusedByGroup() {
+    var productFilter = document.getElementById('product-filter').value;
     var licenseGroupFilter = document.getElementById('license-group-filter').value;
     var llmGroupFilter = document.getElementById('llm-group-filter').value;
     var searchGroupFilter = document.getElementById('search-group-filter').value;
     
-    if (!licenseGroupFilter && !llmGroupFilter && !searchGroupFilter) {
-        alert('请先选择至少一个分组过滤条件');
+    if (!productFilter && !licenseGroupFilter && !llmGroupFilter && !searchGroupFilter) {
+        alert('请先选择至少一个过滤条件');
         return;
     }
     
     var filterDesc = [];
+    if (productFilter) filterDesc.push('产品类型: ' + (productFilter === '0' ? '不分类' : getProductTypeName(parseInt(productFilter))));
     if (licenseGroupFilter) filterDesc.push('序列号分组: ' + (licenseGroupFilter === 'none' ? '默认(无组)' : getLicenseGroupName(licenseGroupFilter)));
     if (llmGroupFilter) filterDesc.push('LLM分组: ' + (llmGroupFilter === 'none' ? '默认(无组)' : getLLMGroupName(llmGroupFilter)));
     if (searchGroupFilter) filterDesc.push('搜索分组: ' + (searchGroupFilter === 'none' ? '默认(无组)' : getSearchGroupName(searchGroupFilter)));
@@ -228,6 +247,7 @@ function deleteUnusedByGroup() {
     if (!confirm('确定要删除以下条件的所有未使用序列号吗？\\n\\n' + filterDesc.join('\\n') + '\\n\\n⚠️ 此操作不可恢复！')) return;
     
     var data = {};
+    if (productFilter) data.product_id = productFilter;
     if (licenseGroupFilter) data.license_group_id = licenseGroupFilter;
     if (llmGroupFilter) data.llm_group_id = llmGroupFilter;
     if (searchGroupFilter) data.search_group_id = searchGroupFilter;

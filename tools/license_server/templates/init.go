@@ -8,16 +8,19 @@ document.addEventListener('DOMContentLoaded', function() {
     Promise.all([
         fetch('/api/llm-groups').then(function(r) { return r.json(); }),
         fetch('/api/search-groups').then(function(r) { return r.json(); }),
-        fetch('/api/license-groups').then(function(r) { return r.json(); })
+        fetch('/api/license-groups').then(function(r) { return r.json(); }),
+        fetch('/api/product-types').then(function(r) { return r.json(); })
     ]).then(function(results) {
         llmGroups = results[0] || [];
         searchGroups = results[1] || [];
         licenseGroups = results[2] || [];
+        productTypes = results[3] || [];
         
         // Load all data
         loadLLMGroups();
         loadSearchGroups();
         loadLicenseGroups();
+        loadProductTypes();
         loadLicenses();
         loadLLMConfigs();
         loadSearchConfigs();

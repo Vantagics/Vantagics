@@ -68,9 +68,10 @@ func GetCurrentLocation() LocationData {
 	return currentLocation
 }
 
-// getIPBasedLocation fetches location based on IP address as fallback
+// GetIPBasedLocation fetches location based on IP address as fallback
 // Uses ip-api.com which is free and doesn't require API key
-func getIPBasedLocation() (*LocationData, error) {
+// Exported for use by other packages (e.g., auto-detection on startup)
+func GetIPBasedLocation() (*LocationData, error) {
 	locationMutex.RLock()
 	// Check cache (valid for 1 hour)
 	if ipLocationCache != nil && time.Since(ipCacheTime) < time.Hour {
@@ -239,7 +240,7 @@ func (t *LocationTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 	} else {
 		// Try IP-based location as fallback
 		t.log("[LOCATION-TOOL] Device location unavailable, trying IP-based location...")
-		if ipLoc, err := getIPBasedLocation(); err == nil && ipLoc != nil {
+		if ipLoc, err := GetIPBasedLocation(); err == nil && ipLoc != nil {
 			output.Available = true
 			output.Source = "ip"
 			output.Latitude = ipLoc.Latitude
