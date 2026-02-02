@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { SelectSaveFile, ExportToCSV, ExportToJSON, ExportToSQL, ExportToMySQL, GetDataSourceTables, UpdateMySQLExportConfig, TestMySQLConnection, GetMySQLDatabases } from '../../wailsjs/go/main/App';
+import { SelectSaveFile, ExportToCSV, ExportToJSON, ExportToSQL, ExportToExcel, ExportToMySQL, GetDataSourceTables, UpdateMySQLExportConfig, TestMySQLConnection, GetMySQLDatabases } from '../../wailsjs/go/main/App';
 import { main, agent } from '../../wailsjs/go/models';
 import { useToast } from '../contexts/ToastContext';
 
@@ -15,7 +15,7 @@ interface ExportDataSourceModalProps {
 const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, sourceId, sourceName, onClose, dataSource }) => {
     const { t } = useLanguage();
     const { showToast } = useToast();
-    const [exportType, setExportType] = useState<'csv' | 'json' | 'sql' | 'mysql'>('csv');
+    const [exportType, setExportType] = useState<'csv' | 'json' | 'sql' | 'excel' | 'mysql'>('csv');
     const [tables, setTables] = useState<string[]>([]);
     const [selectedTables, setSelectedTables] = useState<string[]>([]);
     const [isExporting, setIsExporting] = useState(false);
@@ -181,6 +181,18 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                     setIsExporting(false); // Cancelled
                     return;
                 }
+            } else if (exportType === 'excel') {
+                const fileName = `${sourceName}.xlsx`;
+                const path = await SelectSaveFile(fileName, "*.xlsx");
+                if (path) {
+                    destination = path;
+                    await ExportToExcel(sourceId, selectedTables, path);
+                    showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                    onClose();
+                } else {
+                    setIsExporting(false); // Cancelled
+                    return;
+                }
             } else if (exportType === 'mysql') {
                 if (!isConnected) {
                     showToast('warning', t('please_connect_mysql'), t('connection'));
@@ -313,6 +325,14 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                     checked={exportType === 'sql'}
                                     onChange={() => setExportType('sql')}
                                 /> SQL
+                            </label>
+                            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="exportType"
+                                    checked={exportType === 'excel'}
+                                    onChange={() => setExportType('excel')}
+                                /> Excel
                             </label>
                             <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                                 <input

@@ -150,6 +150,10 @@ export function ExportToCSV(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToCSV'](arg1, arg2, arg3);
 }
 
+export function ExportToExcel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportToExcel'](arg1, arg2, arg3);
+}
+
 export function ExportToJSON(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportToJSON'](arg1, arg2, arg3);
 }

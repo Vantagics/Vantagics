@@ -9,6 +9,7 @@ const EmailRecordsHTML = `
             <div class="flex items-center gap-2">
                 <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64" onkeypress="if(event.key==='Enter')searchEmails()">
                 <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
+                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工申请</button>
             </div>
         </div>
         <div id="email-records-list" class="space-y-3"></div>
@@ -182,5 +183,47 @@ function doEditEmailRecord(id) {
     fetch('/api/email-records/update', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id, email: email, sn: sn})})
         .then(function(resp) { return resp.json(); })
         .then(function(result) { hideModal(); if (result.success) { loadEmailRecords(emailCurrentPage, emailSearchTerm); } else { alert('修改失败: ' + result.error); } });
+}
+
+function showManualRequest() {
+    var productOpts = '<option value="0">VantageData (ID: 0)</option>';
+    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
+    
+    showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">手工申请序列号</h3><div class="space-y-3">' +
+        '<p class="text-xs text-slate-500">此功能模拟用户通过邮箱申请序列号的流程，会检查白名单、黑名单、条件邮箱等规则。</p>' +
+        '<div><label class="text-sm text-slate-600">邮箱地址 *</label><input type="email" id="manual-email" placeholder="user@example.com" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div><label class="text-sm text-slate-600">产品类型</label><select id="manual-product" class="w-full px-3 py-2 border rounded-lg">' + productOpts + '</select></div>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doManualRequest()" class="flex-1 py-2 bg-green-600 text-white rounded-lg">申请</button></div>' +
+        '</div></div>');
+}
+
+function doManualRequest() {
+    var email = document.getElementById('manual-email').value.trim().toLowerCase();
+    var productId = parseInt(document.getElementById('manual-product').value) || 0;
+    
+    if (!email || !email.includes('@') || !email.includes('.')) {
+        alert('请输入有效的邮箱地址');
+        return;
+    }
+    
+    fetch('/api/email-records/manual-request', {
+        method: 'POST', 
+        headers: {'Content-Type': 'application/json'}, 
+        body: JSON.stringify({email: email, product_id: productId})
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(result) { 
+        hideModal(); 
+        if (result.success) { 
+            alert('申请成功！\\n\\n序列号: ' + result.sn + '\\n' + result.message);
+            loadEmailRecords(1, email); 
+        } else { 
+            alert('申请失败: ' + result.message); 
+        } 
+    })
+    .catch(function(err) {
+        hideModal();
+        alert('请求失败: ' + err);
+    });
 }
 `

@@ -79,6 +79,8 @@ export function ExportTableToExcel(arg1:main.TableData,arg2:string):Promise<void
 
 export function ExportToCSV(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
 
+export function ExportToExcel(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
+
 export function ExportToJSON(arg1:string,arg2:Array<string>,arg3:string):Promise<void>;
 
 export function ExportToMySQL(arg1:string,arg2:Array<string>,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;

@@ -789,6 +789,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/settings/request-limits", authMiddleware(handleRequestLimits))
 	mux.HandleFunc("/api/email-records", authMiddleware(handleEmailRecords))
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
+	mux.HandleFunc("/api/email-records/manual-request", authMiddleware(handleManualRequest))
 	mux.HandleFunc("/api/email-filter", authMiddleware(handleEmailFilter))
 	mux.HandleFunc("/api/whitelist", authMiddleware(handleWhitelist))
 	mux.HandleFunc("/api/blacklist", authMiddleware(handleBlacklist))
@@ -2393,6 +2394,186 @@ func handleUpdateEmailRecord(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
+// handleManualRequest handles manual SN request from admin panel
+func handleManualRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		Email     string `json:"email"`
+		ProductID int    `json:"product_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效的请求格式"})
+		return
+	}
+	
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	productID := req.ProductID
+	
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "请输入有效的邮箱地址"})
+		return
+	}
+	
+	// Check email whitelist/blacklist and get group bindings (same as normal request)
+	allowed, _, reason, llmGroupID, searchGroupID := isEmailAllowedWithGroups(email)
+	if !allowed {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": reason})
+		return
+	}
+	
+	// Check if email already has SN for this product
+	var existingSN string
+	if err := db.QueryRow(`SELECT e.sn FROM email_records e 
+		JOIN licenses l ON e.sn = l.sn 
+		WHERE e.email=? AND e.product_id=?`, email, productID).Scan(&existingSN); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该邮箱已申请过此产品的序列号: " + existingSN})
+		return
+	}
+	
+	// Check if there's an orphaned record (SN was deleted) for this email+product
+	var orphanedSN string
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=?`, email, productID).Scan(&orphanedSN); err == nil {
+		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=?", email, productID)
+		log.Printf("[MANUAL-REQUEST] Old SN %s for email %s product %d was deleted, generating new one", orphanedSN, email, productID)
+	}
+	
+	// Find an available SN (same logic as handleRequestSN but without rate limiting)
+	now := time.Now()
+	var sn string
+	var validDays int
+	var query string
+	var args []interface{}
+	var hasExpiresAt bool
+	
+	productCondition := "(product_id IS NULL OR product_id = 0)"
+	if productID > 0 {
+		productCondition = "product_id = ?"
+	}
+	
+	// Support both new SNs (expires_at IS NULL) and old unused SNs (expires_at > now)
+	baseCondition := "is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
+	
+	if llmGroupID != "" && searchGroupID != "" {
+		if productID > 0 {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, llmGroupID, searchGroupID, now}
+		} else {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{llmGroupID, searchGroupID, now}
+		}
+	} else if llmGroupID != "" {
+		if productID > 0 {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND llm_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, llmGroupID, now}
+		} else {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND llm_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{llmGroupID, now}
+		}
+	} else if searchGroupID != "" {
+		if productID > 0 {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND search_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, searchGroupID, now}
+		} else {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + ` AND search_group_id = ?
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{searchGroupID, now}
+		}
+	} else {
+		if productID > 0 {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + `
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, now}
+		} else {
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+				WHERE ` + productCondition + `
+				AND ` + baseCondition + `
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{now}
+		}
+	}
+	
+	var nullableExpiresAt sql.NullTime
+	err := db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
+	if err != nil {
+		log.Printf("[MANUAL-REQUEST] No available SN found for email %s (Product: %d, LLM Group: %s, Search Group: %s): %v", email, productID, llmGroupID, searchGroupID, err)
+		var msg string
+		if productID > 0 || llmGroupID != "" || searchGroupID != "" {
+			msg = fmt.Sprintf("暂无匹配的可用序列号（产品ID: %d, LLM分组: %s, 搜索分组: %s）", productID, llmGroupID, searchGroupID)
+		} else {
+			msg = "暂无可用序列号"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": msg})
+		return
+	}
+	
+	// Determine expiry date:
+	// - If expires_at is NULL (new SN), calculate from now + valid_days
+	// - If expires_at is set (old SN), use existing expiry date
+	var expiresAt time.Time
+	if nullableExpiresAt.Valid {
+		expiresAt = nullableExpiresAt.Time
+		hasExpiresAt = true
+	} else {
+		expiresAt = now.AddDate(0, 0, validDays)
+		hasExpiresAt = false
+	}
+	
+	// Bind the SN to the email
+	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, "manual", now, productID)
+	
+	// Update the license: set expires_at (only if not already set) and description
+	if hasExpiresAt {
+		// Old SN with existing expiry, just update description
+		db.Exec("UPDATE licenses SET description = ? WHERE sn = ?", fmt.Sprintf("手工申请: %s", email), sn)
+	} else {
+		// New SN, set expiry date
+		db.Exec("UPDATE licenses SET expires_at = ?, description = ? WHERE sn = ?", expiresAt, fmt.Sprintf("手工申请: %s", email), sn)
+	}
+	
+	// Calculate days left
+	daysLeft := int(expiresAt.Sub(now).Hours() / 24)
+	if daysLeft < 0 {
+		daysLeft = 0
+	}
+	
+	log.Printf("[MANUAL-REQUEST] SN allocated for email %s: %s (Product: %d, LLM Group: %s, Search Group: %s, HasExpiry: %v)", email, sn, productID, llmGroupID, searchGroupID, hasExpiresAt)
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true, 
+		"sn": sn, 
+		"message": fmt.Sprintf("有效期 %d 天", daysLeft),
+	})
+}
+
 // ============ Email Filter Handlers ============
 
 func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
@@ -2973,83 +3154,87 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	// 1. Has matching product_id
 	// 2. Has matching LLM group (or no group if llmGroupID is empty)
 	// 3. Has matching Search group (or no group if searchGroupID is empty)
-	// 4. Is not already bound to an email (expires_at IS NULL means not activated yet)
+	// 4. Is not already bound to an email
 	// 5. Is active
 	// 6. Has not been used (usage_count = 0)
+	// 7. Either not activated (expires_at IS NULL) or not expired (expires_at > now)
 	now := time.Now()
 	var sn string
 	var validDays int
+	var hasExpiresAt bool
 	var query string
 	var args []interface{}
 	
-	// Base condition: product_id must match, expires_at IS NULL (not activated)
+	// Base condition: product_id must match
 	productCondition := "(product_id IS NULL OR product_id = 0)"
 	if productID > 0 {
 		productCondition = "product_id = ?"
 	}
 	
-	baseCondition := "is_active = 1 AND expires_at IS NULL AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
+	// Support both new SNs (expires_at IS NULL) and old unused SNs (expires_at > now)
+	baseCondition := "is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
 	
 	if llmGroupID != "" && searchGroupID != "" {
 		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID, searchGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, llmGroupID, searchGroupID, now}
 		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID, searchGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{llmGroupID, searchGroupID, now}
 		}
 	} else if llmGroupID != "" {
 		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND llm_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, llmGroupID, now}
 		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND llm_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{llmGroupID, now}
 		}
 	} else if searchGroupID != "" {
 		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND search_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{productID, searchGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, searchGroupID, now}
 		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + ` AND search_group_id = ?
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{searchGroupID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{searchGroupID, now}
 		}
 	} else {
 		// No group specified, find any available SN with matching product_id
 		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + `
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{productID}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{productID, now}
 		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365) FROM licenses 
+			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + `
 				AND ` + baseCondition + `
-				ORDER BY created_at ASC LIMIT 1`
-			args = []interface{}{}
+				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+			args = []interface{}{now}
 		}
 	}
 	
-	err := db.QueryRow(query, args...).Scan(&sn, &validDays)
+	var nullableExpiresAt sql.NullTime
+	err := db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
 	if err != nil {
 		log.Printf("[REQUEST-SN] No available SN found for email %s (Product: %d, LLM Group: %s, Search Group: %s): %v", email, productID, llmGroupID, searchGroupID, err)
 		var msg string
@@ -3063,19 +3248,37 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Calculate expiry date based on valid_days (activation time)
-	expiresAt := now.AddDate(0, 0, validDays)
+	// Determine expiry date:
+	// - If expires_at is NULL (new SN), calculate from now + valid_days
+	// - If expires_at is set (old SN), use existing expiry date
+	var expiresAt time.Time
+	if nullableExpiresAt.Valid {
+		expiresAt = nullableExpiresAt.Time
+		hasExpiresAt = true
+	} else {
+		expiresAt = now.AddDate(0, 0, validDays)
+		hasExpiresAt = false
+	}
 	
-	// Bind the SN to the email and set expiry date
+	// Bind the SN to the email
 	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, clientIP, now, productID)
 	
-	// Update the license: set expires_at and description
-	db.Exec("UPDATE licenses SET expires_at = ?, description = ? WHERE sn = ?", expiresAt, fmt.Sprintf("Email申请: %s", email), sn)
+	// Update the license: set expires_at (only if not already set) and description
+	if hasExpiresAt {
+		// Old SN with existing expiry, just update description
+		db.Exec("UPDATE licenses SET description = ? WHERE sn = ?", fmt.Sprintf("Email申请: %s", email), sn)
+	} else {
+		// New SN, set expiry date
+		db.Exec("UPDATE licenses SET expires_at = ?, description = ? WHERE sn = ?", expiresAt, fmt.Sprintf("Email申请: %s", email), sn)
+	}
 	
-	log.Printf("[REQUEST-SN] SN allocated for email %s from IP %s: %s (Product: %d, LLM Group: %s, Search Group: %s)", email, clientIP, sn, productID, llmGroupID, searchGroupID)
+	log.Printf("[REQUEST-SN] SN allocated for email %s from IP %s: %s (Product: %d, LLM Group: %s, Search Group: %s, HasExpiry: %v)", email, clientIP, sn, productID, llmGroupID, searchGroupID, hasExpiresAt)
 	
 	// Calculate days left
-	daysLeft := validDays
+	daysLeft := int(expiresAt.Sub(now).Hours() / 24)
+	if daysLeft < 0 {
+		daysLeft = 0
+	}
 	
 	// Send email with SN (async, don't block response)
 	go func() {

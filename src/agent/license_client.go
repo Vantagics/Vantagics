@@ -402,7 +402,11 @@ type RequestSNResponse struct {
 
 // RequestSN requests a serial number from the license server
 func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, error) {
-	reqBody, _ := json.Marshal(map[string]string{"email": email})
+	// VantageData product_id is 0
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"email":      email,
+		"product_id": 0,
+	})
 	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(serverURL+"/request-sn", "application/json", bytes.NewBuffer(reqBody))
