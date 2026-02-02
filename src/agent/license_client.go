@@ -36,14 +36,17 @@ const (
 
 // ActivationData contains the decrypted configuration from server
 type ActivationData struct {
-	LLMType       string `json:"llm_type"`
-	LLMBaseURL    string `json:"llm_base_url"`
-	LLMAPIKey     string `json:"llm_api_key"`
-	LLMModel      string `json:"llm_model"`
-	SearchType    string `json:"search_type"`
-	SearchAPIKey  string `json:"search_api_key"`
-	ExpiresAt     string `json:"expires_at"`
-	DailyAnalysis int    `json:"daily_analysis"` // Daily analysis limit, 0 = unlimited
+	LLMType       string                 `json:"llm_type"`
+	LLMBaseURL    string                 `json:"llm_base_url"`
+	LLMAPIKey     string                 `json:"llm_api_key"`
+	LLMModel      string                 `json:"llm_model"`
+	SearchType    string                 `json:"search_type"`
+	SearchAPIKey  string                 `json:"search_api_key"`
+	ExpiresAt     string                 `json:"expires_at"`
+	DailyAnalysis int                    `json:"daily_analysis"`  // Daily analysis limit, 0 = unlimited
+	ProductID     int                    `json:"product_id"`      // Product ID
+	ProductName   string                 `json:"product_name"`    // Product name
+	ExtraInfo     map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
 }
 
 // ActivationResponse from server

@@ -7133,6 +7133,19 @@ func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
 		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save activation data: %v", err))
 	}
 
+	// Save extra info to config file
+	if result.Data != nil && result.Data.ExtraInfo != nil && len(result.Data.ExtraInfo) > 0 {
+		cfg, err := a.GetConfig()
+		if err == nil {
+			cfg.LicenseExtraInfo = result.Data.ExtraInfo
+			if saveErr := a.SaveConfig(cfg); saveErr != nil {
+				a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save extra info to config: %v", saveErr))
+			} else {
+				a.Log(fmt.Sprintf("[LICENSE] Saved %d extra info items to config", len(result.Data.ExtraInfo)))
+			}
+		}
+	}
+
 	// Reinitialize services with the new license configuration
 	cfg, _ := a.GetConfig()
 	a.reinitializeServices(cfg)
@@ -7237,6 +7250,17 @@ func (a *App) GetActivatedLLMConfig() *agent.ActivationData {
 func (a *App) DeactivateLicense() {
 	if a.licenseClient != nil {
 		a.licenseClient.ClearSavedData()
+	}
+	
+	// Clear extra info from config
+	cfg, err := a.GetConfig()
+	if err == nil && cfg.LicenseExtraInfo != nil {
+		cfg.LicenseExtraInfo = nil
+		if saveErr := a.SaveConfig(cfg); saveErr != nil {
+			a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear extra info from config: %v", saveErr))
+		} else {
+			a.Log("[LICENSE] Cleared extra info from config")
+		}
 	}
 }
 

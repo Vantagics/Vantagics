@@ -2103,16 +2103,19 @@ func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 
 // getProductExtraInfo retrieves extra info for a product as a map
 func getProductExtraInfo(productID int) map[string]interface{} {
-	result := make(map[string]interface{})
 	rows, err := db.Query("SELECT key, value, value_type FROM product_extra_info WHERE product_id = ?", productID)
 	if err != nil {
-		return result
+		return nil
 	}
 	defer rows.Close()
 	
+	var result map[string]interface{}
 	for rows.Next() {
 		var key, value, valueType string
 		rows.Scan(&key, &value, &valueType)
+		if result == nil {
+			result = make(map[string]interface{})
+		}
 		if valueType == "number" {
 			if f, err := strconv.ParseFloat(value, 64); err == nil {
 				// Check if it's an integer

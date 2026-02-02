@@ -9,6 +9,9 @@ export namespace agent {
 	    search_api_key: string;
 	    expires_at: string;
 	    daily_analysis: number;
+	    product_id: number;
+	    product_name: string;
+	    extra_info?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ActivationData(source);
@@ -24,6 +27,9 @@ export namespace agent {
 	        this.search_api_key = source["search_api_key"];
 	        this.expires_at = source["expires_at"];
 	        this.daily_analysis = source["daily_analysis"];
+	        this.product_id = source["product_id"];
+	        this.product_name = source["product_name"];
+	        this.extra_info = source["extra_info"];
 	    }
 	}
 	export class ConfirmedFinding {
@@ -990,6 +996,7 @@ export namespace config {
 	    shopifyClientSecret?: string;
 	    licenseSN?: string;
 	    licenseServerURL?: string;
+	    licenseExtraInfo?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1031,6 +1038,7 @@ export namespace config {
 	        this.shopifyClientSecret = source["shopifyClientSecret"];
 	        this.licenseSN = source["licenseSN"];
 	        this.licenseServerURL = source["licenseServerURL"];
+	        this.licenseExtraInfo = source["licenseExtraInfo"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
