@@ -1653,6 +1653,235 @@ func (s *DataSourceService) exportSingleTableToCSV(db *sql.DB, tableName string,
 	return nil
 }
 
+// ExportToExcel exports one or more tables to an Excel file (.xlsx)
+func (s *DataSourceService) ExportToExcel(id string, tableNames []string, outputPath string) error {
+	if len(tableNames) == 0 {
+		return fmt.Errorf("no tables specified for export")
+	}
+
+	// 1. Get Data Source
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+
+	if target == nil {
+		return fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+	
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("data source storage not found")
+	}
+	defer db.Close()
+
+	// 2. Create Excel file with excelize
+	f := excelize.NewFile()
+	defer f.Close()
+
+	// Delete default Sheet1
+	f.DeleteSheet("Sheet1")
+
+	// Define styles
+	headerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Bold:   true,
+			Size:   11,
+			Color:  "FFFFFF",
+			Family: "Microsoft YaHei",
+		},
+		Fill: excelize.Fill{
+			Type:    "pattern",
+			Color:   []string{"4472C4"},
+			Pattern: 1,
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "FFFFFF", Style: 1},
+			{Type: "top", Color: "FFFFFF", Style: 1},
+			{Type: "bottom", Color: "FFFFFF", Style: 1},
+			{Type: "right", Color: "FFFFFF", Style: 1},
+		},
+	})
+
+	dataStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Size:   10,
+			Family: "Microsoft YaHei",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "left",
+			Vertical:   "center",
+			WrapText:   true,
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "D9D9D9", Style: 1},
+			{Type: "top", Color: "D9D9D9", Style: 1},
+			{Type: "bottom", Color: "D9D9D9", Style: 1},
+			{Type: "right", Color: "D9D9D9", Style: 1},
+		},
+	})
+
+	// 3. Export each table to a sheet
+	for sheetIdx, tableName := range tableNames {
+		// Query table data
+		rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+		if err != nil {
+			return fmt.Errorf("failed to query table %s: %v", tableName, err)
+		}
+
+		// Get column names
+		columns, err := rows.Columns()
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to get columns for table %s: %v", tableName, err)
+		}
+
+		// Create sheet (truncate name if too long for Excel)
+		sheetName := tableName
+		if len(sheetName) > 31 {
+			sheetName = sheetName[:31]
+		}
+		
+		index, err := f.NewSheet(sheetName)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to create sheet %s: %v", sheetName, err)
+		}
+
+		if sheetIdx == 0 {
+			f.SetActiveSheet(index)
+		}
+
+		// Write headers
+		for i, col := range columns {
+			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+			f.SetCellValue(sheetName, cell, col)
+			f.SetCellStyle(sheetName, cell, cell, headerStyle)
+
+			// Set column width
+			width := float64(len(col)) * 1.5
+			if width < 10 {
+				width = 10
+			}
+			if width > 50 {
+				width = 50
+			}
+			colName, _ := excelize.ColumnNumberToName(i + 1)
+			f.SetColWidth(sheetName, colName, colName, width)
+		}
+		f.SetRowHeight(sheetName, 1, 25)
+
+		// Write data rows
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		rowNum := 2
+		for rows.Next() {
+			if err := rows.Scan(valuePtrs...); err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to scan row: %v", err)
+			}
+
+			for i, v := range values {
+				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum)
+				
+				if v != nil {
+					switch val := v.(type) {
+					case []byte:
+						f.SetCellValue(sheetName, cell, string(val))
+					case time.Time:
+						f.SetCellValue(sheetName, cell, val.Format("2006-01-02 15:04:05"))
+					default:
+						f.SetCellValue(sheetName, cell, val)
+					}
+				}
+				f.SetCellStyle(sheetName, cell, cell, dataStyle)
+			}
+			f.SetRowHeight(sheetName, rowNum, 20)
+			rowNum++
+		}
+		rows.Close()
+
+		// Add auto-filter
+		if len(columns) > 0 && rowNum > 1 {
+			lastCol, _ := excelize.ColumnNumberToName(len(columns))
+			filterRange := fmt.Sprintf("A1:%s%d", lastCol, rowNum-1)
+			f.AutoFilter(sheetName, filterRange, []excelize.AutoFilterOptions{})
+		}
+
+		// Freeze header row
+		f.SetPanes(sheetName, &excelize.Panes{
+			Freeze:      true,
+			Split:       false,
+			XSplit:      0,
+			YSplit:      1,
+			TopLeftCell: "A2",
+			ActivePane:  "bottomLeft",
+		})
+	}
+
+	// 4. Add metadata
+	f.SetDocProps(&excelize.DocProperties{
+		Category:       "数据分析",
+		ContentStatus:  "Final",
+		Created:        time.Now().Format(time.RFC3339),
+		Creator:        "VantageData",
+		Description:    fmt.Sprintf("数据源: %s", target.Name),
+		Identifier:     "xlsx",
+		Keywords:       "数据分析,报表,Excel",
+		LastModifiedBy: "VantageData",
+		Revision:       "1",
+		Subject:        "数据源导出",
+		Title:          target.Name,
+		Language:       "zh-CN",
+		Version:        "1.0",
+	})
+
+	// 5. Save to file
+	// Ensure output path has .xlsx extension
+	if !strings.HasSuffix(strings.ToLower(outputPath), ".xlsx") {
+		outputPath = outputPath + ".xlsx"
+	}
+
+	if err := f.SaveAs(outputPath); err != nil {
+		return fmt.Errorf("failed to save Excel file: %v", err)
+	}
+
+	return nil
+}
+
 // ExportToSQL exports one or more tables to a SQL file (INSERT statements)
 func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPath string) error {
 	if len(tableNames) == 0 {

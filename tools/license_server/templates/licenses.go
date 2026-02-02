@@ -23,7 +23,7 @@ const LicensesHTML = `
                     <option value="">全部搜索组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <input type="text" id="license-search" placeholder="搜索序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48">
+                <input type="text" id="license-search" placeholder="搜索序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchLicenses()">
                 <button onclick="searchLicenses()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
                 <button onclick="showBatchCreate()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">批量生成</button>
                 <button onclick="deleteUnusedByGroup()" class="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm">🗑️ 删除未使用</button>
@@ -70,7 +70,8 @@ function loadLicenses(page, search) {
         
         var html = '';
         data.licenses.forEach(function(l) {
-            var isExpired = new Date(l.expires_at) < new Date();
+            var isActivated = l.expires_at && new Date(l.expires_at).getFullYear() > 1970;
+            var isExpired = isActivated && new Date(l.expires_at) < new Date();
             var statusClass = !l.is_active ? 'opacity-50' : (isExpired ? 'bg-orange-50' : '');
             var llmGroupName = getLLMGroupName(l.llm_group_id);
             var searchGroupName = getSearchGroupName(l.search_group_id);
@@ -82,14 +83,19 @@ function loadLicenses(page, search) {
             html += '<div class="flex items-center gap-2 flex-wrap">';
             html += '<code class="font-mono font-bold text-blue-600">' + l.sn + '</code>';
             if (!l.is_active) html += '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">已禁用</span>';
-            if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
+            if (!isActivated) html += '<span class="px-2 py-0.5 bg-cyan-100 text-cyan-700 text-xs rounded">未激活</span>';
+            else if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
             if (productName) html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + productName + '</span>';
             if (licenseGroupName) html += '<span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">' + licenseGroupName + '</span>';
             if (llmGroupName) html += '<span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">' + llmGroupName + '</span>';
             if (searchGroupName) html += '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">' + searchGroupName + '</span>';
             html += '</div>';
             html += '<p class="text-xs text-slate-500 mt-1">' + (l.description || '无描述') + '</p>';
-            html += '<p class="text-xs text-slate-400">过期: ' + new Date(l.expires_at).toLocaleDateString() + ' | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
+            if (isActivated) {
+                html += '<p class="text-xs text-slate-400">过期: ' + new Date(l.expires_at).toLocaleDateString() + ' | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
+            } else {
+                html += '<p class="text-xs text-slate-400">有效期: ' + (l.valid_days || 365) + '天 | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
+            }
             html += '</div>';
             html += '<div class="flex gap-2">';
             html += '<button onclick="setLicenseGroups(\'' + l.sn + '\', \'' + (l.license_group_id || '') + '\', \'' + (l.llm_group_id || '') + '\', \'' + (l.search_group_id || '') + '\', ' + (l.product_id || 0) + ')" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">分组</button>';

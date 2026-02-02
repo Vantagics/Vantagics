@@ -5550,6 +5550,20 @@ func (a *App) ExportToSQL(id string, tableNames []string, outputPath string) err
 
 }
 
+// ExportToExcel exports one or more data source tables to Excel (.xlsx)
+
+func (a *App) ExportToExcel(id string, tableNames []string, outputPath string) error {
+
+	if a.dataSourceService == nil {
+
+		return fmt.Errorf("data source service not initialized")
+
+	}
+
+	return a.dataSourceService.ExportToExcel(id, tableNames, outputPath)
+
+}
+
 // ExportToMySQL exports one or more data source tables to MySQL
 
 func (a *App) ExportToMySQL(id string, tableNames []string, host, port, user, password, database string) error {
