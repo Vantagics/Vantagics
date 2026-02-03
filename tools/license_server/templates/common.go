@@ -74,9 +74,17 @@ function getLicenseGroupName(id) {
     return g ? g.name : id;
 }
 
-// Modal click outside to close
-document.getElementById('modal').addEventListener('click', function(e) { 
-    if (e.target.id === 'modal') hideModal(); 
+// Modal click outside to close - use mousedown to prevent closing when selecting text
+var modalMouseDownTarget = null;
+document.getElementById('modal').addEventListener('mousedown', function(e) { 
+    modalMouseDownTarget = e.target;
+});
+document.getElementById('modal').addEventListener('mouseup', function(e) { 
+    // Only close if both mousedown and mouseup happened on the modal background
+    if (e.target.id === 'modal' && modalMouseDownTarget && modalMouseDownTarget.id === 'modal') {
+        hideModal();
+    }
+    modalMouseDownTarget = null;
 });
 
 // ESC key to close modal

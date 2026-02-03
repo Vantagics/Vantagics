@@ -83,6 +83,7 @@ type LicenseGroup struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	TrustLevel  string `json:"trust_level"`  // "high" (正式) or "low" (试用)
 }
 
 // ProductType holds product type information for license categorization
@@ -171,6 +172,8 @@ type ActivationData struct {
 	DailyAnalysis   int                    `json:"daily_analysis"`   // Daily analysis limit
 	ProductID       int                    `json:"product_id"`       // Product ID
 	ProductName     string                 `json:"product_name"`     // Product name
+	TrustLevel      string                 `json:"trust_level"`      // "high" or "low"
+	RefreshInterval int                    `json:"refresh_interval"` // SN refresh interval in days (1=daily, 30=monthly)
 	ExtraInfo       map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
 }
 
@@ -267,7 +270,8 @@ func initDB() {
 		CREATE TABLE IF NOT EXISTS license_groups (
 			id TEXT PRIMARY KEY,
 			name TEXT,
-			description TEXT
+			description TEXT,
+			trust_level TEXT DEFAULT 'low'
 		);
 		CREATE TABLE IF NOT EXISTS product_types (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -338,6 +342,8 @@ func initDB() {
 	db.Exec("ALTER TABLE licenses ADD COLUMN valid_days INTEGER DEFAULT 365")
 	db.Exec("ALTER TABLE llm_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE search_configs ADD COLUMN group_id TEXT DEFAULT ''")
+	// Migration: Add trust_level to license_groups
+	db.Exec("ALTER TABLE license_groups ADD COLUMN trust_level TEXT DEFAULT 'low'")
 	// Migration: Add product_id to email_records if not exists
 	db.Exec("ALTER TABLE email_records ADD COLUMN product_id INTEGER DEFAULT 0")
 	// Migration: Create email_conditions table if not exists (for existing databases)
@@ -1978,12 +1984,12 @@ func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description FROM license_groups ORDER BY name")
+		rows, _ := db.Query("SELECT id, name, description, COALESCE(trust_level, 'low') FROM license_groups ORDER BY name")
 		defer rows.Close()
 		var groups []LicenseGroup
 		for rows.Next() {
 			var g LicenseGroup
-			rows.Scan(&g.ID, &g.Name, &g.Description)
+			rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel)
 			groups = append(groups, g)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -1996,7 +2002,10 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		if g.ID == "" {
 			g.ID = generateShortID()
 		}
-		db.Exec("INSERT OR REPLACE INTO license_groups (id, name, description) VALUES (?, ?, ?)", g.ID, g.Name, g.Description)
+		if g.TrustLevel == "" {
+			g.TrustLevel = "low"
+		}
+		db.Exec("INSERT OR REPLACE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, ?)", g.ID, g.Name, g.Description, g.TrustLevel)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": g.ID})
 		return
@@ -3201,17 +3210,36 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	}
 	rows.Close()
 	
+	// Get trust level from license group
+	trustLevel := "low"
+	refreshInterval := 1 // Default: daily refresh for low trust
+	if license.LicenseGroupID != "" {
+		var groupTrustLevel string
+		err := db.QueryRow("SELECT COALESCE(trust_level, 'low') FROM license_groups WHERE id=?", license.LicenseGroupID).Scan(&groupTrustLevel)
+		if err == nil && groupTrustLevel != "" {
+			trustLevel = groupTrustLevel
+		}
+	}
+	// Set refresh interval based on trust level
+	if trustLevel == "high" {
+		refreshInterval = 30 // Monthly refresh for high trust (正式)
+	} else {
+		refreshInterval = 1 // Daily refresh for low trust (试用)
+	}
+	
 	// Build activation data
 	productName := getProductName(license.ProductID)
 	extraInfo := getProductExtraInfo(license.ProductID)
 	
 	activationData := ActivationData{
-		ExpiresAt:     license.ExpiresAt.Format(time.RFC3339),
-		ActivatedAt:   time.Now().Format(time.RFC3339),
-		DailyAnalysis: license.DailyAnalysis,
-		ProductID:     license.ProductID,
-		ProductName:   productName,
-		ExtraInfo:     extraInfo,
+		ExpiresAt:       license.ExpiresAt.Format(time.RFC3339),
+		ActivatedAt:     time.Now().Format(time.RFC3339),
+		DailyAnalysis:   license.DailyAnalysis,
+		ProductID:       license.ProductID,
+		ProductName:     productName,
+		TrustLevel:      trustLevel,
+		RefreshInterval: refreshInterval,
+		ExtraInfo:       extraInfo,
 	}
 	if bestLLM != nil {
 		activationData.LLMType = bestLLM.Type

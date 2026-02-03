@@ -8,7 +8,12 @@ const LicenseGroupsHTML = `
             <h2 class="text-lg font-bold text-slate-800">序列号分组管理</h2>
             <button onclick="showLicenseGroupForm()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 添加分组</button>
         </div>
-        <p class="text-xs text-slate-500 mb-4">* 序列号分组用于组织和管理序列号，方便批量操作</p>
+        <p class="text-xs text-slate-500 mb-4">* 序列号分组用于组织和管理序列号，可设置可信度级别（高可信=正式版，低可信=试用版）</p>
+        <div class="mb-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+            <strong>可信度说明：</strong>
+            <br>• <span class="font-semibold text-green-600">高可信（正式）</span>：每月刷新一次序列号验证
+            <br>• <span class="font-semibold text-orange-600">低可信（试用）</span>：每天强制刷新序列号验证
+        </div>
         <div id="license-groups-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
     </div>
 </div>
@@ -26,9 +31,12 @@ function loadLicenseGroups() {
         } else {
             var html = '';
             licenseGroups.forEach(function(g, idx) { 
+                var trustBadge = g.trust_level === 'high' ? 
+                    '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">高可信(正式)</span>' :
+                    '<span class="ml-2 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">低可信(试用)</span>';
                 html += '<div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">';
-                html += '<div><span class="font-bold text-sm">' + escapeHtml(g.name) + '</span>';
-                html += '<p class="text-xs text-slate-400">' + escapeHtml(g.description || '无描述') + '</p></div>';
+                html += '<div><span class="font-bold text-sm">' + escapeHtml(g.name) + '</span>' + trustBadge;
+                html += '<p class="text-xs text-slate-400 mt-1">' + escapeHtml(g.description || '无描述') + '</p></div>';
                 html += '<div class="flex gap-1">';
                 html += '<button data-action="edit-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
                 html += '<button data-action="delete-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
@@ -66,13 +74,19 @@ document.getElementById('license-groups-list').addEventListener('click', functio
 });
 
 function showLicenseGroupForm(group) {
-    var g = group || {id: '', name: '', description: ''};
+    var g = group || {id: '', name: '', description: '', trust_level: 'low'};
+    var trustLevel = g.trust_level || 'low';
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">' + (g.id ? '编辑' : '添加') + '序列号分组</h3><div class="space-y-3">' +
         '<input type="hidden" id="license-group-id" value="' + escapeHtml(g.id) + '">' +
         '<div><label class="text-sm text-slate-600">分组名称</label>' +
         '<input type="text" id="license-group-name" value="' + escapeHtml(g.name) + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">描述</label>' +
         '<input type="text" id="license-group-desc" value="' + escapeHtml(g.description || '') + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div><label class="text-sm text-slate-600">可信度级别</label>' +
+        '<select id="license-group-trust" class="w-full px-3 py-2 border rounded-lg">' +
+        '<option value="low"' + (trustLevel === 'low' ? ' selected' : '') + '>低可信（试用）- 每天刷新</option>' +
+        '<option value="high"' + (trustLevel === 'high' ? ' selected' : '') + '>高可信（正式）- 每月刷新</option>' +
+        '</select></div>' +
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
         '<button onclick="saveLicenseGroup()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>' +
         '</div></div>');
@@ -87,7 +101,8 @@ function saveLicenseGroup() {
     var group = {
         id: document.getElementById('license-group-id').value,
         name: document.getElementById('license-group-name').value,
-        description: document.getElementById('license-group-desc').value
+        description: document.getElementById('license-group-desc').value,
+        trust_level: document.getElementById('license-group-trust').value
     };
     if (!group.name) { alert('分组名称不能为空'); return; }
     

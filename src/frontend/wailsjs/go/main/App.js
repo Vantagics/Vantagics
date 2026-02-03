@@ -34,6 +34,10 @@ export function CheckComponentHasData(arg1, arg2) {
   return window['go']['main']['App']['CheckComponentHasData'](arg1, arg2);
 }
 
+export function CheckLicenseActivationFailed() {
+  return window['go']['main']['App']['CheckLicenseActivationFailed']();
+}
+
 export function CheckSessionNameExists(arg1, arg2) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
 }
@@ -272,6 +276,10 @@ export function GetFilesByCategory(arg1) {
 
 export function GetJiraProjects(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetJiraProjects'](arg1, arg2, arg3, arg4);
+}
+
+export function GetLicenseActivationError() {
+  return window['go']['main']['App']['GetLicenseActivationError']();
 }
 
 export function GetLogStats() {

@@ -10,8 +10,8 @@ import ContextMenu from './components/ContextMenu';
 import MessageModal from './components/MessageModal';
 import SkillsManagementPage from './components/SkillsManagementPage';
 import StartupModeModal from './components/StartupModeModal';
-import { EventsOn, EventsEmit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus } from '../wailsjs/go/main/App';
+import { EventsOn, EventsEmit, Quit } from '../wailsjs/runtime/runtime';
+import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -244,6 +244,45 @@ function AppContent() {
             
             // Also check if already activated with commercial license
             const activationStatus = await GetActivationStatus();
+            
+            // Check if license activation/refresh failed during startup (only for commercial license users)
+            // This only happens when user has configured a license SN but refresh/activation failed
+            if (activationStatus.activation_failed && config.licenseSN) {
+                const errorMsg = activationStatus.error_message || '授权验证失败';
+                logger.error("License activation failed:", errorMsg);
+                
+                // Show choice dialog: exit or switch to open source mode
+                const userChoice = window.confirm(
+                    `商业授权验证失败\n\n${errorMsg}\n\n` +
+                    `请选择：\n` +
+                    `• 点击"确定"切换到开源授权模式（需要配置自己的API密钥）\n` +
+                    `• 点击"取消"退出程序`
+                );
+                
+                if (userChoice) {
+                    // User chose to switch to open source mode
+                    logger.info("User chose to switch to open source mode");
+                    try {
+                        await DeactivateLicense();
+                        logger.info("License deactivated, showing mode selection");
+                        // Show the startup mode selection (same as first run)
+                        setStartupStatus("need_mode_select");
+                        setStartupMessage(t('select_usage_mode') || '请选择使用模式');
+                        setShowStartupModeModal(true);
+                        return;
+                    } catch (err) {
+                        logger.error("Failed to deactivate license:", err);
+                        alert("清除授权数据失败，程序将退出。");
+                        Quit();
+                        return;
+                    }
+                } else {
+                    // User chose to exit
+                    Quit();
+                    return;
+                }
+            }
+            
             const isActivated = activationStatus.activated && activationStatus.has_llm;
             
             if (!hasLLMConfig && !isActivated) {

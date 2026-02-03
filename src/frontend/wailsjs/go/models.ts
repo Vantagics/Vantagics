@@ -8,9 +8,12 @@ export namespace agent {
 	    search_type: string;
 	    search_api_key: string;
 	    expires_at: string;
+	    activated_at: string;
 	    daily_analysis: number;
 	    product_id: number;
 	    product_name: string;
+	    trust_level: string;
+	    refresh_interval: number;
 	    extra_info?: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -26,9 +29,12 @@ export namespace agent {
 	        this.search_type = source["search_type"];
 	        this.search_api_key = source["search_api_key"];
 	        this.expires_at = source["expires_at"];
+	        this.activated_at = source["activated_at"];
 	        this.daily_analysis = source["daily_analysis"];
 	        this.product_id = source["product_id"];
 	        this.product_name = source["product_name"];
+	        this.trust_level = source["trust_level"];
+	        this.refresh_interval = source["refresh_interval"];
 	        this.extra_info = source["extra_info"];
 	    }
 	}
