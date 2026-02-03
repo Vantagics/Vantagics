@@ -85,6 +85,7 @@ const BaseHTML = `<!DOCTYPE html>
             <button onclick="showTab('license-groups')" id="tab-license-groups" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">序列号分组</button>
             <button onclick="showTab('llm')" id="tab-llm" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">LLM配置</button>
             <button onclick="showTab('search')" id="tab-search" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">搜索引擎配置</button>
+            <button onclick="showTab('backup')" id="tab-backup" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">备份恢复</button>
             <button onclick="showTab('settings')" id="tab-settings" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">系统设置</button>
         </div>
         

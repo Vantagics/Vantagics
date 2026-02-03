@@ -837,6 +837,10 @@ func startManageServer() {
 	mux.HandleFunc("/api/whitelist", authMiddleware(handleWhitelist))
 	mux.HandleFunc("/api/blacklist", authMiddleware(handleBlacklist))
 	mux.HandleFunc("/api/conditions", authMiddleware(handleConditions))
+	mux.HandleFunc("/api/backup/settings", authMiddleware(handleBackupSettings))
+	mux.HandleFunc("/api/backup/create", authMiddleware(handleBackupCreate))
+	mux.HandleFunc("/api/backup/restore", authMiddleware(handleBackupRestore))
+	mux.HandleFunc("/api/backup/history", authMiddleware(handleBackupHistory))
 
 	addr := fmt.Sprintf(":%d", managePort)
 	if useSSL && sslCert != "" && sslKey != "" {
@@ -3476,4 +3480,463 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: fmt.Sprintf("序列号分配成功，有效期 %d 天", daysLeft), SN: sn})
+}
+
+// ============ Backup and Restore Handlers ============
+
+// BackupInfo contains metadata about a backup
+type BackupInfo struct {
+	Type         string         `json:"type"`          // "full" or "incremental"
+	Version      string         `json:"version"`       // Backup format version
+	Domain       string         `json:"domain"`        // Server domain/identifier
+	CreatedAt    string         `json:"created_at"`    // Backup creation time
+	RecordCounts map[string]int `json:"record_counts"` // Count of records per table
+}
+
+// BackupData contains the complete backup data
+type BackupData struct {
+	BackupInfo       BackupInfo                `json:"backup_info"`
+	Settings         map[string]string         `json:"settings,omitempty"`
+	Licenses         []map[string]interface{}  `json:"licenses,omitempty"`
+	LLMGroups        []map[string]interface{}  `json:"llm_groups,omitempty"`
+	SearchGroups     []map[string]interface{}  `json:"search_groups,omitempty"`
+	LicenseGroups    []map[string]interface{}  `json:"license_groups,omitempty"`
+	ProductTypes     []map[string]interface{}  `json:"product_types,omitempty"`
+	ProductExtraInfo []map[string]interface{}  `json:"product_extra_info,omitempty"`
+	LLMConfigs       []map[string]interface{}  `json:"llm_configs,omitempty"`
+	SearchConfigs    []map[string]interface{}  `json:"search_configs,omitempty"`
+	EmailRecords     []map[string]interface{}  `json:"email_records,omitempty"`
+	EmailWhitelist   []map[string]interface{}  `json:"email_whitelist,omitempty"`
+	EmailBlacklist   []map[string]interface{}  `json:"email_blacklist,omitempty"`
+	EmailConditions  []map[string]interface{}  `json:"email_conditions,omitempty"`
+}
+
+// BackupHistory stores backup history record
+type BackupHistory struct {
+	Time        string `json:"time"`
+	Type        string `json:"type"`
+	RecordCount int    `json:"record_count"`
+	Filename    string `json:"filename"`
+}
+
+func handleBackupSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		domain := getSetting("backup_domain")
+		lastBackupTime := getSetting("last_backup_time")
+		lastBackupType := getSetting("last_backup_type")
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"domain":           domain,
+			"last_backup_time": lastBackupTime,
+			"last_backup_type": lastBackupType,
+		})
+		return
+	}
+	
+	if r.Method == "POST" {
+		var req struct {
+			Domain string `json:"domain"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		setSetting("backup_domain", req.Domain)
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+	
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+func handleBackupCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		Type   string `json:"type"`   // "full" or "incremental"
+		Domain string `json:"domain"` // Server identifier
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	
+	if req.Type != "full" && req.Type != "incremental" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "无效的备份类型，必须是 full 或 incremental",
+		})
+		return
+	}
+	
+	// Get last backup time for incremental backup
+	lastBackupTime := getSetting("last_backup_time")
+	var lastBackupTimestamp time.Time
+	if lastBackupTime != "" {
+		lastBackupTimestamp, _ = time.Parse("2006-01-02 15:04:05", lastBackupTime)
+	}
+	
+	now := time.Now()
+	backupData := BackupData{
+		BackupInfo: BackupInfo{
+			Type:         req.Type,
+			Version:      "1.0",
+			Domain:       req.Domain,
+			CreatedAt:    now.Format("2006-01-02 15:04:05"),
+			RecordCounts: make(map[string]int),
+		},
+	}
+	
+	totalRecords := 0
+	
+	// Backup based on type
+	if req.Type == "full" {
+		backupData.Settings = backupAllSettings()
+		backupData.Licenses = backupTable("licenses", "", nil)
+		backupData.LLMGroups = backupTable("llm_groups", "", nil)
+		backupData.SearchGroups = backupTable("search_groups", "", nil)
+		backupData.LicenseGroups = backupTable("license_groups", "", nil)
+		backupData.ProductTypes = backupTable("product_types", "", nil)
+		backupData.ProductExtraInfo = backupTable("product_extra_info", "", nil)
+		backupData.LLMConfigs = backupTable("llm_configs", "", nil)
+		backupData.SearchConfigs = backupTable("search_configs", "", nil)
+		backupData.EmailRecords = backupTable("email_records", "", nil)
+		backupData.EmailWhitelist = backupTable("email_whitelist", "", nil)
+		backupData.EmailBlacklist = backupTable("email_blacklist", "", nil)
+		backupData.EmailConditions = backupTable("email_conditions", "", nil)
+	} else {
+		// Incremental: only backup records created/modified after last backup
+		timeCondition := "created_at > ?"
+		backupData.Settings = backupAllSettings() // Always include settings
+		backupData.Licenses = backupTable("licenses", timeCondition, lastBackupTimestamp)
+		backupData.LLMGroups = backupTable("llm_groups", "", nil) // Groups don't have timestamps
+		backupData.SearchGroups = backupTable("search_groups", "", nil)
+		backupData.LicenseGroups = backupTable("license_groups", "", nil)
+		backupData.ProductTypes = backupTable("product_types", "", nil)
+		backupData.ProductExtraInfo = backupTable("product_extra_info", "", nil)
+		backupData.LLMConfigs = backupTable("llm_configs", "", nil)
+		backupData.SearchConfigs = backupTable("search_configs", "", nil)
+		backupData.EmailRecords = backupTable("email_records", timeCondition, lastBackupTimestamp)
+		backupData.EmailWhitelist = backupTable("email_whitelist", timeCondition, lastBackupTimestamp)
+		backupData.EmailBlacklist = backupTable("email_blacklist", timeCondition, lastBackupTimestamp)
+		backupData.EmailConditions = backupTable("email_conditions", timeCondition, lastBackupTimestamp)
+	}
+	
+	// Calculate record counts
+	backupData.BackupInfo.RecordCounts["settings"] = len(backupData.Settings)
+	backupData.BackupInfo.RecordCounts["licenses"] = len(backupData.Licenses)
+	backupData.BackupInfo.RecordCounts["llm_groups"] = len(backupData.LLMGroups)
+	backupData.BackupInfo.RecordCounts["search_groups"] = len(backupData.SearchGroups)
+	backupData.BackupInfo.RecordCounts["license_groups"] = len(backupData.LicenseGroups)
+	backupData.BackupInfo.RecordCounts["product_types"] = len(backupData.ProductTypes)
+	backupData.BackupInfo.RecordCounts["product_extra_info"] = len(backupData.ProductExtraInfo)
+	backupData.BackupInfo.RecordCounts["llm_configs"] = len(backupData.LLMConfigs)
+	backupData.BackupInfo.RecordCounts["search_configs"] = len(backupData.SearchConfigs)
+	backupData.BackupInfo.RecordCounts["email_records"] = len(backupData.EmailRecords)
+	backupData.BackupInfo.RecordCounts["email_whitelist"] = len(backupData.EmailWhitelist)
+	backupData.BackupInfo.RecordCounts["email_blacklist"] = len(backupData.EmailBlacklist)
+	backupData.BackupInfo.RecordCounts["email_conditions"] = len(backupData.EmailConditions)
+	
+	for _, count := range backupData.BackupInfo.RecordCounts {
+		totalRecords += count
+	}
+	
+	// Generate filename: backup_<domain>_<type>_<date>.json
+	safeDomain := strings.ReplaceAll(req.Domain, ".", "_")
+	safeDomain = strings.ReplaceAll(safeDomain, "/", "_")
+	safeDomain = strings.ReplaceAll(safeDomain, ":", "_")
+	filename := fmt.Sprintf("backup_%s_%s_%s.json", safeDomain, req.Type, now.Format("20060102_150405"))
+	
+	// Update last backup time
+	setSetting("last_backup_time", now.Format("2006-01-02 15:04:05"))
+	setSetting("last_backup_type", req.Type)
+	
+	// Save backup history
+	saveBackupHistory(BackupHistory{
+		Time:        now.Format("2006-01-02 15:04:05"),
+		Type:        req.Type,
+		RecordCount: totalRecords,
+		Filename:    filename,
+	})
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":      true,
+		"filename":     filename,
+		"record_count": totalRecords,
+		"data":         backupData,
+	})
+}
+
+func backupAllSettings() map[string]string {
+	settings := make(map[string]string)
+	rows, err := db.Query("SELECT key, value FROM settings")
+	if err != nil {
+		return settings
+	}
+	defer rows.Close()
+	
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err == nil {
+			// Skip sensitive settings and backup-related settings
+			if key != "admin_password" && !strings.HasPrefix(key, "backup_") && !strings.HasPrefix(key, "last_backup") {
+				settings[key] = value
+			}
+		}
+	}
+	return settings
+}
+
+func backupTable(tableName, condition string, conditionArg interface{}) []map[string]interface{} {
+	var rows *sql.Rows
+	var err error
+	
+	if condition != "" && conditionArg != nil {
+		rows, err = db.Query(fmt.Sprintf("SELECT * FROM %s WHERE %s", tableName, condition), conditionArg)
+	} else {
+		rows, err = db.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
+	}
+	
+	if err != nil {
+		log.Printf("[BACKUP] Error querying table %s: %v", tableName, err)
+		return nil
+	}
+	defer rows.Close()
+	
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil
+	}
+	
+	var result []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+		
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			val := values[i]
+			if b, ok := val.([]byte); ok {
+				row[col] = string(b)
+			} else {
+				row[col] = val
+			}
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func handleBackupRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		Type string     `json:"type"` // "full" or "incremental"
+		Data BackupData `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "解析请求失败: " + err.Error(),
+		})
+		return
+	}
+	
+	// Validate type match
+	if req.Type != req.Data.BackupInfo.Type {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("恢复类型(%s)与备份文件类型(%s)不匹配", req.Type, req.Data.BackupInfo.Type),
+		})
+		return
+	}
+	
+	dbLock.Lock()
+	defer dbLock.Unlock()
+	
+	// Begin transaction
+	tx, err := db.Begin()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "开始事务失败: " + err.Error(),
+		})
+		return
+	}
+	
+	var restoredCount int
+	
+	if req.Type == "full" {
+		// Full restore: delete all existing data first
+		tables := []string{
+			"licenses", "llm_groups", "search_groups", "license_groups",
+			"product_types", "product_extra_info", "llm_configs", "search_configs",
+			"email_records", "email_whitelist", "email_blacklist", "email_conditions",
+		}
+		for _, table := range tables {
+			if _, err := tx.Exec(fmt.Sprintf("DELETE FROM %s", table)); err != nil {
+				tx.Rollback()
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"success": false,
+					"error":   fmt.Sprintf("清空表 %s 失败: %v", table, err),
+				})
+				return
+			}
+		}
+		// Also clear non-sensitive settings (keep admin_password)
+		tx.Exec("DELETE FROM settings WHERE key != 'admin_password'")
+	}
+	
+	// Restore settings
+	for key, value := range req.Data.Settings {
+		if key != "admin_password" {
+			tx.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
+			restoredCount++
+		}
+	}
+	
+	// Restore tables
+	restoredCount += restoreTable(tx, "licenses", req.Data.Licenses, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "llm_groups", req.Data.LLMGroups, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "search_groups", req.Data.SearchGroups, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "license_groups", req.Data.LicenseGroups, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "product_types", req.Data.ProductTypes, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "product_extra_info", req.Data.ProductExtraInfo, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "llm_configs", req.Data.LLMConfigs, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "search_configs", req.Data.SearchConfigs, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "email_records", req.Data.EmailRecords, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "email_whitelist", req.Data.EmailWhitelist, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "email_blacklist", req.Data.EmailBlacklist, req.Type == "incremental")
+	restoredCount += restoreTable(tx, "email_conditions", req.Data.EmailConditions, req.Type == "incremental")
+	
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   "提交事务失败: " + err.Error(),
+		})
+		return
+	}
+	
+	// Reload ports in case they changed
+	loadPorts()
+	loadSSLConfig()
+	
+	typeLabel := "完全"
+	if req.Type == "incremental" {
+		typeLabel = "增量"
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("%s恢复完成，共恢复 %d 条记录", typeLabel, restoredCount),
+	})
+}
+
+func restoreTable(tx *sql.Tx, tableName string, data []map[string]interface{}, merge bool) int {
+	if len(data) == 0 {
+		return 0
+	}
+	
+	count := 0
+	for _, row := range data {
+		columns := make([]string, 0, len(row))
+		placeholders := make([]string, 0, len(row))
+		values := make([]interface{}, 0, len(row))
+		
+		for col, val := range row {
+			columns = append(columns, col)
+			placeholders = append(placeholders, "?")
+			values = append(values, val)
+		}
+		
+		var query string
+		if merge {
+			// For incremental restore, use INSERT OR REPLACE
+			query = fmt.Sprintf("INSERT OR REPLACE INTO %s (%s) VALUES (%s)",
+				tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+		} else {
+			// For full restore, just INSERT (table was already cleared)
+			query = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+				tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
+		}
+		
+		if _, err := tx.Exec(query, values...); err != nil {
+			log.Printf("[RESTORE] Error inserting into %s: %v", tableName, err)
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func handleBackupHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	historyJSON := getSetting("backup_history")
+	var history []BackupHistory
+	if historyJSON != "" {
+		json.Unmarshal([]byte(historyJSON), &history)
+	}
+	
+	// Return last 20 records
+	if len(history) > 20 {
+		history = history[len(history)-20:]
+	}
+	
+	// Reverse to show newest first
+	for i, j := 0, len(history)-1; i < j; i, j = i+1, j-1 {
+		history[i], history[j] = history[j], history[i]
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"history": history,
+	})
+}
+
+func saveBackupHistory(record BackupHistory) {
+	historyJSON := getSetting("backup_history")
+	var history []BackupHistory
+	if historyJSON != "" {
+		json.Unmarshal([]byte(historyJSON), &history)
+	}
+	
+	history = append(history, record)
+	
+	// Keep only last 50 records
+	if len(history) > 50 {
+		history = history[len(history)-50:]
+	}
+	
+	newHistoryJSON, _ := json.Marshal(history)
+	setSetting("backup_history", string(newHistoryJSON))
 }

@@ -15,6 +15,7 @@ func GetDashboardHTML() string {
 		LicenseGroupsHTML,
 		LLMConfigHTML,
 		SearchConfigHTML,
+		BackupHTML,
 		SettingsHTML,
 	}, "\n")
 	
@@ -28,6 +29,7 @@ func GetDashboardHTML() string {
 		LicenseGroupsScripts,
 		LLMConfigScripts,
 		SearchConfigScripts,
+		BackupScripts,
 		SettingsScripts,
 		InitScripts,
 	}, "\n")
