@@ -80,10 +80,12 @@ type SearchGroup struct {
 }
 
 type LicenseGroup struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	TrustLevel  string `json:"trust_level"`  // "high" (正式) or "low" (试用)
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	TrustLevel    string `json:"trust_level"`     // "high" (正式) or "low" (试用)
+	LLMGroupID    string `json:"llm_group_id"`    // LLM group for official groups
+	SearchGroupID string `json:"search_group_id"` // Search group for official groups
 }
 
 // ProductType holds product type information for license categorization
@@ -144,6 +146,21 @@ type EmailRecord struct {
 	IP        string    `json:"ip"`
 	CreatedAt time.Time `json:"created_at"`
 	ProductID int       `json:"product_id"`
+	APIKeyID  string    `json:"api_key_id,omitempty"`
+}
+
+// APIKey stores API key information for third-party integrations
+type APIKey struct {
+	ID           string     `json:"id"`
+	APIKey       string     `json:"api_key"`
+	ProductID    int        `json:"product_id"`
+	Organization string     `json:"organization"`
+	ContactName  string     `json:"contact_name"`
+	Description  string     `json:"description"`
+	IsActive     bool       `json:"is_active"`
+	UsageCount   int        `json:"usage_count"`
+	CreatedAt    time.Time  `json:"created_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
 // ActivationResponse is sent to client
@@ -329,6 +346,18 @@ func initDB() {
 			llm_group_id TEXT DEFAULT '',
 			search_group_id TEXT DEFAULT ''
 		);
+		CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			api_key TEXT UNIQUE NOT NULL,
+			product_id INTEGER DEFAULT 0,
+			organization TEXT DEFAULT '',
+			contact_name TEXT DEFAULT '',
+			description TEXT DEFAULT '',
+			is_active INTEGER DEFAULT 1,
+			usage_count INTEGER DEFAULT 0,
+			created_at DATETIME,
+			expires_at DATETIME
+		);
 	`)
 	if err != nil {
 		log.Fatalf("Failed to create tables: %v", err)
@@ -344,8 +373,13 @@ func initDB() {
 	db.Exec("ALTER TABLE search_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	// Migration: Add trust_level to license_groups
 	db.Exec("ALTER TABLE license_groups ADD COLUMN trust_level TEXT DEFAULT 'low'")
+	// Migration: Add llm_group_id and search_group_id to license_groups for official groups
+	db.Exec("ALTER TABLE license_groups ADD COLUMN llm_group_id TEXT DEFAULT ''")
+	db.Exec("ALTER TABLE license_groups ADD COLUMN search_group_id TEXT DEFAULT ''")
 	// Migration: Add product_id to email_records if not exists
 	db.Exec("ALTER TABLE email_records ADD COLUMN product_id INTEGER DEFAULT 0")
+	// Migration: Add api_key_id to email_records for tracking API-created bindings
+	db.Exec("ALTER TABLE email_records ADD COLUMN api_key_id TEXT DEFAULT ''")
 	// Migration: Create email_conditions table if not exists (for existing databases)
 	db.Exec(`CREATE TABLE IF NOT EXISTS email_conditions (
 		pattern TEXT PRIMARY KEY,
@@ -827,6 +861,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/search", authMiddleware(handleSearchConfig))
 	mux.HandleFunc("/api/search-groups", authMiddleware(handleSearchGroups))
 	mux.HandleFunc("/api/license-groups", authMiddleware(handleLicenseGroups))
+	mux.HandleFunc("/api/license-groups/config", authMiddleware(handleLicenseGroupConfig))
 	mux.HandleFunc("/api/product-types", authMiddleware(handleProductTypes))
 	mux.HandleFunc("/api/product-extra-info", authMiddleware(handleProductExtraInfo))
 	mux.HandleFunc("/api/password", authMiddleware(handleChangePassword))
@@ -840,6 +875,10 @@ func startManageServer() {
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
 	mux.HandleFunc("/api/email-records/manual-request", authMiddleware(handleManualRequest))
 	mux.HandleFunc("/api/email-records/manual-bind", authMiddleware(handleManualBind))
+	mux.HandleFunc("/api/api-keys", authMiddleware(handleAPIKeys))
+	mux.HandleFunc("/api/api-keys/toggle", authMiddleware(handleToggleAPIKey))
+	mux.HandleFunc("/api/api-keys/bindings", authMiddleware(handleAPIKeyBindings))
+	mux.HandleFunc("/api/api-keys/clear-bindings", authMiddleware(handleClearAPIKeyBindings))
 	mux.HandleFunc("/api/email-filter", authMiddleware(handleEmailFilter))
 	mux.HandleFunc("/api/whitelist", authMiddleware(handleWhitelist))
 	mux.HandleFunc("/api/blacklist", authMiddleware(handleBlacklist))
@@ -1985,12 +2024,12 @@ func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description, COALESCE(trust_level, 'low') FROM license_groups ORDER BY name")
+		rows, _ := db.Query("SELECT id, name, description, COALESCE(trust_level, 'low'), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM license_groups ORDER BY name")
 		defer rows.Close()
 		var groups []LicenseGroup
 		for rows.Next() {
 			var g LicenseGroup
-			rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel)
+			rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel, &g.LLMGroupID, &g.SearchGroupID)
 			groups = append(groups, g)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -2049,6 +2088,46 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
 	}
+}
+
+// handleLicenseGroupConfig handles configuration of official license groups (LLM/Search groups)
+func handleLicenseGroupConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		ID            string `json:"id"`
+		LLMGroupID    string `json:"llm_group_id"`
+		SearchGroupID string `json:"search_group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+	
+	// Only allow configuring official groups
+	if !strings.HasPrefix(req.ID, "official_") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "只能配置内置正式授权组"})
+		return
+	}
+	
+	// Update the group's LLM and Search group settings
+	_, err := db.Exec("UPDATE license_groups SET llm_group_id=?, search_group_id=? WHERE id=?", 
+		req.LLMGroupID, req.SearchGroupID, req.ID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	
+	log.Printf("[LICENSE-GROUP] Updated official group %s: LLM=%s, Search=%s", req.ID, req.LLMGroupID, req.SearchGroupID)
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // handleProductTypes manages product types for license categorization
@@ -2479,6 +2558,7 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	search := query.Get("search")
 	productFilter := query.Get("product_id") // -1 or empty = all, >= 0 = specific product
+	licenseGroupFilter := query.Get("license_group") // empty = all, "none" = no group, other = specific group
 	page, pageSize := 1, 20
 	fmt.Sscanf(query.Get("page"), "%d", &page)
 	fmt.Sscanf(query.Get("pageSize"), "%d", &pageSize)
@@ -2486,40 +2566,61 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	if pageSize < 1 { pageSize = 20 }
 	if pageSize > 100 { pageSize = 100 }
 	
-	var total int
-	var rows *sql.Rows
-	var err error
+	// Build dynamic query
+	baseQuery := `SELECT e.id, e.email, e.sn, e.ip, e.created_at, COALESCE(e.product_id, 0) 
+		FROM email_records e`
+	countQuery := `SELECT COUNT(*) FROM email_records e`
 	
-	// Build query based on filters
+	var conditions []string
+	var args []interface{}
+	
+	// Join with licenses table if filtering by license_group
+	if licenseGroupFilter != "" {
+		baseQuery = `SELECT e.id, e.email, e.sn, e.ip, e.created_at, COALESCE(e.product_id, 0) 
+			FROM email_records e LEFT JOIN licenses l ON e.sn = l.sn`
+		countQuery = `SELECT COUNT(*) FROM email_records e LEFT JOIN licenses l ON e.sn = l.sn`
+		
+		if licenseGroupFilter == "none" {
+			conditions = append(conditions, "(l.license_group_id IS NULL OR l.license_group_id = '')")
+		} else {
+			conditions = append(conditions, "l.license_group_id = ?")
+			args = append(args, licenseGroupFilter)
+		}
+	}
+	
+	// Product filter
 	hasProductFilter := productFilter != "" && productFilter != "-1"
-	productID := -1
 	if hasProductFilter {
+		productID := 0
 		fmt.Sscanf(productFilter, "%d", &productID)
+		conditions = append(conditions, "COALESCE(e.product_id, 0) = ?")
+		args = append(args, productID)
 	}
 	
-	if search != "" && hasProductFilter {
+	// Search filter
+	if search != "" {
 		searchPattern := "%" + strings.ToLower(search) + "%"
-		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE (LOWER(email) LIKE ? OR LOWER(sn) LIKE ?) AND COALESCE(product_id, 0) = ?", 
-			searchPattern, searchPattern, productID).Scan(&total)
-		rows, err = db.Query(`SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records 
-			WHERE (LOWER(email) LIKE ? OR LOWER(sn) LIKE ?) AND COALESCE(product_id, 0) = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-			searchPattern, searchPattern, productID, pageSize, (page-1)*pageSize)
-	} else if search != "" {
-		searchPattern := "%" + strings.ToLower(search) + "%"
-		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ?", 
-			searchPattern, searchPattern).Scan(&total)
-		rows, err = db.Query(`SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records 
-			WHERE LOWER(email) LIKE ? OR LOWER(sn) LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-			searchPattern, searchPattern, pageSize, (page-1)*pageSize)
-	} else if hasProductFilter {
-		db.QueryRow("SELECT COUNT(*) FROM email_records WHERE COALESCE(product_id, 0) = ?", productID).Scan(&total)
-		rows, err = db.Query("SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records WHERE COALESCE(product_id, 0) = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-			productID, pageSize, (page-1)*pageSize)
-	} else {
-		db.QueryRow("SELECT COUNT(*) FROM email_records").Scan(&total)
-		rows, err = db.Query("SELECT id, email, sn, ip, created_at, COALESCE(product_id, 0) FROM email_records ORDER BY created_at DESC LIMIT ? OFFSET ?",
-			pageSize, (page-1)*pageSize)
+		conditions = append(conditions, "(LOWER(e.email) LIKE ? OR LOWER(e.sn) LIKE ?)")
+		args = append(args, searchPattern, searchPattern)
 	}
+	
+	// Build WHERE clause
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+	}
+	
+	// Get total count
+	var total int
+	countArgs := make([]interface{}, len(args))
+	copy(countArgs, args)
+	db.QueryRow(countQuery+whereClause, countArgs...).Scan(&total)
+	
+	// Get records with pagination
+	finalQuery := baseQuery + whereClause + " ORDER BY e.created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, pageSize, (page-1)*pageSize)
+	
+	rows, err := db.Query(finalQuery, args...)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -2926,6 +3027,431 @@ func handleManualRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ============ API Key Handlers ============
+
+// generateAPIKey generates a sk- prefixed 64 character API key
+func generateAPIKey() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, 61) // 64 - 3 (for "sk-")
+	if _, err := rand.Read(b); err != nil {
+		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
+		mrand.Seed(time.Now().UnixNano())
+		for i := range b {
+			b[i] = charset[mrand.Intn(len(charset))]
+		}
+	} else {
+		for i := range b {
+			b[i] = charset[int(b[i])%len(charset)]
+		}
+	}
+	return "sk-" + string(b)
+}
+
+func handleAPIKeys(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		rows, err := db.Query(`SELECT id, api_key, product_id, organization, contact_name, description, 
+			is_active, usage_count, created_at, expires_at FROM api_keys ORDER BY created_at DESC`)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		
+		var keys []APIKey
+		for rows.Next() {
+			var k APIKey
+			var expiresAt sql.NullTime
+			rows.Scan(&k.ID, &k.APIKey, &k.ProductID, &k.Organization, &k.ContactName, 
+				&k.Description, &k.IsActive, &k.UsageCount, &k.CreatedAt, &expiresAt)
+			if expiresAt.Valid {
+				k.ExpiresAt = &expiresAt.Time
+			}
+			keys = append(keys, k)
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(keys)
+		return
+	}
+	
+	if r.Method == "POST" {
+		var req struct {
+			ID           string `json:"id"`
+			ProductID    int    `json:"product_id"`
+			Organization string `json:"organization"`
+			ContactName  string `json:"contact_name"`
+			Description  string `json:"description"`
+			ExpiresAt    string `json:"expires_at"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+			return
+		}
+		
+		now := time.Now()
+		var expiresAt *time.Time
+		if req.ExpiresAt != "" {
+			t, err := time.Parse("2006-01-02", req.ExpiresAt)
+			if err == nil {
+				// Set to end of day
+				t = t.Add(23*time.Hour + 59*time.Minute + 59*time.Second)
+				expiresAt = &t
+			}
+		}
+		
+		if req.ID == "" {
+			// Create new API key
+			apiKey := generateAPIKey()
+			id := generateShortID()
+			
+			_, err := db.Exec(`INSERT INTO api_keys (id, api_key, product_id, organization, contact_name, 
+				description, is_active, usage_count, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)`,
+				id, apiKey, req.ProductID, req.Organization, req.ContactName, req.Description, now, expiresAt)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+			
+			log.Printf("[API-KEY] Created new API key %s for product %d (org: %s)", apiKey[:20]+"...", req.ProductID, req.Organization)
+			
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "api_key": apiKey})
+		} else {
+			// Update existing API key (only organization, contact_name, description, expires_at)
+			_, err := db.Exec(`UPDATE api_keys SET organization=?, contact_name=?, description=?, expires_at=? WHERE id=?`,
+				req.Organization, req.ContactName, req.Description, expiresAt, req.ID)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+			
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		}
+		return
+	}
+	
+	if r.Method == "DELETE" {
+		var req struct {
+			ID string `json:"id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+			return
+		}
+		
+		// Check if API key has been used
+		var usageCount int
+		db.QueryRow("SELECT usage_count FROM api_keys WHERE id=?", req.ID).Scan(&usageCount)
+		if usageCount > 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, 
+				"error": fmt.Sprintf("此 API Key 已使用 %d 次，不能删除，只能禁用", usageCount),
+			})
+			return
+		}
+		
+		db.Exec("DELETE FROM api_keys WHERE id=?", req.ID)
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+}
+
+func handleToggleAPIKey(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+	
+	db.Exec("UPDATE api_keys SET is_active = NOT is_active WHERE id=?", req.ID)
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleAPIKeyBindings returns all email records created by a specific API key
+func handleAPIKeyBindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	keyID := r.URL.Query().Get("id")
+	if keyID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 API Key ID"})
+		return
+	}
+	
+	rows, err := db.Query(`SELECT id, email, sn, ip, created_at, product_id FROM email_records 
+		WHERE api_key_id = ? ORDER BY created_at DESC`, keyID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	
+	var records []EmailRecord
+	for rows.Next() {
+		var r EmailRecord
+		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID)
+		records = append(records, r)
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "records": records})
+}
+
+// handleClearAPIKeyBindings deletes all email records and licenses created by a specific API key
+func handleClearAPIKeyBindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+	
+	if req.ID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 API Key ID"})
+		return
+	}
+	
+	// Get all SNs created by this API key
+	rows, err := db.Query("SELECT sn FROM email_records WHERE api_key_id = ?", req.ID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	
+	var sns []string
+	for rows.Next() {
+		var sn string
+		rows.Scan(&sn)
+		sns = append(sns, sn)
+	}
+	rows.Close()
+	
+	deletedCount := len(sns)
+	
+	// Delete all licenses created by this API key
+	for _, sn := range sns {
+		db.Exec("DELETE FROM licenses WHERE sn = ?", sn)
+	}
+	
+	// Delete all email records created by this API key
+	db.Exec("DELETE FROM email_records WHERE api_key_id = ?", req.ID)
+	
+	// Reset usage count for this API key
+	db.Exec("UPDATE api_keys SET usage_count = 0 WHERE id = ?", req.ID)
+	
+	log.Printf("[API-KEY] Cleared %d bindings for API key %s", deletedCount, req.ID)
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "deleted": deletedCount})
+}
+
+// handleBindLicenseAPI handles the public API for binding licenses via API key
+func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		APIKey string `json:"api_key"`
+		Email  string `json:"email"`
+		Days   int    `json:"days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, 
+			"code": "INVALID_REQUEST",
+			"message": "无效的请求格式",
+		})
+		return
+	}
+	
+	// Validate API key
+	var keyID string
+	var productID int
+	var isActive bool
+	var expiresAt sql.NullTime
+	err := db.QueryRow(`SELECT id, product_id, is_active, expires_at FROM api_keys WHERE api_key=?`, req.APIKey).
+		Scan(&keyID, &productID, &isActive, &expiresAt)
+	if err != nil {
+		log.Printf("[BIND-API] Invalid API key attempted: %s", req.APIKey[:min(20, len(req.APIKey))]+"...")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INVALID_API_KEY",
+			"message": "无效的 API Key",
+		})
+		return
+	}
+	
+	if !isActive {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "API_KEY_DISABLED",
+			"message": "API Key 已被禁用",
+		})
+		return
+	}
+	
+	if expiresAt.Valid && time.Now().After(expiresAt.Time) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "API_KEY_EXPIRED",
+			"message": "API Key 已过期",
+		})
+		return
+	}
+	
+	// Validate email
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INVALID_EMAIL",
+			"message": "无效的邮箱地址",
+		})
+		return
+	}
+	
+	// Validate days
+	if req.Days <= 0 {
+		req.Days = 365
+	}
+	
+	// Check if email already has a license for this product
+	var existingSN string
+	err = db.QueryRow("SELECT sn FROM email_records WHERE email=? AND product_id=?", email, productID).Scan(&existingSN)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "EMAIL_ALREADY_BOUND",
+			"message": fmt.Sprintf("该邮箱已绑定序列号 %s", existingSN),
+		})
+		return
+	}
+	
+	// Get or create the official high-trust group for this product
+	licenseGroupID := getOrCreateProductOfficialGroup(productID)
+	if licenseGroupID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INTERNAL_ERROR",
+			"message": "创建授权组失败",
+		})
+		return
+	}
+	
+	// Get LLM and Search group from the official group
+	var llmGroupID, searchGroupID string
+	db.QueryRow("SELECT COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM license_groups WHERE id=?", 
+		licenseGroupID).Scan(&llmGroupID, &searchGroupID)
+	
+	// Generate new SN
+	sn := generateSN()
+	now := time.Now()
+	expiresAtTime := now.AddDate(0, 0, req.Days)
+	
+	// Create the license with high-trust group, unlimited analysis
+	_, err = db.Exec(`INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, 
+		daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) 
+		VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)`,
+		sn, now, expiresAtTime, req.Days, fmt.Sprintf("API绑定: %s", email), 
+		licenseGroupID, llmGroupID, searchGroupID, productID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INTERNAL_ERROR",
+			"message": "创建序列号失败: " + err.Error(),
+		})
+		return
+	}
+	
+	// Create email record with api_key_id for tracking
+	_, err = db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, api_key_id) VALUES (?, ?, ?, ?, ?, ?)",
+		email, sn, "api-bind", now, productID, keyID)
+	if err != nil {
+		// Rollback: delete the license
+		db.Exec("DELETE FROM licenses WHERE sn=?", sn)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INTERNAL_ERROR",
+			"message": "创建邮箱记录失败: " + err.Error(),
+		})
+		return
+	}
+	
+	// Increment API key usage count
+	db.Exec("UPDATE api_keys SET usage_count = usage_count + 1 WHERE id=?", keyID)
+	
+	log.Printf("[BIND-API] Created license %s for email %s via API key (Product: %d, Days: %d)", 
+		sn, email, productID, req.Days)
+	
+	// Send email notification
+	go func() {
+		if err := sendSNEmail(email, sn, expiresAtTime, productID); err != nil {
+			log.Printf("[EMAIL] Failed to send SN email to %s: %v", email, err)
+		} else {
+			log.Printf("[EMAIL] SN email sent successfully to %s", email)
+		}
+	}()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"code": "SUCCESS",
+		"sn": sn,
+		"expires_at": expiresAtTime.Format("2006-01-02"),
+		"message": fmt.Sprintf("正式授权创建成功，有效期 %d 天", req.Days),
+	})
+}
+
 // ============ Email Filter Handlers ============
 
 func handleEmailFilter(w http.ResponseWriter, r *http.Request) {
@@ -3254,6 +3780,7 @@ func startAuthServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/activate", handleActivate)
 	mux.HandleFunc("/request-sn", handleRequestSN)
+	mux.HandleFunc("/api/bind-license", handleBindLicenseAPI)
 	mux.HandleFunc("/health", handleHealth)
 
 	addr := fmt.Sprintf(":%d", authPort)

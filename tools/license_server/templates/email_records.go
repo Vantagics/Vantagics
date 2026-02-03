@@ -6,14 +6,18 @@ const EmailRecordsHTML = `
     <div class="bg-white rounded-xl shadow-sm p-6">
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-bold text-slate-800">邮箱申请记录</h2>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <select id="email-product-filter" onchange="filterEmailsByProduct()" class="px-3 py-1.5 border rounded-lg text-sm">
                     <option value="-1">全部产品</option>
                     <option value="0">VantageData (ID: 0)</option>
                 </select>
-                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64" onkeypress="if(event.key==='Enter')searchEmails()">
+                <select id="email-license-group-filter" onchange="filterEmailsByLicenseGroup()" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <option value="">全部序列号组</option>
+                    <option value="none">默认(无组)</option>
+                </select>
+                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchEmails()">
                 <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
-                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工申请</button>
+                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工绑定</button>
             </div>
         </div>
         <div id="email-records-list" class="space-y-3"></div>
@@ -27,6 +31,7 @@ const EmailRecordsScripts = `
 // Store email records data for button handlers
 var emailRecordsData = {};
 var emailProductFilter = -1;
+var emailLicenseGroupFilter = '';
 
 function initEmailProductFilter() {
     var select = document.getElementById('email-product-filter');
@@ -45,6 +50,11 @@ function filterEmailsByProduct() {
     loadEmailRecords(1, emailSearchTerm);
 }
 
+function filterEmailsByLicenseGroup() {
+    emailLicenseGroupFilter = document.getElementById('email-license-group-filter').value;
+    loadEmailRecords(1, emailSearchTerm);
+}
+
 function loadEmailRecords(page, search) {
     page = page || 1;
     search = search || '';
@@ -54,6 +64,9 @@ function loadEmailRecords(page, search) {
     var params = new URLSearchParams({page: page.toString(), pageSize: '15', search: search});
     if (emailProductFilter >= 0) {
         params.set('product_id', emailProductFilter.toString());
+    }
+    if (emailLicenseGroupFilter) {
+        params.set('license_group', emailLicenseGroupFilter);
     }
     fetch('/api/email-records?' + params).then(function(resp) { return resp.json(); }).then(function(data) {
         var list = document.getElementById('email-records-list');

@@ -83,6 +83,7 @@ const BaseHTML = `<!DOCTYPE html>
             <button onclick="showTab('email-filter')" id="tab-email-filter" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">邮箱过滤</button>
             <button onclick="showTab('product-types')" id="tab-product-types" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">产品类型</button>
             <button onclick="showTab('license-groups')" id="tab-license-groups" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">序列号分组</button>
+            <button onclick="showTab('api-keys')" id="tab-api-keys" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">API Key</button>
             <button onclick="showTab('llm')" id="tab-llm" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">LLM配置</button>
             <button onclick="showTab('search')" id="tab-search" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">搜索引擎配置</button>
             <button onclick="showTab('backup')" id="tab-backup" class="tab-btn px-4 py-2 rounded-lg bg-slate-200 text-slate-700">备份恢复</button>

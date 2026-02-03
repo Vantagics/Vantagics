@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loadLLMConfigs();
         loadSearchConfigs();
         loadEmailRecords();
+        loadAPIKeys();
         loadSSLConfig();
         loadSMTPConfig();
         loadFilterSettings();
