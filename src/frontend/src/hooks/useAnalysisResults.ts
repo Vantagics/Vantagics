@@ -121,7 +121,14 @@ export function useAnalysisResults(): UseAnalysisResultsReturn {
   }, [state, manager]);
 
   // 便捷数据访问
-  const charts = useMemo(() => getResultsByType('echarts'), [getResultsByType]);
+  const charts = useMemo(() => {
+    const result = getResultsByType('echarts');
+    logger.warn(`[useAnalysisResults] charts count: ${result.length}`);
+    if (result.length > 0) {
+      logger.warn(`[useAnalysisResults] first chart data type: ${typeof result[0].data}`);
+    }
+    return result;
+  }, [getResultsByType]);
   const images = useMemo(() => getResultsByType('image'), [getResultsByType]);
   const tables = useMemo(() => {
     const tableResults = getResultsByType('table');

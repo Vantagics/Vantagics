@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -19,6 +20,8 @@ type ImageDetector struct {
 	markdownPattern      *regexp.Regexp
 	fileReferencePattern *regexp.Regexp
 	sandboxPattern       *regexp.Regexp // Pattern for sandbox: paths (OpenAI code interpreter format)
+	htmlImgPattern       *regexp.Regexp // Pattern for HTML img tags
+	logger               func(string)   // Optional logger function for debug logging
 }
 
 // NewImageDetector creates a new ImageDetector with compiled regex patterns
@@ -29,6 +32,8 @@ func NewImageDetector() *ImageDetector {
 		// Matches: data:image/jpeg;base64,/9j/4AAQSkZJRg...
 		// Matches: data:image/gif;base64,R0lGODlh...
 		// Matches: data:image/webp;base64,...
+		// Matches: data:image/bmp;base64,...
+		// Matches: data:image/tiff;base64,...
 		base64Pattern: regexp.MustCompile(
 			`data:image/([a-zA-Z0-9+\-\.]+);base64,([A-Za-z0-9+/=]+)`,
 		),
@@ -45,16 +50,41 @@ func NewImageDetector() *ImageDetector {
 		// Matches: files/chart.png
 		// Matches: files/output_123.jpg
 		// Matches: file://path/to/image.png
+		// Supports: png, jpg, jpeg, gif, webp, svg, bmp, tiff, tif
 		fileReferencePattern: regexp.MustCompile(
-			`(?:files/|file://)([^\s\)]+\.(png|jpg|jpeg|gif|webp|svg|bmp))`,
+			`(?:files/|file://)([^\s\)]+\.(png|jpg|jpeg|gif|webp|svg|bmp|tiff|tif))`,
 		),
 
 		// Pattern for sandbox paths (OpenAI code interpreter format)
 		// Matches: sandbox:/mnt/data/chart.png
 		// Matches: sandbox:/mnt/data/output.jpg
+		// Supports: png, jpg, jpeg, gif, webp, svg, bmp, tiff, tif
 		sandboxPattern: regexp.MustCompile(
-			`sandbox:(/[^\s\)]+\.(png|jpg|jpeg|gif|webp|svg|bmp))`,
+			`sandbox:(/[^\s\)]+\.(png|jpg|jpeg|gif|webp|svg|bmp|tiff|tif))`,
 		),
+
+		// Pattern for HTML img tags
+		// Matches: <img src="image.png">
+		// Matches: <img src='path/to/image.jpg' alt="description">
+		// Matches: <img alt="text" src="https://example.com/image.webp" />
+		// Supports: png, jpg, jpeg, gif, webp, svg, bmp, tiff, tif
+		htmlImgPattern: regexp.MustCompile(
+			`<img[^>]*\ssrc=["']([^"']+\.(png|jpg|jpeg|gif|webp|svg|bmp|tiff|tif))["'][^>]*>`,
+		),
+
+		logger: nil,
+	}
+}
+
+// SetLogger sets the logger function for debug logging
+func (id *ImageDetector) SetLogger(logger func(string)) {
+	id.logger = logger
+}
+
+// log writes a debug message if logger is set
+func (id *ImageDetector) log(message string) {
+	if id.logger != nil {
+		id.logger(message)
 	}
 }
 
@@ -74,7 +104,12 @@ func (id *ImageDetector) DetectBase64Images(text string) []ImagePattern {
 				Data: match[0], // Store the full data URL
 				Raw:  match[0],
 			})
+			id.log(fmt.Sprintf("[IMAGE-DETECTOR] Found base64 image: type=%s, data length=%d", match[1], len(match[2])))
 		}
+	}
+
+	if len(patterns) > 0 {
+		id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectBase64Images: found %d base64 images", len(patterns)))
 	}
 
 	return patterns
@@ -96,7 +131,12 @@ func (id *ImageDetector) DetectMarkdownImages(text string) []ImagePattern {
 				Data: match[2], // Store the path
 				Raw:  match[0],
 			})
+			id.log(fmt.Sprintf("[IMAGE-DETECTOR] Found markdown image: alt='%s', path='%s'", match[1], match[2]))
 		}
+	}
+
+	if len(patterns) > 0 {
+		id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectMarkdownImages: found %d markdown images", len(patterns)))
 	}
 
 	return patterns
@@ -117,7 +157,12 @@ func (id *ImageDetector) DetectFileReferences(text string) []ImagePattern {
 				Data: match[1], // Store just the filename
 				Raw:  match[0],
 			})
+			id.log(fmt.Sprintf("[IMAGE-DETECTOR] Found file reference: '%s'", match[1]))
 		}
+	}
+
+	if len(patterns) > 0 {
+		id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectFileReferences: found %d file references", len(patterns)))
 	}
 
 	return patterns
@@ -144,7 +189,38 @@ func (id *ImageDetector) DetectSandboxPaths(text string) []ImagePattern {
 				Data: filename, // Store just the filename
 				Raw:  match[0],
 			})
+			id.log(fmt.Sprintf("[IMAGE-DETECTOR] Found sandbox path: '%s' -> filename='%s'", path, filename))
 		}
+	}
+
+	if len(patterns) > 0 {
+		id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectSandboxPaths: found %d sandbox paths", len(patterns)))
+	}
+
+	return patterns
+}
+
+// DetectHTMLImgTags finds all HTML img tag patterns in the given text
+// Returns a slice of ImagePattern structs with Type="html_img"
+func (id *ImageDetector) DetectHTMLImgTags(text string) []ImagePattern {
+	var patterns []ImagePattern
+	matches := id.htmlImgPattern.FindAllStringSubmatch(text, -1)
+
+	for _, match := range matches {
+		if len(match) >= 2 {
+			// match[0] is the full match: <img src="path/to/image.png" ...>
+			// match[1] is the src value: path/to/image.png
+			patterns = append(patterns, ImagePattern{
+				Type: "html_img",
+				Data: match[1], // Store the src path
+				Raw:  match[0],
+			})
+			id.log(fmt.Sprintf("[IMAGE-DETECTOR] Found HTML img tag: src='%s'", match[1]))
+		}
+	}
+
+	if len(patterns) > 0 {
+		id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectHTMLImgTags: found %d HTML img tags", len(patterns)))
 	}
 
 	return patterns
@@ -154,6 +230,8 @@ func (id *ImageDetector) DetectSandboxPaths(text string) []ImagePattern {
 // Returns a slice of all detected ImagePattern structs
 func (id *ImageDetector) DetectAllImages(text string) []ImagePattern {
 	var allPatterns []ImagePattern
+
+	id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectAllImages: scanning text of length %d", len(text)))
 
 	// Detect base64 images
 	allPatterns = append(allPatterns, id.DetectBase64Images(text)...)
@@ -166,6 +244,11 @@ func (id *ImageDetector) DetectAllImages(text string) []ImagePattern {
 
 	// Detect sandbox paths (OpenAI code interpreter format)
 	allPatterns = append(allPatterns, id.DetectSandboxPaths(text)...)
+
+	// Detect HTML img tags
+	allPatterns = append(allPatterns, id.DetectHTMLImgTags(text)...)
+
+	id.log(fmt.Sprintf("[IMAGE-DETECTOR] DetectAllImages: total images found = %d", len(allPatterns)))
 
 	return allPatterns
 }
@@ -247,26 +330,66 @@ func (id *ImageDetector) ExtractBase64Data(base64DataURL string) string {
 	return parts[1]
 }
 
-// NormalizeImagePath normalizes a file path to a consistent format
-// Handles "files/filename", "file:///path/to/filename", and "sandbox:/mnt/data/filename" formats
+// NormalizeImagePath normalizes a file path to a consistent format (just the filename)
+// Handles various path formats:
+// - "files/filename", "file:///path/to/filename", "sandbox:/mnt/data/filename"
+// - Windows paths: "C:\path\to\file.png", "D:\images\chart.jpg"
+// - Unix paths: "/home/user/images/chart.png", "/tmp/output.jpg"
+// - Relative paths: "./images/chart.png", "../output/result.jpg", "images/chart.png"
+// - Mixed separators: "path/to\file.png"
 func (id *ImageDetector) NormalizeImagePath(path string) string {
+	if path == "" {
+		return ""
+	}
+
 	// Remove sandbox: prefix if present (OpenAI code interpreter format)
 	if strings.HasPrefix(path, "sandbox:") {
 		path = strings.TrimPrefix(path, "sandbox:")
 	}
 
-	// Remove file:// prefix if present
-	if strings.HasPrefix(path, "file://") {
+	// Remove file:// or file:/// prefix if present
+	if strings.HasPrefix(path, "file:///") {
+		path = strings.TrimPrefix(path, "file:///")
+	} else if strings.HasPrefix(path, "file://") {
 		path = strings.TrimPrefix(path, "file://")
 	}
 
-	// Remove leading slashes
+	// Normalize path separators: convert Windows backslashes to forward slashes
+	path = strings.ReplaceAll(path, "\\", "/")
+
+	// Handle Windows drive letters (e.g., "C:/path/to/file" -> "path/to/file")
+	// After backslash normalization, Windows paths look like "C:/path/to/file"
+	if len(path) >= 2 && path[1] == ':' {
+		// Check if it's a valid drive letter (A-Z or a-z)
+		driveLetter := path[0]
+		if (driveLetter >= 'A' && driveLetter <= 'Z') || (driveLetter >= 'a' && driveLetter <= 'z') {
+			// Remove drive letter and colon, e.g., "C:/path" -> "/path"
+			path = path[2:]
+		}
+	}
+
+	// Remove leading "./" for relative paths
+	for strings.HasPrefix(path, "./") {
+		path = strings.TrimPrefix(path, "./")
+	}
+
+	// Handle "../" by removing it (we just want the filename anyway)
+	for strings.HasPrefix(path, "../") {
+		path = strings.TrimPrefix(path, "../")
+	}
+
+	// Remove leading slashes (Unix absolute paths)
 	path = strings.TrimLeft(path, "/")
 
-	// Return just the filename if it's a path
+	// Extract just the filename from the path
 	if strings.Contains(path, "/") {
 		parts := strings.Split(path, "/")
-		return parts[len(parts)-1]
+		// Get the last non-empty part
+		for i := len(parts) - 1; i >= 0; i-- {
+			if parts[i] != "" {
+				return parts[i]
+			}
+		}
 	}
 
 	return path

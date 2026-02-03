@@ -1425,7 +1425,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染图表
         const renderChart = () => {
             // 直接使用 dashboardData 中的 ECharts 数据
+            logger.warn(`[renderChart] hasECharts=${dashboardData.hasECharts}, echartsData type=${typeof dashboardData.echartsData}`);
+            if (dashboardData.echartsData) {
+                logger.warn(`[renderChart] echartsData preview: ${JSON.stringify(dashboardData.echartsData).substring(0, 200)}...`);
+            }
+            
             if (!dashboardData.hasECharts || !dashboardData.echartsData) {
+                logger.warn(`[renderChart] No ECharts data available, showing placeholder`);
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无图表数据</div>;
             }
             
@@ -1640,8 +1646,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 className={`
                     flex flex-col rounded-xl overflow-hidden bg-white shadow-md
                     hover:shadow-lg transition-shadow duration-200
+                    w-full
                 `}
-                style={{ width: `${item.w}%` }}
             >
                 {/* 区域标题条 */}
                 <div className={`

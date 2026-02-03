@@ -70,11 +70,27 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	sb.WriteString(userRequest)
 	sb.WriteString("\n\n")
 
-	// Add classification hints if available
+	// Add classification hints if available - with stronger emphasis on visualization
 	if hints != nil {
 		sb.WriteString("## 分析要求（基于请求理解）\n")
 		if hints.NeedsVisualization {
-			sb.WriteString("- ⭐ **必须生成可视化图表** - 使用plt.savefig()保存到SESSION_DIR/chart.png\n")
+			sb.WriteString("- ⭐⭐⭐ **【必须】生成可视化图表** - 这是核心要求！\n")
+			sb.WriteString("  - 使用 matplotlib/seaborn 创建图表\n")
+			sb.WriteString("  - 必须调用 plt.savefig() 保存图表到 FILES_DIR\n")
+			sb.WriteString("  - 图表文件名: chart.png\n")
+			if hints.SuggestedChartType != "" {
+				chartTypeDesc := map[string]string{
+					"line":        "折线图 (plt.plot) - 适合展示趋势变化",
+					"bar":         "柱状图 (plt.bar) - 适合分类对比",
+					"pie":         "饼图 (plt.pie) - 适合展示占比分布",
+					"grouped_bar": "分组柱状图 - 适合多维度对比",
+					"scatter":     "散点图 (plt.scatter) - 适合相关性分析",
+					"heatmap":     "热力图 (sns.heatmap) - 适合矩阵数据",
+				}
+				if desc, ok := chartTypeDesc[hints.SuggestedChartType]; ok {
+					sb.WriteString(fmt.Sprintf("  - 推荐图表类型: %s\n", desc))
+				}
+			}
 		}
 		if hints.NeedsDataExport {
 			sb.WriteString("- ⭐ **必须导出数据文件** - 使用df.to_excel()保存到SESSION_DIR\n")
@@ -86,6 +102,11 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 			sb.WriteString(fmt.Sprintf("- 分析原因: %s\n", hints.Reasoning))
 		}
 		sb.WriteString("\n")
+	} else {
+		// Even without hints, encourage visualization for analysis requests
+		sb.WriteString("## 分析要求\n")
+		sb.WriteString("- ⭐ **建议生成可视化图表** - 图表能更直观地展示分析结果\n")
+		sb.WriteString("- 使用 plt.savefig() 保存图表到 FILES_DIR/chart.png\n\n")
 	}
 
 	// Database info section
@@ -103,13 +124,21 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	sb.WriteString("## 代码要求（必须严格遵守）\n")
 	sb.WriteString("1. 代码必须完整可执行，不需要任何修改\n")
 	sb.WriteString("2. 使用sqlite3连接数据库，pandas处理数据\n")
-	sb.WriteString("3. **图表必须实际保存**: 使用 `plt.savefig(os.path.join(FILES_DIR, 'chart.png'), dpi=150)` 保存图表\n")
+	sb.WriteString("3. **⭐⭐⭐ 图表必须实际保存**: \n")
+	sb.WriteString("   ```python\n")
+	sb.WriteString("   # 必须包含以下代码来保存图表\n")
+	sb.WriteString("   chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
+	sb.WriteString("   plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')\n")
+	sb.WriteString("   plt.close()\n")
+	sb.WriteString("   print(f'✅ 图表已保存: {chart_path}')\n")
+	sb.WriteString("   ```\n")
 	sb.WriteString("4. 所有输出使用中文（图表标题、标签、洞察）\n")
 	sb.WriteString("5. 包含完整的错误处理（try-except-finally）\n")
 	sb.WriteString("6. 在finally块中关闭数据库连接\n")
 	sb.WriteString("7. 使用print输出分析结果和关键洞察\n")
 	sb.WriteString("8. 数据库路径使用变量DB_PATH，文件保存目录使用变量FILES_DIR\n")
 	sb.WriteString("9. 图表配置: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']\n")
+	sb.WriteString("10. **图表美化**: 使用合适的颜色、标题、标签，确保图表清晰易读\n")
 	
 	// Data export requirement based on hints
 	if hints != nil && hints.NeedsDataExport {
@@ -318,17 +347,34 @@ def main():
         # 3. 数据处理
         # ... 数据清洗、转换、计算 ...
         
-        # 4. 创建可视化
-        plt.figure(figsize=(10, 6))
-        # ... 绑定数据到图表 ...
-        plt.title('图表标题', fontsize=14)
-        plt.xlabel('X轴标签')
-        plt.ylabel('Y轴标签')
+        # 4. 【必须】创建可视化图表
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # 选择合适的图表类型：
+        # - 时间趋势: plt.plot() 折线图
+        # - 分类对比: plt.bar() 柱状图
+        # - 占比分布: plt.pie() 饼图
+        # - 多维对比: 分组柱状图
+        
+        # 示例：柱状图
+        # ax.bar(df['category'], df['value'], color='steelblue')
+        
+        # 示例：折线图
+        # ax.plot(df['date'], df['value'], marker='o', linewidth=2, color='steelblue')
+        
+        # 示例：饼图
+        # ax.pie(df['value'], labels=df['category'], autopct='%1.1f%%')
+        
+        # 图表美化
+        ax.set_title('图表标题', fontsize=14, fontweight='bold')
+        ax.set_xlabel('X轴标签', fontsize=12)
+        ax.set_ylabel('Y轴标签', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
         
         # 5. 【必须】保存图表到FILES_DIR
         chart_path = os.path.join(FILES_DIR, 'chart.png')
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+        plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')
         plt.close()
         print(f"✅ 图表已保存: {chart_path}")
         
@@ -337,9 +383,15 @@ def main():
         # df.to_excel(export_path, index=False, sheet_name='分析数据')
         # print(f"✅ 数据已导出: {export_path}")
         
-        # 7. 输出分析结果
-        print("=== 分析结果 ===")
-        print(df.to_string())
+        # 7. 输出分析结果和洞察
+        print("\\n=== 分析结果 ===")
+        print(df.to_string(index=False))
+        
+        print("\\n=== 关键洞察 ===")
+        # 输出数据洞察，例如：
+        # print(f"- 最高值: {df['value'].max()}")
+        # print(f"- 最低值: {df['value'].min()}")
+        # print(f"- 平均值: {df['value'].mean():.2f}")
         
     except sqlite3.Error as e:
         print(f"数据库错误: {e}")
@@ -347,6 +399,8 @@ def main():
         print("查询结果为空")
     except Exception as e:
         print(f"分析错误: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if conn:
             conn.close()

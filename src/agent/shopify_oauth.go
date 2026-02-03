@@ -312,7 +312,7 @@ func (s *ShopifyOAuthService) sendErrorResponse(w http.ResponseWriter, message s
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
                display: flex; justify-content: center; align-items: center; height: 100vh; 
-               margin: 0; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%); }
+               margin: 0; background: linear-gradient(135deg, #ff6b6b 0%%, #ee5a5a 100%%); }
         .container { text-align: center; background: white; padding: 40px 60px; border-radius: 16px; 
                      box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
         .icon { font-size: 64px; margin-bottom: 20px; }

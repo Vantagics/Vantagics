@@ -476,6 +476,7 @@ func (a *App) startup(ctx context.Context) {
 
 		// Initialize event aggregator for analysis results
 		a.eventAggregator = NewEventAggregator(ctx)
+		a.eventAggregator.SetLogger(a.Log)
 		a.Log("[STARTUP] EventAggregator initialized successfully")
 	}
 

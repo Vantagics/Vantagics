@@ -8,7 +8,9 @@
 import {
   AnalysisResultBatch,
   AnalysisResultItem,
-  ResultSource,
+  AnalysisErrorPayload,
+  EnhancedErrorInfo,
+  ErrorCodes,
 } from '../types/AnalysisResult';
 import { getAnalysisResultManager } from '../managers/AnalysisResultManager';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
@@ -39,13 +41,23 @@ export function initAnalysisResultBridge(
   
   // 监听 analysis-result-update 事件
   const unsubscribeUpdate = EventsOn('analysis-result-update', (payload: AnalysisResultBatch) => {
-    logger.debug(`analysis-result-update: ${payload.items?.length || 0} items, session=${payload.sessionId}`);
+    // 详细记录接收到的数据类型分布
+    const typeDistribution: Record<string, number> = {};
+    if (payload.items) {
+      payload.items.forEach(item => {
+        typeDistribution[item.type] = (typeDistribution[item.type] || 0) + 1;
+      });
+    }
+    logger.debug(`[EventReceived] analysis-result-update: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}, complete=${payload.isComplete}`);
+    logger.debug(`[EventReceived] Item types: ${JSON.stringify(typeDistribution)}`);
     
     // 同步会话和消息ID
     if (payload.sessionId && payload.sessionId !== manager.getCurrentSession()) {
+      logger.debug(`[EventReceived] Syncing session: ${manager.getCurrentSession()} -> ${payload.sessionId}`);
       manager.switchSession(payload.sessionId);
     }
     if (payload.messageId && payload.messageId !== manager.getCurrentMessage()) {
+      logger.debug(`[EventReceived] Syncing message: ${manager.getCurrentMessage()} -> ${payload.messageId}`);
       manager.selectMessage(payload.messageId);
     }
     
@@ -55,30 +67,77 @@ export function initAnalysisResultBridge(
   
   // 监听 analysis-result-clear 事件
   const unsubscribeClear = EventsOn('analysis-result-clear', (payload: { sessionId: string; messageId?: string }) => {
-    logger.debug(`analysis-result-clear: session=${payload.sessionId}`);
+    logger.debug(`[EventReceived] analysis-result-clear: session=${payload.sessionId}, message=${payload.messageId || 'all'}`);
     manager.clearResults(payload.sessionId, payload.messageId);
   });
   unsubscribers.push(unsubscribeClear);
   
   // 监听 analysis-result-loading 事件
   const unsubscribeLoading = EventsOn('analysis-result-loading', (payload: { sessionId: string; loading: boolean; requestId?: string }) => {
-    logger.debug(`analysis-result-loading: loading=${payload.loading}, requestId=${payload.requestId || 'none'}`);
+    logger.debug(`[EventReceived] analysis-result-loading: session=${payload.sessionId}, loading=${payload.loading}, requestId=${payload.requestId || 'none'}`);
     manager.setLoading(payload.loading, payload.requestId);
   });
   unsubscribers.push(unsubscribeLoading);
   
   // 监听 analysis-result-error 事件
-  const unsubscribeError = EventsOn('analysis-result-error', (payload: { sessionId: string; error: string; requestId?: string }) => {
-    logger.warn(`analysis-result-error: ${payload.error}`);
-    manager.setError(payload.error);
+  // 
+  // 增强的错误处理 (Requirement 4.4):
+  // 1. 接收后端发送的增强错误信息（包括错误代码和恢复建议）
+  // 2. 使用 setErrorWithInfo 方法设置完整的错误信息
+  // 3. 如果后端没有提供恢复建议，前端会根据错误代码自动生成
+  const unsubscribeError = EventsOn('analysis-result-error', (payload: AnalysisErrorPayload) => {
+    logger.warn(`[EventReceived] analysis-result-error: session=${payload.sessionId}, requestId=${payload.requestId || 'none'}, code=${payload.code || 'unknown'}`);
+    logger.debug(`[EventReceived] Error message: ${payload.error || payload.message}`);
+    
+    if (payload.recoverySuggestions && payload.recoverySuggestions.length > 0) {
+      logger.debug(`[EventReceived] Recovery suggestions from backend: ${payload.recoverySuggestions.join('; ')}`);
+    }
+    
+    // 创建增强的错误信息
+    const errorInfo: EnhancedErrorInfo = {
+      code: payload.code || ErrorCodes.ANALYSIS_ERROR,
+      message: payload.error || payload.message || '发生未知错误',
+      details: payload.details,
+      recoverySuggestions: payload.recoverySuggestions || [],
+      timestamp: payload.timestamp || Date.now(),
+    };
+    
+    // 使用增强的错误处理方法
+    manager.setErrorWithInfo(errorInfo);
   });
   unsubscribers.push(unsubscribeError);
   
+  // 监听 analysis-error 事件（兼容旧事件名）
+  // 
+  // 增强的错误处理 (Requirement 4.4):
+  // 与 analysis-result-error 相同的处理逻辑
+  const unsubscribeAnalysisError = EventsOn('analysis-error', (payload: AnalysisErrorPayload) => {
+    logger.warn(`[EventReceived] analysis-error: session=${payload.sessionId}, requestId=${payload.requestId || 'none'}, code=${payload.code || 'unknown'}`);
+    logger.debug(`[EventReceived] Error message: ${payload.error || payload.message}`);
+    
+    if (payload.recoverySuggestions && payload.recoverySuggestions.length > 0) {
+      logger.debug(`[EventReceived] Recovery suggestions from backend: ${payload.recoverySuggestions.join('; ')}`);
+    }
+    
+    // 创建增强的错误信息
+    const errorInfo: EnhancedErrorInfo = {
+      code: payload.code || ErrorCodes.ANALYSIS_ERROR,
+      message: payload.error || payload.message || '发生未知错误',
+      details: payload.details,
+      recoverySuggestions: payload.recoverySuggestions || [],
+      timestamp: payload.timestamp || Date.now(),
+    };
+    
+    // 使用增强的错误处理方法
+    manager.setErrorWithInfo(errorInfo);
+  });
+  unsubscribers.push(unsubscribeAnalysisError);
+  
   // 监听 analysis-result-restore 事件（用于恢复历史数据）
   // 
-  // 改进的历史数据恢复逻辑:
-  // 1. 先清除当前显示的所有数据 (Requirement 2.1)
-  // 2. 确保只显示恢复的数据 (Requirement 2.2)
+  // 改进的历史数据恢复逻辑 (Requirement 5.3):
+  // 1. 使用 AnalysisResultManager.restoreResults 方法进行恢复
+  // 2. 该方法会验证数据完整性并记录详细日志
   // 3. 无结果时显示空状态而非数据源统计 (Requirement 2.4)
   const unsubscribeRestore = EventsOn('analysis-result-restore', (payload: {
     sessionId: string;
@@ -87,55 +146,19 @@ export function initAnalysisResultBridge(
   }) => {
     logger.info(`analysis-result-restore: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
     
-    // Step 1: 先清除当前会话的所有数据，确保数据隔离 (Requirement 2.1)
-    // 这样可以避免新旧数据混合显示
-    const currentSessionId = manager.getCurrentSession();
-    if (currentSessionId) {
-      logger.debug(`Clearing current session data before restore: ${currentSessionId}`);
-      manager.clearResults(currentSessionId);
+    // 使用 restoreResults 方法进行恢复
+    // 该方法会：
+    // 1. 验证每个数据项的完整性
+    // 2. 规范化数据格式
+    // 3. 记录详细的恢复日志
+    // 4. 触发 data-restored 事件
+    const stats = manager.restoreResults(payload.sessionId, payload.messageId, payload.items);
+    
+    logger.info(`Historical data restoration completed: valid=${stats.validItems}, invalid=${stats.invalidItems}, total=${stats.totalItems}`);
+    
+    if (stats.errors.length > 0) {
+      logger.warn(`Restoration had ${stats.errors.length} errors`);
     }
-    
-    // Step 2: 切换到目标会话（如果不同）
-    if (payload.sessionId !== currentSessionId) {
-      logger.debug(`Switching to restore target session: ${payload.sessionId}`);
-      manager.switchSession(payload.sessionId);
-    }
-    
-    // Step 3: 清除目标会话的数据（确保干净状态）
-    // 即使切换了会话，也要确保目标会话是干净的
-    manager.clearResults(payload.sessionId);
-    
-    // Step 4: 选择目标消息
-    if (payload.messageId !== manager.getCurrentMessage()) {
-      logger.debug(`Selecting restore target message: ${payload.messageId}`);
-      manager.selectMessage(payload.messageId);
-    }
-    
-    // Step 5: 处理恢复的数据
-    if (!payload.items || payload.items.length === 0) {
-      logger.debug('No items to restore, notifying historical empty result for empty state display');
-      // 通知历史请求无结果，以便 useDashboardData 显示空状态而非数据源统计 (Requirement 2.4)
-      manager.notifyHistoricalEmptyResult(payload.sessionId, payload.messageId);
-      return;
-    }
-    
-    // Step 6: 标记为恢复的数据并更新管理器 (Requirement 2.2)
-    const restoredItems: AnalysisResultItem[] = payload.items.map(item => ({
-      ...item,
-      source: 'restored' as ResultSource,
-    }));
-    
-    // 更新管理器 - 此时仪表盘只会显示恢复的数据
-    manager.updateResults({
-      sessionId: payload.sessionId,
-      messageId: payload.messageId,
-      requestId: `restore_${Date.now()}`,
-      items: restoredItems,
-      isComplete: true,
-      timestamp: Date.now(),
-    });
-    
-    logger.info(`Historical data restored successfully: ${restoredItems.length} items`);
   });
   unsubscribers.push(unsubscribeRestore);
   

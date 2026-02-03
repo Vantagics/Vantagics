@@ -18,9 +18,22 @@
  * - analysisResults 会自动更新
  * - hasAnyAnalysisResults 通过 useMemo 依赖 analysisResults 的所有数据数组
  * - 因此状态变更会自动触发 hasAnyAnalysisResults 的重新评估
+ * 
+ * 加载状态管理 (Task 8.1, Requirements 4.1, 4.3):
+ * - 加载状态与 AnalysisResultManager 的分析状态同步
+ * - 订阅 analysis-started 事件，分析开始时设置加载状态
+ * - 订阅 data-restored 事件，数据恢复完成时清除加载状态
+ * - 监听 analysisResults.isLoading 变化，记录状态变更日志
+ * - 分析完成或出错时自动清除加载状态
+ * 
+ * 空状态显示逻辑 (Task 8.3, Requirement 5.4):
+ * - 当历史请求无结果时，显示空状态而非数据源统计
+ * - shouldShowEmptyState: 指示是否应该显示空状态
+ * - isViewingHistoricalEmptyResult: 指示是否正在查看历史空结果
+ * - 空状态决策有详细的调试日志
  */
 
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useAnalysisResults } from './useAnalysisResults';
 import {
   AnalysisResultItem,
@@ -81,6 +94,14 @@ export interface DashboardDataSource {
   // 新增：是否有真正的分析结果（不包括数据源统计）
   // 用于导出按钮的显示判断
   hasRealAnalysisResults: boolean;
+  
+  // 新增：是否应该显示空状态 (Task 8.3, Requirement 5.4)
+  // 当历史请求无结果时为 true，此时不显示数据源统计
+  shouldShowEmptyState: boolean;
+  
+  // 新增：是否正在查看历史空结果 (Task 8.3, Requirement 5.4)
+  // 用于组件判断是否显示空状态提示
+  isViewingHistoricalEmptyResult: boolean;
 }
 
 /**
@@ -94,6 +115,12 @@ export interface DashboardDataSource {
  * - 在分析开始时清除 dataSourceStatistics
  * - 在会话切换时重置 dataSourceStatistics
  * - 历史请求无结果时显示空状态而非数据源统计 (Requirement 2.4)
+ * 
+ * 加载状态管理 (Task 8.1, Requirements 4.1, 4.3):
+ * - 加载状态与 AnalysisResultManager 的分析状态同步
+ * - 分析开始时显示加载状态 (Requirement 4.1)
+ * - 分析完成时加载状态消失 (Requirement 4.3)
+ * - 记录所有状态变更日志便于调试
  */
 export function useDashboardData(): DashboardDataSource {
   const analysisResults = useAnalysisResults();
@@ -104,15 +131,68 @@ export function useDashboardData(): DashboardDataSource {
   // 当此标志为 true 时，即使没有分析结果，也不应显示数据源统计
   const [isViewingHistoricalEmptyResult, setIsViewingHistoricalEmptyResult] = useState<boolean>(false);
   
+  // 使用 ref 跟踪上一次的加载状态，用于状态变更日志 (Task 8.1)
+  const prevLoadingRef = useRef<boolean>(analysisResults.isLoading);
+  const prevErrorRef = useRef<string | null>(analysisResults.error);
+  
+  // Hook 生命周期日志 (Task 9.2)
+  useEffect(() => {
+    logger.info('[Lifecycle] useDashboardData hook mounted');
+    return () => {
+      logger.info('[Lifecycle] useDashboardData hook unmounted');
+    };
+  }, []);
+  
+  /**
+   * 加载状态变更日志 (Task 8.1, Requirements 4.1, 4.3)
+   * 
+   * 监听 analysisResults.isLoading 变化，记录状态变更
+   * - 当 isLoading 从 false 变为 true 时，记录分析开始
+   * - 当 isLoading 从 true 变为 false 时，记录分析完成或取消
+   */
+  useEffect(() => {
+    const prevLoading = prevLoadingRef.current;
+    const currentLoading = analysisResults.isLoading;
+    
+    if (prevLoading !== currentLoading) {
+      if (currentLoading) {
+        logger.info('[LoadingState] Analysis started - loading state set to true (Requirement 4.1)');
+      } else {
+        logger.info('[LoadingState] Analysis completed/cancelled - loading state set to false (Requirement 4.3)');
+      }
+      prevLoadingRef.current = currentLoading;
+    }
+  }, [analysisResults.isLoading]);
+  
+  /**
+   * 错误状态变更日志 (Task 8.1)
+   * 
+   * 监听 analysisResults.error 变化，记录错误状态变更
+   */
+  useEffect(() => {
+    const prevError = prevErrorRef.current;
+    const currentError = analysisResults.error;
+    
+    if (prevError !== currentError) {
+      if (currentError) {
+        logger.warn(`[LoadingState] Error occurred - loading state cleared: ${currentError}`);
+      } else if (prevError) {
+        logger.info('[LoadingState] Error cleared');
+      }
+      prevErrorRef.current = currentError;
+    }
+  }, [analysisResults.error]);
+  
   // 加载数据源统计的函数
   const loadDataSourceStatistics = useCallback(async () => {
+    logger.debug('[DataSourceStats] Starting to load data source statistics');
     setIsDataSourceStatsLoading(true);
     try {
       const stats = await GetDataSourceStatistics();
       setDataSourceStatistics(stats);
-      logger.debug('Data source statistics loaded successfully');
+      logger.info(`[DataSourceStats] Loaded successfully: total=${stats?.total_count || 0}, types=${Object.keys(stats?.breakdown_by_type || {}).length}`);
     } catch (err) {
-      logger.error(`Failed to load data source statistics: ${err}`);
+      logger.error(`[DataSourceStats] Failed to load: ${err}`);
       setDataSourceStatistics(null);
     } finally {
       setIsDataSourceStatsLoading(false);
@@ -121,22 +201,23 @@ export function useDashboardData(): DashboardDataSource {
   
   // 清除数据源统计的函数
   const clearDataSourceStatistics = useCallback(() => {
-    logger.debug('Clearing data source statistics');
+    logger.debug('[DataSourceStats] Clearing data source statistics');
     setDataSourceStatistics(null);
   }, []);
   
   // 强制刷新数据源统计
   const refreshDataSourceStats = useCallback(() => {
-    logger.debug('Refreshing data source statistics');
+    logger.info('[DataSourceStats] Force refreshing data source statistics');
     loadDataSourceStatistics();
   }, [loadDataSourceStatistics]);
   
   // 清除所有数据
   const clearAllData = useCallback(() => {
-    logger.debug('Clearing all dashboard data');
+    logger.info('[ClearAll] Clearing all dashboard data');
     clearDataSourceStatistics();
     const manager = getAnalysisResultManager();
     manager.clearAll();
+    logger.debug('[ClearAll] All dashboard data cleared');
   }, [clearDataSourceStatistics]);
   
   /**
@@ -197,14 +278,16 @@ export function useDashboardData(): DashboardDataSource {
   useEffect(() => {
     // 如果正在查看历史请求的空结果，不加载数据源统计 (Requirement 2.4)
     if (isViewingHistoricalEmptyResult) {
-      logger.debug('Viewing historical empty result, not loading data source statistics');
+      logger.debug('[ConditionalLoad] Viewing historical empty result, skipping data source statistics load');
       return;
     }
     
     // 只在没有分析结果且数据源统计为空时加载
     if (!hasAnyAnalysisResults && dataSourceStatistics === null && !isDataSourceStatsLoading) {
-      logger.info('No analysis results and no data source statistics, loading data source statistics');
+      logger.info('[ConditionalLoad] No analysis results and no data source statistics, triggering load');
       loadDataSourceStatistics();
+    } else {
+      logger.debug(`[ConditionalLoad] Skip load: hasResults=${hasAnyAnalysisResults}, hasStats=${dataSourceStatistics !== null}, isLoading=${isDataSourceStatsLoading}`);
     }
   }, [hasAnyAnalysisResults, dataSourceStatistics, isDataSourceStatsLoading, loadDataSourceStatistics, isViewingHistoricalEmptyResult]);
   
@@ -213,8 +296,10 @@ export function useDashboardData(): DashboardDataSource {
     const manager = getAnalysisResultManager();
     
     // 订阅 analysis-started 事件 - 分析开始时清除 dataSourceStatistics
+    // Task 8.1: 确保加载状态与分析状态同步 (Requirement 4.1)
     const unsubscribeAnalysisStarted = manager.on('analysis-started', (event) => {
-      logger.info(`Analysis started event received: session=${event.sessionId}, message=${event.messageId}, request=${event.requestId}`);
+      logger.info(`[StateChange] Analysis started event received: session=${event.sessionId}, message=${event.messageId}, request=${event.requestId}`);
+      logger.debug('[StateChange] Clearing data source statistics for new analysis');
       // 清除数据源统计，确保新分析结果不会与旧数据混合
       clearDataSourceStatistics();
       // 重置历史空结果标志，因为新分析开始了
@@ -223,7 +308,8 @@ export function useDashboardData(): DashboardDataSource {
     
     // 订阅 session-switched 事件 - 会话切换时重置 dataSourceStatistics
     const unsubscribeSessionSwitched = manager.on('session-switched', (event) => {
-      logger.info(`Session switched event received: from=${event.fromSessionId}, to=${event.toSessionId}`);
+      logger.info(`[StateChange] Session switched event received: from=${event.fromSessionId}, to=${event.toSessionId}`);
+      logger.debug('[StateChange] Clearing data source statistics for session switch');
       // 会话切换时清除数据源统计
       // 条件加载逻辑会在下一次渲染时根据 hasAnyAnalysisResults 决定是否重新加载
       clearDataSourceStatistics();
@@ -236,7 +322,8 @@ export function useDashboardData(): DashboardDataSource {
     // 当用户点击历史分析请求时，会触发 message-selected 事件
     // 此时需要清除 dataSourceStatistics，确保只显示恢复的数据
     const unsubscribeMessageSelected = manager.on('message-selected', (event) => {
-      logger.info(`Message selected event received: session=${event.sessionId}, from=${event.fromMessageId}, to=${event.toMessageId}`);
+      logger.info(`[StateChange] Message selected event received: session=${event.sessionId}, from=${event.fromMessageId}, to=${event.toMessageId}`);
+      logger.debug('[StateChange] Clearing data source statistics for message selection');
       // 消息切换时清除数据源统计，确保历史数据恢复时不会混合显示
       clearDataSourceStatistics();
       // 注意：不在这里重置 isViewingHistoricalEmptyResult，因为 historical-empty-result 事件会在之后触发
@@ -245,11 +332,21 @@ export function useDashboardData(): DashboardDataSource {
     // 订阅 historical-empty-result 事件 - 历史请求无结果时显示空状态 (Requirement 2.4)
     // 当历史分析请求没有关联的分析结果时，设置标志以阻止加载数据源统计
     const unsubscribeHistoricalEmptyResult = manager.on('historical-empty-result', (event) => {
-      logger.info(`Historical empty result event received: session=${event.sessionId}, message=${event.messageId}`);
+      logger.info(`[StateChange] Historical empty result event received: session=${event.sessionId}, message=${event.messageId}`);
+      logger.debug('[StateChange] Setting historical empty result flag, blocking data source statistics loading');
       // 设置标志，阻止加载数据源统计
       setIsViewingHistoricalEmptyResult(true);
       // 确保数据源统计被清除
       clearDataSourceStatistics();
+    });
+    
+    // 订阅 data-restored 事件 - 数据恢复完成时记录日志 (Task 8.1)
+    // 确保加载状态在数据恢复后正确清除 (Requirement 4.3)
+    const unsubscribeDataRestored = manager.on('data-restored', (event) => {
+      logger.info(`[StateChange] Data restored event received: session=${event.sessionId}, message=${event.messageId}, items=${event.validCount}/${event.itemCount}`);
+      logger.debug(`[StateChange] Restored items by type: ${JSON.stringify(event.itemsByType)}`);
+      // 数据恢复完成后，加载状态应该已经被 AnalysisResultManager 清除
+      // 这里只记录日志，不需要额外操作
     });
     
     // 清理函数
@@ -258,36 +355,71 @@ export function useDashboardData(): DashboardDataSource {
       unsubscribeSessionSwitched();
       unsubscribeMessageSelected();
       unsubscribeHistoricalEmptyResult();
+      unsubscribeDataRestored();
     };
   }, [clearDataSourceStatistics]);
   
   const result = useMemo(() => {
+    logger.debug('[DataTransform] Starting data transformation');
+    
     // ECharts
     const echartsItems = analysisResults.charts;
     const hasECharts = echartsItems.length > 0;
     const echartsData = hasECharts ? echartsItems[0].data : null;
     const allEChartsData = echartsItems.map(item => item.data);
+    logger.warn(`[DataTransform] ECharts: count=${echartsItems.length}, hasData=${hasECharts}`);
+    if (hasECharts && echartsData) {
+      logger.warn(`[DataTransform] ECharts data type: ${typeof echartsData}, preview: ${JSON.stringify(echartsData).substring(0, 100)}...`);
+    }
     
     // Images
     const imageItems = analysisResults.images;
     const hasImages = imageItems.length > 0;
     const images = imageItems.map(item => item.data as string);
+    logger.debug(`[DataTransform] Images: count=${imageItems.length}, hasData=${hasImages}`);
     
     // Tables
     const tableItems = analysisResults.tables;
     const hasTables = tableItems.length > 0;
     const tableData = hasTables ? (tableItems[0].data as NormalizedTableData) : null;
     const allTableData = tableItems.map(item => item.data as NormalizedTableData);
+    logger.debug(`[DataTransform] Tables: count=${tableItems.length}, hasData=${hasTables}`);
     
     // 使用已计算的 hasAnyAnalysisResults（在 useMemo 外部计算以支持条件加载逻辑）
     
     // 判断是否应该显示数据源统计 (Requirement 2.4)
     // 当正在查看历史请求的空结果时，不显示数据源统计
     const shouldShowDataSourceStats = !hasAnyAnalysisResults && !isViewingHistoricalEmptyResult;
+    logger.debug(`[DataTransform] shouldShowDataSourceStats=${shouldShowDataSourceStats} (hasResults=${hasAnyAnalysisResults}, historicalEmpty=${isViewingHistoricalEmptyResult})`);
     
     // 新增：是否有真正的分析结果（不包括数据源统计）
     // 用于导出按钮的显示判断
     const hasRealAnalysisResults = hasAnyAnalysisResults;
+    
+    /**
+     * 空状态显示逻辑 (Task 8.3, Requirement 5.4)
+     * 
+     * shouldShowEmptyState 为 true 的条件：
+     * 1. 正在查看历史请求的空结果 (isViewingHistoricalEmptyResult = true)
+     * 2. 没有任何分析结果 (hasAnyAnalysisResults = false)
+     * 3. 不在加载状态 (isLoading = false)
+     * 
+     * 当 shouldShowEmptyState 为 true 时：
+     * - 不显示数据源统计
+     * - 显示空状态提示（如"该历史请求没有分析结果"）
+     */
+    const shouldShowEmptyState = isViewingHistoricalEmptyResult && !hasAnyAnalysisResults && !analysisResults.isLoading;
+    
+    // 空状态决策日志 (Task 8.3)
+    logger.debug(`[EmptyState] Decision: shouldShowEmptyState=${shouldShowEmptyState}`);
+    logger.debug(`[EmptyState] Factors: isViewingHistoricalEmptyResult=${isViewingHistoricalEmptyResult}, hasAnyAnalysisResults=${hasAnyAnalysisResults}, isLoading=${analysisResults.isLoading}`);
+    if (shouldShowEmptyState) {
+      logger.info('[EmptyState] Showing empty state for historical request with no results (Requirement 5.4)');
+    } else if (isViewingHistoricalEmptyResult && hasAnyAnalysisResults) {
+      logger.debug('[EmptyState] Historical empty result flag set but has results - showing results');
+    } else if (isViewingHistoricalEmptyResult && analysisResults.isLoading) {
+      logger.debug('[EmptyState] Historical empty result flag set but still loading - waiting');
+    }
     
     // Metrics - 只有在没有分析结果且不是历史空结果时才显示数据源指标
     const analysisMetrics = analysisResults.metrics;
@@ -295,6 +427,7 @@ export function useDashboardData(): DashboardDataSource {
     
     // 只有在应该显示数据源统计时才添加数据源统计信息
     if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.total_count > 0) {
+      logger.debug(`[DataTransform] Adding data source metrics: total=${dataSourceStatistics.total_count}`);
       // Total data sources metric
       dataSourceMetrics.push({
         title: '数据源总数',
@@ -314,11 +447,14 @@ export function useDashboardData(): DashboardDataSource {
           change: ''
         });
       });
+    } else if (shouldShowEmptyState) {
+      logger.debug('[DataTransform] Empty state active - not adding data source metrics (Requirement 5.4)');
     }
     
     // 有分析结果时只显示分析指标，没有时显示数据源指标（除非是历史空结果）
     const allMetrics = hasAnyAnalysisResults ? analysisMetrics : [...dataSourceMetrics, ...analysisMetrics];
     const hasMetrics = allMetrics.length > 0;
+    logger.debug(`[DataTransform] Metrics: analysisCount=${analysisMetrics.length}, dataSourceCount=${dataSourceMetrics.length}, total=${allMetrics.length}`);
     
     // Insights - 只有在没有分析结果且不是历史空结果时才显示数据源洞察
     const analysisInsights = analysisResults.insights;
@@ -326,7 +462,7 @@ export function useDashboardData(): DashboardDataSource {
     
     // 只有在应该显示数据源统计时才添加数据源洞察
     if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.data_sources && dataSourceStatistics.data_sources.length > 0) {
-      logger.info(`Generating insights for ${dataSourceStatistics.data_sources.length} data sources`);
+      logger.debug(`[DataTransform] Generating insights for ${dataSourceStatistics.data_sources.length} data sources`);
       dataSourceStatistics.data_sources.forEach((ds: any) => {
         const insight = {
           text: `${ds.name} (${ds.type.toUpperCase()}) - 点击启动智能分析`,
@@ -334,15 +470,17 @@ export function useDashboardData(): DashboardDataSource {
           dataSourceId: ds.id,
           sourceName: ds.name
         };
-        logger.debug(`Created data source insight: id=${ds.id}, name=${ds.name}, type=${ds.type}`);
+        logger.debug(`[DataTransform] Created data source insight: id=${ds.id}, name=${ds.name}, type=${ds.type}`);
         dataSourceInsights.push(insight);
       });
     } else if (hasAnyAnalysisResults) {
-      logger.debug('Has analysis results, hiding data source insights');
+      logger.debug('[DataTransform] Has analysis results, hiding data source insights');
+    } else if (shouldShowEmptyState) {
+      logger.debug('[DataTransform] Empty state active - not adding data source insights (Requirement 5.4)');
     } else if (isViewingHistoricalEmptyResult) {
-      logger.debug('Viewing historical empty result, showing empty state instead of data source insights');
+      logger.debug('[DataTransform] Viewing historical empty result, showing empty state instead of data source insights');
     } else {
-      logger.debug('No data sources available for insights');
+      logger.debug('[DataTransform] No data sources available for insights');
     }
     
     // 有分析结果时只显示分析洞察，没有时显示数据源洞察（除非是历史空结果）
@@ -350,10 +488,17 @@ export function useDashboardData(): DashboardDataSource {
     const combinedInsights = hasAnyAnalysisResults ? analysisInsights : [...dataSourceInsights, ...analysisInsights];
     const allInsights = combinedInsights.slice(0, 9);
     const hasInsights = allInsights.length > 0;
+    logger.debug(`[DataTransform] Insights: analysisCount=${analysisInsights.length}, dataSourceCount=${dataSourceInsights.length}, total=${allInsights.length}`);
     
     // Files
     const hasFiles = analysisResults.files.length > 0;
     const files = analysisResults.files;
+    logger.debug(`[DataTransform] Files: count=${files.length}, hasData=${hasFiles}`);
+    
+    // 记录最终的加载状态 (Task 8.1)
+    logger.debug(`[DataTransform] Final state: isLoading=${analysisResults.isLoading}, error=${analysisResults.error || 'none'}, hasRealResults=${hasRealAnalysisResults}, shouldShowEmptyState=${shouldShowEmptyState}`);
+    
+    logger.debug('[DataTransform] Data transformation completed');
     
     return {
       hasECharts,
@@ -378,6 +523,10 @@ export function useDashboardData(): DashboardDataSource {
       clearAllData,
       // 新增：是否有真正的分析结果（不包括数据源统计）
       hasRealAnalysisResults,
+      // 新增：是否应该显示空状态 (Task 8.3, Requirement 5.4)
+      shouldShowEmptyState,
+      // 新增：是否正在查看历史空结果 (Task 8.3, Requirement 5.4)
+      isViewingHistoricalEmptyResult,
     };
   }, [analysisResults, dataSourceStatistics, isDataSourceStatsLoading, hasAnyAnalysisResults, isViewingHistoricalEmptyResult, refreshDataSourceStats, clearAllData]);
   

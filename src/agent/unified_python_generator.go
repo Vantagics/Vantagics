@@ -153,6 +153,45 @@ func (g *UnifiedPythonGenerator) GenerateAnalysisCode(
 		g.log(fmt.Sprintf("[UNIFIED_GEN] Warning: %s", warning))
 	}
 
+	// 7.5 Check if visualization was required but not generated
+	needsVisualization := outputFormat == "visualization" || 
+		(g.classificationHints != nil && g.classificationHints.NeedsVisualization)
+	
+	if needsVisualization && !validationResult.HasChart {
+		g.log("[UNIFIED_GEN] ⚠️ Visualization required but no chart code detected!")
+		
+		// Check if plt.savefig is missing
+		if !strings.Contains(code, "plt.savefig") && !strings.Contains(code, "fig.savefig") {
+			g.log("[UNIFIED_GEN] Attempting to add chart saving code...")
+			
+			// Try to inject chart saving code before the finally block or at the end
+			chartSaveCode := `
+    # 【自动添加】保存图表
+    try:
+        chart_path = os.path.join(FILES_DIR, 'chart.png')
+        if plt.get_fignums():  # Check if there are any figures
+            plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close('all')
+            print(f"✅ 图表已保存: {chart_path}")
+    except Exception as chart_err:
+        print(f"⚠️ 图表保存失败: {chart_err}")
+`
+			// Find a good place to insert the chart saving code
+			if strings.Contains(code, "finally:") {
+				// Insert before finally block
+				code = strings.Replace(code, "finally:", chartSaveCode+"\n    finally:", 1)
+				g.log("[UNIFIED_GEN] Injected chart saving code before finally block")
+			} else if strings.Contains(code, "if __name__") {
+				// Insert before main guard
+				code = strings.Replace(code, "if __name__", chartSaveCode+"\n\nif __name__", 1)
+				g.log("[UNIFIED_GEN] Injected chart saving code before main guard")
+			}
+			
+			// Re-validate after injection
+			validationResult = g.codeValidator.ValidateCode(code)
+		}
+	}
+
 	// 8. Build result
 	result := &GeneratedCode{
 		Code:          code,
@@ -171,24 +210,22 @@ func (g *UnifiedPythonGenerator) GenerateAnalysisCode(
 }
 
 // determineOutputFormat determines the output format based on user request
-// More inclusive: default to visualization for most analysis requests
+// Default to visualization for most analysis requests - charts help users understand data better
 func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 	requestLower := strings.ToLower(request)
 
-	// Check for explicit aggregation-only keywords (no visualization needed)
-	aggOnlyKeywords := []string{
-		"总数", "总计", "计数", "count", "sum total",
-		"有多少", "how many",
+	// Check for explicit NO-visualization keywords (very rare cases)
+	noVizKeywords := []string{
+		"不要图", "不需要图", "只要数字", "只要文字", "纯文本",
+		"no chart", "no graph", "text only",
 	}
-	isAggOnly := false
-	for _, keyword := range aggOnlyKeywords {
+	for _, keyword := range noVizKeywords {
 		if strings.Contains(requestLower, keyword) {
-			isAggOnly = true
-			break
+			return "standard"
 		}
 	}
-	
-	// Check for visualization keywords
+
+	// Check for explicit visualization keywords - definitely need charts
 	vizKeywords := []string{
 		"图", "图表", "可视化", "趋势", "分布", "对比", "排名",
 		"chart", "visualization", "trend", "distribution", "comparison",
@@ -202,13 +239,17 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 	}
 
 	// Check for analysis keywords that typically benefit from visualization
+	// These are common analysis scenarios where charts add value
 	analysisKeywords := []string{
 		"分析", "统计", "销售", "收入", "利润", "增长", "下降",
 		"按月", "按年", "按季度", "时间", "周期",
 		"top", "前", "最", "排行", "占比", "比例",
 		"analysis", "sales", "revenue", "growth", "monthly", "yearly",
 		"rfm", "cohort", "漏斗", "funnel", "留存", "retention",
+		"客户", "产品", "订单", "地区", "类别",
 	}
+	
+	// Count how many analysis keywords are present
 	analysisCount := 0
 	for _, keyword := range analysisKeywords {
 		if strings.Contains(requestLower, keyword) {
@@ -216,23 +257,25 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 		}
 	}
 	
-	// If it's an analysis request (not just aggregation), default to visualization
-	if analysisCount >= 1 && !isAggOnly {
+	// If ANY analysis keyword is found, default to visualization
+	// Charts make analysis results much easier to understand
+	if analysisCount >= 1 {
 		return "visualization"
 	}
 
-	// Check for aggregation keywords
-	aggKeywords := []string{
-		"汇总", "统计", "聚合", "分组", "总计", "平均",
-		"aggregate", "summary", "group", "total", "average",
+	// Check for simple aggregation-only keywords (no visualization needed)
+	aggOnlyKeywords := []string{
+		"总数是多少", "一共有多少", "count", "总计多少",
+		"有几个", "有几条", "how many",
 	}
-	for _, keyword := range aggKeywords {
+	for _, keyword := range aggOnlyKeywords {
 		if strings.Contains(requestLower, keyword) {
 			return "aggregation"
 		}
 	}
 
-	return "standard"
+	// Default to visualization - better to have a chart than not
+	return "visualization"
 }
 
 // extractPythonCode extracts Python code from LLM response

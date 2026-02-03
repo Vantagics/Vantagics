@@ -3331,7 +3331,7 @@ func (s *DataSourceService) fetchShopifyData(db *sql.DB, store, accessToken, api
 			errMsg = fmt.Sprintf("%s: %v", errMsg, lastError)
 		}
 		s.log(fmt.Sprintf("[SHOPIFY] %s", errMsg))
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	s.log(fmt.Sprintf("[SHOPIFY] Successfully imported %d resource types", importedCount))
@@ -6274,7 +6274,7 @@ func (s *DataSourceService) fetchJiraData(db *sql.DB, baseURL, username, apiToke
 			errMsg = fmt.Sprintf("%s: %v", errMsg, lastError)
 		}
 		s.log(fmt.Sprintf("[JIRA] %s", errMsg))
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	s.log(fmt.Sprintf("[JIRA] Successfully imported %d resource types", importedCount))
