@@ -31,15 +31,19 @@ function loadLicenseGroups() {
         } else {
             var html = '';
             licenseGroups.forEach(function(g, idx) { 
+                var isBuiltIn = g.id.startsWith('official_') || g.id.startsWith('trial_');
                 var trustBadge = g.trust_level === 'high' ? 
-                    '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">高可信(正式)</span>' :
-                    '<span class="ml-2 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">低可信(试用)</span>';
+                    '<span class="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">🔒 高可信(正式)</span>' :
+                    '<span class="ml-2 px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">⚠️ 低可信(试用)</span>';
+                var builtInBadge = isBuiltIn ? '<span class="ml-2 px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">内置</span>' : '';
                 html += '<div class="flex items-center justify-between p-3 bg-purple-50 rounded-lg">';
-                html += '<div><span class="font-bold text-sm">' + escapeHtml(g.name) + '</span>' + trustBadge;
+                html += '<div><span class="font-bold text-sm">' + escapeHtml(g.name) + '</span>' + trustBadge + builtInBadge;
                 html += '<p class="text-xs text-slate-400 mt-1">' + escapeHtml(g.description || '无描述') + '</p></div>';
                 html += '<div class="flex gap-1">';
-                html += '<button data-action="edit-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
-                html += '<button data-action="delete-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+                if (!isBuiltIn) {
+                    html += '<button data-action="edit-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">编辑</button>';
+                    html += '<button data-action="delete-license-group" data-idx="' + idx + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">删除</button>';
+                }
                 html += '</div></div>'; 
             });
             list.innerHTML = html;
@@ -50,7 +54,12 @@ function loadLicenseGroups() {
         if (filterSelect) {
             var currentValue = filterSelect.value;
             var opts = '<option value="">全部序列号组</option><option value="none">默认(无组)</option>';
-            licenseGroups.forEach(function(g) { opts += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
+            licenseGroups.forEach(function(g) { 
+                var label = escapeHtml(g.name);
+                if (g.trust_level === 'high') label += ' (正式)';
+                else label += ' (试用)';
+                opts += '<option value="' + g.id + '">' + label + '</option>'; 
+            });
             filterSelect.innerHTML = opts;
             filterSelect.value = currentValue;
         }
@@ -74,19 +83,16 @@ document.getElementById('license-groups-list').addEventListener('click', functio
 });
 
 function showLicenseGroupForm(group) {
-    var g = group || {id: '', name: '', description: '', trust_level: 'low'};
-    var trustLevel = g.trust_level || 'low';
+    var g = group || {id: '', name: '', description: ''};
     showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">' + (g.id ? '编辑' : '添加') + '序列号分组</h3><div class="space-y-3">' +
+        '<div class="p-2 bg-orange-50 rounded text-xs text-orange-700">' +
+        '<strong>⚠️ 注意</strong>：用户创建的序列号分组均为低可信（试用）级别，每天刷新一次。高可信（正式）授权组由系统在手工邮件绑定时自动创建。' +
+        '</div>' +
         '<input type="hidden" id="license-group-id" value="' + escapeHtml(g.id) + '">' +
         '<div><label class="text-sm text-slate-600">分组名称</label>' +
         '<input type="text" id="license-group-name" value="' + escapeHtml(g.name) + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">描述</label>' +
         '<input type="text" id="license-group-desc" value="' + escapeHtml(g.description || '') + '" class="w-full px-3 py-2 border rounded-lg"></div>' +
-        '<div><label class="text-sm text-slate-600">可信度级别</label>' +
-        '<select id="license-group-trust" class="w-full px-3 py-2 border rounded-lg">' +
-        '<option value="low"' + (trustLevel === 'low' ? ' selected' : '') + '>低可信（试用）- 每天刷新</option>' +
-        '<option value="high"' + (trustLevel === 'high' ? ' selected' : '') + '>高可信（正式）- 每月刷新</option>' +
-        '</select></div>' +
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
         '<button onclick="saveLicenseGroup()" class="flex-1 py-2 bg-blue-600 text-white rounded-lg">保存</button></div>' +
         '</div></div>');
@@ -101,8 +107,7 @@ function saveLicenseGroup() {
     var group = {
         id: document.getElementById('license-group-id').value,
         name: document.getElementById('license-group-name').value,
-        description: document.getElementById('license-group-desc').value,
-        trust_level: document.getElementById('license-group-trust').value
+        description: document.getElementById('license-group-desc').value
     };
     if (!group.name) { alert('分组名称不能为空'); return; }
     
@@ -113,6 +118,14 @@ function saveLicenseGroup() {
 function deleteLicenseGroup(id) {
     if (!confirm('确定要删除此分组吗？')) return;
     fetch('/api/license-groups', {method: 'DELETE', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id})})
-        .then(function() { loadLicenseGroups(); loadLicenses(licenseCurrentPage, licenseSearchTerm); });
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) { 
+            if (result.success) {
+                loadLicenseGroups(); 
+                loadLicenses(licenseCurrentPage, licenseSearchTerm); 
+            } else {
+                alert('删除失败: ' + result.error);
+            }
+        });
 }
 `

@@ -839,6 +839,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/email-records", authMiddleware(handleEmailRecords))
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
 	mux.HandleFunc("/api/email-records/manual-request", authMiddleware(handleManualRequest))
+	mux.HandleFunc("/api/email-records/manual-bind", authMiddleware(handleManualBind))
 	mux.HandleFunc("/api/email-filter", authMiddleware(handleEmailFilter))
 	mux.HandleFunc("/api/whitelist", authMiddleware(handleWhitelist))
 	mux.HandleFunc("/api/blacklist", authMiddleware(handleBlacklist))
@@ -2002,9 +2003,9 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		if g.ID == "" {
 			g.ID = generateShortID()
 		}
-		if g.TrustLevel == "" {
-			g.TrustLevel = "low"
-		}
+		// User-created groups are always low-trust (trial)
+		// Only built-in official groups (created by getOrCreateProductOfficialGroup) can be high-trust
+		g.TrustLevel = "low"
 		db.Exec("INSERT OR REPLACE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, ?)", g.ID, g.Name, g.Description, g.TrustLevel)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": g.ID})
@@ -2013,6 +2014,16 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "DELETE" {
 		var req struct{ ID string `json:"id"` }
 		json.NewDecoder(r.Body).Decode(&req)
+		
+		// Prevent deletion of built-in official groups
+		if strings.HasPrefix(req.ID, "official_") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": false, 
+				"error": "内置正式授权组不能删除",
+			})
+			return
+		}
 		
 		// Check if this group is being used by any licenses
 		var count int
@@ -2584,6 +2595,155 @@ func handleUpdateEmailRecord(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// getOrCreateProductOfficialGroup gets or creates the built-in high-trust official group for a product
+func getOrCreateProductOfficialGroup(productID int) string {
+	productName := getProductName(productID)
+	groupID := fmt.Sprintf("official_%d", productID)
+	groupName := fmt.Sprintf("%s 正式授权", productName)
+	
+	// Check if group exists
+	var existingID string
+	err := db.QueryRow("SELECT id FROM license_groups WHERE id = ?", groupID).Scan(&existingID)
+	if err == nil {
+		return existingID
+	}
+	
+	// Create the group
+	_, err = db.Exec("INSERT INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'high')",
+		groupID, groupName, fmt.Sprintf("%s 产品内置高可信正式授权组", productName))
+	if err != nil {
+		log.Printf("[LICENSE-GROUP] Failed to create official group for product %d: %v", productID, err)
+		return ""
+	}
+	
+	log.Printf("[LICENSE-GROUP] Created official group '%s' for product %s (ID: %d)", groupID, productName, productID)
+	return groupID
+}
+
+// getOrCreateProductTrialGroup gets or creates the built-in low-trust trial group for a product
+func getOrCreateProductTrialGroup(productID int) string {
+	productName := getProductName(productID)
+	groupID := fmt.Sprintf("trial_%d", productID)
+	groupName := fmt.Sprintf("%s 试用授权", productName)
+	
+	// Check if group exists
+	var existingID string
+	err := db.QueryRow("SELECT id FROM license_groups WHERE id = ?", groupID).Scan(&existingID)
+	if err == nil {
+		return existingID
+	}
+	
+	// Create the group
+	_, err = db.Exec("INSERT INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'low')",
+		groupID, groupName, fmt.Sprintf("%s 产品内置低可信试用授权组", productName))
+	if err != nil {
+		log.Printf("[LICENSE-GROUP] Failed to create trial group for product %d: %v", productID, err)
+		return ""
+	}
+	
+	log.Printf("[LICENSE-GROUP] Created trial group '%s' for product %s (ID: %d)", groupID, productName, productID)
+	return groupID
+}
+
+// handleManualBind handles manual SN binding from admin panel (creates new high-trust official license)
+func handleManualBind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	var req struct {
+		Email         string `json:"email"`
+		ProductID     int    `json:"product_id"`
+		Days          int    `json:"days"`
+		LLMGroupID    string `json:"llm_group_id"`
+		SearchGroupID string `json:"search_group_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效的请求格式"})
+		return
+	}
+	
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "无效的邮箱地址"})
+		return
+	}
+	
+	if req.Days <= 0 {
+		req.Days = 365
+	}
+	
+	// Check if email already has a license for this product
+	var existingSN string
+	err := db.QueryRow("SELECT sn FROM email_records WHERE email = ? AND product_id = ?", email, req.ProductID).Scan(&existingSN)
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, 
+			"message": fmt.Sprintf("该邮箱已绑定序列号 %s，请先删除旧记录", existingSN),
+		})
+		return
+	}
+	
+	// Get or create the official high-trust group for this product (manual bind = official)
+	licenseGroupID := getOrCreateProductOfficialGroup(req.ProductID)
+	if licenseGroupID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建授权组失败"})
+		return
+	}
+	
+	// Generate new SN
+	sn := generateSN()
+	now := time.Now()
+	expiresAt := now.AddDate(0, 0, req.Days)
+	
+	// Create the license with high-trust group, unlimited analysis
+	_, err = db.Exec(`INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, 
+		daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) 
+		VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)`,
+		sn, now, expiresAt, req.Days, fmt.Sprintf("手工绑定: %s", email), 
+		licenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建序列号失败: " + err.Error()})
+		return
+	}
+	
+	// Create email record
+	_, err = db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)",
+		email, sn, "admin-manual-bind", now, req.ProductID)
+	if err != nil {
+		// Rollback: delete the license
+		db.Exec("DELETE FROM licenses WHERE sn = ?", sn)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "创建邮箱记录失败: " + err.Error()})
+		return
+	}
+	
+	log.Printf("[MANUAL-BIND] Created high-trust license %s for email %s (Product: %d, Days: %d, Group: %s)", 
+		sn, email, req.ProductID, req.Days, licenseGroupID)
+	
+	// Send email notification
+	go func() {
+		if err := sendSNEmail(email, sn, expiresAt, req.ProductID); err != nil {
+			log.Printf("[EMAIL] Failed to send SN email to %s: %v", email, err)
+		} else {
+			log.Printf("[EMAIL] SN email sent successfully to %s", email)
+		}
+	}()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"sn":      sn,
+		"message": fmt.Sprintf("高可信正式授权，有效期 %d 天", req.Days),
+	})
 }
 
 // handleManualRequest handles manual SN request from admin panel
