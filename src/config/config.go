@@ -106,4 +106,7 @@ type Config struct {
 	// License configuration (for commercial mode)
 	LicenseSN        string `json:"licenseSN,omitempty"`        // Saved license serial number
 	LicenseServerURL string `json:"licenseServerURL,omitempty"` // License server URL
+	
+	// Extra license info from server (product-specific key-value pairs)
+	LicenseExtraInfo map[string]interface{} `json:"licenseExtraInfo,omitempty"`
 }

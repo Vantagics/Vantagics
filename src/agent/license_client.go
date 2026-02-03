@@ -27,6 +27,7 @@ type LicenseClient struct {
 	analysisCount  int       // Today's analysis count
 	analysisDate   string    // Date of analysis count (YYYY-MM-DD)
 	dataDir        string    // Directory to store encrypted data
+	lastRefreshAt  time.Time // Last time we refreshed from server
 }
 
 const (
@@ -36,14 +37,20 @@ const (
 
 // ActivationData contains the decrypted configuration from server
 type ActivationData struct {
-	LLMType       string `json:"llm_type"`
-	LLMBaseURL    string `json:"llm_base_url"`
-	LLMAPIKey     string `json:"llm_api_key"`
-	LLMModel      string `json:"llm_model"`
-	SearchType    string `json:"search_type"`
-	SearchAPIKey  string `json:"search_api_key"`
-	ExpiresAt     string `json:"expires_at"`
-	DailyAnalysis int    `json:"daily_analysis"` // Daily analysis limit, 0 = unlimited
+	LLMType         string                 `json:"llm_type"`
+	LLMBaseURL      string                 `json:"llm_base_url"`
+	LLMAPIKey       string                 `json:"llm_api_key"`
+	LLMModel        string                 `json:"llm_model"`
+	SearchType      string                 `json:"search_type"`
+	SearchAPIKey    string                 `json:"search_api_key"`
+	ExpiresAt       string                 `json:"expires_at"`
+	ActivatedAt     string                 `json:"activated_at"`     // When the license was activated
+	DailyAnalysis   int                    `json:"daily_analysis"`   // Daily analysis limit, 0 = unlimited
+	ProductID       int                    `json:"product_id"`       // Product ID
+	ProductName     string                 `json:"product_name"`     // Product name
+	TrustLevel      string                 `json:"trust_level"`      // "high" (正式) or "low" (试用)
+	RefreshInterval int                    `json:"refresh_interval"` // SN refresh interval in days (1=daily, 30=monthly)
+	ExtraInfo       map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
 }
 
 // ActivationResponse from server
@@ -170,9 +177,14 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	}
 
 	c.data = &data
+	c.lastRefreshAt = time.Now() // Update last refresh time
 	
 	if c.log != nil {
-		c.log(fmt.Sprintf("[LICENSE] Activation successful, expires: %s", data.ExpiresAt))
+		trustLabel := "试用版"
+		if data.TrustLevel == "high" {
+			trustLabel = "正式版"
+		}
+		c.log(fmt.Sprintf("[LICENSE] Activation successful, expires: %s, type: %s", data.ExpiresAt, trustLabel))
 	}
 
 	return &ActivateResult{
@@ -257,15 +269,17 @@ func (c *LicenseClient) SaveActivationData() error {
 
 	// Prepare data to save (include SN for verification)
 	saveData := struct {
-		SN        string          `json:"sn"`
-		Data      *ActivationData `json:"data"`
-		SavedAt   string          `json:"saved_at"`
-		ServerURL string          `json:"server_url"`
+		SN            string          `json:"sn"`
+		Data          *ActivationData `json:"data"`
+		SavedAt       string          `json:"saved_at"`
+		ServerURL     string          `json:"server_url"`
+		LastRefreshAt string          `json:"last_refresh_at"` // Last time we refreshed from server
 	}{
-		SN:        c.sn,
-		Data:      c.data,
-		SavedAt:   time.Now().Format(time.RFC3339),
-		ServerURL: c.serverURL,
+		SN:            c.sn,
+		Data:          c.data,
+		SavedAt:       time.Now().Format(time.RFC3339),
+		ServerURL:     c.serverURL,
+		LastRefreshAt: time.Now().Format(time.RFC3339),
 	}
 
 	jsonData, err := json.Marshal(saveData)
@@ -316,10 +330,11 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 
 	// Parse
 	var saveData struct {
-		SN        string          `json:"sn"`
-		Data      *ActivationData `json:"data"`
-		SavedAt   string          `json:"saved_at"`
-		ServerURL string          `json:"server_url"`
+		SN            string          `json:"sn"`
+		Data          *ActivationData `json:"data"`
+		SavedAt       string          `json:"saved_at"`
+		ServerURL     string          `json:"server_url"`
+		LastRefreshAt string          `json:"last_refresh_at"`
 	}
 	if err := json.Unmarshal(decrypted, &saveData); err != nil {
 		return fmt.Errorf("failed to parse data: %v", err)
@@ -332,7 +347,11 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 
 	// Check expiration
 	if saveData.Data.ExpiresAt != "" {
-		expiresAt, err := time.Parse("2006-01-02", saveData.Data.ExpiresAt)
+		expiresAt, err := time.Parse(time.RFC3339, saveData.Data.ExpiresAt)
+		if err != nil {
+			// Try date-only format
+			expiresAt, err = time.Parse("2006-01-02", saveData.Data.ExpiresAt)
+		}
 		if err == nil && time.Now().After(expiresAt) {
 			return fmt.Errorf("license expired on %s", saveData.Data.ExpiresAt)
 		}
@@ -341,9 +360,16 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 	c.sn = sn
 	c.data = saveData.Data
 	c.serverURL = saveData.ServerURL
+	
+	// Parse last refresh time
+	if saveData.LastRefreshAt != "" {
+		if t, err := time.Parse(time.RFC3339, saveData.LastRefreshAt); err == nil {
+			c.lastRefreshAt = t
+		}
+	}
 
 	if c.log != nil {
-		c.log(fmt.Sprintf("[LICENSE] Loaded activation data from local storage, expires: %s", c.data.ExpiresAt))
+		c.log(fmt.Sprintf("[LICENSE] Loaded activation data from local storage, expires: %s, trust_level: %s", c.data.ExpiresAt, c.data.TrustLevel))
 	}
 
 	return nil
@@ -511,4 +537,161 @@ func (c *LicenseClient) GetAnalysisStatus() (count int, limit int, date string) 
 	}
 	
 	return c.analysisCount, c.data.DailyAnalysis, c.analysisDate
+}
+
+// NeedsRefresh checks if the license needs to be refreshed based on trust level
+// Returns true if refresh is needed, along with the reason
+func (c *LicenseClient) NeedsRefresh() (bool, string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.data == nil {
+		return false, ""
+	}
+
+	// Get refresh interval (default to 1 day for safety)
+	refreshInterval := c.data.RefreshInterval
+	if refreshInterval <= 0 {
+		// Default based on trust level
+		if c.data.TrustLevel == "high" {
+			refreshInterval = 30 // Monthly for high trust
+		} else {
+			refreshInterval = 1 // Daily for low trust
+		}
+	}
+
+	// Check if refresh is needed
+	if c.lastRefreshAt.IsZero() {
+		return true, "首次使用，需要验证授权"
+	}
+
+	daysSinceRefresh := int(time.Since(c.lastRefreshAt).Hours() / 24)
+	if daysSinceRefresh >= refreshInterval {
+		trustLabel := "试用版"
+		if c.data.TrustLevel == "high" {
+			trustLabel = "正式版"
+		}
+		return true, fmt.Sprintf("%s授权需要刷新（已超过%d天）", trustLabel, refreshInterval)
+	}
+
+	return false, ""
+}
+
+// RefreshIfNeeded checks if refresh is needed and performs it if necessary
+// Returns (refreshed, error)
+func (c *LicenseClient) RefreshIfNeeded() (bool, error) {
+	needsRefresh, reason := c.NeedsRefresh()
+	if !needsRefresh {
+		return false, nil
+	}
+
+	if c.log != nil {
+		c.log(fmt.Sprintf("[LICENSE] %s", reason))
+	}
+
+	// Get current SN and server URL
+	c.mu.RLock()
+	sn := c.sn
+	serverURL := c.serverURL
+	c.mu.RUnlock()
+
+	if sn == "" || serverURL == "" {
+		return false, fmt.Errorf("no SN or server URL configured")
+	}
+
+	// Attempt to refresh
+	result, err := c.Activate(serverURL, sn)
+	if err != nil {
+		return false, err
+	}
+
+	if !result.Success {
+		return false, fmt.Errorf("refresh failed: %s", result.Message)
+	}
+
+	// Save updated data
+	if err := c.SaveActivationData(); err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Warning: failed to save refreshed data: %v", err))
+		}
+	}
+
+	if c.log != nil {
+		c.log("[LICENSE] License refreshed successfully")
+	}
+
+	return true, nil
+}
+
+// GetTrustLevel returns the current trust level
+func (c *LicenseClient) GetTrustLevel() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.data == nil {
+		return ""
+	}
+	return c.data.TrustLevel
+}
+
+// GetRefreshInterval returns the refresh interval in days
+func (c *LicenseClient) GetRefreshInterval() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.data == nil {
+		return 0
+	}
+
+	if c.data.RefreshInterval > 0 {
+		return c.data.RefreshInterval
+	}
+
+	// Default based on trust level
+	if c.data.TrustLevel == "high" {
+		return 30
+	}
+	return 1
+}
+
+// GetLastRefreshAt returns the last refresh time
+func (c *LicenseClient) GetLastRefreshAt() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastRefreshAt
+}
+
+// GetLicenseStatus returns a summary of the license status
+func (c *LicenseClient) GetLicenseStatus() map[string]interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	status := make(map[string]interface{})
+	
+	if c.data == nil {
+		status["activated"] = false
+		return status
+	}
+
+	status["activated"] = true
+	status["sn"] = c.sn
+	status["expires_at"] = c.data.ExpiresAt
+	status["trust_level"] = c.data.TrustLevel
+	status["refresh_interval"] = c.GetRefreshInterval()
+	status["product_name"] = c.data.ProductName
+	status["daily_analysis"] = c.data.DailyAnalysis
+
+	if !c.lastRefreshAt.IsZero() {
+		status["last_refresh_at"] = c.lastRefreshAt.Format(time.RFC3339)
+		daysSinceRefresh := int(time.Since(c.lastRefreshAt).Hours() / 24)
+		status["days_since_refresh"] = daysSinceRefresh
+	}
+
+	needsRefresh, reason := c.NeedsRefresh()
+	status["needs_refresh"] = needsRefresh
+	if needsRefresh {
+		status["refresh_reason"] = reason
+	}
+
+	return status
 }

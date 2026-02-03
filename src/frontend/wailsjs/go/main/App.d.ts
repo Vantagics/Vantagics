@@ -21,6 +21,8 @@ export function CancelShopifyOAuth():Promise<void>;
 
 export function CheckComponentHasData(arg1:string,arg2:string):Promise<boolean>;
 
+export function CheckLicenseActivationFailed():Promise<boolean>;
+
 export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
 
 export function CheckVantageDataEnvironmentExists():Promise<boolean>;
@@ -140,6 +142,8 @@ export function GetErrorKnowledgeSummary():Promise<main.ErrorKnowledgeSummary>;
 export function GetFilesByCategory(arg1:string):Promise<Array<database.FileInfo>>;
 
 export function GetJiraProjects(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<main.JiraProject>>;
+
+export function GetLicenseActivationError():Promise<string>;
 
 export function GetLogStats():Promise<main.LogStats>;
 

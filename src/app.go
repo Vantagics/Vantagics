@@ -134,7 +134,9 @@ type App struct {
 	// Event aggregator for analysis results
 	eventAggregator *EventAggregator
 	// License client for activation
-	licenseClient *agent.LicenseClient
+	licenseClient             *agent.LicenseClient
+	licenseActivationFailed   bool   // True if license activation/refresh failed
+	licenseActivationError    string // Error message to show user
 }
 
 // AgentMemoryView structure for frontend
@@ -409,40 +411,149 @@ func (a *App) startup(ctx context.Context) {
 		a.licenseClient = agent.NewLicenseClient(a.Log)
 		if cfg.LicenseSN != "" && cfg.LicenseServerURL != "" {
 			a.Log("[STARTUP] Found saved license SN, attempting auto-activation...")
-			_, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
-			if err != nil {
-				a.Log(fmt.Sprintf("[STARTUP] Auto-activation failed: %v", err))
-			} else {
-				a.Log("[STARTUP] License auto-activated successfully")
-				// Update config with activated LLM settings
-				if activationData := a.licenseClient.GetData(); activationData != nil && activationData.LLMAPIKey != "" {
-					// Map license server LLM types to the expected provider names
-					llmType := activationData.LLMType
-					baseURL := activationData.LLMBaseURL
-					switch strings.ToLower(llmType) {
-					case "openai":
-						llmType = "OpenAI"
-					case "anthropic":
-						llmType = "Anthropic"
-					case "gemini":
-						llmType = "Gemini"
-					case "deepseek":
-						llmType = "OpenAI-Compatible"
-						if baseURL == "" {
-							baseURL = "https://api.deepseek.com"
+			
+			// First try to load from local cache
+			loadErr := a.licenseClient.LoadActivationData(cfg.LicenseSN)
+			if loadErr != nil {
+				a.Log(fmt.Sprintf("[STARTUP] No local cache or invalid: %v, activating from server...", loadErr))
+				// No local cache, activate from server with exponential backoff retry
+				activationSuccess := false
+				var lastErr error
+				for retry := 0; retry < 10; retry++ {
+					if retry > 0 {
+						// Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s
+						backoff := time.Duration(1<<retry) * time.Second
+						if backoff > 60*time.Second {
+							backoff = 60 * time.Second // Cap at 60 seconds
 						}
-					case "openai-compatible":
-						llmType = "OpenAI-Compatible"
-					case "claude-compatible":
-						llmType = "Claude-Compatible"
+						a.Log(fmt.Sprintf("[STARTUP] Retry %d/10 in %v...", retry+1, backoff))
+						time.Sleep(backoff)
 					}
-					cfg.LLMProvider = llmType
-					cfg.APIKey = activationData.LLMAPIKey
-					cfg.BaseURL = baseURL
-					cfg.ModelName = activationData.LLMModel
-					a.Log(fmt.Sprintf("[STARTUP] Using activated LLM config: provider=%s (mapped from %s), model=%s, baseURL=%s",
-						cfg.LLMProvider, activationData.LLMType, cfg.ModelName, cfg.BaseURL))
+					result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
+					if err != nil {
+						lastErr = err
+						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d failed: %v", retry+1, err))
+						continue
+					}
+					if !result.Success {
+						lastErr = fmt.Errorf("%s", result.Message)
+						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d rejected: %s", retry+1, result.Message))
+						// If server explicitly rejects (invalid SN, expired, etc.), don't retry
+						if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+							break
+						}
+						continue
+					}
+					activationSuccess = true
+					a.Log("[STARTUP] License auto-activated successfully")
+					// Save to local cache
+					if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
+						a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save activation data: %v", saveErr))
+					}
+					break
 				}
+				
+				if !activationSuccess {
+					a.Log(fmt.Sprintf("[STARTUP] FATAL: License activation failed after 10 retries: %v", lastErr))
+					a.licenseActivationFailed = true
+					a.licenseActivationError = fmt.Sprintf("授权验证失败: %v\n请检查网络连接或联系管理员。", lastErr)
+				}
+			} else {
+				a.Log("[STARTUP] Loaded license from local cache")
+				
+				// Check if refresh is needed based on trust level
+				needsRefresh, reason := a.licenseClient.NeedsRefresh()
+				if needsRefresh {
+					a.Log(fmt.Sprintf("[STARTUP] %s, refreshing...", reason))
+					
+					// Exponential backoff retry for refresh
+					refreshSuccess := false
+					var lastErr error
+					for retry := 0; retry < 10; retry++ {
+						if retry > 0 {
+							backoff := time.Duration(1<<retry) * time.Second
+							if backoff > 60*time.Second {
+								backoff = 60 * time.Second
+							}
+							a.Log(fmt.Sprintf("[STARTUP] Refresh retry %d/10 in %v...", retry+1, backoff))
+							time.Sleep(backoff)
+						}
+						result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
+						if err != nil {
+							lastErr = err
+							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d failed: %v", retry+1, err))
+							continue
+						}
+						if !result.Success {
+							lastErr = fmt.Errorf("%s", result.Message)
+							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d rejected: %s", retry+1, result.Message))
+							// If server explicitly rejects, don't retry
+							if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+								break
+							}
+							continue
+						}
+						refreshSuccess = true
+						a.Log("[STARTUP] License refreshed successfully")
+						if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
+							a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save refreshed data: %v", saveErr))
+						}
+						break
+					}
+					
+					if !refreshSuccess {
+						a.Log(fmt.Sprintf("[STARTUP] FATAL: License refresh failed after 10 retries: %v", lastErr))
+						a.licenseActivationFailed = true
+						a.licenseActivationError = fmt.Sprintf("授权刷新失败: %v\n您的授权需要重新验证，请检查网络连接或联系管理员。", lastErr)
+						// Clear the cached data since it's no longer valid
+						a.licenseClient.Clear()
+					}
+				} else {
+					trustLevel := a.licenseClient.GetTrustLevel()
+					refreshInterval := a.licenseClient.GetRefreshInterval()
+					trustLabel := "试用版"
+					if trustLevel == "high" {
+						trustLabel = "正式版"
+					}
+					a.Log(fmt.Sprintf("[STARTUP] License valid (%s, refresh every %d days)", trustLabel, refreshInterval))
+				}
+			}
+			
+			// Check if activation/refresh failed - will show error dialog and exit
+			if a.licenseActivationFailed {
+				a.Log("[STARTUP] License validation failed, application will show error and exit")
+				// Don't continue with LLM initialization
+				return
+			}
+			
+			// Update config with activated LLM settings
+			if activationData := a.licenseClient.GetData(); activationData != nil && activationData.LLMAPIKey != "" {
+				// Map license server LLM types to the expected provider names
+				llmType := activationData.LLMType
+				baseURL := activationData.LLMBaseURL
+				switch strings.ToLower(llmType) {
+				case "openai":
+					llmType = "OpenAI"
+				case "anthropic":
+					llmType = "Anthropic"
+				case "gemini":
+					llmType = "Gemini"
+				case "deepseek":
+					llmType = "OpenAI-Compatible"
+					if baseURL == "" {
+						baseURL = "https://api.deepseek.com"
+					}
+				case "openai-compatible":
+					llmType = "OpenAI-Compatible"
+				case "claude-compatible":
+					llmType = "Claude-Compatible"
+				}
+				cfg.LLMProvider = llmType
+				cfg.APIKey = activationData.LLMAPIKey
+				cfg.BaseURL = baseURL
+				cfg.ModelName = activationData.LLMModel
+				a.Log(fmt.Sprintf("[STARTUP] Using activated LLM config: provider=%s (mapped from %s), model=%s, baseURL=%s",
+					cfg.LLMProvider, activationData.LLMType, cfg.ModelName, cfg.BaseURL))
 			}
 		}
 
@@ -7134,6 +7245,19 @@ func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
 		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save activation data: %v", err))
 	}
 
+	// Save extra info to config file
+	if result.Data != nil && result.Data.ExtraInfo != nil && len(result.Data.ExtraInfo) > 0 {
+		cfg, err := a.GetConfig()
+		if err == nil {
+			cfg.LicenseExtraInfo = result.Data.ExtraInfo
+			if saveErr := a.SaveConfig(cfg); saveErr != nil {
+				a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save extra info to config: %v", saveErr))
+			} else {
+				a.Log(fmt.Sprintf("[LICENSE] Saved %d extra info items to config", len(result.Data.ExtraInfo)))
+			}
+		}
+	}
+
 	// Reinitialize services with the new license configuration
 	cfg, _ := a.GetConfig()
 	a.reinitializeServices(cfg)
@@ -7178,6 +7302,15 @@ func (a *App) RequestSN(serverURL, email string) (*RequestSNResult, error) {
 
 // GetActivationStatus returns the current activation status
 func (a *App) GetActivationStatus() map[string]interface{} {
+	// Check if activation failed during startup
+	if a.licenseActivationFailed {
+		return map[string]interface{}{
+			"activated":        false,
+			"activation_failed": true,
+			"error_message":    a.licenseActivationError,
+		}
+	}
+	
 	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
 		return map[string]interface{}{
 			"activated": false,
@@ -7199,7 +7332,19 @@ func (a *App) GetActivationStatus() map[string]interface{} {
 		"daily_analysis_limit": limit,
 		"daily_analysis_count": count,
 		"daily_analysis_date":  date,
+		"trust_level":          data.TrustLevel,
+		"refresh_interval":     data.RefreshInterval,
 	}
+}
+
+// CheckLicenseActivationFailed returns true if license activation failed during startup
+func (a *App) CheckLicenseActivationFailed() bool {
+	return a.licenseActivationFailed
+}
+
+// GetLicenseActivationError returns the license activation error message
+func (a *App) GetLicenseActivationError() string {
+	return a.licenseActivationError
 }
 
 // LoadSavedActivation attempts to load saved activation data from local storage
@@ -7239,6 +7384,23 @@ func (a *App) DeactivateLicense() {
 	if a.licenseClient != nil {
 		a.licenseClient.ClearSavedData()
 	}
+	
+	// Clear license info from config
+	cfg, err := a.GetConfig()
+	if err == nil {
+		cfg.LicenseExtraInfo = nil
+		cfg.LicenseSN = ""
+		cfg.LicenseServerURL = ""
+		if saveErr := a.SaveConfig(cfg); saveErr != nil {
+			a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear license info from config: %v", saveErr))
+		} else {
+			a.Log("[LICENSE] Cleared license info from config")
+		}
+	}
+	
+	// Reset activation failed flag
+	a.licenseActivationFailed = false
+	a.licenseActivationError = ""
 }
 
 // RefreshLicense refreshes the license from server using stored SN

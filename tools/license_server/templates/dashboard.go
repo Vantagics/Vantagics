@@ -13,8 +13,10 @@ func GetDashboardHTML() string {
 		EmailFilterHTML,
 		ProductTypesHTML,
 		LicenseGroupsHTML,
+		APIKeysHTML,
 		LLMConfigHTML,
 		SearchConfigHTML,
+		BackupHTML,
 		SettingsHTML,
 	}, "\n")
 	
@@ -26,8 +28,10 @@ func GetDashboardHTML() string {
 		EmailFilterScripts,
 		ProductTypesScripts,
 		LicenseGroupsScripts,
+		APIKeysScripts,
 		LLMConfigScripts,
 		SearchConfigScripts,
+		BackupScripts,
 		SettingsScripts,
 		InitScripts,
 	}, "\n")

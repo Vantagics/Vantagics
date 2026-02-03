@@ -14,9 +14,15 @@ USER="root"
 PASS="sunion123"
 REMOTE_DIR="/root/license_server"
 
+# SSH options to handle host key changes
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
 echo "=========================================="
 echo "VantageData License Server Build"
 echo "=========================================="
+
+# Remove old host key if exists (in case server was reinstalled)
+ssh-keygen -R "$SERVER" 2>/dev/null || true
 
 # Build macOS version locally
 echo ""
@@ -29,25 +35,29 @@ echo ""
 echo "[2/2] Building for Linux on $SERVER..."
 
 echo "      Creating remote directory..."
-sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "mkdir -p $REMOTE_DIR"
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "mkdir -p $REMOTE_DIR"
 
 echo "      Uploading source files..."
-sshpass -p "$PASS" scp -o StrictHostKeyChecking=no main.go go.mod go.sum "$USER@$SERVER:$REMOTE_DIR/"
-sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "mkdir -p $REMOTE_DIR/templates"
-sshpass -p "$PASS" scp -o StrictHostKeyChecking=no templates/*.go "$USER@$SERVER:$REMOTE_DIR/templates/"
+sshpass -p "$PASS" scp $SSH_OPTS main.go go.mod go.sum "$USER@$SERVER:$REMOTE_DIR/"
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "mkdir -p $REMOTE_DIR/templates"
+sshpass -p "$PASS" scp $SSH_OPTS templates/*.go "$USER@$SERVER:$REMOTE_DIR/templates/"
 
 echo "      Compiling on server..."
-sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no "$USER@$SERVER" "cd $REMOTE_DIR && go mod tidy && CGO_ENABLED=1 go build -o license_server ."
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "cd $REMOTE_DIR && go mod tidy && CGO_ENABLED=1 go build -o license_server ."
 
 echo "      Done: $REMOTE_DIR/license_server"
 
 echo ""
+echo "[3/3] Restarting server..."
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "/root/runsrv.sh"
+echo "      Server restarted"
+
+echo ""
 echo "=========================================="
-echo "Build Complete"
+echo "Build & Deploy Complete"
 echo "=========================================="
 echo ""
 echo "macOS: $BUILD_DIR/license_server_macos"
 echo "Linux: $USER@$SERVER:$REMOTE_DIR/license_server"
 echo ""
-echo "To run on server:"
-echo "  ssh $USER@$SERVER '$REMOTE_DIR/license_server'"
+echo "Server is running on $SERVER"

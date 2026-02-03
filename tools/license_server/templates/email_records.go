@@ -6,14 +6,18 @@ const EmailRecordsHTML = `
     <div class="bg-white rounded-xl shadow-sm p-6">
         <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-bold text-slate-800">邮箱申请记录</h2>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <select id="email-product-filter" onchange="filterEmailsByProduct()" class="px-3 py-1.5 border rounded-lg text-sm">
                     <option value="-1">全部产品</option>
                     <option value="0">VantageData (ID: 0)</option>
                 </select>
-                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-64" onkeypress="if(event.key==='Enter')searchEmails()">
+                <select id="email-license-group-filter" onchange="filterEmailsByLicenseGroup()" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <option value="">全部序列号组</option>
+                    <option value="none">默认(无组)</option>
+                </select>
+                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchEmails()">
                 <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
-                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工申请</button>
+                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工绑定</button>
             </div>
         </div>
         <div id="email-records-list" class="space-y-3"></div>
@@ -27,6 +31,7 @@ const EmailRecordsScripts = `
 // Store email records data for button handlers
 var emailRecordsData = {};
 var emailProductFilter = -1;
+var emailLicenseGroupFilter = '';
 
 function initEmailProductFilter() {
     var select = document.getElementById('email-product-filter');
@@ -45,6 +50,11 @@ function filterEmailsByProduct() {
     loadEmailRecords(1, emailSearchTerm);
 }
 
+function filterEmailsByLicenseGroup() {
+    emailLicenseGroupFilter = document.getElementById('email-license-group-filter').value;
+    loadEmailRecords(1, emailSearchTerm);
+}
+
 function loadEmailRecords(page, search) {
     page = page || 1;
     search = search || '';
@@ -54,6 +64,9 @@ function loadEmailRecords(page, search) {
     var params = new URLSearchParams({page: page.toString(), pageSize: '15', search: search});
     if (emailProductFilter >= 0) {
         params.set('product_id', emailProductFilter.toString());
+    }
+    if (emailLicenseGroupFilter) {
+        params.set('license_group', emailLicenseGroupFilter);
     }
     fetch('/api/email-records?' + params).then(function(resp) { return resp.json(); }).then(function(data) {
         var list = document.getElementById('email-records-list');
@@ -114,6 +127,14 @@ function loadEmailRecords(page, search) {
                 html += '<span class="text-sm text-slate-600">' + escapeHtml(r.email) + '</span>';
                 html += '<code class="font-mono text-blue-600 font-bold">' + escapeHtml(r.sn) + '</code>';
                 html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + (productName || 'VantageData') + '</span>';
+                // Show trust level badge
+                var licenseGroup = licenseGroups.find(function(g) { return g.id === license.license_group_id; });
+                var trustLevel = licenseGroup ? licenseGroup.trust_level : 'low';
+                if (trustLevel === 'high') {
+                    html += '<span class="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">🔒 高可信(正式)</span>';
+                } else {
+                    html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">⚠️ 低可信(试用)</span>';
+                }
                 if (!isActive) html += '<span class="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">已禁用</span>';
                 if (isExpired) html += '<span class="px-2 py-0.5 bg-orange-100 text-orange-700 text-xs rounded">已过期</span>';
                 html += '</div>';
@@ -214,12 +235,72 @@ function showManualRequest() {
     var productOpts = '<option value="0">VantageData (ID: 0)</option>';
     productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
     
-    showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">手工申请序列号</h3><div class="space-y-3">' +
-        '<p class="text-xs text-slate-500">此功能模拟用户通过邮箱申请序列号的流程，会检查白名单、黑名单、条件邮箱等规则。</p>' +
+    var llmGroupOpts = '<option value="">默认</option>';
+    llmGroups.forEach(function(g) { llmGroupOpts += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
+    
+    var searchGroupOpts = '<option value="">默认</option>';
+    searchGroups.forEach(function(g) { searchGroupOpts += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });
+    
+    showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">🎫 手工绑定序列号</h3><div class="space-y-3">' +
+        '<p class="text-xs text-slate-500 bg-blue-50 p-2 rounded">此功能为指定邮箱创建新的高可信正式授权序列号，绑定到产品内置的正式授权组。</p>' +
         '<div><label class="text-sm text-slate-600">邮箱地址 *</label><input type="email" id="manual-email" placeholder="user@example.com" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">产品类型</label><select id="manual-product" class="w-full px-3 py-2 border rounded-lg">' + productOpts + '</select></div>' +
-        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doManualRequest()" class="flex-1 py-2 bg-green-600 text-white rounded-lg">申请</button></div>' +
+        '<div><label class="text-sm text-slate-600">有效期（天）</label><input type="number" id="manual-days" value="365" min="1" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div class="grid grid-cols-2 gap-3">' +
+        '<div><label class="text-sm text-slate-600">LLM 分组</label><select id="manual-llm-group" class="w-full px-3 py-2 border rounded-lg">' + llmGroupOpts + '</select></div>' +
+        '<div><label class="text-sm text-slate-600">搜索引擎分组</label><select id="manual-search-group" class="w-full px-3 py-2 border rounded-lg">' + searchGroupOpts + '</select></div>' +
+        '</div>' +
+        '<div class="p-2 bg-green-50 rounded text-xs text-green-700">' +
+        '<strong>✓ 高可信正式授权</strong>：每月刷新一次，分析次数无限制' +
+        '</div>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doManualBind()" class="flex-1 py-2 bg-green-600 text-white rounded-lg">创建并绑定</button></div>' +
         '</div></div>');
+}
+
+function doManualBind() {
+    var email = document.getElementById('manual-email').value.trim().toLowerCase();
+    var productId = parseInt(document.getElementById('manual-product').value) || 0;
+    var days = parseInt(document.getElementById('manual-days').value) || 365;
+    var llmGroupId = document.getElementById('manual-llm-group').value;
+    var searchGroupId = document.getElementById('manual-search-group').value;
+    
+    if (!email || !email.includes('@') || !email.includes('.')) {
+        alert('请输入有效的邮箱地址');
+        return;
+    }
+    
+    if (days < 1) {
+        alert('有效期必须大于0天');
+        return;
+    }
+    
+    fetch('/api/email-records/manual-bind', {
+        method: 'POST', 
+        headers: {'Content-Type': 'application/json'}, 
+        body: JSON.stringify({
+            email: email, 
+            product_id: productId,
+            days: days,
+            llm_group_id: llmGroupId,
+            search_group_id: searchGroupId
+        })
+    })
+    .then(function(resp) { return resp.json(); })
+    .then(function(result) { 
+        hideModal(); 
+        if (result.success) { 
+            alert('绑定成功！\\n\\n序列号: ' + result.sn + '\\n有效期: ' + days + '天\\n授权类型: 高可信正式授权\\n分析次数: 无限制');
+            emailProductFilter = -1;
+            document.getElementById('email-product-filter').value = '-1';
+            loadEmailRecords(1, email); 
+        } else { 
+            alert('绑定失败: ' + result.message); 
+        } 
+    })
+    .catch(function(err) {
+        hideModal();
+        alert('请求失败: ' + err);
+    });
 }
 
 function doManualRequest() {
