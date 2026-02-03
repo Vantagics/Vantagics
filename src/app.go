@@ -419,6 +419,8 @@ func (a *App) startup(ctx context.Context) {
 				// No local cache, activate from server with exponential backoff retry
 				activationSuccess := false
 				var lastErr error
+				var serverRejected bool // True if server explicitly rejected the SN
+				var rejectionCode string
 				for retry := 0; retry < 10; retry++ {
 					if retry > 0 {
 						// Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s
@@ -437,9 +439,11 @@ func (a *App) startup(ctx context.Context) {
 					}
 					if !result.Success {
 						lastErr = fmt.Errorf("%s", result.Message)
-						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d rejected: %s", retry+1, result.Message))
+						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d rejected: %s (code: %s)", retry+1, result.Message, result.Code))
 						// If server explicitly rejects (invalid SN, expired, etc.), don't retry
 						if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+							serverRejected = true
+							rejectionCode = result.Code
 							break
 						}
 						continue
@@ -454,9 +458,23 @@ func (a *App) startup(ctx context.Context) {
 				}
 				
 				if !activationSuccess {
-					a.Log(fmt.Sprintf("[STARTUP] FATAL: License activation failed after 10 retries: %v", lastErr))
-					a.licenseActivationFailed = true
-					a.licenseActivationError = fmt.Sprintf("授权验证失败: %v\n请检查网络连接或联系管理员。", lastErr)
+					if serverRejected {
+						// Server explicitly rejected the SN - switch to open source mode
+						a.Log(fmt.Sprintf("[STARTUP] License rejected by server (code: %s), switching to open source mode", rejectionCode))
+						// Clear license data
+						a.licenseClient.ClearSavedData()
+						a.licenseClient.Clear()
+						// Clear license info from config
+						cfg.LicenseSN = ""
+						cfg.LicenseServerURL = ""
+						a.SaveConfig(cfg)
+						// Continue with open source mode (don't set licenseActivationFailed)
+					} else {
+						// Network or other error - show error and exit
+						a.Log(fmt.Sprintf("[STARTUP] FATAL: License activation failed after 10 retries: %v", lastErr))
+						a.licenseActivationFailed = true
+						a.licenseActivationError = fmt.Sprintf("授权验证失败: %v\n请检查网络连接或联系管理员。", lastErr)
+					}
 				}
 			} else {
 				a.Log("[STARTUP] Loaded license from local cache")
@@ -469,6 +487,8 @@ func (a *App) startup(ctx context.Context) {
 					// Exponential backoff retry for refresh
 					refreshSuccess := false
 					var lastErr error
+					var serverRejected bool
+					var rejectionCode string
 					for retry := 0; retry < 10; retry++ {
 						if retry > 0 {
 							backoff := time.Duration(1<<retry) * time.Second
@@ -486,9 +506,11 @@ func (a *App) startup(ctx context.Context) {
 						}
 						if !result.Success {
 							lastErr = fmt.Errorf("%s", result.Message)
-							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d rejected: %s", retry+1, result.Message))
+							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d rejected: %s (code: %s)", retry+1, result.Message, result.Code))
 							// If server explicitly rejects, don't retry
 							if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+								serverRejected = true
+								rejectionCode = result.Code
 								break
 							}
 							continue
@@ -502,11 +524,25 @@ func (a *App) startup(ctx context.Context) {
 					}
 					
 					if !refreshSuccess {
-						a.Log(fmt.Sprintf("[STARTUP] FATAL: License refresh failed after 10 retries: %v", lastErr))
-						a.licenseActivationFailed = true
-						a.licenseActivationError = fmt.Sprintf("授权刷新失败: %v\n您的授权需要重新验证，请检查网络连接或联系管理员。", lastErr)
-						// Clear the cached data since it's no longer valid
-						a.licenseClient.Clear()
+						if serverRejected {
+							// Server explicitly rejected the SN - switch to open source mode
+							a.Log(fmt.Sprintf("[STARTUP] License rejected by server during refresh (code: %s), switching to open source mode", rejectionCode))
+							// Clear license data
+							a.licenseClient.ClearSavedData()
+							a.licenseClient.Clear()
+							// Clear license info from config
+							cfg.LicenseSN = ""
+							cfg.LicenseServerURL = ""
+							a.SaveConfig(cfg)
+							// Continue with open source mode (don't set licenseActivationFailed)
+						} else {
+							// Network or other error - show error and exit
+							a.Log(fmt.Sprintf("[STARTUP] FATAL: License refresh failed after 10 retries: %v", lastErr))
+							a.licenseActivationFailed = true
+							a.licenseActivationError = fmt.Sprintf("授权刷新失败: %v\n您的授权需要重新验证，请检查网络连接或联系管理员。", lastErr)
+							// Clear the cached data since it's no longer valid
+							a.licenseClient.Clear()
+						}
 					}
 				} else {
 					trustLevel := a.licenseClient.GetTrustLevel()
@@ -7211,10 +7247,11 @@ func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []A
 
 // ActivationResult represents the result of license activation
 type ActivationResult struct {
-	Success   bool   `json:"success"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	ExpiresAt string `json:"expires_at,omitempty"`
+	Success          bool   `json:"success"`
+	Code             string `json:"code"`
+	Message          string `json:"message"`
+	ExpiresAt        string `json:"expires_at,omitempty"`
+	SwitchedToOSS    bool   `json:"switched_to_oss,omitempty"`    // True if switched to open source mode
 }
 
 // ActivateLicense activates the application with a license server
@@ -7450,7 +7487,49 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 	}
 
 	if !result.Success {
-		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %s", result.Message))
+		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %s (code: %s)", result.Message, result.Code))
+		
+		// Check if the license was disabled, deleted, or invalidated on server
+		// In these cases, switch to open source mode
+		if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+			a.Log(fmt.Sprintf("[LICENSE] License is no longer valid (code: %s), switching to open source mode", result.Code))
+			
+			// Clear license data
+			if err := a.licenseClient.ClearSavedData(); err != nil {
+				a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear saved license data: %v", err))
+			}
+			a.licenseClient.Clear()
+			
+			// Clear license info from config
+			cfg, _ := a.GetConfig()
+			cfg.LicenseSN = ""
+			cfg.LicenseServerURL = ""
+			a.SaveConfig(cfg)
+			
+			// Reinitialize services with user's own config (open source mode)
+			a.reinitializeServices(cfg)
+			
+			// Return with switched_to_oss flag
+			var message string
+			switch result.Code {
+			case "INVALID_SN":
+				message = "序列号无效，已切换到开源模式。请使用您自己的 LLM API 配置。"
+			case "SN_EXPIRED":
+				message = "序列号已过期，已切换到开源模式。请使用您自己的 LLM API 配置。"
+			case "SN_DISABLED":
+				message = "序列号已被禁用，已切换到开源模式。请使用您自己的 LLM API 配置。"
+			default:
+				message = "授权已失效，已切换到开源模式。请使用您自己的 LLM API 配置。"
+			}
+			
+			return &ActivationResult{
+				Success:       false,
+				Code:          result.Code,
+				Message:       message,
+				SwitchedToOSS: true,
+			}, nil
+		}
+		
 		return &ActivationResult{
 			Success: false,
 			Code:    result.Code,

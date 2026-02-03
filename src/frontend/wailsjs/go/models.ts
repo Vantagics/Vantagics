@@ -1239,6 +1239,7 @@ export namespace main {
 	    code: string;
 	    message: string;
 	    expires_at?: string;
+	    switched_to_oss?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ActivationResult(source);
@@ -1250,6 +1251,7 @@ export namespace main {
 	        this.code = source["code"];
 	        this.message = source["message"];
 	        this.expires_at = source["expires_at"];
+	        this.switched_to_oss = source["switched_to_oss"];
 	    }
 	}
 	export class AgentMemoryView {

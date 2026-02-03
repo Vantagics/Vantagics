@@ -177,7 +177,20 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     sn: status.sn,
                 });
             } else {
-                setToast({ message: result.message || '授权刷新失败', type: 'error' });
+                // Check if switched to open source mode
+                if (result.switched_to_oss) {
+                    setToast({ message: result.message || '授权已失效，已切换到开源模式', type: 'warning' });
+                    // Update UI to reflect open source mode
+                    setIsCommercialMode(false);
+                    setActivationInfo(null);
+                    // Reload config to get updated settings
+                    const newConfig = await GetConfig();
+                    setConfig(newConfig);
+                    // Switch to LLM config tab so user can configure their own API
+                    setActiveTab('llm');
+                } else {
+                    setToast({ message: result.message || '授权刷新失败', type: 'error' });
+                }
             }
         } catch (err) {
             console.error('Failed to refresh license:', err);

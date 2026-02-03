@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, BarChart3, CreditCard } from 'lucide-react';
+import { X, BarChart3, CreditCard, Globe } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { GetActivationStatus } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
@@ -10,6 +10,7 @@ interface AboutModalProps {
 }
 
 const PURCHASE_URL = 'https://vantagedata.chat/purchase';
+const WEBSITE_URL = 'https://vantagedata.chat';
 
 const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     const { t, language } = useLanguage();
@@ -181,6 +182,15 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     <p className="text-center text-xs text-slate-400 pt-1">
                         © 2026 VantageData
                     </p>
+
+                    {/* Website Link */}
+                    <button
+                        onClick={() => BrowserOpenURL(WEBSITE_URL)}
+                        className="w-full flex items-center justify-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 hover:underline transition-colors"
+                    >
+                        <Globe className="w-3.5 h-3.5" />
+                        vantagedata.chat
+                    </button>
                 </div>
             </div>
         </div>
