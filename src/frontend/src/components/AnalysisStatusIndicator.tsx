@@ -69,8 +69,13 @@ function getStageDisplayName(stage: string, t: (key: string) => string): string 
     const stageKeys: Record<string, string> = {
         'waiting': 'stage_waiting',
         'initializing': 'stage_initializing',
-        'analyzing': 'stage_analyzing',
+        'schema': 'stage_schema',
+        'query': 'stage_query',
+        'analysis': 'stage_analyzing',
+        'visualization': 'stage_visualization',
         'generating': 'stage_generating',
+        'exporting': 'stage_exporting',
+        'searching': 'stage_searching',
         'complete': 'stage_complete',
         'error': 'stage_error'
     };
@@ -227,12 +232,24 @@ const FullIndicator: React.FC<{
 }> = ({ progress, elapsedTime, showMessage, showProgress, showCancelButton, onCancel, className = '', t }) => {
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     
-    const displayMessage = progress?.message || t('processing');
     const displayStage = progress?.stage ? getStageDisplayName(progress.stage, t) : '';
     const progressPercent = progress?.progress ?? 0;
     const stepInfo = progress?.step && progress?.total 
-        ? `(${progress.step}/${progress.total})` 
+        ? `${progress.step}/${progress.total}` 
         : '';
+    
+    // Resolve the message: if it's an i18n key (starts with "progress."), translate it; otherwise use as-is
+    const resolvedMessage = useMemo(() => {
+        if (!progress?.message) return t('processing');
+        const msg = progress.message;
+        // If it looks like an i18n key, try to translate
+        if (msg.startsWith('progress.')) {
+            const translated = t(msg);
+            // If translation returns the key itself, it wasn't found — use a fallback
+            return translated === msg ? msg.replace('progress.', '').replace(/_/g, ' ') : translated;
+        }
+        return msg;
+    }, [progress?.message, t]);
     
     const handleCancelClick = () => {
         setShowConfirmDialog(true);
@@ -263,7 +280,12 @@ const FullIndicator: React.FC<{
                             <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
                             {displayStage && (
                                 <span className="text-sm font-medium text-blue-700">
-                                    {displayStage} {stepInfo}
+                                    {displayStage}
+                                </span>
+                            )}
+                            {stepInfo && (
+                                <span className="text-xs text-slate-400 font-mono">
+                                    [{stepInfo}]
                                 </span>
                             )}
                         </div>
@@ -290,9 +312,9 @@ const FullIndicator: React.FC<{
                     )}
                     
                     {/* 消息 */}
-                    {showMessage && displayMessage && (
+                    {showMessage && resolvedMessage && (
                         <p className="text-sm text-slate-600">
-                            {displayMessage}
+                            {resolvedMessage}
                         </p>
                     )}
                 </div>
@@ -355,7 +377,7 @@ const ErrorIndicator: React.FC<{
             <div className={`inline-flex items-center gap-2 ${className}`}>
                 <IconComponent className={`w-4 h-4 ${style.iconColor} flex-shrink-0`} />
                 <span className={`text-sm ${style.textColor} truncate max-w-[200px]`}>
-                    {error.message}
+                    {error.message.startsWith('progress.') ? t(error.message) : error.message}
                 </span>
             </div>
         );
@@ -390,7 +412,7 @@ const ErrorIndicator: React.FC<{
                 </div>
                 
                 <p className={`text-sm ${style.textColor}`}>
-                    {error.message}
+                    {error.message.startsWith('progress.') ? t(error.message) : error.message}
                 </p>
                 
                 {error.code && error.code !== 'ANALYSIS_ERROR' && (
@@ -438,10 +460,16 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
     // 使用 useSessionStatus hook 获取会话状态
     const { isLoading, progress, error, elapsedTime } = useSessionStatus(threadId);
     
-    // 计算显示消息
+    // 计算显示消息（解析 i18n key）
     const displayMessage = useMemo(() => {
         if (progress?.message) {
-            return progress.message;
+            const msg = progress.message;
+            // If it looks like an i18n key, translate it
+            if (msg.startsWith('progress.')) {
+                const translated = t(msg);
+                return translated === msg ? msg.replace('progress.', '').replace(/_/g, ' ') : translated;
+            }
+            return msg;
         }
         if (progress?.stage) {
             return getStageDisplayName(progress.stage, t);

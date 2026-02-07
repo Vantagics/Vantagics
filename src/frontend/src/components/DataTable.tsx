@@ -12,7 +12,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
     const columns = Object.keys(data[0]);
 
     return (
-        <div className="w-full rounded-xl border border-slate-200 bg-white shadow-sm my-4 overflow-hidden flex flex-col">
+        <div className="w-full bg-white overflow-hidden flex flex-col">
             {title && (
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
                     <h4 className="font-semibold text-sm text-slate-700">{title}</h4>

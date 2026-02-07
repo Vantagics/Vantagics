@@ -28,9 +28,10 @@ interface MessageBubbleProps {
     threadId?: string;  // 新增：线程ID用于加载图片
     isFailed?: boolean;  // 新增：分析是否失败
     onRetryAnalysis?: () => void;  // 新增：重新分析回调
+    isCancelled?: boolean;  // 新增：分析是否被中止（可点击继续分析）
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId, isFailed, onRetryAnalysis }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId, isFailed, onRetryAnalysis, isCancelled }) => {
     const { t } = useLanguage();
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -720,24 +721,36 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     className={`max-w-[85%] rounded-2xl px-5 py-3.5 shadow-sm ${isUser
                         ? `bg-blue-600 text-white rounded-tr-none ${isDisabled
                             ? 'opacity-50 cursor-not-allowed'
-                            : onClick && hasChart
-                                ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200'
-                                : ''
+                            : isCancelled
+                                ? 'opacity-75 cursor-pointer hover:opacity-100 hover:bg-blue-700 hover:shadow-lg transition-all duration-200 ring-2 ring-orange-300 ring-offset-1'
+                                : onClick && hasChart
+                                    ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200'
+                                    : ''
                         }`
                         : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
                         }`}
                     onClick={onClick && isUser && !isDisabled ? onClick : undefined}
                     onContextMenu={handleContextMenu}
-                    style={onClick && hasChart && isUser && !isDisabled ? { cursor: 'pointer' } : isDisabled ? { cursor: 'not-allowed' } : undefined}
+                    style={onClick && isUser && !isDisabled ? { cursor: 'pointer' } : isDisabled ? { cursor: 'not-allowed' } : undefined}
                     title={
                         isDisabled
                             ? 'Analysis in progress or incomplete - cannot view yet'
-                            : onClick && hasChart && isUser
-                                ? 'Click to view analysis results on dashboard'
-                                : undefined
+                            : isCancelled
+                                ? '分析已中止 - 点击继续分析'
+                                : onClick && hasChart && isUser
+                                    ? 'Click to view analysis results on dashboard'
+                                    : undefined
                     }
                 >
-                    {isUser && hasChart && !isDisabled && (
+                    {isUser && isCancelled && (
+                        <div className="mb-2 flex items-center gap-2 text-xs opacity-80">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                            </svg>
+                            <span>分析已中止 - 点击继续分析</span>
+                        </div>
+                    )}
+                    {isUser && hasChart && !isDisabled && !isCancelled && (
                         <div className="mb-2 flex items-center gap-2 text-xs opacity-70">
                             <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                 <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
@@ -1135,6 +1148,43 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         >
                             <span style={{ fontSize: '16px' }}>🔄</span>
                             <span style={{ fontWeight: 500 }}>重新分析</span>
+                        </button>
+                    )}
+
+                    {/* Continue Analysis Option - Only show for cancelled user messages */}
+                    {isUser && isCancelled && onClick && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                setExportMenu(null);
+                                if (onClick) onClick();
+                            }}
+                            style={{
+                                width: '100%',
+                                padding: '10px 12px',
+                                textAlign: 'left',
+                                fontSize: '13px',
+                                color: '#ea580c',
+                                backgroundColor: 'white',
+                                border: 'none',
+                                borderTop: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = '#fff7ed';
+                                e.currentTarget.style.color = '#c2410c';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'white';
+                                e.currentTarget.style.color = '#ea580c';
+                            }}
+                        >
+                            <span style={{ fontSize: '16px' }}>▶️</span>
+                            <span style={{ fontWeight: 500 }}>继续分析</span>
                         </button>
                     )}
 

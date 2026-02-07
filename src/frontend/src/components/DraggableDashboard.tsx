@@ -16,11 +16,12 @@ import ChartModal from './ChartModal';
 import Toast, { ToastType } from './Toast';
 import { main } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
-import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, ExportDashboardToPDF, ExportDashboardToPPT, ExportSessionFilesToZip } from '../../wailsjs/go/main/App';
+import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, GenerateFilePreview, ExportDashboardToPDF, ExportDashboardToPPT, ExportDashboardToExcel, ExportDashboardToWord, ExportSessionFilesToZip } from '../../wailsjs/go/main/App';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { database } from '../../wailsjs/go/models';
 import { createLogger } from '../utils/systemLog';
 import { useDashboardData } from '../hooks/useDashboardData';
+import { renderFilePreview } from '../utils/FilePreviewRenderer';
 import { GlobalAnalysisStatus } from './GlobalAnalysisStatus';
 
 const logger = createLogger('DraggableDashboard');
@@ -460,13 +461,134 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         }
     };
 
+    // 导出表格数据为Excel
+    const exportAsExcel = async () => {
+        try {
+            setExportDropdownOpen(false);
+            logger.debug('Starting Excel export...');
+
+            const exportData: any = {
+                userRequest: userRequestText || '',
+                metrics: [],
+                insights: [],
+                chartImage: '',
+                tableData: null
+            };
+
+            if (dashboardData.hasTables && dashboardData.tableData) {
+                const tableData = dashboardData.tableData;
+                if (tableData.columns && tableData.columns.length > 0 && tableData.rows && tableData.rows.length > 0) {
+                    exportData.tableData = {
+                        columns: tableData.columns.map(col => ({ title: col, dataType: 'string' })),
+                        data: tableData.rows.map((row: Record<string, any>) =>
+                            tableData.columns.map(col => row[col] === null || row[col] === undefined ? '' : row[col])
+                        )
+                    };
+                }
+            }
+
+            await ExportDashboardToExcel(exportData);
+            setToast({ message: t('export_excel_success'), type: 'success' });
+        } catch (error) {
+            console.error('[DraggableDashboard] Excel export failed:', error);
+            setToast({
+                message: t('export_excel_failed') + (error instanceof Error ? error.message : String(error)),
+                type: 'error'
+            });
+        }
+    };
+
+    // 导出为Word
+    const exportAsWord = async () => {
+        try {
+            setExportDropdownOpen(false);
+            logger.debug('Starting Word export...');
+
+            const exportData: any = {
+                userRequest: userRequestText || '',
+                metrics: [],
+                insights: [],
+                chartImage: '',
+                chartImages: [],
+                tableData: null
+            };
+
+            if (dashboardData.hasMetrics) {
+                exportData.metrics = dashboardData.metrics.map((metric) => ({
+                    title: metric.title || '',
+                    value: metric.value || '',
+                    change: metric.change || ''
+                }));
+            }
+
+            if (dashboardData.hasInsights) {
+                exportData.insights = dashboardData.insights.map((insight) =>
+                    insight.text || ''
+                );
+            }
+
+            if (dashboardData.hasTables && dashboardData.tableData) {
+                const tableData = dashboardData.tableData;
+                if (tableData.columns && tableData.columns.length > 0 && tableData.rows && tableData.rows.length > 0) {
+                    exportData.tableData = {
+                        columns: tableData.columns.map(col => ({ title: col, dataType: 'string' })),
+                        data: tableData.rows.map((row: Record<string, any>) =>
+                            tableData.columns.map(col => row[col] === null || row[col] === undefined ? '' : row[col])
+                        )
+                    };
+                }
+            }
+
+            await ExportDashboardToWord(exportData);
+            setToast({ message: t('export_word_success') || '导出Word成功', type: 'success' });
+        } catch (error) {
+            console.error('[DraggableDashboard] Word export failed:', error);
+            setToast({
+                message: (t('export_word_failed') || '导出Word失败: ') + (error instanceof Error ? error.message : String(error)),
+                type: 'error'
+            });
+        }
+    };
+
+    // 清理 ECharts 配置字符串中的 JavaScript 函数
+    const cleanEChartsJsonString = (jsonStr: string): string => {
+        let result = jsonStr;
+        // 移除 JavaScript 函数定义
+        const functionPattern = /,?\s*"?(\w+)"?\s*:\s*function\s*\([^)]*\)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
+        result = result.replace(functionPattern, '');
+        // 清理可能残留的尾随逗号
+        result = result.replace(/,(\s*[}\]])/g, '$1');
+        // 清理可能残留的前导逗号
+        result = result.replace(/([{[]\s*),/g, '$1');
+        return result;
+    };
+    
+    // 安全解析 ECharts 配置
+    const safeParseEChartsConfig = (data: any): any => {
+        if (typeof data === 'string') {
+            try {
+                return JSON.parse(data);
+            } catch (e) {
+                // 如果解析失败，尝试清理 JavaScript 函数后再解析
+                try {
+                    const cleanedData = cleanEChartsJsonString(data);
+                    return JSON.parse(cleanedData);
+                } catch (e2) {
+                    logger.error(`[safeParseEChartsConfig] Failed to parse ECharts config: ${e2}`);
+                    throw e;
+                }
+            }
+        }
+        return data;
+    };
+
     // 双击图表放大显示
     const handleChartDoubleClick = () => {
         if (!activeChart) return;
         
         if (activeChart.type === 'echarts' && typeof activeChart.data === 'string') {
             try {
-                const options = JSON.parse(activeChart.data);
+                const options = safeParseEChartsConfig(activeChart.data);
                 setModalChartOptions(options);
                 setChartModalOpen(true);
             } catch (e) {
@@ -518,37 +640,40 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         if (['csv', 'xlsx', 'xls'].includes(ext)) {
             return <FileSpreadsheet size={20} className="text-green-600" />;
         }
+        if (['pptx', 'ppt'].includes(ext)) {
+            return <Presentation size={20} className="text-orange-600" />;
+        }
         if (['json', 'xml'].includes(ext)) {
             return <Table size={20} className="text-amber-600" />;
         }
         return <FileText size={20} className="text-orange-600" />;
     };
 
-    // 获取文件预览（图片或CSV预览）- 参考Dashboard的做法
+    // 获取文件预览（图片、Excel、PPT、CSV）
     const loadFilePreview = async (file: main.SessionFile) => {
         if (!activeThreadId || filePreviews[file.path] || filePreviewsLoading[file.path]) return;
         
         const ext = file.name.split('.').pop()?.toLowerCase() || '';
         const isImage = file.type === 'image' || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
-        const isCsv = file.type === 'csv' || ['csv'].includes(ext);
+        const isPreviewable = ['csv', 'xlsx', 'xls', 'pptx'].includes(ext);
         
-        // 只处理图片和CSV文件
-        if (!isImage && !isCsv) return;
+        if (!isImage && !isPreviewable) return;
         
         setFilePreviewsLoading(prev => ({ ...prev, [file.path]: true }));
         try {
             if (isImage) {
-                // 图片：直接获取base64数据
                 const base64Data = await GetSessionFileAsBase64(activeThreadId, file.name);
                 if (base64Data) {
-                    // GetSessionFileAsBase64 返回的已经是完整的 data:image/xxx;base64,xxx 格式
                     setFilePreviews(prev => ({ ...prev, [file.path]: base64Data }));
                 }
-            } else if (isCsv) {
-                // CSV：生成预览缩略图
-                const base64Data = await GenerateCSVThumbnail(activeThreadId, file.name);
-                if (base64Data) {
-                    setFilePreviews(prev => ({ ...prev, [file.path]: base64Data }));
+            } else if (isPreviewable) {
+                // Excel/PPT/CSV: 获取结构化预览数据，前端渲染为图片
+                const previewJson = await GenerateFilePreview(activeThreadId, file.name);
+                if (previewJson) {
+                    const previewImage = renderFilePreview(previewJson);
+                    if (previewImage) {
+                        setFilePreviews(prev => ({ ...prev, [file.path]: previewImage }));
+                    }
                 }
             }
         } catch (error) {
@@ -609,13 +734,14 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     };
     
     // 默认布局：编辑模式下显示所有可用占位组件（使用编辑模式高度）
+    // 所有组件宽度设为100（全宽），垂直堆叠布局
     const defaultLayout: LayoutItem[] = [
         { id: 'metric-area', type: 'metric', x: 0, y: 0, w: 100, h: EDIT_MODE_HEIGHTS.metric, data: null },
         { id: 'chart-area', type: 'chart', x: 0, y: 90, w: 100, h: EDIT_MODE_HEIGHTS.chart, data: null },
         { id: 'insight-area', type: 'insight', x: 0, y: 200, w: 100, h: EDIT_MODE_HEIGHTS.insight, data: null },
-        { id: 'table-area', type: 'table', x: 0, y: 290, w: 50, h: EDIT_MODE_HEIGHTS.table, data: null },
-        { id: 'image-area', type: 'image', x: 52, y: 290, w: 24, h: EDIT_MODE_HEIGHTS.image, data: null },
-        { id: 'file_download-area', type: 'file_download', x: 78, y: 290, w: 22, h: EDIT_MODE_HEIGHTS.file_download, data: null },
+        { id: 'table-area', type: 'table', x: 0, y: 280, w: 100, h: EDIT_MODE_HEIGHTS.table, data: null },
+        { id: 'image-area', type: 'image', x: 0, y: 360, w: 100, h: EDIT_MODE_HEIGHTS.image, data: null },
+        { id: 'file_download-area', type: 'file_download', x: 0, y: 450, w: 100, h: EDIT_MODE_HEIGHTS.file_download, data: null },
     ];
     const [layout, setLayout] = useState<LayoutItem[]>(defaultLayout);
     const [draggedItem, setDraggedItem] = useState<string | null>(null);
@@ -657,7 +783,14 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             return layout;
         }
         // 非编辑模式：只显示有数据的组件
-        return layout.filter(item => hasDataForType(item.type));
+        const displayItems = layout.filter(item => hasDataForType(item.type));
+        
+        // 诊断日志：记录布局中的所有类型和过滤结果
+        const allTypes = layout.map(item => item.type).join(',');
+        const displayTypes = displayItems.map(item => item.type).join(',');
+        logger.warn(`[getDisplayLayout] layout types=[${allTypes}], display types=[${displayTypes}], hasECharts=${dashboardData.hasECharts}`);
+        
+        return displayItems;
     };
 
     // 初始化时使用默认布局（包含所有组件类型）
@@ -695,7 +828,31 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     }
                     
                     if (convertedLayout.length > 0) {
+                        // 确保所有默认类型都存在，补充缺失的类型
+                        const requiredTypes: LayoutItem['type'][] = ['metric', 'chart', 'insight', 'table', 'image', 'file_download'];
+                        let maxY = Math.max(...convertedLayout.map(i => i.y + i.h), 0);
+                        
+                        for (const reqType of requiredTypes) {
+                            if (!seenTypes.has(reqType)) {
+                                const minH = MIN_HEIGHTS[reqType] || 56;
+                                convertedLayout.push({
+                                    id: `${reqType}-area`,
+                                    type: reqType,
+                                    x: 0,
+                                    y: maxY,
+                                    w: 100,
+                                    h: minH,
+                                    data: null
+                                });
+                                maxY += minH + 10;
+                                logger.warn(`[loadSavedLayout] Added missing type: ${reqType}`);
+                            }
+                        }
+                        
+                        logger.warn(`[loadSavedLayout] Final ${convertedLayout.length} items: ${convertedLayout.map(i => i.type).join(',')}`);
                         setLayout(convertedLayout);
+                    } else {
+                        logger.warn(`[loadSavedLayout] No items in saved layout, using default`);
                     }
                 }
             } catch (error) {
@@ -1159,7 +1316,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 case 'chart':
                     if (item.data?.type === 'echarts' && typeof item.data.data === 'string') {
                         try {
-                            const options = JSON.parse(item.data.data);
+                            const options = safeParseEChartsConfig(item.data.data);
                             return (
                                 <div 
                                     className="cursor-zoom-in group/chart relative"
@@ -1425,59 +1582,103 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染图表
         const renderChart = () => {
             // 直接使用 dashboardData 中的 ECharts 数据
-            logger.warn(`[renderChart] hasECharts=${dashboardData.hasECharts}, echartsData type=${typeof dashboardData.echartsData}`);
-            if (dashboardData.echartsData) {
-                logger.warn(`[renderChart] echartsData preview: ${JSON.stringify(dashboardData.echartsData).substring(0, 200)}...`);
-            }
+            logger.warn(`[renderChart] hasECharts=${dashboardData.hasECharts}, allEChartsData count=${dashboardData.allEChartsData?.length || 0}`);
             
-            if (!dashboardData.hasECharts || !dashboardData.echartsData) {
+            if (!dashboardData.hasECharts || !dashboardData.allEChartsData || dashboardData.allEChartsData.length === 0) {
                 logger.warn(`[renderChart] No ECharts data available, showing placeholder`);
                 return <div className="p-4 text-center text-slate-400 text-sm">暂无图表数据</div>;
             }
             
-            try {
-                // dashboardData.echartsData 已经是解析后的对象
-                const options = typeof dashboardData.echartsData === 'string' 
-                    ? JSON.parse(dashboardData.echartsData) 
-                    : dashboardData.echartsData;
-                    
-                return (
-                    <div 
-                        className="cursor-zoom-in group relative"
-                        onDoubleClick={() => {
-                            setModalChartOptions(options);
-                            setChartModalOpen(true);
-                        }}
-                        title={t('double_click_to_zoom')}
-                    >
-                        <Chart options={options} height="300px" />
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            {t('double_click_to_zoom')}
-                        </div>
-                    </div>
-                );
-            } catch (e) {
-                console.error('Failed to render chart:', e);
-                return <div className="text-red-500 p-4">{t('chart_error')}</div>;
-            }
+            // 详细记录每个图表数据的类型和内容预览
+            dashboardData.allEChartsData.forEach((chartData, index) => {
+                const dataType = typeof chartData;
+                const preview = dataType === 'string' 
+                    ? chartData.substring(0, 100) + '...'
+                    : JSON.stringify(chartData).substring(0, 100) + '...';
+                logger.warn(`[renderChart] Chart ${index}: type=${dataType}, preview=${preview}`);
+            });
+            
+            // 渲染所有图表
+            return (
+                <div className="space-y-4">
+                    {dashboardData.allEChartsData.map((chartData, index) => {
+                        try {
+                            logger.warn(`[renderChart] Parsing chart ${index}, data type: ${typeof chartData}`);
+                            const options = safeParseEChartsConfig(chartData);
+                            logger.warn(`[renderChart] Chart ${index} parsed successfully, title: ${options?.title?.text || 'N/A'}`);
+                            
+                            return (
+                                <div 
+                                    key={index}
+                                    className="cursor-zoom-in group relative"
+                                    onDoubleClick={() => {
+                                        setModalChartOptions(options);
+                                        setChartModalOpen(true);
+                                    }}
+                                    title={t('double_click_to_zoom')}
+                                >
+                                    <Chart options={options} height="300px" />
+                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
+                                        {t('double_click_to_zoom')}
+                                    </div>
+                                </div>
+                            );
+                        } catch (e) {
+                            logger.error(`[renderChart] Failed to render chart ${index}: ${e}`);
+                            console.error(`Failed to render chart ${index}:`, e);
+                            return <div key={index} className="text-red-500 p-4">{t('chart_error')}: {String(e)}</div>;
+                        }
+                    })}
+                </div>
+            );
         };
 
         // 渲染表格
         const renderTable = () => {
             // 直接使用 dashboardData 中的表格数据
-            if (!dashboardData.hasTables || !dashboardData.tableData) {
+            if (!dashboardData.hasTables || !dashboardData.allTableData || dashboardData.allTableData.length === 0) {
                 return <div className="p-4 text-center text-slate-400 text-sm">{t('no_data_available')}</div>;
             }
+
+            const validTables = dashboardData.allTableData.filter(t => t.rows && t.rows.length > 0);
+            const totalTables = validTables.length;
             
-            // dashboardData.tableData 已经是规范化的格式 { columns, rows }
-            const tableData = dashboardData.tableData;
-            
-            // DataTable 组件期望的是行数组格式
-            if (tableData.rows && tableData.rows.length > 0) {
-                return <DataTable data={tableData.rows} />;
-            }
-            
-            return <div className="p-4 text-center text-slate-400 text-sm">暂无表格数据</div>;
+            // 渲染所有表格，每个表格都显示标题
+            return (
+                <div className="space-y-4">
+                    {validTables.map((tableData, index) => {
+                        // 优先使用后端提供的标题，否则从列名生成
+                        const cols = tableData.columns || Object.keys(tableData.rows[0] || {});
+                        const titleHint = cols.slice(0, 3).join(' / ') + (cols.length > 3 ? ' ...' : '');
+                        
+                        // 使用后端提供的 title，如果没有则生成默认标题
+                        let tableTitle: string;
+                        if (tableData.title && tableData.title.trim()) {
+                            // 使用后端提供的标题
+                            tableTitle = totalTables > 1 
+                                ? `${index + 1}. ${tableData.title}`
+                                : tableData.title;
+                        } else {
+                            // 生成默认标题
+                            tableTitle = totalTables > 1
+                                ? `${t('area_table')} ${index + 1}${titleHint ? ` — ${titleHint}` : ''}`
+                                : `${t('area_table')}${titleHint ? ` — ${titleHint}` : ''}`;
+                        }
+                        
+                        return (
+                            <div key={index} className="border border-slate-200 rounded-lg overflow-hidden">
+                                {/* 表格标题栏 - 始终显示 */}
+                                <div className="px-3 py-2 text-sm font-medium text-slate-600 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                                    <span>📋</span>
+                                    <span className="flex-1">{tableTitle}</span>
+                                    <span className="text-xs text-slate-400">{tableData.rows.length} {t('rows') || '行'}</span>
+                                </div>
+                                <DataTable data={tableData.rows} />
+                            </div>
+                        );
+                    })}
+                </div>
+            );
         };
 
         // 渲染文件下载 - 带预览图和下载功能
@@ -1500,10 +1701,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {filteredFiles.map((file: main.SessionFile, idx: number) => {
                         const ext = file.name.split('.').pop()?.toLowerCase() || '';
                         const isImage = file.type === 'image' || ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
-                        const isCsv = file.type === 'csv' || ['csv'].includes(ext);
+                        const isExcel = ['xlsx', 'xls'].includes(ext);
+                        const isPPT = ext === 'pptx';
+                        const isCsv = file.type === 'csv' || ext === 'csv';
                         const preview = filePreviews[file.path];
                         const isLoading = filePreviewsLoading[file.path];
-                        const hasPreview = isImage || isCsv;
                         
                         return (
                             <div 
@@ -1512,7 +1714,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 onClick={() => handleFileDownload(file)}
                                 title={`点击下载: ${file.name}`}
                             >
-                                {/* 预览区域 - 图片和CSV显示缩略图 */}
+                                {/* 预览区域 */}
                                 <div className="h-32 bg-slate-100 flex items-center justify-center overflow-hidden">
                                     {isLoading ? (
                                         <div className="animate-pulse text-slate-400 text-xs">加载预览...</div>
@@ -1527,10 +1729,15 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                             <Image size={32} />
                                             <span className="text-xs mt-1">图片文件</span>
                                         </div>
-                                    ) : isCsv ? (
+                                    ) : isExcel || isCsv ? (
                                         <div className="flex flex-col items-center text-green-600">
                                             <FileSpreadsheet size={32} />
-                                            <span className="text-xs mt-1">{t('area_table')}</span>
+                                            <span className="text-xs mt-1">{isExcel ? 'Excel' : 'CSV'}</span>
+                                        </div>
+                                    ) : isPPT ? (
+                                        <div className="flex flex-col items-center text-orange-600">
+                                            <Presentation size={32} />
+                                            <span className="text-xs mt-1">PPT</span>
                                         </div>
                                     ) : (
                                         <div className="flex flex-col items-center text-orange-600">
@@ -1802,6 +2009,22 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                             <Presentation size={16} className="text-orange-600" />
                                             <span>{t('export_as_ppt')}</span>
                                         </button>
+                                        <button
+                                            onClick={exportAsWord}
+                                            className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                        >
+                                            <FileText size={16} className="text-blue-600" />
+                                            <span>{t('export_as_word') || '导出为Word'}</span>
+                                        </button>
+                                        {dashboardData.hasTables && (
+                                            <button
+                                                onClick={exportAsExcel}
+                                                className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                            >
+                                                <FileSpreadsheet size={16} className="text-green-700" />
+                                                <span>{t('export_as_excel')}</span>
+                                            </button>
+                                        )}
                                         <button
                                             onClick={exportDataFiles}
                                             className="w-full flex items-center gap-3 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"

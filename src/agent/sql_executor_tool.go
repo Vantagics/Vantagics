@@ -70,16 +70,39 @@ type sqlExecutorInput struct {
 func (t *SQLExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	return &schema.ToolInfo{
 		Name: "execute_sql",
-		Desc: "Execute a SQL query against a data source and return results as JSON. Use this to retrieve data for analysis. Results are limited to 1000 rows. Use SELECT statements to query data.",
+		Desc: `Execute a SQL query against a data source and return results as JSON.
+
+**IMPORTANT - Before Writing SQL:**
+- ALWAYS call get_data_source_context FIRST to learn exact column names and data types
+- Column names are CASE-SENSITIVE! Use exact names from schema
+- Check the SQL dialect (SQLite vs MySQL) from schema output
+
+**Rules:**
+- Only SELECT/WITH statements allowed (read-only)
+- Results limited to 1000 rows (auto-applied if no LIMIT)
+- MySQL syntax auto-converted to SQLite when needed
+- Self-correction: if SQL fails, the tool will attempt automatic fix (up to 2 retries)
+
+**Common Mistakes to Avoid:**
+- ❌ Using YEAR()/MONTH() on SQLite → Use strftime('%Y', col)
+- ❌ Using CONCAT() on SQLite → Use col1 || col2
+- ❌ Wrong column name case → Check schema first
+- ❌ Referencing subquery columns not in SELECT → Include all needed columns
+
+**When to use:**
+- Retrieve raw data for analysis
+- Aggregate data (GROUP BY, COUNT, SUM, AVG)
+- Filter and join tables
+- Get data before passing to python_executor for visualization`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"data_source_id": {
 				Type:     schema.String,
-				Desc:     "The ID of the data source to query.",
+				Desc:     "The ID of the data source to query (get from context or previous get_data_source_context call).",
 				Required: true,
 			},
 			"query": {
 				Type:     schema.String,
-				Desc:     "The SQL query to execute (e.g., 'SELECT * FROM sales WHERE date > 2023-01-01').",
+				Desc:     "SQL SELECT query to execute. Use exact column names from schema. Example: 'SELECT category, SUM(amount) as total FROM orders GROUP BY category ORDER BY total DESC'",
 				Required: true,
 			},
 		}),
@@ -407,6 +430,25 @@ func (t *SQLExecutorTool) buildErrorMessage(err error, query, dbType string) str
 		} else {
 			errorMsg.WriteString("💡 FIX: The column name might be misspelled or doesn't exist. Check schema and retry.\n")
 		}
+		
+		// Try to extract table name and provide actual column names
+		fromRegex := regexp.MustCompile(`(?i)FROM\s+` + "`?" + `([a-zA-Z0-9_]+)` + "`?")
+		fromMatches := fromRegex.FindStringSubmatch(query)
+		if len(fromMatches) > 1 && t.dsService != nil {
+			tableName := fromMatches[1]
+			// Try to get actual columns for the table
+			sources, loadErr := t.dsService.LoadDataSources()
+			if loadErr == nil {
+				for _, ds := range sources {
+					cols, colErr := t.dsService.GetDataSourceTableColumns(ds.ID, tableName)
+					if colErr == nil && len(cols) > 0 {
+						errorMsg.WriteString(fmt.Sprintf("\n📋 Actual columns in table `%s`: %s\n", tableName, strings.Join(cols, ", ")))
+						break
+					}
+				}
+			}
+		}
+		
 		errorMsg.WriteString("🔄 Please rewrite the query with the correct column references and try again.")
 	} else if strings.Contains(errStr, "syntax error") {
 		errorMsg.WriteString("💡 FIX: Check SQL syntax. If using SQLite, remember:\n")

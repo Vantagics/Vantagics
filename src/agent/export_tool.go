@@ -21,13 +21,13 @@ type ExportTool struct {
 	onFileSaved    func(fileName, fileType string, fileSize int64)
 	pdfService       *export.PDFExportService
 	excelService     *export.ExcelExportService
-	pptService       *export.PPTService
-	gooxmlPPTService *export.GooxmlPPTService
+	pptService       *export.GoPPTService
+	wordService      *export.WordExportService
 }
 
 // ExportInput represents the input for export operations
 type ExportInput struct {
-	Format      string                   `json:"format" jsonschema:"description=Export format: pdf, excel, or ppt"`
+	Format      string                   `json:"format" jsonschema:"description=Export format: pdf, excel, ppt, or word"`
 	Data        map[string]interface{}   `json:"data" jsonschema:"description=Data to export (structure depends on format)"`
 	FileName    string                   `json:"file_name,omitempty" jsonschema:"description=Optional custom filename (without extension)"`
 }
@@ -35,11 +35,11 @@ type ExportInput struct {
 // NewExportTool creates a new export tool
 func NewExportTool(logger func(string)) *ExportTool {
 	return &ExportTool{
-		logger:           logger,
-		pdfService:       export.NewPDFExportService(),
-		excelService:     export.NewExcelExportService(),
-		pptService:       export.NewPPTService(),
-		gooxmlPPTService: export.NewGooxmlPPTService(),
+		logger:       logger,
+		pdfService:   export.NewPDFExportService(),
+		excelService: export.NewExcelExportService(),
+		pptService:   export.NewGoPPTService(),
+		wordService:  export.NewWordExportService(),
 	}
 }
 
@@ -453,14 +453,10 @@ func (t *ExportTool) exportPPT(data map[string]interface{}) ([]byte, error) {
 		dashboardData.TableData = tableData
 	}
 
-	// Try gooxml first (better compatibility), fallback to unioffice
-	pptBytes, err := t.gooxmlPPTService.ExportDashboardToPPT(dashboardData)
+	// Use GoPPT (pure Go, zero dependencies)
+	pptBytes, err := t.pptService.ExportDashboardToPPT(dashboardData)
 	if err != nil {
-		if t.logger != nil {
-			t.logger(fmt.Sprintf("[EXPORT-PPT] GooXML failed, trying unioffice: %v", err))
-		}
-		// Fallback to unioffice
-		return t.pptService.ExportDashboardToPPT(dashboardData)
+		return nil, fmt.Errorf("PPT export failed: %w", err)
 	}
 
 	return pptBytes, nil

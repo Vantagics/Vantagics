@@ -106,6 +106,8 @@ type EinoService struct {
 	skillManager               *templates.SkillManager
 	memoryService              *MemoryService // For persistent memory storage
 	executionValidator         *ExecutionValidator // For execution plan validation
+	combinedPlanner            *CombinedClassifierPlanner // Shared combined classifier+planner (avoids 2 LLM calls)
+	sharedSchemaBuilder        *SchemaContextBuilder       // Shared schema builder with cache across requests
 }
 
 // TrajectoryStep represents a single step in agent execution
@@ -298,6 +300,8 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 		skillManager:               skillManager,
 		memoryService:              memoryService,
 		executionValidator:         executionValidator,
+		combinedPlanner:            NewCombinedClassifierPlanner(chatModel, logger),
+		sharedSchemaBuilder:        NewSchemaContextBuilder(dsService, 10*time.Minute, logger),
 	}, nil
 }
 
@@ -351,6 +355,28 @@ func (s *EinoService) GetSkillManager() *templates.SkillManager {
 // GetConfig returns the configuration
 func (s *EinoService) GetConfig() config.Config {
 	return s.cfg
+}
+
+// routeFromCombinedResult determines execution path from combined classification result
+func (s *EinoService) routeFromCombinedResult(result *CombinedResult, dataSourceID string) ExecutionPath {
+	switch result.RequestType {
+	case "consultation":
+		return PathConsultation
+	case "calculation":
+		return PathQuick
+	case "web_search":
+		return PathMultiStep
+	case "data_analysis", "visualization", "data_export":
+		if dataSourceID != "" {
+			return PathUnified
+		}
+		return PathMultiStep
+	default:
+		if dataSourceID != "" {
+			return PathUnified
+		}
+		return PathMultiStep
+	}
 }
 
 // GetExecutionValidator returns the execution validator instance
@@ -521,7 +547,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	emitProgress(StageInitializing, 5, "progress.initializing_tools", 1, 6)
+	emitProgress(StageInitializing, 5, "progress.initializing_tools", 0, 0)
 
 	// Check for template match first (faster path)
 	if len(history) > 0 {
@@ -546,13 +572,12 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						return ps.ExecuteScript(s.cfg.PythonPath, code)
 					},
 					SchemaGetter: func(dsID string) ([]templates.TableInfo, error) {
-						tables, err := s.dsService.GetDataSourceTables(dsID)
+						tablesWithCols, err := s.dsService.GetTablesWithColumns(dsID)
 						if err != nil {
 							return nil, err
 						}
 						var result []templates.TableInfo
-						for _, tableName := range tables {
-							cols, _ := s.dsService.GetDataSourceTableColumns(dsID, tableName)
+						for tableName, cols := range tablesWithCols {
 							result = append(result, templates.TableInfo{
 								Name:    tableName,
 								Columns: cols,
@@ -569,7 +594,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 				result, err := template.Execute(ctx, executor, dataSourceID, templateProgress)
 				if err == nil && result.Success {
-					emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
+					emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
 					if s.Logger != nil {
 						s.Logger(fmt.Sprintf("[TIMING] Template execution took: %v", time.Since(startTotal)))
 					}
@@ -586,86 +611,117 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	// 🚀 Unified Python Analysis Path: Single LLM call for data analysis
-	// This path consolidates multiple LLM calls into one for better performance
-	if dataSourceID != "" && len(history) > 0 {
+	// 🚀 Combined Classification + Planning: Single LLM call replaces two separate calls
+	// Previously: RequestTypeClassifier (LLM call #1) + AnalysisPlanner (LLM call #2)
+	// Now: CombinedClassifierPlanner (single LLM call)
+	var combinedResult *CombinedResult
+	var classificationResult *ClassificationResult
+	var planPrompt string
+
+	if len(history) > 0 {
 		lastMsg := history[len(history)-1]
 		if lastMsg.Role == schema.User {
 			userQuery := lastMsg.Content
-			
-			// Use LLM-based classification for more accurate routing
-			router := NewRequestRouterWithLLM(s.ChatModel, s.Logger)
-			path, classificationResult := router.RouteRequestWithLLM(ctx, userQuery, dataSourceID)
-			
-			// Log classification result
-			if classificationResult != nil && s.Logger != nil {
-				s.Logger(fmt.Sprintf("[CLASSIFIER] LLM result: type=%s, viz=%v, export=%v, confidence=%.2f",
-					classificationResult.RequestType, 
-					classificationResult.NeedsVisualization,
-					classificationResult.NeedsDataExport,
-					classificationResult.Confidence))
-			}
-			
-			if path == PathUnified {
-				if s.Logger != nil {
-					s.Logger("[UNIFIED] Attempting unified Python analysis path")
-				}
-				
-				// Get database path for the data source
-				var dbPath string
+
+			// Get data source info (reused for both classification and planning)
+			dataSourceInfo := "无数据源"
+			var dbPath string
+			if dataSourceID != "" {
 				if sources, err := s.dsService.LoadDataSources(); err == nil {
 					for _, ds := range sources {
 						if ds.ID == dataSourceID {
 							dbPath = ds.Config.DBPath
+							tables, _ := s.dsService.GetDataSourceTables(dataSourceID)
+							dataSourceInfo = fmt.Sprintf("数据源: %s, 表: %s", ds.Name, strings.Join(tables, ", "))
 							break
 						}
 					}
 				}
-				
-				if dbPath != "" && sessionDir != "" {
-					// Create metrics collector
+			}
+
+			// Single combined LLM call for classification + planning
+			startClassify := time.Now()
+			var err error
+			combinedResult, err = s.combinedPlanner.ClassifyAndPlan(ctx, userQuery, dataSourceInfo)
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[TIMING] Combined classify+plan took: %v", time.Since(startClassify)))
+			}
+
+			if err == nil && combinedResult != nil {
+				classificationResult = combinedResult.ToClassificationResult()
+
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[COMBINED] type=%s, viz=%v, export=%v, complexity=%s, confidence=%.2f",
+						combinedResult.RequestType,
+						combinedResult.NeedsVisualization,
+						combinedResult.NeedsDataExport,
+						combinedResult.Complexity,
+						combinedResult.Confidence))
+				}
+
+				// Quick path: execute directly without LLM
+				if combinedResult.IsQuickPath && combinedResult.QuickPathCode != "" {
+					if s.Logger != nil {
+						s.Logger("[COMBINED] Executing quick path directly")
+					}
+					var result string
+					var execErr error
+					if s.pythonPool != nil {
+						result, execErr = s.pythonPool.Execute(combinedResult.QuickPathCode, sessionDir)
+					} else {
+						ps := &PythonService{}
+						result, execErr = ps.ExecuteScript(s.cfg.PythonPath, combinedResult.QuickPathCode)
+					}
+					if execErr == nil {
+						emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+						trajectory.Success = true
+						trajectory.FinalResponse = result
+						trajectory.IterationCount = 1
+						trajectory.ToolCallCount = 1
+						if s.Logger != nil {
+							s.Logger(fmt.Sprintf("[TIMING] Quick path took: %v", time.Since(startTotal)))
+						}
+						return &schema.Message{Role: schema.Assistant, Content: result}, nil
+					}
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[COMBINED] Quick path failed: %v, continuing", execErr))
+					}
+				}
+
+				// Unified Python path for data analysis
+				path := s.routeFromCombinedResult(combinedResult, dataSourceID)
+				if path == PathUnified && dbPath != "" && sessionDir != "" {
+					if s.Logger != nil {
+						s.Logger("[UNIFIED] Attempting unified Python analysis path")
+					}
+
 					metrics := NewAnalysisMetrics(s.Logger)
-					
-					// Create unified generator
-					generator := NewUnifiedPythonGenerator(s.ChatModel, s.dsService, s.Logger)
+					generator := NewUnifiedPythonGeneratorWithCache(s.ChatModel, s.dsService, s.sharedSchemaBuilder, s.Logger)
 					generator.SetMetrics(metrics)
-					
-					// Pass classification result to generator for better code generation
 					if classificationResult != nil {
 						generator.SetClassificationHints(classificationResult)
 					}
-					
-					// Generate complete Python code in single LLM call
-					emitProgress(StageAnalysis, 30, "progress.generating_code", 2, 6)
+
+					emitProgress(StageAnalysis, 30, "progress.generating_code", 0, 0)
 					generatedCode, err := generator.GenerateAnalysisCode(ctx, userQuery, dataSourceID, dbPath, sessionDir)
-					
+
 					if err == nil && generatedCode != nil && generatedCode.Code != "" {
 						if s.Logger != nil {
-							s.Logger(fmt.Sprintf("[UNIFIED] Code generated successfully, %d SQL queries detected", len(generatedCode.SQLQueries)))
+							s.Logger(fmt.Sprintf("[UNIFIED] Code generated, %d SQL queries", len(generatedCode.SQLQueries)))
 						}
-						
-						// Create execution safety wrapper
+
 						safety := NewExecutionSafety(s.Logger)
-						safety.SetTimeout(120 * time.Second) // 2 minute timeout
-						
-						// Generate safety report
+						safety.SetTimeout(120 * time.Second)
 						safetyReport := safety.GenerateSafetyReport(generatedCode.Code)
-						if !safetyReport.IsSafe {
-							if s.Logger != nil {
-								s.Logger(fmt.Sprintf("[UNIFIED] Code blocked by safety check: %v", safetyReport.Errors))
-							}
-							// Fall through to multi-step path
-						} else {
-							// Log any warnings
+
+						if safetyReport.IsSafe {
 							for _, warning := range safetyReport.Warnings {
 								if s.Logger != nil {
 									s.Logger(fmt.Sprintf("[UNIFIED] Safety warning: %s", warning))
 								}
 							}
-							
-							// Execute the generated Python code with safety wrapper
-							emitProgress(StageAnalysis, 60, "progress.running_python", 4, 6)
-							
+
+							emitProgress(StageAnalysis, 60, "progress.running_python", 0, 0)
 							execStart := time.Now()
 							safeResult := safety.ValidateAndExecute(ctx, generatedCode.Code, func(code string) (string, error) {
 								if s.pythonPool != nil {
@@ -675,23 +731,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 								return ps.ExecuteScript(s.cfg.PythonPath, code)
 							})
 							metrics.RecordExecution(time.Since(execStart))
-							
-							if safeResult.TimedOut {
-								if s.Logger != nil {
-									s.Logger(fmt.Sprintf("[UNIFIED] Execution timed out after %v, falling back to multi-step", safeResult.Duration))
-								}
-								// Fall through to multi-step path
-							} else if safeResult.Blocked {
-								if s.Logger != nil {
-									s.Logger(fmt.Sprintf("[UNIFIED] Execution blocked: %s", safeResult.BlockReason))
-								}
-								// Fall through to multi-step path
-							} else if safeResult.Success {
-								// Parse the execution result
+
+							if safeResult.Success {
 								parser := NewResultParser(s.Logger)
 								parsedResult := parser.ParseOutput(safeResult.Output, sessionDir)
-								
-								// Emit file events for generated files
 								if onFileSaved != nil {
 									for _, f := range parsedResult.ChartFiles {
 										onFileSaved(f.Name, f.Type, f.Size)
@@ -700,117 +743,47 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 										onFileSaved(f.Name, f.Type, f.Size)
 									}
 								}
-								
-								// Log metrics summary
 								metrics.LogSummary()
-								
-								emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
+								emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
 								trajectory.Success = true
 								trajectory.FinalResponse = safeResult.Output
 								trajectory.IterationCount = 1
-								trajectory.ToolCallCount = 2 // Schema fetch + Python execution
-								
+								trajectory.ToolCallCount = 2
 								if s.Logger != nil {
-									s.Logger(fmt.Sprintf("[TIMING] Unified analysis path took: %v", time.Since(startTotal)))
+									s.Logger(fmt.Sprintf("[TIMING] Unified path took: %v", time.Since(startTotal)))
 								}
-								
-								return &schema.Message{
-									Role:    schema.Assistant,
-									Content: parser.FormatAsText(parsedResult),
-								}, nil
-							} else {
-								// Execution failed
-								if s.Logger != nil {
-									s.Logger(fmt.Sprintf("[UNIFIED] Execution failed: %v, falling back to multi-step", safeResult.Error))
+								return &schema.Message{Role: schema.Assistant, Content: parser.FormatAsText(parsedResult)}, nil
+							} else if s.Logger != nil {
+								if safeResult.TimedOut {
+									s.Logger(fmt.Sprintf("[UNIFIED] Timed out after %v, falling back", safeResult.Duration))
+								} else {
+									s.Logger(fmt.Sprintf("[UNIFIED] Execution failed: %v, falling back", safeResult.Error))
 								}
 							}
+						} else if s.Logger != nil {
+							s.Logger(fmt.Sprintf("[UNIFIED] Safety check failed: %v", safetyReport.Errors))
 						}
 					} else if s.Logger != nil {
-						s.Logger(fmt.Sprintf("[UNIFIED] Code generation failed: %v, falling back to multi-step", err))
+						s.Logger(fmt.Sprintf("[UNIFIED] Code generation failed: %v, falling back", err))
 					}
+				} else if s.Logger != nil && path != PathUnified {
+					s.Logger(fmt.Sprintf("[COMBINED] Routed to %s path, skipping unified", path))
 				}
-			} else if s.Logger != nil {
-				s.Logger(fmt.Sprintf("[UNIFIED] Request routed to %s path, skipping unified", router.GetPathDescription(path)))
-			}
-		}
-	}
 
-	// 🎯 Analysis Planner: Create execution plan before running
-	var planPrompt string
-	if len(history) > 0 {
-		// Extract user query
-		var userQuery string
-		for i := len(history) - 1; i >= 0; i-- {
-			if history[i].Role == schema.User {
-				userQuery = history[i].Content
-				break
-			}
-		}
-
-		if userQuery != "" {
-			// Create planner and generate plan
-			planner := NewAnalysisPlanner(s.ChatModel, s.Logger)
-			
-			// Get data source info for planning
-			dataSourceInfo := "无数据源"
-			if dataSourceID != "" {
-				if sources, err := s.dsService.LoadDataSources(); err == nil {
-					for _, ds := range sources {
-						if ds.ID == dataSourceID {
-							tables, _ := s.dsService.GetDataSourceTables(dataSourceID)
-							dataSourceInfo = fmt.Sprintf("数据源: %s, 表: %s", ds.Name, strings.Join(tables, ", "))
-							break
-						}
-					}
-				}
-			}
-
-			// Generate execution plan
-			plan, err := planner.PlanAnalysis(ctx, userQuery, dataSourceInfo)
-			if err == nil && plan != nil {
+				// Build plan prompt from combined result (no extra LLM call needed)
+				plan := combinedResult.ToAnalysisPlan()
+				planner := NewAnalysisPlanner(s.ChatModel, s.Logger)
 				planPrompt = planner.FormatPlanForPrompt(plan)
-				
-				// For quick path tasks, execute directly without full agent loop
-				if plan.IsQuickPath && plan.QuickPathCode != "" {
-					if s.Logger != nil {
-						s.Logger("[PLANNER] Executing quick path directly")
-					}
-					
-					// Execute Python code directly
-					var result string
-					var execErr error
-					if s.pythonPool != nil {
-						result, execErr = s.pythonPool.Execute(plan.QuickPathCode, sessionDir)
-					} else {
-						ps := &PythonService{}
-						result, execErr = ps.ExecuteScript(s.cfg.PythonPath, plan.QuickPathCode)
-					}
-					
-					if execErr == nil {
-						emitProgress(StageComplete, 100, "progress.analysis_complete", 6, 6)
-						trajectory.Success = true
-						trajectory.FinalResponse = result
-						trajectory.IterationCount = 1
-						trajectory.ToolCallCount = 1
-						if s.Logger != nil {
-							s.Logger(fmt.Sprintf("[TIMING] Quick path execution took: %v", time.Since(startTotal)))
-						}
-						return &schema.Message{
-							Role:    schema.Assistant,
-							Content: result,
-						}, nil
-					}
-					// If quick path failed, fall through to normal flow
-					if s.Logger != nil {
-						s.Logger(fmt.Sprintf("[PLANNER] Quick path failed: %v, falling back to normal flow", execErr))
-					}
-				}
 			}
 		}
 	}
 
-	// 1. Initialize Tools (parallelized for speed)
+	// 1. Initialize Tools (parallelized for speed, selective based on classification)
 	startTools := time.Now()
+	
+	// Determine which tools are needed based on combined classification
+	needsWebSearch := combinedResult == nil || combinedResult.NeedsWebSearch
+	needsExport := combinedResult == nil || combinedResult.NeedsDataExport
 	
 	// Use sync.WaitGroup for parallel tool initialization
 	var wg sync.WaitGroup
@@ -822,7 +795,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	var mcpTool *MCPTool
 	var exportTool *ExportTool
 	
-	// Initialize Python tool
+	// Initialize Python tool (always needed for analysis)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -882,13 +855,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}()
 	
-	// Initialize Web tools (using new API-based search)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Initialize search API configuration
-		s.cfg.InitializeSearchAPIs()
-		activeAPI := s.cfg.GetActiveSearchAPI()
+	// Initialize Web tools (only if needed based on classification)
+	if needsWebSearch {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// Initialize search API configuration
+			s.cfg.InitializeSearchAPIs()
+			activeAPI := s.cfg.GetActiveSearchAPI()
 		
 		if activeAPI != nil && activeAPI.Enabled {
 			searchTool, err := NewSearchAPITool(s.Logger, activeAPI)
@@ -913,7 +887,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		
 		// Initialize HTTP-based web fetch tool (no Chrome dependency)
 		webFetchTool = NewWebFetchTool(s.Logger, s.cfg.ProxyConfig)
-	}()
+		}()
+	} else {
+		// Always init web fetch for non-search use cases
+		webFetchTool = NewWebFetchTool(s.Logger, s.cfg.ProxyConfig)
+		if s.Logger != nil {
+			s.Logger("[SEARCH-API] Skipped web search init (not needed for this request)")
+		}
+	}
 	
 	// Initialize MCP tool
 	wg.Add(1)
@@ -922,10 +903,24 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		mcpTool = NewMCPTool(s.cfg.MCPServices, s.Logger)
 	}()
 	
-	// Initialize Export tool
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	// Initialize Export tool (only if needed)
+	if needsExport {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			exportTool = NewExportTool(s.Logger)
+			if sessionDir != "" {
+				exportTool.SetSessionDirectory(sessionDir)
+				if userMessageID != "" {
+					exportTool.SetRequestID(userMessageID)
+				}
+				if onFileSaved != nil {
+					exportTool.SetFileSavedCallback(onFileSaved)
+				}
+			}
+		}()
+	} else {
+		// Always create export tool but skip heavy init
 		exportTool = NewExportTool(s.Logger)
 		if sessionDir != "" {
 			exportTool.SetSessionDirectory(sessionDir)
@@ -936,7 +931,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 				exportTool.SetFileSavedCallback(onFileSaved)
 			}
 		}
-	}()
+	}
 	
 	// Wait for all tools to initialize
 	wg.Wait()
@@ -1010,7 +1005,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Binding Tools took: %v", time.Since(startBind)))
 	}
 
-	emitProgress(StageInitializing, 10, "progress.tools_ready", 1, 6)
+	emitProgress(StageInitializing, 10, "progress.tools_ready", 0, 0)
 
 	// 4. Build Graph using Lambda nodes to manage state ([]*schema.Message)
 	startGraph := time.Now()
@@ -1090,39 +1085,50 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		input = deduplicateMessages(input)
 
 		// ⚡ EARLY WARNINGS: Encourage completion before hitting limits
-		// More aggressive warnings to speed up completion
-		if iterationCount == 6 {
+		// Dynamic warnings based on estimated complexity
+		warningStep1 := 6  // Default first warning at step 6
+		warningStep2 := 8  // Default second warning at step 8
+		warningStep3 := 10 // Default final warning at step 10
+		
+		// Adjust warning thresholds for complex analyses
+		if combinedResult != nil && combinedResult.EstimatedCalls >= 5 {
+			warningStep1 = 8
+			warningStep2 = 10
+			warningStep3 = 12
+		}
+		
+		if iterationCount == warningStep1 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "⚡ 已用6步。尽快完成,最多再用2次工具。",
+				Content: "⚡ 已用较多步骤。尽快完成分析，最多再用2次工具。",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
-				s.Logger("[WARNING] Step 6 warning injected")
+				s.Logger(fmt.Sprintf("[WARNING] Step %d warning injected", iterationCount))
 			}
-		} else if iterationCount == 8 {
+		} else if iterationCount == warningStep2 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "⚠️ 已用8步。立即呈现结果,不要再调用工具。",
+				Content: "⚠️ 步骤较多。立即呈现结果,不要再调用工具。",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
-				s.Logger("[WARNING] Step 8 warning injected")
+				s.Logger(fmt.Sprintf("[WARNING] Step %d warning injected", iterationCount))
 			}
-		} else if iterationCount == 10 {
+		} else if iterationCount == warningStep3 {
 			finalMsg := &schema.Message{
 				Role:    schema.User,
 				Content: "🛑 停止! 立即输出当前结果。",
 			}
 			input = append(input, finalMsg)
 			if s.Logger != nil {
-				s.Logger("[FINAL-WARNING] Step 10 final warning injected")
+				s.Logger(fmt.Sprintf("[FINAL-WARNING] Step %d final warning injected", iterationCount))
 			}
 		}
 
 		// Emit progress based on iteration
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
-		emitProgress(StageAnalysis, progress, "progress.ai_processing", 3, 6)
+		emitProgress(StageAnalysis, progress, "progress.ai_processing", iterationCount, 0)
 
 		// Apply memory management only if enabled in config
 		managedInput := input
@@ -1201,23 +1207,19 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		// Emit progress based on tool being called
 		if len(lastMsg.ToolCalls) > 0 {
 			toolName := lastMsg.ToolCalls[0].Function.Name
-			var msg string
-			switch toolName {
-			case "get_data_source_context":
-				emitProgress(StageSchema, 25, "progress.loading_schema", 2, 6)
-				msg = "获取模式中"
-			case "execute_sql":
-				emitProgress(StageQuery, 40, "progress.executing_sql", 4, 6)
-				msg = "执行查询中"
-			case "python_executor":
-				emitProgress(StageAnalysis, 60, "progress.running_python", 5, 6)
-				msg = "分析数据中"
-			default:
-				msg = fmt.Sprintf("Running %s", toolName)
-			}
-			if s.Logger != nil {
-				s.Logger(fmt.Sprintf("[PROGRESS] %s", msg))
+			
+			// Use centralized tool-to-progress mapping
+			if mapping, ok := ToolProgressMapping[toolName]; ok {
+				emitProgress(mapping.Stage, mapping.Progress, mapping.Message, 0, 0)
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[PROGRESS] %s → %s (%s)", toolName, mapping.Stage, mapping.Message))
 				}
+			} else {
+				emitProgress(StageAnalysis, 50, "progress.ai_processing", 0, 0)
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[PROGRESS] Running %s", toolName))
+				}
+			}
 		}
 
 		// Execute tools
@@ -1255,6 +1257,17 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			if s.Logger != nil {
 				s.Logger(fmt.Sprintf("[TOOL ERROR] %v - returning as message for LLM to handle", err))
 			}
+			
+			// Emit progress indicating a retry is happening
+			if len(lastMsg.ToolCalls) > 0 {
+				toolName := lastMsg.ToolCalls[0].Function.Name
+				if toolName == "execute_sql" {
+					emitProgress(StageQuery, 35, "progress.correcting_sql", 0, 0)
+				} else {
+					emitProgress(StageAnalysis, 45, "progress.ai_processing", 0, 0)
+				}
+			}
+			
 			// Create error messages for each tool call with helpful guidance
 			var errorMsgs []*schema.Message
 			errStr := err.Error()
@@ -1299,6 +1312,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		if s.Logger != nil {
 			s.Logger(fmt.Sprintf("[TIMING] Tools Execution step took: %v", time.Since(startExec)))
 		}
+
+		// Emit progress for result processing
+		emitProgress(StageAnalysis, 65, "progress.processing_results", 0, 0)
 
 		// CRITICAL: Truncate tool output to prevent context overflow
 		// Tool outputs (especially SQL results) can be huge
@@ -1387,7 +1403,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Graph Construction & Compilation took: %v", time.Since(startGraph)))
 	}
 
-	emitProgress(StageInitializing, 15, "Preparing context...", 1, 6)
+	emitProgress(StageInitializing, 15, "progress.tools_ready", 0, 0)
 
 	// 6. Build Context Prompt (minimal - only table names, let tool provide details)
 	startContext := time.Now()
@@ -1497,6 +1513,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - 前端会自动渲染图表
 - 适合：交互式图表、快速展示
 - 🚫 **ECharts绝对不会生成任何文件！** 不要说"已生成xxx.pdf"或"已保存xxx.png"
+- ⚠️ **ECharts配置必须是纯JSON格式！** 不要使用JavaScript函数（如function(params){...}）。formatter请使用字符串模板（如"{b}: {c}"），不要用function。
 
 **方式2: Python matplotlib（需要执行代码才能生成文件）**
 - 必须调用python_executor工具执行代码
@@ -1519,9 +1536,21 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - 数学计算 → 直接计算
 - 单位换算 → 直接换算
 
+🔧 **工具调用规范（严格遵守）**:
+
+**工具依赖链（数据分析场景）:**
+get_data_source_context → execute_sql → python_executor/ECharts → export_data
+
+**规则:**
+1. **先schema后SQL**: 必须先调用get_data_source_context获取列名和数据类型，再写SQL
+2. **SQL结果传递**: execute_sql返回JSON数据，在python_executor中用json.loads()加载
+3. **不要猜测列名**: 列名大小写敏感，必须从schema中获取准确名称
+4. **一次获取足够schema**: 用table_names参数一次获取所有需要的表，避免多次调用
+5. **工具错误处理**: SQL报错时根据错误信息修正后重试，不要放弃
+
 📋 数据分析标准流程:
-1. get_data_source_context → 获取schema
-2. execute_sql → 查询数据
+1. get_data_source_context → 获取schema（含列名、类型、样例数据、SQL方言提示）
+2. execute_sql → 用正确的列名和语法查询数据
 3. 可视化：ECharts(直接输出,无文件) 或 python_executor(生成文件)
 4. 呈现结果(图表+洞察+数据表)
 
@@ -1537,8 +1566,19 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - get_data_source_context最多调用2次
 - SQL错误时直接修复
 
+🐍 **Python万能工具（当现有工具不够用时）**:
+- 如果现有agent工具（execute_sql、web_search、export_data等）无法完成用户需求，**主动使用python_executor编写Python脚本来解决**
+- Python可以做到几乎任何事情：数据处理、文件操作、API调用、文本分析、数学建模、格式转换等
+- 示例场景：
+  - 需要复杂数据转换/清洗 → 用pandas编写处理脚本
+  - 需要调用外部API → 用requests库
+  - 需要文本处理/正则匹配 → 用re/string操作
+  - 需要统计建模/机器学习 → 用scipy/sklearn
+  - 需要文件格式转换 → 用相应Python库
+- **不要因为没有专门的工具就放弃任务，用Python编写解决方案！**
+
 📊 输出格式:
-- ECharts图表: ` + "```json:echarts\n{...}\n```" + ` (仅前端渲染，无文件)
+- ECharts图表: ` + "```json:echarts\n{...}\n```" + ` (仅前端渲染，无文件，必须纯JSON，禁止function)
 - 表格: ` + "```json:table\n[...]\n```" + `
 - 图片会自动检测并显示
 
@@ -1554,6 +1594,11 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 - 数据分析 → 必须包含: 图表(ECharts或matplotlib) + 关键洞察 + 数据摘要
 - 简单问题(时间/计算) → 直接返回结果
 - 不要只返回纯文字分析，要有可视化支撑
+
+💡 **建议输出（重要）**:
+- 每次数据分析完成后，在回复末尾添加"**建议**"或"**进一步分析建议**"小节
+- 用编号列表(1. 2. 3.)列出3-5条后续分析建议
+- 建议应具体、可操作，帮助用户深入探索数据
 
 ⚠️ 高效执行，但不要牺牲分析质量!` + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt,
 	}
@@ -1583,7 +1628,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	input := append([]*schema.Message{sysMsg}, managedHistory...)
 
-	emitProgress(StageAnalysis, 20, "开始分析...", 3, 6)
+	emitProgress(StageAnalysis, 20, "progress.ai_processing", 0, 0)
 
 	startInvoke := time.Now()
 	finalHistory, err := runnable.Invoke(ctx, input)
@@ -1598,7 +1643,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Total RunAnalysis took: %v", time.Since(startTotal)))
 	}
 
-	emitProgress(StageComplete, 100, "分析完成", 6, 6)
+	emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
 
 	// Return the last message and mark trajectory as successful with escaped content
 	if len(finalHistory) > 0 {

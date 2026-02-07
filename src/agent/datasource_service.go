@@ -16,7 +16,7 @@ import (
 
 	"github.com/extrame/xls"
 	"github.com/google/uuid"
-	"github.com/xuri/excelize/v2"
+	gospreadsheet "github.com/VantageDataChat/GoExcel"
 	_ "github.com/go-sql-driver/mysql"
 	_ "modernc.org/sqlite"
 )
@@ -798,27 +798,26 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		// Use xls library for old Excel format
 		return s.importXLS(name, filePath, headerGen)
 	case ".xlsx", ".xlsm":
-		// Use excelize for new Excel format
+		// Use GoExcel for new Excel format
 		return s.importXLSX(name, filePath, headerGen)
 	default:
 		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件", ext)
 	}
 }
 
-// importXLSX processes .xlsx files using excelize library
+// importXLSX processes .xlsx files using GoExcel library
 func (s *DataSourceService) importXLSX(name string, filePath string, headerGen func(string) (string, error)) (*DataSource, error) {
-	// Open Excel
-	f, err := excelize.OpenFile(filePath)
+	// Open Excel using GoExcel
+	wb, err := gospreadsheet.OpenFile(filePath)
 	if err != nil {
 		// Provide more helpful error message
-		if strings.Contains(err.Error(), "unsupported workbook file format") {
+		if strings.Contains(err.Error(), "unsupported") || strings.Contains(err.Error(), "format") {
 			return nil, fmt.Errorf("无法打开 Excel 文件：文件格式不受支持。请确保文件是有效的 .xlsx 格式（Excel 2007 或更高版本）")
 		}
 		return nil, fmt.Errorf("failed to open excel file: %v", err)
 	}
-	defer f.Close()
 
-	sheetList := f.GetSheetList()
+	sheetList := wb.GetSheetNames()
 	if len(sheetList) == 0 {
 		return nil, fmt.Errorf("no sheets found in excel file")
 	}
@@ -848,10 +847,32 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 	usedTableNames := make(map[string]bool)
 
 	for _, sheetName := range sheetList {
-		rows, err := f.GetRows(sheetName)
+		ws, err := wb.GetSheetByName(sheetName)
+		if err != nil || ws == nil {
+			continue
+		}
+		cellRows, err := ws.RowIterator()
 		if err != nil {
 			continue
 		}
+		if len(cellRows) == 0 {
+			continue
+		}
+
+		// Convert cell rows to string rows
+		var rows [][]string
+		for _, cellRow := range cellRows {
+			var strRow []string
+			for _, cell := range cellRow {
+				if cell != nil {
+					strRow = append(strRow, cell.GetStringValue())
+				} else {
+					strRow = append(strRow, "")
+				}
+			}
+			rows = append(rows, strRow)
+		}
+
 		if len(rows) == 0 {
 			continue
 		}
@@ -1261,6 +1282,138 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 	s.updateSchemaCache(id, cache)
 
 	return tables, nil
+}
+
+// GetTablesWithColumns returns all tables with their column names in a single batch.
+// This is much faster than calling GetDataSourceTables + GetDataSourceTableColumns per table,
+// because it opens the database connection only once.
+func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string, error) {
+	// Check cache first — if all tables have columns cached, return immediately
+	if cache := s.getSchemaFromCache(id); cache != nil && len(cache.Tables) > 0 {
+		allCached := true
+		for _, t := range cache.Tables {
+			if cols, exists := cache.Columns[t]; !exists || len(cols) == 0 {
+				allCached = false
+				break
+			}
+		}
+		if allCached {
+			s.log(fmt.Sprintf("[CACHE HIT] GetTablesWithColumns for %s (%d tables)", id, len(cache.Tables)))
+			result := make(map[string][]string, len(cache.Tables))
+			for _, t := range cache.Tables {
+				result[t] = cache.Columns[t]
+			}
+			return result, nil
+		}
+	}
+	s.log(fmt.Sprintf("[CACHE MISS] GetTablesWithColumns for %s", id))
+
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+	isSQLite := false
+
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("sqlite", dbPath)
+		if err != nil {
+			return nil, err
+		}
+		isSQLite = true
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		return nil, fmt.Errorf("unsupported data source type")
+	}
+	defer db.Close()
+
+	// Get all table names
+	var tables []string
+	if isSQLite {
+		rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			tables = append(tables, name)
+		}
+	} else {
+		rows, err := db.Query("SHOW TABLES")
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				return nil, err
+			}
+			tables = append(tables, name)
+		}
+	}
+
+	// Get columns for all tables using the same connection
+	result := make(map[string][]string, len(tables))
+	for _, tableName := range tables {
+		query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
+		rows, err := db.Query(query)
+		if err != nil {
+			s.log(fmt.Sprintf("[WARN] GetTablesWithColumns: failed to get columns for %s: %v", tableName, err))
+			result[tableName] = nil
+			continue
+		}
+		cols, err := rows.Columns()
+		rows.Close()
+		if err != nil {
+			result[tableName] = nil
+			continue
+		}
+		result[tableName] = cols
+	}
+
+	// Update cache
+	cache := s.getSchemaFromCache(id)
+	if cache == nil {
+		cache = &SchemaCache{
+			Columns: make(map[string][]string),
+			Samples: make(map[string][]map[string]interface{}),
+		}
+	}
+	cache.Tables = tables
+	for t, cols := range result {
+		cache.Columns[t] = cols
+	}
+	s.updateSchemaCache(id, cache)
+
+	s.log(fmt.Sprintf("[BATCH] GetTablesWithColumns for %s: %d tables loaded", id, len(tables)))
+	return result, nil
 }
 
 // GetDataSourceTableData returns preview data for a table
@@ -1700,55 +1853,48 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 	}
 	defer db.Close()
 
-	// 2. Create Excel file with excelize
-	f := excelize.NewFile()
-	defer f.Close()
-
-	// Delete default Sheet1
-	f.DeleteSheet("Sheet1")
+	// 2. Create Excel file with GoExcel
+	wb := gospreadsheet.New()
 
 	// Define styles
-	headerStyle, _ := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{
-			Bold:   true,
-			Size:   11,
-			Color:  "FFFFFF",
-			Family: "Microsoft YaHei",
-		},
-		Fill: excelize.Fill{
-			Type:    "pattern",
-			Color:   []string{"4472C4"},
-			Pattern: 1,
-		},
-		Alignment: &excelize.Alignment{
-			Horizontal: "center",
-			Vertical:   "center",
-		},
-		Border: []excelize.Border{
-			{Type: "left", Color: "FFFFFF", Style: 1},
-			{Type: "top", Color: "FFFFFF", Style: 1},
-			{Type: "bottom", Color: "FFFFFF", Style: 1},
-			{Type: "right", Color: "FFFFFF", Style: 1},
-		},
-	})
+	headerStyle := gospreadsheet.NewStyle().
+		SetFont(&gospreadsheet.Font{
+			Bold:  true,
+			Size:  11,
+			Color: "FFFFFF",
+			Name:  "Microsoft YaHei",
+		}).
+		SetFill(&gospreadsheet.Fill{
+			Type:  "solid",
+			Color: "4472C4",
+		}).
+		SetAlignment(&gospreadsheet.Alignment{
+			Horizontal: gospreadsheet.AlignCenter,
+			Vertical:   gospreadsheet.AlignMiddle,
+		}).
+		SetBorders(&gospreadsheet.Borders{
+			Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
+			Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
+			Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
+			Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
+		})
 
-	dataStyle, _ := f.NewStyle(&excelize.Style{
-		Font: &excelize.Font{
-			Size:   10,
-			Family: "Microsoft YaHei",
-		},
-		Alignment: &excelize.Alignment{
-			Horizontal: "left",
-			Vertical:   "center",
+	dataStyle := gospreadsheet.NewStyle().
+		SetFont(&gospreadsheet.Font{
+			Size: 10,
+			Name: "Microsoft YaHei",
+		}).
+		SetAlignment(&gospreadsheet.Alignment{
+			Horizontal: gospreadsheet.AlignLeft,
+			Vertical:   gospreadsheet.AlignMiddle,
 			WrapText:   true,
-		},
-		Border: []excelize.Border{
-			{Type: "left", Color: "D9D9D9", Style: 1},
-			{Type: "top", Color: "D9D9D9", Style: 1},
-			{Type: "bottom", Color: "D9D9D9", Style: 1},
-			{Type: "right", Color: "D9D9D9", Style: 1},
-		},
-	})
+		}).
+		SetBorders(&gospreadsheet.Borders{
+			Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+			Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+			Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+			Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+		})
 
 	// 3. Export each table to a sheet
 	for sheetIdx, tableName := range tableNames {
@@ -1770,22 +1916,24 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 		if len(sheetName) > 31 {
 			sheetName = sheetName[:31]
 		}
-		
-		index, err := f.NewSheet(sheetName)
-		if err != nil {
-			rows.Close()
-			return fmt.Errorf("failed to create sheet %s: %v", sheetName, err)
-		}
 
+		var ws *gospreadsheet.Worksheet
 		if sheetIdx == 0 {
-			f.SetActiveSheet(index)
+			ws = wb.GetActiveSheet()
+			ws.SetTitle(sheetName)
+		} else {
+			ws, err = wb.AddSheet(sheetName)
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf("failed to create sheet %s: %v", sheetName, err)
+			}
 		}
 
 		// Write headers
 		for i, col := range columns {
-			cell, _ := excelize.CoordinatesToCellName(i+1, 1)
-			f.SetCellValue(sheetName, cell, col)
-			f.SetCellStyle(sheetName, cell, cell, headerStyle)
+			cellName, _ := gospreadsheet.CellName(0, i)
+			ws.SetCellValue(cellName, col)
+			ws.SetCellStyle(cellName, headerStyle)
 
 			// Set column width
 			width := float64(len(col)) * 1.5
@@ -1795,10 +1943,9 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 			if width > 50 {
 				width = 50
 			}
-			colName, _ := excelize.ColumnNumberToName(i + 1)
-			f.SetColWidth(sheetName, colName, colName, width)
+			ws.SetColumnWidth(i, width)
 		}
-		f.SetRowHeight(sheetName, 1, 25)
+		ws.SetRowHeight(0, 25)
 
 		// Write data rows
 		values := make([]interface{}, len(columns))
@@ -1807,7 +1954,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 			valuePtrs[i] = &values[i]
 		}
 
-		rowNum := 2
+		rowNum := 1
 		for rows.Next() {
 			if err := rows.Scan(valuePtrs...); err != nil {
 				rows.Close()
@@ -1815,59 +1962,37 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 			}
 
 			for i, v := range values {
-				cell, _ := excelize.CoordinatesToCellName(i+1, rowNum)
-				
+				cellName, _ := gospreadsheet.CellName(rowNum, i)
+
 				if v != nil {
 					switch val := v.(type) {
 					case []byte:
-						f.SetCellValue(sheetName, cell, string(val))
+						ws.SetCellValue(cellName, string(val))
 					case time.Time:
-						f.SetCellValue(sheetName, cell, val.Format("2006-01-02 15:04:05"))
+						ws.SetCellValue(cellName, val.Format("2006-01-02 15:04:05"))
 					default:
-						f.SetCellValue(sheetName, cell, val)
+						ws.SetCellValue(cellName, val)
 					}
 				}
-				f.SetCellStyle(sheetName, cell, cell, dataStyle)
+				ws.SetCellStyle(cellName, dataStyle)
 			}
-			f.SetRowHeight(sheetName, rowNum, 20)
+			ws.SetRowHeight(rowNum, 20)
 			rowNum++
 		}
 		rows.Close()
 
-		// Add auto-filter
-		if len(columns) > 0 && rowNum > 1 {
-			lastCol, _ := excelize.ColumnNumberToName(len(columns))
-			filterRange := fmt.Sprintf("A1:%s%d", lastCol, rowNum-1)
-			f.AutoFilter(sheetName, filterRange, []excelize.AutoFilterOptions{})
-		}
-
 		// Freeze header row
-		f.SetPanes(sheetName, &excelize.Panes{
-			Freeze:      true,
-			Split:       false,
-			XSplit:      0,
-			YSplit:      1,
-			TopLeftCell: "A2",
-			ActivePane:  "bottomLeft",
-		})
+		ws.FreezePane("A2")
 	}
 
 	// 4. Add metadata
-	f.SetDocProps(&excelize.DocProperties{
-		Category:       "数据分析",
-		ContentStatus:  "Final",
-		Created:        time.Now().Format(time.RFC3339),
-		Creator:        "VantageData",
-		Description:    fmt.Sprintf("数据源: %s", target.Name),
-		Identifier:     "xlsx",
-		Keywords:       "数据分析,报表,Excel",
-		LastModifiedBy: "VantageData",
-		Revision:       "1",
-		Subject:        "数据源导出",
-		Title:          target.Name,
-		Language:       "zh-CN",
-		Version:        "1.0",
-	})
+	wb.Properties.Title = target.Name
+	wb.Properties.Creator = "VantageData"
+	wb.Properties.Description = fmt.Sprintf("数据源: %s", target.Name)
+	wb.Properties.Subject = "数据源导出"
+	wb.Properties.Keywords = "数据分析,报表,Excel"
+	wb.Properties.Category = "数据分析"
+	wb.Properties.LastModifiedBy = "VantageData"
 
 	// 5. Save to file
 	// Ensure output path has .xlsx extension
@@ -1875,7 +2000,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 		outputPath = outputPath + ".xlsx"
 	}
 
-	if err := f.SaveAs(outputPath); err != nil {
+	if err := gospreadsheet.SaveFile(wb, outputPath); err != nil {
 		return fmt.Errorf("failed to save Excel file: %v", err)
 	}
 

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { X, BarChart3, CreditCard, Globe } from 'lucide-react';
 import { useLanguage } from '../i18n';
-import { GetActivationStatus } from '../../wailsjs/go/main/App';
+import { GetActivationStatus, DeactivateLicense } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import ActivationModal from './ActivationModal';
 
 interface AboutModalProps {
     isOpen: boolean;
@@ -21,6 +22,13 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         daily_analysis_limit?: number;
         daily_analysis_count?: number;
     }>({ activated: false });
+
+    // State for license mode switch feature
+    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+    const [confirmAction, setConfirmAction] = useState<'toCommercial' | 'toOpenSource' | null>(null);
+    const [showActivationModal, setShowActivationModal] = useState(false);
+    const [isDeactivating, setIsDeactivating] = useState(false);
+    const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -57,6 +65,72 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
     const handleSubscribe = () => {
         BrowserOpenURL(PURCHASE_URL);
+    };
+
+    // Handle mode switch button click
+    const handleSwitchClick = () => {
+        if (activationStatus.activated) {
+            setConfirmAction('toOpenSource');
+        } else {
+            setConfirmAction('toCommercial');
+        }
+        setShowConfirmDialog(true);
+    };
+
+    // Handle confirm action
+    const handleConfirm = async () => {
+        if (confirmAction === 'toCommercial') {
+            // Close the confirm dialog and AboutModal, then open ActivationModal
+            setShowConfirmDialog(false);
+            onClose();
+            setShowActivationModal(true);
+        } else if (confirmAction === 'toOpenSource') {
+            // Deactivate the license
+            setIsDeactivating(true);
+            setDeactivateError(null);
+            try {
+                await DeactivateLicense();
+                // Refresh activation status
+                const status = await GetActivationStatus();
+                setActivationStatus({
+                    activated: status.activated || false,
+                    sn: status.sn || '',
+                    expires_at: status.expires_at || '',
+                    daily_analysis_limit: status.daily_analysis_limit || 0,
+                    daily_analysis_count: status.daily_analysis_count || 0,
+                });
+                setShowConfirmDialog(false);
+                setConfirmAction(null);
+            } catch (error: any) {
+                setDeactivateError(t('deactivate_failed') + ': ' + error.toString());
+            } finally {
+                setIsDeactivating(false);
+            }
+        }
+    };
+
+    // Handle cancel action
+    const handleCancel = () => {
+        setShowConfirmDialog(false);
+        setConfirmAction(null);
+        setDeactivateError(null);
+    };
+
+    // Handle activation success - refresh activation status after successful activation
+    const handleActivationSuccess = async () => {
+        try {
+            const status = await GetActivationStatus();
+            setActivationStatus({
+                activated: status.activated || false,
+                sn: status.sn || '',
+                expires_at: status.expires_at || '',
+                daily_analysis_limit: status.daily_analysis_limit || 0,
+                daily_analysis_count: status.daily_analysis_count || 0,
+            });
+        } catch (error) {
+            console.error('Failed to refresh activation status:', error);
+        }
+        setShowActivationModal(false);
     };
 
     if (!isOpen) return null;
@@ -106,18 +180,35 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     <div className="p-3 bg-slate-50 rounded-lg space-y-2">
                         <div className="flex justify-between items-center">
                             <span className="text-slate-500 text-xs">{t('working_mode')}</span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-2">
+                                {/* Current Mode Badge */}
                                 {activationStatus.activated ? (
-                                    <>
-                                        <span className={`text-xs font-medium px-2 py-0.5 rounded ${isTrial ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`}>
-                                            {isTrial ? (t('trial_license') || '试用版') : (t('official_license') || '正式版')}
-                                        </span>
-                                    </>
+                                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                                        isTrial 
+                                            ? 'bg-gradient-to-r from-orange-400 to-amber-500 text-white shadow-sm' 
+                                            : 'bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-sm'
+                                    }`}>
+                                        {isTrial ? (t('trial_license') || '试用版') : (t('official_license') || '正式版')}
+                                    </span>
                                 ) : (
-                                    <span className="text-xs font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gradient-to-r from-slate-500 to-slate-600 text-white shadow-sm">
                                         {t('opensource_license')}
                                     </span>
                                 )}
+                                {/* Mode Switch Button - Outlined style for distinction */}
+                                <button
+                                    onClick={handleSwitchClick}
+                                    disabled={isDeactivating}
+                                    className={`text-xs px-2.5 py-1 rounded border transition-all disabled:opacity-50
+                                        ${activationStatus.activated 
+                                            ? 'border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50' 
+                                            : 'border-blue-300 text-blue-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50'
+                                        }`}
+                                >
+                                    {activationStatus.activated 
+                                        ? t('switch_to_opensource') 
+                                        : t('switch_to_commercial')}
+                                </button>
                             </div>
                         </div>
                         {activationStatus.activated && activationStatus.sn && (
@@ -193,6 +284,55 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     </button>
                 </div>
             </div>
+
+            {/* Confirmation Dialog */}
+            {showConfirmDialog && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-4">
+                        <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                            {confirmAction === 'toCommercial' 
+                                ? t('confirm_switch_to_commercial') 
+                                : t('confirm_switch_to_opensource')}
+                        </h3>
+                        <p className="text-sm text-slate-600 mb-4">
+                            {confirmAction === 'toCommercial' 
+                                ? t('confirm_switch_to_commercial_desc') 
+                                : t('confirm_switch_to_opensource_desc')}
+                        </p>
+                        {deactivateError && (
+                            <p className="text-sm text-red-600 mb-4">{deactivateError}</p>
+                        )}
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={handleCancel}
+                                disabled={isDeactivating}
+                                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 
+                                           rounded-lg transition-colors disabled:opacity-50"
+                            >
+                                {t('cancel')}
+                            </button>
+                            <button
+                                onClick={handleConfirm}
+                                disabled={isDeactivating}
+                                className={`px-4 py-2 text-sm text-white rounded-lg transition-colors
+                                    ${confirmAction === 'toOpenSource' 
+                                        ? 'bg-orange-500 hover:bg-orange-600' 
+                                        : 'bg-blue-500 hover:bg-blue-600'}
+                                    disabled:opacity-50`}
+                            >
+                                {isDeactivating ? '...' : t('confirm')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Activation Modal for switching to commercial mode */}
+            <ActivationModal
+                isOpen={showActivationModal}
+                onClose={() => setShowActivationModal(false)}
+                onActivated={handleActivationSuccess}
+            />
         </div>
     );
 };

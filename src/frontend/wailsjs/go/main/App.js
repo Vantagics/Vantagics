@@ -134,6 +134,10 @@ export function ExportDashboardToPPT(arg1) {
   return window['go']['main']['App']['ExportDashboardToPPT'](arg1);
 }
 
+export function ExportDashboardToWord(arg1) {
+  return window['go']['main']['App']['ExportDashboardToWord'](arg1);
+}
+
 export function ExportMessageToPDF(arg1, arg2) {
   return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
 }
@@ -174,12 +178,20 @@ export function ExtractMetricsFromAnalysis(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExtractMetricsFromAnalysis'](arg1, arg2, arg3);
 }
 
+export function ExtractSuggestionsAsItems(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExtractSuggestionsAsItems'](arg1, arg2, arg3);
+}
+
 export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExtractSuggestionsFromAnalysis'](arg1, arg2, arg3);
 }
 
 export function GenerateCSVThumbnail(arg1, arg2) {
   return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
+}
+
+export function GenerateFilePreview(arg1, arg2) {
+  return window['go']['main']['App']['GenerateFilePreview'](arg1, arg2);
 }
 
 export function GenerateIntentSuggestions(arg1, arg2) {

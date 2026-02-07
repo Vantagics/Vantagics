@@ -17,7 +17,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 
 // 最小日志级别 - 只有 >= 此级别的日志才会被写入
 // 生产环境设为 'WARN'，调试时可改为 'DEBUG' 或 'INFO'
-let minLogLevel: LogLevel = 'WARN';
+let minLogLevel: LogLevel = 'DEBUG';
 
 /**
  * 设置最小日志级别

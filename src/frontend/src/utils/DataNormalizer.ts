@@ -320,26 +320,152 @@ export function detectDataType(data: any): AnalysisResultType | null {
 // ============================================================================
 
 /**
+ * 检查是否为文件引用格式
+ * 文件引用格式: file://filename.json
+ */
+export function isFileReference(data: string): boolean {
+  return typeof data === 'string' && data.startsWith('file://');
+}
+
+/**
+ * 清理 ECharts 配置字符串中的 JavaScript 函数
+ * 将 function(...){...} 替换为 null，使其成为有效的 JSON
+ * 
+ * @param jsonStr - 可能包含函数的 JSON 字符串
+ * @returns 清理后的 JSON 字符串
+ */
+function cleanEChartsJsonString(jsonStr: string): string {
+  // Remove JavaScript function definitions from ECharts JSON
+  // LLMs sometimes generate: "formatter": function(params) { ... }
+  // which is valid JS but not valid JSON
+  let result = jsonStr;
+  
+  // Use iterative approach to handle nested braces properly
+  // Find each "key": function(...) { ... } pattern and remove it
+  let changed = true;
+  while (changed) {
+    changed = false;
+    // Match function keyword that appears as a JSON value
+    const funcIdx = result.search(/:\s*function\s*\(/);
+    if (funcIdx < 0) break;
+    
+    // Find the opening brace of the function body
+    const afterColon = result.indexOf('function', funcIdx);
+    const braceStart = result.indexOf('{', afterColon);
+    if (braceStart < 0) break;
+    
+    // Count braces to find matching close
+    let depth = 0;
+    let braceEnd = -1;
+    for (let i = braceStart; i < result.length; i++) {
+      if (result[i] === '{') depth++;
+      else if (result[i] === '}') {
+        depth--;
+        if (depth === 0) { braceEnd = i; break; }
+      }
+    }
+    if (braceEnd < 0) break;
+    
+    // Walk backwards from the colon to find the key start
+    let keyStart = funcIdx;
+    // Skip whitespace before colon
+    while (keyStart > 0 && /\s/.test(result[keyStart])) keyStart--;
+    // We're at the colon, go back past the key
+    if (result[keyStart] === ':') keyStart--;
+    while (keyStart > 0 && /\s/.test(result[keyStart])) keyStart--;
+    // Past the quoted key name
+    if (result[keyStart] === '"') {
+      keyStart--;
+      while (keyStart > 0 && result[keyStart] !== '"') keyStart--;
+      // Check for leading comma
+      let commaCheck = keyStart - 1;
+      while (commaCheck >= 0 && /\s/.test(result[commaCheck])) commaCheck--;
+      if (commaCheck >= 0 && result[commaCheck] === ',') {
+        keyStart = commaCheck;
+      }
+    }
+    
+    // Remove the key-value pair
+    let after = result.substring(braceEnd + 1);
+    // Clean trailing comma if needed
+    const trimmedAfter = after.trimStart();
+    if (trimmedAfter.startsWith(',') && keyStart > 0 && result[keyStart] !== ',') {
+      after = trimmedAfter.substring(1);
+    }
+    result = result.substring(0, keyStart) + after;
+    changed = true;
+  }
+  
+  // 清理可能残留的尾随逗号
+  result = result.replace(/,(\s*[}\]])/g, '$1');
+  
+  // 清理可能残留的前导逗号
+  result = result.replace(/([{[]\s*),/g, '$1');
+  
+  return result;
+}
+
+/**
  * 规范化 ECharts 数据
  * 输入: JSON字符串或对象
  * 输出: 解析后的ECharts配置对象
  * 
  * 增强: 使用 isValidEChartsConfig 进行验证
+ * 
+ * 注意: 文件引用格式 (file://xxx.json) 应该在组件层面处理，
+ * 而不是在规范化层面。当后端返回文件引用时，组件应该使用
+ * EChartsFileLoader 来加载实际数据。
+ * 
+ * 修复: 处理包含 JavaScript 函数的 ECharts 配置字符串
+ * 当 JSON 字符串中包含 function(...){...} 时，先清理这些函数再解析
  */
 export function normalizeECharts(data: string | object): NormalizedResult<object> {
-  logger.debug('[Normalize] Processing ECharts data');
+  logger.warn('[Normalize] Processing ECharts data, input type: ' + typeof data);
   
   try {
     let parsed: object;
     
     if (typeof data === 'string') {
-      logger.debug('[Normalize] ECharts input is string, parsing JSON');
-      // 尝试解析JSON字符串
-      parsed = JSON.parse(data);
+      // 检查是否为文件引用格式 - 直接返回，让组件层面处理
+      if (isFileReference(data)) {
+        logger.debug(`[Normalize] ECharts data is a file reference: ${data}, passing through`);
+        // 返回一个特殊对象，标记这是一个文件引用
+        return { 
+          success: true, 
+          data: { 
+            __isFileReference: true, 
+            fileRef: data 
+          } 
+        };
+      }
+      
+      logger.warn('[Normalize] ECharts input is string (length=' + data.length + '), parsing JSON');
+      logger.warn('[Normalize] ECharts string preview: ' + data.substring(0, 150));
+      
+      // 首先尝试直接解析
+      try {
+        parsed = JSON.parse(data);
+        logger.warn('[Normalize] ECharts JSON.parse succeeded, result type: ' + typeof parsed);
+      } catch (parseError) {
+        // 如果解析失败，可能是因为包含 JavaScript 函数
+        // 尝试清理函数后再解析
+        logger.warn('[Normalize] Initial JSON parse failed: ' + parseError + ', attempting to clean JavaScript functions');
+        const cleanedData = cleanEChartsJsonString(data);
+        
+        try {
+          parsed = JSON.parse(cleanedData);
+          logger.warn('[Normalize] Successfully parsed after cleaning JavaScript functions');
+        } catch (cleanParseError) {
+          // 如果清理后仍然无法解析，抛出原始错误
+          logger.error(`[Normalize] Failed to parse ECharts data even after cleaning: ${cleanParseError}`);
+          throw parseError;
+        }
+      }
     } else if (typeof data === 'object' && data !== null) {
       parsed = data;
+      logger.warn('[Normalize] ECharts data is already an object, keys: ' + Object.keys(data).join(', '));
     } else {
-      logger.warn('[Normalize] Invalid ECharts data: expected string or object');
+      logger.warn('[Normalize] Invalid ECharts data: expected string or object, got ' + typeof data);
       return { success: false, error: 'Invalid ECharts data: expected string or object' };
     }
     
@@ -446,6 +572,31 @@ export function normalizeTable(data: any): NormalizedResult<NormalizedTableData>
     // 使用增强的验证方法进行预检查
     if (!isValidTableData(parsed)) {
       logger.debug('[Normalize] Data does not match known table formats, attempting conversion');
+    }
+    
+    // 处理带有 title 和 rows 的新格式 { title: string, rows: array }
+    if (parsed && typeof parsed === 'object' && 'rows' in parsed && Array.isArray(parsed.rows)) {
+      const title = parsed.title || '';
+      const rows = parsed.rows;
+      
+      if (rows.length > 0) {
+        const firstRow = rows[0];
+        if (typeof firstRow === 'object' && firstRow !== null && !Array.isArray(firstRow)) {
+          const columns = Object.keys(firstRow);
+          logger.debug(`[Normalize] Table with title "${title}": ${columns.length} columns, ${rows.length} rows`);
+          return {
+            success: true,
+            data: {
+              title,
+              columns,
+              rows
+            }
+          };
+        }
+      }
+      
+      logger.debug(`[Normalize] Table with title "${title}" has empty rows`);
+      return { success: true, data: { title, columns: [], rows: [] } };
     }
     
     // 处理数组格式
@@ -844,6 +995,8 @@ export const DataNormalizer = {
   isValidTableData,
   isValidMetricData,
   detectDataType,
+  // 文件引用检测
+  isFileReference,
 };
 
 export default DataNormalizer;

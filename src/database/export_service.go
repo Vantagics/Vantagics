@@ -325,7 +325,7 @@ func (s *ExportService) generateJSONExport(componentData []ComponentData, filePa
 // generateXLSXExport creates an Excel export file
 func (s *ExportService) generateXLSXExport(componentData []ComponentData, filePath string) (string, error) {
 	// For now, create a simple text file as placeholder
-	// In a real implementation, you would use a library like excelize
+	// In a real implementation, you would use GoExcel library
 	content := "XLSX Export Placeholder\n"
 	content += fmt.Sprintf("Exported at: %s\n", time.Now().Format(time.RFC3339))
 	content += fmt.Sprintf("Components: %d\n\n", len(componentData))

@@ -629,6 +629,35 @@ func (s *ChatService) SaveAnalysisResults(threadID, messageID string, results []
 	return fmt.Errorf("message not found: %s", messageID)
 }
 
+// AppendAnalysisResults appends additional analysis results to a specific message
+// without overwriting existing results. Used for late-arriving items like extracted
+// metrics and suggestions that are processed after the initial save.
+func (s *ChatService) AppendAnalysisResults(threadID, messageID string, newResults []AnalysisResultItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return err
+	}
+
+	// Find the message and append to its analysis results
+	for i := range t.Messages {
+		if t.Messages[i].ID == messageID {
+			t.Messages[i].AnalysisResults = append(t.Messages[i].AnalysisResults, newResults...)
+			return s.saveThreadInternal(t)
+		}
+	}
+
+	return fmt.Errorf("message not found: %s", messageID)
+}
+
 // GetAnalysisResults retrieves analysis results for a specific message
 func (s *ChatService) GetAnalysisResults(threadID, messageID string) ([]AnalysisResultItem, error) {
 	s.mu.Lock()

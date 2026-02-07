@@ -352,11 +352,9 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, userRequest 
 		pdf.SetFont(fontName, "", pdfFontHeading2)
 		pdf.SetTextColor(71, 85, 105)
 
-		// 截断过长的请求
-		displayRequest := userRequest
-		if len(displayRequest) > 60 {
-			displayRequest = displayRequest[:57] + "..."
-		}
+		// 根据可用宽度截断请求文本（居中区域约为页面宽度减去两侧边距）
+		maxDisplayWidth := pdfContentWidth - 40 // 留出「」的宽度
+		displayRequest := s.truncateTextToWidth(pdf, userRequest, maxDisplayWidth, 80)
 		displayRequest = "「" + displayRequest + "」"
 
 		reqWidth, _ := pdf.MeasureTextWidth(displayRequest)
@@ -942,6 +940,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 	
 	// Calculate column width
 	colWidth := pdfContentWidth / float64(numCols)
+	cellTextWidth := colWidth - 8
 	
 	// Render header row
 	headerHeight := 24.0
@@ -952,14 +951,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 	
 	x := pdfMarginLeft
 	for i := 0; i < numCols && i < len(tableData[0]); i++ {
-		cellValue := tableData[0][i]
-		maxLen := int(colWidth / 7)
-		if maxLen < 8 {
-			maxLen = 8
-		}
-		if len(cellValue) > maxLen {
-			cellValue = cellValue[:maxLen-2] + ".."
-		}
+		cellValue := s.truncateTextToWidth(pdf, tableData[0][i], cellTextWidth, 30)
 		pdf.SetX(x)
 		pdf.SetY(y)
 		pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: headerHeight}, cellValue, gopdf.CellOption{
@@ -988,14 +980,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 			pdf.SetTextColor(255, 255, 255)
 			x = pdfMarginLeft
 			for i := 0; i < numCols && i < len(tableData[0]); i++ {
-				cellValue := tableData[0][i]
-				maxLen := int(colWidth / 7)
-				if maxLen < 8 {
-					maxLen = 8
-				}
-				if len(cellValue) > maxLen {
-					cellValue = cellValue[:maxLen-2] + ".."
-				}
+				cellValue := s.truncateTextToWidth(pdf, tableData[0][i], cellTextWidth, 30)
 				pdf.SetX(x)
 				pdf.SetY(y)
 				pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: headerHeight}, cellValue, gopdf.CellOption{
@@ -1018,14 +1003,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 		
 		x = pdfMarginLeft
 		for i := 0; i < numCols && i < len(row); i++ {
-			cellValue := row[i]
-			maxLen := int(colWidth / 7)
-			if maxLen < 8 {
-				maxLen = 8
-			}
-			if len(cellValue) > maxLen {
-				cellValue = cellValue[:maxLen-2] + ".."
-			}
+			cellValue := s.truncateTextToWidth(pdf, row[i], cellTextWidth, 30)
 			pdf.SetX(x)
 			pdf.SetY(y)
 			pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: rowHeight}, cellValue, gopdf.CellOption{
@@ -1050,7 +1028,7 @@ func (s *GopdfService) containsChinese(text string) bool {
 	return false
 }
 
-// wrapText wraps text to fit within maxLen characters per line
+// wrapText wraps text to fit within maxLen rune characters per line
 func (s *GopdfService) wrapText(text string, maxLen int) []string {
 	if len(text) == 0 {
 		return []string{}
@@ -1068,7 +1046,7 @@ func (s *GopdfService) wrapText(text string, maxLen int) []string {
 		// Find a good break point
 		breakPoint := maxLen
 		
-		// Try to break at space for non-Chinese text
+		// Try to break at space or punctuation
 		for i := maxLen; i > maxLen/2; i-- {
 			if runes[i] == ' ' || runes[i] == '，' || runes[i] == '。' || runes[i] == '、' {
 				breakPoint = i + 1
@@ -1086,6 +1064,50 @@ func (s *GopdfService) wrapText(text string, maxLen int) []string {
 	}
 	
 	return lines
+}
+
+// truncateTextToWidth truncates text to fit within a given pixel width using font measurement.
+// If pdf is nil or measurement fails, falls back to rune-based truncation with runeLimit.
+func (s *GopdfService) truncateTextToWidth(pdf *gopdf.GoPdf, text string, maxWidth float64, runeLimit int) string {
+	runes := []rune(text)
+
+	// Try pixel-based measurement first
+	if pdf != nil {
+		textWidth, err := pdf.MeasureTextWidth(text)
+		if err == nil && textWidth <= maxWidth {
+			return text
+		}
+		if err == nil {
+			// Binary search for the longest fitting substring
+			lo, hi := 0, len(runes)
+			for lo < hi {
+				mid := (lo + hi + 1) / 2
+				candidate := string(runes[:mid]) + ".."
+				w, e := pdf.MeasureTextWidth(candidate)
+				if e != nil {
+					break
+				}
+				if w <= maxWidth {
+					lo = mid
+				} else {
+					hi = mid - 1
+				}
+			}
+			if lo > 0 && lo < len(runes) {
+				return string(runes[:lo]) + ".."
+			}
+			// If lo == len(runes), the full text fits (edge case with ".." overhead)
+			if lo >= len(runes) {
+				return text
+			}
+		}
+	}
+
+	// Fallback: rune-based truncation
+	if len(runes) > runeLimit {
+		return string(runes[:runeLimit-2]) + ".."
+	}
+	return text
 }
 
 // addChartsSection adds chart images with professional styling
@@ -1175,6 +1197,8 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 
 	// 计算列宽 - 根据列数动态调整
 	colWidth := pdfContentWidth / float64(len(cols))
+	// 单元格内可用文本宽度（减去左右内边距各4pt）
+	cellTextWidth := colWidth - 8
 
 	// 表头行高和数据行高
 	headerHeight := 24.0
@@ -1183,37 +1207,31 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 	// 每页最大行数
 	maxRowsPerPage := 32
 
-	// 绘制表头
-	y = s.checkPageBreak(pdf, y, headerHeight+rowHeight*3)
+	// 绘制表头的辅助函数
+	drawHeader := func(atY float64) float64 {
+		pdf.SetFillColor(59, 130, 246)
+		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, atY, pdfContentWidth, headerHeight, "F")
 
-	// 表头背景
-	pdf.SetFillColor(59, 130, 246)
-	pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, headerHeight, "F")
+		pdf.SetFont(fontName, "B", pdfFontTableHead)
+		pdf.SetTextColor(255, 255, 255)
 
-	// 表头文字
-	pdf.SetFont(fontName, "B", pdfFontTableHead)
-	pdf.SetTextColor(255, 255, 255)
-
-	x := pdfMarginLeft
-	for _, col := range cols {
-		colTitle := col.Title
-		maxLen := int(colWidth / 7)
-		if maxLen < 6 {
-			maxLen = 6
+		hx := pdfMarginLeft
+		for _, col := range cols {
+			colTitle := s.truncateTextToWidth(pdf, col.Title, cellTextWidth, 30)
+			pdf.SetX(hx + 4)
+			pdf.SetY(atY + 6)
+			pdf.CellWithOption(&gopdf.Rect{W: cellTextWidth, H: headerHeight - 12}, colTitle, gopdf.CellOption{
+				Align: gopdf.Center | gopdf.Middle,
+			})
+			hx += colWidth
 		}
-		if len(colTitle) > maxLen {
-			colTitle = colTitle[:maxLen-2] + ".."
-		}
-		pdf.SetX(x + 4)
-		pdf.SetY(y + 6)
-		pdf.CellWithOption(&gopdf.Rect{W: colWidth - 8, H: headerHeight - 12}, colTitle, gopdf.CellOption{
-			Align: gopdf.Center | gopdf.Middle,
-		})
-		x += colWidth
+		return atY + headerHeight
 	}
 
-	y += headerHeight
-	headerY := y - headerHeight // 记录表头位置用于分页重绘
+	// 绘制表头
+	y = s.checkPageBreak(pdf, y, headerHeight+rowHeight*3)
+	y = drawHeader(y)
+	headerY := y - headerHeight
 
 	// 绘制数据行
 	pdf.SetFont(fontName, "", pdfFontTableCell)
@@ -1225,33 +1243,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 		if y+rowHeight > pdfPageHeight-pdfMarginBottom || rowCount >= maxRowsPerPage {
 			pdf.AddPage()
 			y = pdfMarginTop
-
-			// 重绘表头
-			pdf.SetFillColor(59, 130, 246)
-			pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, headerHeight, "F")
-
-			pdf.SetFont(fontName, "B", pdfFontTableHead)
-			pdf.SetTextColor(255, 255, 255)
-
-			x = pdfMarginLeft
-			for _, col := range cols {
-				colTitle := col.Title
-				maxLen := int(colWidth / 7)
-				if maxLen < 6 {
-					maxLen = 6
-				}
-				if len(colTitle) > maxLen {
-					colTitle = colTitle[:maxLen-2] + ".."
-				}
-				pdf.SetX(x + 4)
-				pdf.SetY(y + 6)
-				pdf.CellWithOption(&gopdf.Rect{W: colWidth - 8, H: headerHeight - 12}, colTitle, gopdf.CellOption{
-					Align: gopdf.Center | gopdf.Middle,
-				})
-				x += colWidth
-			}
-
-			y += headerHeight
+			y = drawHeader(y)
 			headerY = y - headerHeight
 			rowCount = 0
 			pdf.SetFont(fontName, "", pdfFontTableCell)
@@ -1271,19 +1263,13 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 
 		// 绘制数据
 		pdf.SetTextColor(51, 65, 85)
-		x = pdfMarginLeft
+		x := pdfMarginLeft
 		for i := 0; i < len(cols) && i < len(rowData); i++ {
 			cellValue := fmt.Sprintf("%v", rowData[i])
-			maxLen := int(colWidth / 7)
-			if maxLen < 6 {
-				maxLen = 6
-			}
-			if len(cellValue) > maxLen {
-				cellValue = cellValue[:maxLen-2] + ".."
-			}
+			cellValue = s.truncateTextToWidth(pdf, cellValue, cellTextWidth, 30)
 			pdf.SetX(x + 4)
 			pdf.SetY(y + 5)
-			pdf.CellWithOption(&gopdf.Rect{W: colWidth - 8, H: rowHeight - 10}, cellValue, gopdf.CellOption{
+			pdf.CellWithOption(&gopdf.Rect{W: cellTextWidth, H: rowHeight - 10}, cellValue, gopdf.CellOption{
 				Align: gopdf.Left | gopdf.Middle,
 			})
 			x += colWidth

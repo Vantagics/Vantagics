@@ -4,14 +4,17 @@ import (
 	"archive/zip"
 	"encoding/base64"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"vantagedata/export"
 	"strings"
 	"time"
+	"vantagedata/export"
 
+	ppt "github.com/VantageDataChat/GoPPT"
+	gospreadsheet "github.com/VantageDataChat/GoExcel"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -433,6 +436,290 @@ func (a *App) GenerateCSVThumbnail(threadID string, fileName string) (string, er
 	return "", nil
 }
 
+// FilePreviewData represents structured preview data for a file
+type FilePreviewData struct {
+	Type    string     `json:"type"`    // "table" | "slides" | "text"
+	Title   string     `json:"title"`   // File name or title
+	Headers []string   `json:"headers"` // Table headers (for table type)
+	Rows    [][]string `json:"rows"`    // Table rows (for table type)
+	Slides  []SlidePreview `json:"slides"` // Slide previews (for slides type)
+	TotalRows int      `json:"totalRows"` // Total row count (for table type)
+	TotalCols int      `json:"totalCols"` // Total column count (for table type)
+}
+
+// SlidePreview represents a single slide's preview data
+type SlidePreview struct {
+	Title string   `json:"title"`
+	Texts []string `json:"texts"`
+}
+
+// GenerateFilePreview generates structured preview data for Excel, PPT, and CSV files.
+// Returns a JSON string that the frontend can render as a visual preview.
+func (a *App) GenerateFilePreview(threadID string, fileName string) (string, error) {
+	if a.chatService == nil {
+		return "", fmt.Errorf("chat service not initialized")
+	}
+
+	filesDir := a.chatService.GetSessionFilesDirectory(threadID)
+	filePath := filepath.Join(filesDir, fileName)
+
+	// Try to find file with prefix matching (same logic as GetSessionFileAsBase64)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		files, listErr := os.ReadDir(filesDir)
+		if listErr != nil {
+			return "", fmt.Errorf("file not found: %s", fileName)
+		}
+		var matchedFile string
+		var latestModTime int64
+		for _, f := range files {
+			if f.IsDir() {
+				continue
+			}
+			if strings.HasSuffix(f.Name(), "_"+fileName) {
+				info, infoErr := f.Info()
+				if infoErr == nil {
+					modTime := info.ModTime().UnixNano()
+					if modTime > latestModTime {
+						latestModTime = modTime
+						matchedFile = f.Name()
+					}
+				} else if matchedFile == "" {
+					matchedFile = f.Name()
+				}
+			}
+		}
+		if matchedFile != "" {
+			filePath = filepath.Join(filesDir, matchedFile)
+		} else {
+			return "", fmt.Errorf("file not found: %s", fileName)
+		}
+	}
+
+	ext := strings.ToLower(filepath.Ext(fileName))
+
+	switch ext {
+	case ".xlsx", ".xls":
+		return a.generateExcelPreview(filePath, fileName)
+	case ".pptx":
+		return a.generatePPTPreview(filePath, fileName)
+	case ".csv":
+		return a.generateCSVPreview(filePath, fileName)
+	default:
+		return "", fmt.Errorf("preview not supported for file type: %s", ext)
+	}
+}
+
+// generateExcelPreview reads an Excel file and returns table preview data
+func (a *App) generateExcelPreview(filePath string, fileName string) (string, error) {
+	wb, err := gospreadsheet.OpenFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open Excel file: %w", err)
+	}
+
+	// Get the active sheet
+	ws := wb.GetActiveSheet()
+	if ws == nil {
+		return "", fmt.Errorf("no sheets found in Excel file")
+	}
+
+	rows, err := ws.RowIterator()
+	if err != nil {
+		return "", fmt.Errorf("failed to read Excel rows: %w", err)
+	}
+
+	if len(rows) == 0 {
+		return "", fmt.Errorf("Excel file is empty")
+	}
+
+	// Convert rows to string arrays
+	var allRows [][]string
+	for _, row := range rows {
+		var strRow []string
+		for _, cell := range row {
+			if cell != nil {
+				strRow = append(strRow, cell.GetStringValue())
+			} else {
+				strRow = append(strRow, "")
+			}
+		}
+		allRows = append(allRows, strRow)
+	}
+
+	if len(allRows) == 0 {
+		return "", fmt.Errorf("Excel file is empty")
+	}
+
+	preview := FilePreviewData{
+		Type:      "table",
+		Title:     fileName,
+		TotalRows: len(allRows) - 1, // exclude header
+		TotalCols: len(allRows[0]),
+	}
+
+	// First row as headers, limit to 6 columns
+	maxCols := 6
+	headers := allRows[0]
+	if len(headers) > maxCols {
+		headers = headers[:maxCols]
+	}
+	preview.Headers = headers
+
+	// Data rows, limit to 8 rows
+	maxRows := 8
+	dataRows := allRows[1:]
+	if len(dataRows) > maxRows {
+		dataRows = dataRows[:maxRows]
+	}
+
+	for _, row := range dataRows {
+		displayRow := make([]string, len(headers))
+		for i := range headers {
+			if i < len(row) {
+				val := row[i]
+				// Truncate long cell values
+				if len([]rune(val)) > 20 {
+					val = string([]rune(val)[:18]) + ".."
+				}
+				displayRow[i] = val
+			}
+		}
+		preview.Rows = append(preview.Rows, displayRow)
+	}
+
+	jsonBytes, err := json.Marshal(preview)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal preview: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
+// generatePPTPreview reads a PPTX file and returns slide preview data
+func (a *App) generatePPTPreview(filePath string, fileName string) (string, error) {
+	reader := &ppt.PPTXReader{}
+	pres, err := reader.Read(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open PPT file: %w", err)
+	}
+
+	slides := pres.GetAllSlides()
+	if len(slides) == 0 {
+		return "", fmt.Errorf("PPT file has no slides")
+	}
+
+	preview := FilePreviewData{
+		Type:  "slides",
+		Title: fileName,
+	}
+
+	// Extract text from first 3 slides max
+	maxSlides := 3
+	if len(slides) < maxSlides {
+		maxSlides = len(slides)
+	}
+
+	for i := 0; i < maxSlides; i++ {
+		slide := slides[i]
+		sp := SlidePreview{}
+
+		for _, shape := range slide.GetShapes() {
+			// Try to extract text from RichTextShape
+			if rts, ok := shape.(*ppt.RichTextShape); ok {
+				for _, para := range rts.GetParagraphs() {
+					var text string
+					for _, elem := range para.GetElements() {
+						if run, ok := elem.(*ppt.TextRun); ok {
+							text += run.GetText()
+						}
+					}
+					text = strings.TrimSpace(text)
+					if text == "" {
+						continue
+					}
+					if sp.Title == "" {
+						sp.Title = text
+					} else {
+						if len([]rune(text)) > 60 {
+							text = string([]rune(text)[:58]) + ".."
+						}
+						sp.Texts = append(sp.Texts, text)
+					}
+				}
+			}
+		}
+
+		if sp.Title != "" || len(sp.Texts) > 0 {
+			preview.Slides = append(preview.Slides, sp)
+		}
+	}
+
+	jsonBytes, err := json.Marshal(preview)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal preview: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
+// generateCSVPreview reads a CSV file and returns table preview data
+func (a *App) generateCSVPreview(filePath string, fileName string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open CSV file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse CSV: %w", err)
+	}
+
+	if len(records) == 0 {
+		return "", fmt.Errorf("CSV file is empty")
+	}
+
+	preview := FilePreviewData{
+		Type:      "table",
+		Title:     fileName,
+		TotalRows: len(records) - 1,
+		TotalCols: len(records[0]),
+	}
+
+	// Headers
+	maxCols := 6
+	headers := records[0]
+	if len(headers) > maxCols {
+		headers = headers[:maxCols]
+	}
+	preview.Headers = headers
+
+	// Data rows
+	maxRows := 8
+	dataRows := records[1:]
+	if len(dataRows) > maxRows {
+		dataRows = dataRows[:maxRows]
+	}
+
+	for _, row := range dataRows {
+		displayRow := make([]string, len(headers))
+		for i := range headers {
+			if i < len(row) {
+				val := row[i]
+				if len([]rune(val)) > 20 {
+					val = string([]rune(val)[:18]) + ".."
+				}
+				displayRow[i] = val
+			}
+		}
+		preview.Rows = append(preview.Rows, displayRow)
+	}
+
+	jsonBytes, err := json.Marshal(preview)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal preview: %w", err)
+	}
+	return string(jsonBytes), nil
+}
+
 
 // ExportTableToExcel exports table data to Excel format
 func (a *App) ExportTableToExcel(tableData *TableData, sheetName string) error {
@@ -531,10 +818,18 @@ func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
 	// Generate Excel file with dashboard info
 	sheetName := "数据分析"
 	if data.UserRequest != "" {
-		// Use first 20 chars of user request as sheet name
-		sheetName = data.UserRequest
-		if len(sheetName) > 20 {
-			sheetName = sheetName[:20]
+		// Sanitize: Excel sheet names cannot contain :\/?*[]
+		sanitized := data.UserRequest
+		for _, ch := range []string{":", "\\", "/", "?", "*", "[", "]"} {
+			sanitized = strings.ReplaceAll(sanitized, ch, " ")
+		}
+		sanitized = strings.TrimSpace(sanitized)
+		runes := []rune(sanitized)
+		if len(runes) > 28 {
+			runes = runes[:28]
+		}
+		if len(runes) > 0 {
+			sheetName = string(runes)
 		}
 	}
 
@@ -638,8 +933,8 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 		return nil // User cancelled
 	}
 
-	// Use gooxml PPT service (better compatibility)
-	pptService := export.NewGooxmlPPTService()
+	// Use GoPPT service (pure Go, zero dependencies)
+	pptService := export.NewGoPPTService()
 
 	// Convert DashboardExportData to export.DashboardData
 	exportData := export.DashboardData{
@@ -677,7 +972,7 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 		exportData.ChartImages = []string{data.ChartImage}
 	}
 
-	// Generate PPT using gooxml
+	// Generate PPT using GoPPT
 	pptBytes, err := pptService.ExportDashboardToPPT(exportData)
 	if err != nil {
 		return fmt.Errorf("PPT生成失败: %v", err)
@@ -690,5 +985,71 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 	}
 
 	a.Log(fmt.Sprintf("PPT exported successfully to: %s", savePath))
+	return nil
+}
+
+// ExportDashboardToWord exports dashboard data to Word format
+func (a *App) ExportDashboardToWord(data DashboardExportData) error {
+	// Save dialog
+	timestamp := time.Now().Format("20060102_150405")
+	defaultFilename := fmt.Sprintf("dashboard_%s.docx", timestamp)
+
+	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "导出仪表盘为Word",
+		DefaultFilename: defaultFilename,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Word文件", Pattern: "*.docx"},
+		},
+	})
+
+	if err != nil || savePath == "" {
+		return nil // User cancelled
+	}
+
+	// Use GoWord service
+	wordService := export.NewWordExportService()
+
+	// Convert DashboardExportData to export.DashboardData
+	exportData := export.DashboardData{
+		UserRequest: data.UserRequest,
+		Metrics:     make([]export.MetricData, len(data.Metrics)),
+		Insights:    data.Insights,
+		ChartImages: data.ChartImages,
+	}
+
+	for i, metric := range data.Metrics {
+		exportData.Metrics[i] = export.MetricData{
+			Title:  metric.Title,
+			Value:  metric.Value,
+			Change: metric.Change,
+		}
+	}
+
+	if data.TableData != nil && len(data.TableData.Columns) > 0 {
+		exportData.TableData = &export.TableData{
+			Columns: make([]export.TableColumn, len(data.TableData.Columns)),
+			Data:    data.TableData.Data,
+		}
+		for i, col := range data.TableData.Columns {
+			exportData.TableData.Columns[i] = export.TableColumn{
+				Title:    col.Title,
+				DataType: col.DataType,
+			}
+		}
+	}
+
+	// Generate Word
+	wordBytes, err := wordService.ExportDashboardToWord(exportData)
+	if err != nil {
+		return fmt.Errorf("Word生成失败: %v", err)
+	}
+
+	// Write Word file
+	err = os.WriteFile(savePath, wordBytes, 0644)
+	if err != nil {
+		return fmt.Errorf("写入Word文件失败: %v", err)
+	}
+
+	a.Log(fmt.Sprintf("Word exported successfully to: %s", savePath))
 	return nil
 }

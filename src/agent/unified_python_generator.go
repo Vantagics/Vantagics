@@ -50,6 +50,23 @@ func NewUnifiedPythonGenerator(
 	}
 }
 
+// NewUnifiedPythonGeneratorWithCache creates a generator that reuses a shared schema cache
+func NewUnifiedPythonGeneratorWithCache(
+	chatModel model.ChatModel,
+	dsService *DataSourceService,
+	sharedSchemaBuilder *SchemaContextBuilder,
+	logger func(string),
+) *UnifiedPythonGenerator {
+	return &UnifiedPythonGenerator{
+		chatModel:     chatModel,
+		dsService:     dsService,
+		schemaBuilder: sharedSchemaBuilder,
+		promptBuilder: NewAnalysisPromptBuilder(),
+		codeValidator: NewCodeValidator(),
+		logger:        logger,
+	}
+}
+
 func (g *UnifiedPythonGenerator) log(msg string) {
 	if g.logger != nil {
 		g.logger(msg)
@@ -158,11 +175,14 @@ func (g *UnifiedPythonGenerator) GenerateAnalysisCode(
 		(g.classificationHints != nil && g.classificationHints.NeedsVisualization)
 	
 	if needsVisualization && !validationResult.HasChart {
-		g.log("[UNIFIED_GEN] ⚠️ Visualization required but no chart code detected!")
+		g.log("[UNIFIED_GEN] ⚠️ Visualization required but no chart saving code detected!")
 		
-		// Check if plt.savefig is missing
-		if !strings.Contains(code, "plt.savefig") && !strings.Contains(code, "fig.savefig") {
-			g.log("[UNIFIED_GEN] Attempting to add chart saving code...")
+		// Check if code has chart-related code but missing savefig
+		hasChartCode := strings.Contains(code, "plt.") || strings.Contains(code, "sns.") || 
+			strings.Contains(code, "matplotlib") || strings.Contains(code, "seaborn")
+		
+		if hasChartCode {
+			g.log("[UNIFIED_GEN] Code has chart-related imports/calls but missing savefig, attempting to inject...")
 			
 			// Try to inject chart saving code before the finally block or at the end
 			chartSaveCode := `
@@ -176,19 +196,52 @@ func (g *UnifiedPythonGenerator) GenerateAnalysisCode(
     except Exception as chart_err:
         print(f"⚠️ 图表保存失败: {chart_err}")
 `
+			injected := false
+			
 			// Find a good place to insert the chart saving code
 			if strings.Contains(code, "finally:") {
 				// Insert before finally block
 				code = strings.Replace(code, "finally:", chartSaveCode+"\n    finally:", 1)
 				g.log("[UNIFIED_GEN] Injected chart saving code before finally block")
+				injected = true
 			} else if strings.Contains(code, "if __name__") {
 				// Insert before main guard
 				code = strings.Replace(code, "if __name__", chartSaveCode+"\n\nif __name__", 1)
 				g.log("[UNIFIED_GEN] Injected chart saving code before main guard")
+				injected = true
+			} else if strings.Contains(code, "except") {
+				// Insert after the last except block
+				lastExceptIdx := strings.LastIndex(code, "except")
+				if lastExceptIdx > 0 {
+					// Find the end of the except block (next line with same or less indentation)
+					afterExcept := code[lastExceptIdx:]
+					lines := strings.Split(afterExcept, "\n")
+					insertIdx := lastExceptIdx
+					for i, line := range lines {
+						if i > 0 && len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
+							insertIdx = lastExceptIdx + len(strings.Join(lines[:i], "\n"))
+							break
+						}
+					}
+					if insertIdx > lastExceptIdx {
+						code = code[:insertIdx] + "\n" + chartSaveCode + code[insertIdx:]
+						g.log("[UNIFIED_GEN] Injected chart saving code after except block")
+						injected = true
+					}
+				}
+			}
+			
+			if !injected {
+				// Append at the end as last resort
+				code = code + "\n" + chartSaveCode
+				g.log("[UNIFIED_GEN] Appended chart saving code at the end")
 			}
 			
 			// Re-validate after injection
 			validationResult = g.codeValidator.ValidateCode(code)
+			g.log(fmt.Sprintf("[UNIFIED_GEN] After injection - HasChart: %v", validationResult.HasChart))
+		} else {
+			g.log("[UNIFIED_GEN] Code doesn't have chart-related code, skipping injection")
 		}
 	}
 

@@ -144,20 +144,28 @@ export function initAnalysisResultBridge(
     messageId: string;
     items: AnalysisResultItem[];
   }) => {
-    logger.info(`analysis-result-restore: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
+    logger.warn(`analysis-result-restore received: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
+    
+    // 详细记录每个 item 的类型和数据格式
+    if (payload.items) {
+      payload.items.forEach((item, i) => {
+        const dataType = typeof item.data;
+        const dataPreview = dataType === 'string' 
+          ? (item.data as string).substring(0, 120) + '...'
+          : JSON.stringify(item.data).substring(0, 120) + '...';
+        logger.warn(`analysis-result-restore item[${i}]: type=${item.type}, dataType=${dataType}, preview=${dataPreview}`);
+      });
+    }
     
     // 使用 restoreResults 方法进行恢复
-    // 该方法会：
-    // 1. 验证每个数据项的完整性
-    // 2. 规范化数据格式
-    // 3. 记录详细的恢复日志
-    // 4. 触发 data-restored 事件
     const stats = manager.restoreResults(payload.sessionId, payload.messageId, payload.items);
     
-    logger.info(`Historical data restoration completed: valid=${stats.validItems}, invalid=${stats.invalidItems}, total=${stats.totalItems}`);
+    logger.warn(`Historical data restoration completed: valid=${stats.validItems}, invalid=${stats.invalidItems}, total=${stats.totalItems}`);
     
     if (stats.errors.length > 0) {
-      logger.warn(`Restoration had ${stats.errors.length} errors`);
+      stats.errors.forEach((err, i) => {
+        logger.warn(`Restoration error[${i}]: ${err}`);
+      });
     }
   });
   unsubscribers.push(unsubscribeRestore);

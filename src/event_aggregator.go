@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -311,7 +312,15 @@ func (ea *EventAggregator) logf(format string, args ...interface{}) {
 
 // generateItemID generates a unique ID for an item
 func generateItemID() string {
-	return time.Now().Format("20060102150405.000000")
+	return fmt.Sprintf("%s_%d", time.Now().Format("20060102150405.000000"), generateItemSeq())
+}
+
+// itemSeqCounter is an atomic counter for generating unique item IDs
+var itemSeqCounter uint64
+
+// generateItemSeq returns a monotonically increasing sequence number
+func generateItemSeq() uint64 {
+	return atomic.AddUint64(&itemSeqCounter, 1)
 }
 
 // IsValidItemType checks if the given type is a valid item type

@@ -101,28 +101,30 @@ func NewWebFetchTool(logger func(string), proxyConfig *config.ProxyConfig) *WebF
 func (t *WebFetchTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	description := `Fetch and parse web page content into structured data.
 
+**IMPORTANT: Use web_search FIRST to find URLs, then use this tool to read specific pages.**
+
 Use this tool to:
-- Read full content from specific URLs (from search results)
-- Extract structured data (headings, tables, lists)
-- Parse competitor websites and product pages
-- Analyze pricing pages and feature comparisons
-- Extract business data from company websites
+- Read full content from URLs obtained via web_search results
+- Extract structured data (headings, tables, lists) from specific pages
+- Parse product pages, pricing tables, or feature comparisons
 
 The tool returns structured content including:
 - Title and description
-- Main text content
+- Main text content (up to 10KB)
 - Headings hierarchy
-- Tables (perfect for pricing, features, specs)
+- Tables (great for pricing, specs)
 - Links and images
 - Metadata
 
-Note: This tool fetches static HTML content. JavaScript-rendered content may not be available.
+**Limitations:**
+- Static HTML only — JavaScript-rendered content may not be available
+- Max content: 10KB main text, 50 links, 20 images, 10 tables
+- Requires full URL starting with http:// or https://
 
-Examples:
-- Fetch competitor pricing page
-- Extract product specifications table
-- Read company about page
-- Parse market research report`
+**Do NOT use this tool to:**
+- ❌ Guess URLs without searching first
+- ❌ Fetch internal database data (use execute_sql instead)
+- ❌ Download files (use export_data instead)`
 
 	return &schema.ToolInfo{
 		Name: "web_fetch",

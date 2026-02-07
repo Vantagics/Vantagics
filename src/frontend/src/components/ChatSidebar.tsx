@@ -618,6 +618,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             const analysisResults = (message as any).analysis_results;
             if (analysisResults && analysisResults.length > 0) {
                 console.log('[ChatSidebar] Using new analysis_results format:', analysisResults.length, 'items');
+                systemLog.warn(`[RestoreData] Using analysis_results format: ${analysisResults.length} items`);
+                // 详细记录每个 item 的类型和数据格式
+                analysisResults.forEach((item: any, i: number) => {
+                    const dataType = typeof item.data;
+                    const dataLen = dataType === 'string' ? item.data.length : JSON.stringify(item.data).length;
+                    systemLog.warn(`[RestoreData] item[${i}]: type=${item.type}, dataType=${dataType}, dataLen=${dataLen}`);
+                });
                 // Emit restore event for new unified system
                 EventsEmit('analysis-result-restore', {
                     sessionId: targetThread.id,
@@ -991,8 +998,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             // 显示错误消息给用户
             EventsEmit('show-message-modal', {
                 type: 'error',
-                title: '删除失败',
-                message: `无法删除会话：${err}`
+                title: t('delete_failed') || 'Delete Failed',
+                message: `${t('cannot_delete_session') || 'Cannot delete session'}: ${err}`
             });
         }
     };
@@ -1352,7 +1359,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         loadingStateManager.updateProgress(targetThreadId, {
                             stage: 'initializing',
                             progress: 0,
-                            message: t('generating_intent') || '意图理解中...',
+                            message: t('generating_intent') || 'progress.understanding_intent',
                             step: 1,
                             total: 2
                         });
@@ -1381,7 +1388,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             loadingStateManager.updateProgress(actualThreadId, {
                                 stage: 'initializing',
                                 progress: 0,
-                                message: t('generating_intent') || '意图理解中...',
+                                message: t('generating_intent') || 'progress.understanding_intent',
                                 step: 1,
                                 total: 2
                             });
@@ -1660,6 +1667,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
             // 通知 LoadingStateManager
             loadingStateManager.setLoading(currentThreadId, true);
+            loadingStateManager.updateProgress(currentThreadId, {
+                stage: 'initializing',
+                progress: 5,
+                message: t('stage_initializing') || 'progress.initializing_analysis',
+                step: 0,
+                total: 0
+            });
         } else {
             systemLog.info(`Skipping loading state - free chat session`);
         }
@@ -1989,7 +2003,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         loadingStateManager.updateProgress(threadId, {
             stage: 'initializing',
             progress: 0,
-            message: t('regenerating_intent') || '意图重新理解中...',
+            message: t('regenerating_intent') || 'progress.regenerating_intent',
             step: 1,
             total: 2
         });
@@ -2008,7 +2022,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             } catch (apiError) {
                 systemLog.error(`[handleRetryIntentUnderstandingWithData] API call failed: ${apiError}`);
                 setToast({
-                    message: `后端API调用失败: ${apiError}`,
+                    message: `${t('api_call_failed') || 'API call failed'}: ${apiError}`,
                     type: 'error'
                 });
                 throw apiError;
@@ -2221,6 +2235,94 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     handleCreateThreadRef.current = handleCreateThread;
     handleSendMessageRef.current = handleSendMessage;
 
+    // 恢复被中止的分析：直接调用后端 SendMessage，复用原消息 ID，不创建新消息
+    const handleResumeCancelledAnalysis = async (message: main.ChatMessage) => {
+        if (!message.content || !activeThreadId || !activeThread) return;
+
+        const threadId = activeThreadId;
+        systemLog.info(`[ResumeCancelled] Resuming analysis for message: ${message.id}, thread: ${threadId}`);
+
+        // 设置加载状态
+        setIsLoading(true);
+        setLoadingThreadId(threadId);
+        loadingStateManager.setLoading(threadId, true);
+        loadingStateManager.updateProgress(threadId, {
+            stage: 'initializing',
+            progress: 5,
+            message: t('stage_initializing') || 'progress.initializing_analysis',
+            step: 0,
+            total: 0
+        });
+
+        try {
+            const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // 直接调用后端，传入原消息 ID，后端会检测到消息已存在而不会重复创建
+            const response = await SendMessage(threadId, message.content, message.id, requestId);
+
+            // 重新加载线程以获取后端附加的 chart_data 和 assistant 消息
+            const reloadedThreads = await GetChatHistory();
+            const reloadedThread = reloadedThreads?.find(t => t.id === threadId);
+
+            if (reloadedThread) {
+                // 检查后端是否已添加 assistant 消息
+                const lastMsg = reloadedThread.messages[reloadedThread.messages.length - 1];
+                const backendAddedAssistant = lastMsg && lastMsg.role === 'assistant' && lastMsg.content === response;
+
+                if (!backendAddedAssistant) {
+                    // 后端未添加 assistant 消息，手动添加
+                    const assistantMsg = new main.ChatMessage();
+                    assistantMsg.id = (Date.now() + 1).toString();
+                    assistantMsg.role = 'assistant';
+                    assistantMsg.content = response;
+                    assistantMsg.timestamp = Math.floor(Date.now() / 1000);
+                    reloadedThread.messages = [...(reloadedThread.messages || []), assistantMsg];
+                }
+
+                // 更新线程状态
+                setThreads(prevThreads => {
+                    const idx = (prevThreads || []).findIndex(t => t.id === threadId);
+                    const newThreads = [...(prevThreads || [])];
+                    if (idx !== -1) {
+                        newThreads[idx] = reloadedThread;
+                    }
+                    return newThreads;
+                });
+
+                await SaveChatHistory(reloadedThreads.map(t =>
+                    t.id === reloadedThread.id ? reloadedThread : t
+                ));
+            }
+
+            systemLog.info(`[ResumeCancelled] Analysis completed for message: ${message.id}`);
+        } catch (err) {
+            systemLog.error(`[ResumeCancelled] Failed to resume analysis: ${err}`);
+        } finally {
+            setIsLoading(false);
+            setLoadingThreadId(null);
+            loadingStateManager.setLoading(threadId, false);
+
+            // 触发仪表盘更新：查找已完成的消息并发出事件
+            try {
+                const updatedThread = threadsRef.current.find(t => t.id === threadId);
+                if (updatedThread && updatedThread.messages) {
+                    const userMessage = updatedThread.messages.find(msg =>
+                        msg.role === 'user' && msg.id === message.id
+                    );
+                    if (userMessage) {
+                        EventsEmit('user-message-clicked', {
+                            threadId: updatedThread.id,
+                            messageId: userMessage.id,
+                            content: userMessage.content,
+                            chartData: userMessage.chart_data
+                        });
+                    }
+                }
+            } catch (autoUpdateError) {
+                systemLog.error(`[ResumeCancelled] Failed to auto-update dashboard: ${autoUpdateError}`);
+            }
+        }
+    };
+
     // 处理会话切换
     const handleThreadSwitch = (threadId: string) => {
         setActiveThreadId(threadId);
@@ -2259,33 +2361,66 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         console.log("[ChatSidebar] User message clicked:", message.id);
         console.log("[ChatSidebar] Message content:", message.content?.substring(0, 100));
         console.log("[ChatSidebar] Has chart_data:", !!message.chart_data);
-        console.log("[ChatSidebar] chart_data object:", message.chart_data);
-        if (message.chart_data) {
-            console.log("[ChatSidebar] chart_data.charts:", message.chart_data.charts);
-            console.log("[ChatSidebar] Number of charts:", message.chart_data.charts?.length || 0);
-        }
 
-        // Find the corresponding assistant message (next message after this user message)
-        let chartDataToUse = message.chart_data;
+        // Check for new analysis_results format first
+        const analysisResults = (message as any).analysis_results;
+        if (analysisResults && analysisResults.length > 0) {
+            console.log('[ChatSidebar] handleUserMessageClick: Using analysis_results format:', analysisResults.length, 'items');
+            systemLog.warn(`[handleUserMessageClick] Using analysis_results format: ${analysisResults.length} items`);
+            analysisResults.forEach((item: any, i: number) => {
+                const dataType = typeof item.data;
+                const dataLen = dataType === 'string' ? item.data.length : JSON.stringify(item.data).length;
+                systemLog.warn(`[handleUserMessageClick] item[${i}]: type=${item.type}, dataType=${dataType}, dataLen=${dataLen}`);
+            });
+            EventsEmit('analysis-result-restore', {
+                sessionId: activeThread?.id || '',
+                messageId: message.id,
+                items: analysisResults
+            });
+        } else {
+            // Fallback to legacy chart_data format
+            let chartDataToUse = message.chart_data;
 
-        if (activeThread) {
-            const messageIndex = activeThread.messages.findIndex(msg => msg.id === message.id);
-            if (messageIndex !== -1 && messageIndex < activeThread.messages.length - 1) {
-                const nextMessage = activeThread.messages[messageIndex + 1];
-                // If next message is assistant and has chart_data, use it (it's more complete)
-                if (nextMessage.role === 'assistant' && nextMessage.chart_data) {
-                    console.log("[ChatSidebar] Using chart_data from assistant response");
-                    chartDataToUse = nextMessage.chart_data;
+            if (activeThread) {
+                const messageIndex = activeThread.messages.findIndex(msg => msg.id === message.id);
+                if (messageIndex !== -1 && messageIndex < activeThread.messages.length - 1) {
+                    const nextMessage = activeThread.messages[messageIndex + 1];
+                    if (nextMessage.role === 'assistant' && nextMessage.chart_data) {
+                        console.log("[ChatSidebar] Using chart_data from assistant response");
+                        chartDataToUse = nextMessage.chart_data;
+                    }
                 }
+            }
+
+            // Convert legacy chart_data to new format if present
+            if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
+                const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
+                    id: `legacy_${message.id}_${index}`,
+                    type: chart.type || 'echarts',
+                    data: chart.data,
+                    metadata: {
+                        sessionId: activeThread?.id || '',
+                        messageId: message.id,
+                        timestamp: Date.now()
+                    },
+                    source: 'restored'
+                }));
+
+                console.log('[ChatSidebar] handleUserMessageClick: Converted legacy chart_data:', convertedItems.length, 'items');
+                EventsEmit('analysis-result-restore', {
+                    sessionId: activeThread?.id || '',
+                    messageId: message.id,
+                    items: convertedItems
+                });
             }
         }
 
-        // Emit event with message data for dashboard update
+        // Emit event with message data for UI state update
         EventsEmit('user-message-clicked', {
             threadId: activeThread?.id,
             messageId: message.id,
             content: message.content,
-            chartData: chartDataToUse
+            chartData: message.chart_data
         });
     };
 
@@ -2321,7 +2456,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 这是必要的，因为后端的取消可能需要时间才能生效
         EventsEmit('analysis-cancelled', {
             threadId: activeThreadId,
-            message: '分析已取消'
+            message: t('analysis_cancelled') || 'Analysis cancelled'
         });
         systemLog.debug('analysis-cancelled event emitted');
 
@@ -2591,6 +2726,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 return false;
                             })();
 
+                            // 检查用户消息是否是被中止/取消的分析（最后一条用户消息，没有助手回复，不在加载中）
+                            // 这种消息应该允许点击以继续分析
+                            const isUserMessageCancelled = msg.role === 'user' && !isUserMessageCompleted && !isUserMessageFailed && (() => {
+                                if (isLoading && loadingThreadId === activeThreadId) {
+                                    return false;
+                                }
+                                const msgIndex = activeThread.messages.findIndex(m => m.id === msg.id);
+                                if (msgIndex !== -1 && msgIndex === activeThread.messages.length - 1) {
+                                    // 最后一条消息是用户消息，没有助手回复 = 被中止的分析
+                                    return true;
+                                }
+                                return false;
+                            })();
+
                             return (
                                 <MessageBubble
                                     key={msg.id || index}
@@ -2602,12 +2751,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     threadId={activeThreadId || undefined}
                                     isFailed={isUserMessageFailed}
                                     onRetryAnalysis={() => {
-                                        // 重新分析：使用相同的消息内容重新发送
-                                        if (msg.content && activeThreadId && activeThread) {
-                                            console.log('[ChatSidebar] Retrying analysis for message:', msg.id);
-                                            // skipIntentUnderstanding=true 跳过意图理解，直接分析
-                                            handleSendMessage(msg.content, activeThreadId, activeThread, undefined, true);
-                                        }
+                                        // 重新分析：直接复用原消息重新发起分析，不创建新消息
+                                        handleResumeCancelledAnalysis(msg);
                                     }}
                                     onActionClick={(action) => {
                                         systemLog.info(`[onActionClick] START: id=${action.id}`);
@@ -2628,7 +2773,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         // 调试：显示是否匹配到重试数据
                                         if (action.label?.includes('[INTENT_RETRY_DATA:')) {
                                             setToast({
-                                                message: `检测到重试按钮，正则匹配: ${retryDataMatch ? '成功' : '失败'}`,
+                                                message: `Retry button detected, regex match: ${retryDataMatch ? 'success' : 'failed'}`,
                                                 type: retryDataMatch ? 'info' : 'error'
                                             });
                                         }
@@ -2730,9 +2875,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         systemLog.info('[onActionClick] Normal action click, sending message');
                                         handleSendMessage(action.value || action.label, activeThread?.id, undefined, undefined, true);
                                     }}
-                                    onClick={msg.role === 'user' && isUserMessageCompleted ? () => handleUserMessageClick(msg) : undefined}
+                                    onClick={msg.role === 'user' && isUserMessageCompleted ? () => handleUserMessageClick(msg) : msg.role === 'user' && isUserMessageCancelled ? () => {
+                                        // 被中止的分析：直接复用原消息重新发起分析
+                                        handleResumeCancelledAnalysis(msg);
+                                    } : undefined}
                                     hasChart={msg.role === 'user' && !!msg.chart_data}
-                                    isDisabled={msg.role === 'user' && !isUserMessageCompleted}
+                                    isDisabled={msg.role === 'user' && !isUserMessageCompleted && !isUserMessageCancelled}
+                                    isCancelled={isUserMessageCancelled}
                                     timingData={msg.role === 'user' ? timingDataForUser : (msg as any).timing_data}
                                 />
                             );
@@ -2782,7 +2931,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     // 发出取消事件，通知 App.tsx 和 AnalysisResultManager 更新状态
                                     EventsEmit('analysis-cancelled', {
                                         threadId: activeThreadId,
-                                        message: '分析已取消'
+                                        message: t('analysis_cancelled') || 'Analysis cancelled'
                                     });
                                     
                                     // 更新本地状态

@@ -43,11 +43,26 @@ func (t *DataSourceContextTool) Info(ctx context.Context) (*schema.ToolInfo, err
 	return &schema.ToolInfo{
 		Name: "get_data_source_context",
 		Desc: `Get the database schema with DDL-like format, sample data, and detected relationships.
-IMPORTANT: Always call this FIRST before writing any SQL to understand:
-1. Exact column names (case-sensitive!)
-2. Data types and formats (especially dates)
-3. Table relationships for JOINs
-4. Sample data to understand value patterns`,
+
+**MUST call this FIRST before writing any SQL or Python analysis code!**
+
+Returns:
+1. Exact column names (case-sensitive!) and data types
+2. SQL dialect hints (SQLite vs MySQL syntax differences)
+3. Table relationships for JOINs (auto-detected FK references)
+4. Sample data (3 rows) to understand value patterns and date formats
+5. Row counts for each table
+
+**Usage Tips:**
+- For databases with >5 tables, specify table_names to get details for relevant tables only
+- Results are cached per session — no penalty for calling again
+- If you already called this tool, do NOT call it again for the same data source
+- Max 2 calls per analysis session
+
+**When to use:**
+- Before ANY SQL query (to get correct column names and syntax)
+- When user asks about data structure or available tables
+- When planning JOINs between tables`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"data_source_id": {
 				Type:     schema.String,
@@ -56,7 +71,7 @@ IMPORTANT: Always call this FIRST before writing any SQL to understand:
 			},
 			"table_names": {
 				Type:     schema.Array,
-				Desc:     "Optional list of table names to inspect details for (max 5).",
+				Desc:     "Optional list of specific table names to inspect (max 5). Omit to get all tables (if ≤5) or table list (if >5).",
 				Required: false,
 			},
 		}),

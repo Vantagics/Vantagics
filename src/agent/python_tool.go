@@ -118,27 +118,14 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasSuffix(trimmed, "}") && !strings.HasSuffix(trimmed, "}\"") {
 		// Return as SUCCESS with guidance so LLM continues
-		guidance := "⚠️ CODE TOO LONG - Automatically proceeding with Step 1 only.\n\n" +
-			"I detected you tried to write >80 lines. For RFM/clustering, I'll do Step 1 first:\n\n" +
-			"📋 NEXT ACTION: Execute python_executor with this EXACT code:\n" +
-			"```python\n" +
-			"import json\n" +
-			"import pandas as pd\n\n" +
-			"# Load the SQL result from previous execute_sql call\n" +
-			"data = json.loads('''PASTE_THE_JSON_FROM_SQL_RESULT_HERE''')\n" +
-			"df = pd.DataFrame(data)\n\n" +
-			"# Calculate RFM scores\n" +
-			"ref_date = df['OrderDate'].max()\n" +
-			"rfm = df.groupby('CustomerID').agg({\n" +
-			"    'OrderDate': lambda x: (ref_date - x.max()).days,  # Recency in days\n" +
-			"    'OrderID': 'count',  # Frequency of orders\n" +
-			"    'TotalAmount': 'sum'  # Monetary value\n" +
-			"}).rename(columns={'OrderDate': 'R', 'OrderID': 'F', 'TotalAmount': 'M'})\n\n" +
-			"print('RFM Scores calculated:')\n" +
-			"print(rfm.describe())\n" +
-			"print(f'\\nTotal customers analyzed: {len(rfm)}')\n" +
-			"```\n\n" +
-			"🔄 After this succeeds, we'll do Step 2 (segmentation), Step 3 (visualization), and Step 4 (summary) separately."
+		guidance := "⚠️ CODE TRUNCATED - The JSON input was incomplete (missing closing bracket).\n\n" +
+			"This usually happens when the Python code is too long for a single tool call.\n\n" +
+			"📋 SOLUTION: Break your code into smaller steps:\n" +
+			"1. First call: Query data with execute_sql\n" +
+			"2. Second call: Process data with python_executor (shorter code)\n" +
+			"3. Third call: Generate visualization with python_executor (shorter code)\n\n" +
+			"💡 TIP: Keep each python_executor call under 60 lines of code.\n" +
+			"🔄 Please retry with shorter, focused code."
 
 		// Return this as a successful tool result so the LLM sees it and continues
 		return guidance, nil

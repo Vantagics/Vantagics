@@ -1,14 +1,14 @@
 package export
 
-// PPTExportService handles PowerPoint generation using gooxml (open source)
+// PPTExportService handles PowerPoint generation using GoPPT (pure Go, zero dependencies)
 type PPTExportService struct {
-	service *GooxmlPPTService
+	service *GoPPTService
 }
 
 // NewPPTExportService creates a new PPT export service
 func NewPPTExportService() *PPTExportService {
 	return &PPTExportService{
-		service: NewGooxmlPPTService(),
+		service: NewGoPPTService(),
 	}
 }
 

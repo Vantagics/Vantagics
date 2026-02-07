@@ -125,7 +125,9 @@ export function useAnalysisResults(): UseAnalysisResultsReturn {
     const result = getResultsByType('echarts');
     logger.warn(`[useAnalysisResults] charts count: ${result.length}`);
     if (result.length > 0) {
-      logger.warn(`[useAnalysisResults] first chart data type: ${typeof result[0].data}`);
+      result.forEach((item, i) => {
+        logger.warn(`[useAnalysisResults] chart[${i}] data type: ${typeof item.data}, keys: ${typeof item.data === 'object' ? Object.keys(item.data).join(',') : 'N/A'}`);
+      });
     }
     return result;
   }, [getResultsByType]);

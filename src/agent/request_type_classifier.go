@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -16,6 +17,7 @@ type RequestTypeClassifier struct {
 	chatModel model.ChatModel
 	logger    func(string)
 	cache     map[string]*ClassificationResult
+	cacheMu   sync.RWMutex
 }
 
 // ClassificationResult represents the LLM classification result
@@ -49,12 +51,15 @@ func (c *RequestTypeClassifier) log(msg string) {
 func (c *RequestTypeClassifier) ClassifyRequest(ctx context.Context, userQuery string, dataSourceInfo string) (*ClassificationResult, error) {
 	// Check cache first (valid for 5 minutes)
 	cacheKey := fmt.Sprintf("%s|%s", userQuery, dataSourceInfo)
+	c.cacheMu.RLock()
 	if cached, ok := c.cache[cacheKey]; ok {
 		if time.Since(cached.CachedAt) < 5*time.Minute {
+			c.cacheMu.RUnlock()
 			c.log("[CLASSIFIER-LLM] Using cached classification result")
 			return cached, nil
 		}
 	}
+	c.cacheMu.RUnlock()
 
 	startTime := time.Now()
 	c.log("[CLASSIFIER-LLM] Classifying request with LLM...")
@@ -162,7 +167,9 @@ func (c *RequestTypeClassifier) ClassifyRequest(ctx context.Context, userQuery s
 	}
 
 	result.CachedAt = time.Now()
+	c.cacheMu.Lock()
 	c.cache[cacheKey] = result
+	c.cacheMu.Unlock()
 
 	c.log(fmt.Sprintf("[CLASSIFIER-LLM] Classification complete in %v: type=%s, viz=%v, export=%v, confidence=%.2f",
 		time.Since(startTime), result.RequestType, result.NeedsVisualization, result.NeedsDataExport, result.Confidence))

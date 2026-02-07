@@ -63,6 +63,7 @@ export interface AnalysisResultState {
 
 // 规范化后的表格数据格式
 export interface NormalizedTableData {
+  title?: string;
   columns: string[];
   rows: Record<string, any>[];
 }

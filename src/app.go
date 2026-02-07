@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"archive/zip"
@@ -303,9 +303,19 @@ func (a *App) shutdown(ctx context.Context) {
 		a.db.Close()
 		a.Log("[SHUTDOWN] Database connection closed")
 	}
-	// Close EinoService (which closes Python pool)
+	// Close EinoService (which closes Python pool) with timeout
 	if a.einoService != nil {
-		a.einoService.Close()
+		done := make(chan struct{})
+		go func() {
+			a.einoService.Close()
+			close(done)
+		}()
+		select {
+		case <-done:
+			a.Log("[SHUTDOWN] EinoService closed successfully")
+		case <-time.After(5 * time.Second):
+			a.Log("[SHUTDOWN] EinoService close timed out after 5s, forcing shutdown")
+		}
 	}
 	// Close logger
 	a.logger.Close()
@@ -2801,7 +2811,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				})
 			}
 			
-			return "", fmt.Errorf(limitMsg)
+			return "", fmt.Errorf("%s", limitMsg)
 		}
 		// Increment analysis count
 		a.licenseClient.IncrementAnalysis()
@@ -3082,58 +3092,83 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Collect all chart types (ECharts, Images, Tables, CSV)
 			// Changed from priority-based to collection-based approach
 
-			// 1. ECharts JSON
+			// 1. ECharts JSON - Extract ALL matches (not just the first)
 			// Match until closing ``` to handle deeply nested objects
 			// Allow optional newline after json:echarts
 			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-			matchECharts := reECharts.FindStringSubmatch(resp)
-			if len(matchECharts) > 1 {
-				jsonStr := strings.TrimSpace(matchECharts[1])
-				// Validate it's valid JSON before using
-				var testJSON map[string]interface{}
-				if err := json.Unmarshal([]byte(jsonStr), &testJSON); err == nil {
-					// Check if data is large and should be saved to file
-					fileRef, saveErr := a.saveChartDataToFile(threadID, "echarts", jsonStr)
+			allEChartsMatches := reECharts.FindAllStringSubmatch(resp, -1)
+			for matchIdx, matchECharts := range allEChartsMatches {
+				if len(matchECharts) > 1 {
+					jsonStr := strings.TrimSpace(matchECharts[1])
+					// Validate it's valid JSON before using
+					var testJSON map[string]interface{}
+					parsedJSON := jsonStr
+					parseErr := json.Unmarshal([]byte(jsonStr), &testJSON)
+					if parseErr != nil {
+						// JSON parse failed - likely contains JavaScript functions (formatter, color, etc.)
+						// Try cleaning JS functions and re-parsing
+						a.Log(fmt.Sprintf("[CHART] Initial JSON parse failed for echarts #%d: %v, attempting to clean JavaScript functions", matchIdx+1, parseErr))
+						cleanedJSON := cleanEChartsJSON(jsonStr)
+						if cleanErr := json.Unmarshal([]byte(cleanedJSON), &testJSON); cleanErr == nil {
+							parsedJSON = cleanedJSON
+							parseErr = nil
+							a.Log(fmt.Sprintf("[CHART] Successfully parsed echarts #%d after cleaning JavaScript functions", matchIdx+1))
+						} else {
+							a.Log(fmt.Sprintf("[CHART] Still failed to parse echarts #%d after cleaning: %v", matchIdx+1, cleanErr))
+						}
+					}
+					if parseErr == nil {
+						// Check if data is large and should be saved to file
+						fileRef, saveErr := a.saveChartDataToFile(threadID, "echarts", parsedJSON)
 
-					var chartDataStr string
-					if saveErr != nil {
-						// Log error but continue with inline storage as fallback
-						a.Log(fmt.Sprintf("[CHART-FILE] Failed to save to file, using inline storage: %v", saveErr))
-						chartDataStr = jsonStr
-					} else if fileRef != "" {
-						// Use file reference (large data saved to file)
-						chartDataStr = fileRef
-						a.Log(fmt.Sprintf("[CHART-FILE] Using file reference: %s", fileRef))
+						var chartDataStr string
+						if saveErr != nil {
+							// Log error but continue with inline storage as fallback
+							a.Log(fmt.Sprintf("[CHART-FILE] Failed to save to file, using inline storage: %v", saveErr))
+							chartDataStr = parsedJSON
+						} else if fileRef != "" {
+							// Use file reference (large data saved to file)
+							chartDataStr = fileRef
+							a.Log(fmt.Sprintf("[CHART-FILE] Using file reference: %s", fileRef))
+						} else {
+							// Small data, use inline storage
+							chartDataStr = parsedJSON
+						}
+
+						chartItems = append(chartItems, ChartItem{Type: "echarts", Data: chartDataStr})
+						a.Log(fmt.Sprintf("[CHART] Detected ECharts JSON #%d", matchIdx+1))
+						// Use event aggregator for new unified event system
+						if a.eventAggregator != nil {
+							a.eventAggregator.AddECharts(threadID, userMessageID, requestID, parsedJSON)
+						}
 					} else {
-						// Small data, use inline storage
-						chartDataStr = jsonStr
+						maxLen := 500
+						if len(jsonStr) < maxLen {
+							maxLen = len(jsonStr)
+						}
+						a.Log(fmt.Sprintf("[CHART] Failed to parse echarts JSON #%d: %v\nJSON string (first 500 chars): %s", matchIdx+1, parseErr, jsonStr[:maxLen]))
 					}
-
-					chartItems = append(chartItems, ChartItem{Type: "echarts", Data: chartDataStr})
-					a.Log("[CHART] Detected ECharts JSON")
-					// Use event aggregator for new unified event system
-					if a.eventAggregator != nil {
-						a.eventAggregator.AddECharts(threadID, userMessageID, requestID, jsonStr)
-					}
-				} else {
-					maxLen := 500
-					if len(jsonStr) < maxLen {
-						maxLen = len(jsonStr)
-					}
-					a.Log(fmt.Sprintf("[CHART] Failed to parse echarts JSON: %v\nJSON string (first 500 chars): %s", err, jsonStr[:maxLen]))
 				}
 			}
+			if len(allEChartsMatches) > 0 {
+				a.Log(fmt.Sprintf("[CHART] Total ECharts blocks found: %d", len(allEChartsMatches)))
+			}
 
-			// 2. Markdown Image (Base64) - always check, don't skip if ECharts exists
+			// 2. Markdown Image (Base64) - Extract ALL matches (not just the first)
 			reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
-			matchImage := reImage.FindStringSubmatch(resp)
-			if len(matchImage) > 1 {
-				chartItems = append(chartItems, ChartItem{Type: "image", Data: matchImage[1]})
-				a.Log("[CHART] Detected inline base64 image")
-				// Use event aggregator for new unified event system
-				if a.eventAggregator != nil {
-					a.eventAggregator.AddImage(threadID, userMessageID, requestID, matchImage[1], "")
+			allImageMatches := reImage.FindAllStringSubmatch(resp, -1)
+			for matchIdx, matchImage := range allImageMatches {
+				if len(matchImage) > 1 {
+					chartItems = append(chartItems, ChartItem{Type: "image", Data: matchImage[1]})
+					a.Log(fmt.Sprintf("[CHART] Detected inline base64 image #%d", matchIdx+1))
+					// Use event aggregator for new unified event system
+					if a.eventAggregator != nil {
+						a.eventAggregator.AddImage(threadID, userMessageID, requestID, matchImage[1], "")
+					}
 				}
+			}
+			if len(allImageMatches) > 0 {
+				a.Log(fmt.Sprintf("[CHART] Total inline base64 images found: %d", len(allImageMatches)))
 			}
 
 			// 3. Check for saved chart files (e.g., chart_timestamp.png from Python tool)
@@ -3196,91 +3231,136 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				}
 			}
 
-			// 5. Table Data (JSON array from SQL results or analysis) - always check
+			// 5. Table Data (JSON array from SQL results or analysis) - Extract ALL matches
 			// Use [\s\S] instead of . to match newlines, match until closing ``` not first ]
 			// Allow optional newline after json:table
+			// Also capture the table title from the line before the code block
+			
+			// First, use the simple pattern to find all table blocks
 			reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-			matchTable := reTable.FindStringSubmatch(resp)
-			if len(matchTable) > 1 {
-				jsonStr := strings.TrimSpace(matchTable[1])
-				
-				// Try to parse as object array first (standard format)
-				var tableData []map[string]interface{}
-				var parseErr error
-				if parseErr = json.Unmarshal([]byte(jsonStr), &tableData); parseErr != nil {
-					// Try to parse as 2D array (first row is headers)
-					var arrayData [][]interface{}
-					if err := json.Unmarshal([]byte(jsonStr), &arrayData); err == nil && len(arrayData) > 1 {
-						// Convert 2D array to object array
-						// First row is headers
-						headers := make([]string, len(arrayData[0]))
-						for i, h := range arrayData[0] {
-							headers[i] = fmt.Sprintf("%v", h)
+			allTableMatches := reTable.FindAllStringSubmatchIndex(resp, -1)
+			
+			for matchIdx, matchIndices := range allTableMatches {
+				if len(matchIndices) >= 4 {
+					// matchIndices[0:2] is the full match, matchIndices[2:4] is the JSON content
+					fullMatchStart := matchIndices[0]
+					jsonContent := strings.TrimSpace(resp[matchIndices[2]:matchIndices[3]])
+					
+					// Look for the title in the line before the code block
+					tableTitle := ""
+					if fullMatchStart > 0 {
+						// Find the start of the line before the code block
+						textBefore := resp[:fullMatchStart]
+						// Find the last newline before the code block
+						lastNewline := strings.LastIndex(textBefore, "\n")
+						if lastNewline >= 0 {
+							// Get the line before the code block
+							lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
+							// Clean up the title: remove markdown formatting like **, ##, -, etc.
+							tableTitle = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
+							tableTitle = strings.TrimRight(tableTitle, ":：")
+							tableTitle = strings.TrimSpace(tableTitle)
+							// Skip if it looks like code or JSON
+							if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
+								tableTitle = ""
+							}
+						}
+					}
+					
+					a.Log(fmt.Sprintf("[CHART] Table #%d title extracted: '%s'", matchIdx+1, tableTitle))
+					
+					// Try to parse as object array first (standard format)
+					var tableData []map[string]interface{}
+					var parseErr error
+					if parseErr = json.Unmarshal([]byte(jsonContent), &tableData); parseErr != nil {
+						// Try to parse as 2D array (first row is headers)
+						var arrayData [][]interface{}
+						if err := json.Unmarshal([]byte(jsonContent), &arrayData); err == nil && len(arrayData) > 1 {
+							// Convert 2D array to object array
+							// First row is headers
+							headers := make([]string, len(arrayData[0]))
+							for i, h := range arrayData[0] {
+								headers[i] = fmt.Sprintf("%v", h)
+							}
+							
+							// Remaining rows are data
+							tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+							for _, row := range arrayData[1:] {
+								rowMap := make(map[string]interface{})
+								for i, val := range row {
+									if i < len(headers) {
+										rowMap[headers[i]] = val
+									}
+								}
+								tableData = append(tableData, rowMap)
+							}
+							parseErr = nil
+							a.Log(fmt.Sprintf("[CHART] Converted 2D array table #%d: %d columns, %d rows", matchIdx+1, len(headers), len(tableData)))
+						}
+					}
+					
+					if parseErr == nil && len(tableData) > 0 {
+						// Create table data with title
+						tableDataWithTitle := map[string]interface{}{
+							"title": tableTitle,
+							"rows":  tableData,
 						}
 						
-						// Remaining rows are data
-						tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
-						for _, row := range arrayData[1:] {
-							rowMap := make(map[string]interface{})
-							for i, val := range row {
-								if i < len(headers) {
-									rowMap[headers[i]] = val
-								}
-							}
-							tableData = append(tableData, rowMap)
+						tableDataJSON, _ := json.Marshal(tableData)
+						tableDataStr := string(tableDataJSON)
+
+						// Check if table data is large and should be saved to file
+						fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
+
+						var finalTableData string
+						if saveErr != nil {
+							// Log error but continue with inline storage as fallback
+							a.Log(fmt.Sprintf("[CHART-FILE] Failed to save table data to file, using inline storage: %v", saveErr))
+							finalTableData = tableDataStr
+						} else if fileRef != "" {
+							// Use file reference (large data saved to file)
+							finalTableData = fileRef
+							a.Log(fmt.Sprintf("[CHART-FILE] Using file reference for table data: %s", fileRef))
+						} else {
+							// Small data, use inline storage
+							finalTableData = tableDataStr
 						}
-						parseErr = nil
-						a.Log(fmt.Sprintf("[CHART] Converted 2D array table: %d columns, %d rows", len(headers), len(tableData)))
-					}
-				}
-				
-				if parseErr == nil && len(tableData) > 0 {
-					tableDataJSON, _ := json.Marshal(tableData)
-					tableDataStr := string(tableDataJSON)
 
-					// Check if table data is large and should be saved to file
-					fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
+						chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
+						a.Log(fmt.Sprintf("[CHART] Detected table data #%d with title: %s", matchIdx+1, tableTitle))
 
-					var finalTableData string
-					if saveErr != nil {
-						// Log error but continue with inline storage as fallback
-						a.Log(fmt.Sprintf("[CHART-FILE] Failed to save table data to file, using inline storage: %v", saveErr))
-						finalTableData = tableDataStr
-					} else if fileRef != "" {
-						// Use file reference (large data saved to file)
-						finalTableData = fileRef
-						a.Log(fmt.Sprintf("[CHART-FILE] Using file reference for table data: %s", fileRef))
+						// Use event aggregator for new unified event system
+						if a.eventAggregator != nil {
+							a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableDataWithTitle)
+						}
 					} else {
-						// Small data, use inline storage
-						finalTableData = tableDataStr
+						maxLen := 500
+						if len(jsonContent) < maxLen {
+							maxLen = len(jsonContent)
+						}
+						a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON #%d: %v\nJSON string (first 500 chars): %s", matchIdx+1, parseErr, jsonContent[:maxLen]))
 					}
-
-					chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
-					a.Log("[CHART] Detected table data")
-
-					// Use event aggregator for new unified event system
-					if a.eventAggregator != nil {
-						a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableData)
-					}
-				} else {
-					maxLen := 500
-					if len(jsonStr) < maxLen {
-						maxLen = len(jsonStr)
-					}
-					a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON: %v\nJSON string (first 500 chars): %s", parseErr, jsonStr[:maxLen]))
 				}
 			}
+			if len(allTableMatches) > 0 {
+				a.Log(fmt.Sprintf("[CHART] Total table blocks found: %d", len(allTableMatches)))
+			}
 
-			// 6. CSV Download Link (data URL) - always check
+			// 6. CSV Download Link (data URL) - Extract ALL matches (not just the first)
 			reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
-			matchCSV := reCSV.FindStringSubmatch(resp)
-			if len(matchCSV) > 1 {
-				chartItems = append(chartItems, ChartItem{Type: "csv", Data: matchCSV[1]})
-				a.Log("[CHART] Detected CSV data")
-				// Use event aggregator for new unified event system
-				if a.eventAggregator != nil {
-					a.eventAggregator.AddCSV(threadID, userMessageID, requestID, matchCSV[1], "")
+			allCSVMatches := reCSV.FindAllStringSubmatch(resp, -1)
+			for matchIdx, matchCSV := range allCSVMatches {
+				if len(matchCSV) > 1 {
+					chartItems = append(chartItems, ChartItem{Type: "csv", Data: matchCSV[1]})
+					a.Log(fmt.Sprintf("[CHART] Detected CSV data #%d", matchIdx+1))
+					// Use event aggregator for new unified event system
+					if a.eventAggregator != nil {
+						a.eventAggregator.AddCSV(threadID, userMessageID, requestID, matchCSV[1], "")
+					}
 				}
+			}
+			if len(allCSVMatches) > 0 {
+				a.Log(fmt.Sprintf("[CHART] Total CSV links found: %d", len(allCSVMatches)))
 			}
 
 			// Create chartData with ALL collected items (ECharts, Images, Tables, CSV)
@@ -3454,8 +3534,14 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
 					}
 					// Extract and emit suggestions to dashboard
-					if err := a.ExtractSuggestionsFromAnalysis(threadID, userMessageID, resp); err != nil {
-						a.Log(fmt.Sprintf("Failed to extract suggestions for message %s: %v", userMessageID, err))
+					suggestions := a.ExtractSuggestionsAsItems(threadID, userMessageID, resp)
+					if len(suggestions) > 0 {
+						// Persist the extracted suggestions to the message's analysis_results
+						if err := a.chatService.AppendAnalysisResults(threadID, userMessageID, suggestions); err != nil {
+							a.Log(fmt.Sprintf("[PERSISTENCE] Failed to append extracted suggestions: %v", err))
+						} else {
+							a.Log(fmt.Sprintf("[PERSISTENCE] Appended %d extracted suggestions to message %s", len(suggestions), userMessageID))
+						}
 					}
 				}()
 			}
@@ -4628,6 +4714,110 @@ func (a *App) detectAndEmitImages(response string, threadID string, userMessageI
 	}
 }
 
+// cleanEChartsJSON removes JavaScript function expressions from ECharts JSON strings
+// so they can be parsed by Go's json.Unmarshal. LLMs sometimes generate ECharts configs
+// with function(params){...} for formatter/color/label which is valid JS but not valid JSON.
+func cleanEChartsJSON(jsonStr string) string {
+	// Match patterns like: "formatter": function(params) { ... }
+	// Need to handle nested braces inside function bodies
+	result := jsonStr
+
+	// Use a manual approach to handle nested braces properly
+	// Find "function" keyword that appears as a value (after : )
+	for {
+		// Find pattern: "key": function or , "key": function
+		idx := strings.Index(result, "function")
+		if idx < 0 {
+			break
+		}
+
+		// Check if this looks like a JSON value (preceded by : with optional whitespace)
+		// Walk backwards to find the colon
+		prefixStart := idx - 1
+		for prefixStart >= 0 && (result[prefixStart] == ' ' || result[prefixStart] == '\t' || result[prefixStart] == '\n' || result[prefixStart] == '\r') {
+			prefixStart--
+		}
+		if prefixStart < 0 || result[prefixStart] != ':' {
+			// Not a JSON value context, skip past this "function"
+			// Replace this occurrence temporarily to avoid infinite loop
+			result = result[:idx] + "FUNC_SKIP" + result[idx+8:]
+			continue
+		}
+
+		// Find the opening brace of the function body
+		braceStart := strings.Index(result[idx:], "{")
+		if braceStart < 0 {
+			break
+		}
+		braceStart += idx
+
+		// Count braces to find the matching closing brace
+		depth := 0
+		braceEnd := -1
+		for i := braceStart; i < len(result); i++ {
+			if result[i] == '{' {
+				depth++
+			} else if result[i] == '}' {
+				depth--
+				if depth == 0 {
+					braceEnd = i
+					break
+				}
+			}
+		}
+		if braceEnd < 0 {
+			break
+		}
+
+		// Now walk backwards from the colon to find the key start (including comma if present)
+		// We want to remove: , "key": function(...){...} or "key": function(...){...},
+		removeStart := prefixStart // at the colon
+		// Walk back past the key name and quotes
+		keyStart := removeStart - 1
+		for keyStart >= 0 && (result[keyStart] == ' ' || result[keyStart] == '\t' || result[keyStart] == '\n' || result[keyStart] == '\r') {
+			keyStart--
+		}
+		// Walk past the quoted key name
+		if keyStart >= 0 && result[keyStart] == '"' {
+			keyStart-- // past closing quote
+			for keyStart >= 0 && result[keyStart] != '"' {
+				keyStart--
+			}
+			if keyStart > 0 {
+				keyStart-- // past opening quote
+				// Check for leading comma
+				for keyStart >= 0 && (result[keyStart] == ' ' || result[keyStart] == '\t' || result[keyStart] == '\n' || result[keyStart] == '\r') {
+					keyStart--
+				}
+				if keyStart >= 0 && result[keyStart] == ',' {
+					removeStart = keyStart
+				} else {
+					removeStart = keyStart + 1
+				}
+			}
+		}
+
+		// Remove the entire key-value pair
+		after := result[braceEnd+1:]
+		// If the next non-whitespace char after removal is a comma, and we didn't remove a leading comma, clean it
+		trimmedAfter := strings.TrimLeft(after, " \t\n\r")
+		if len(trimmedAfter) > 0 && trimmedAfter[0] == ',' && removeStart > 0 && result[removeStart] != ',' {
+			// Remove the trailing comma too
+			after = trimmedAfter[1:]
+		}
+		result = result[:removeStart] + after
+	}
+
+	// Restore any FUNC_SKIP markers (shouldn't normally happen in valid echarts)
+	result = strings.ReplaceAll(result, "FUNC_SKIP", "function")
+
+	// Clean up trailing commas before } or ]
+	reTrailingComma := regexp.MustCompile(`,(\s*[}\]])`)
+	result = reTrailingComma.ReplaceAllString(result, "$1")
+
+	return result
+}
+
 // filterFalseFileClaimsIfECharts filters out false file generation claims when ECharts is used
 // LLM sometimes hallucinates file generation (e.g., "图表已生成: xxx.pdf") when using ECharts,
 // but ECharts only renders in the frontend and doesn't generate any files.
@@ -4948,22 +5138,32 @@ func (a *App) parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceNa
 	var insights []Insight
 	lines := strings.Split(llmResponse, "\n")
 
-	// Match lines starting with "1.", "2.", etc
-	numberPattern := regexp.MustCompile(`^\s*(\d+)\.\s+(.+)$`)
+	// Match numbered items: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	// Match markdown list items: "- xxx", "* xxx", "• xxx"
+	listPattern := regexp.MustCompile(`^\s*[-*•]\s+(.+)`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
+		var suggestionText string
 		if matches := numberPattern.FindStringSubmatch(line); len(matches) > 2 {
-			// Extract the suggestion text (everything after the number)
-			suggestionText := strings.TrimSpace(matches[2])
-			if suggestionText != "" {
-				insights = append(insights, Insight{
-					Text:         suggestionText,
-					Icon:         "lightbulb",
-					DataSourceID: dataSourceID,
-					SourceName:   dataSourceName,
-				})
-			}
+			suggestionText = strings.TrimSpace(matches[2])
+		} else if matches := listPattern.FindStringSubmatch(line); len(matches) > 1 {
+			suggestionText = strings.TrimSpace(matches[1])
+		}
+		// Clean up markdown formatting
+		if suggestionText != "" {
+			suggestionText = strings.TrimPrefix(suggestionText, "**")
+			suggestionText = strings.TrimSuffix(suggestionText, "**")
+			suggestionText = strings.TrimSpace(suggestionText)
+		}
+		if suggestionText != "" {
+			insights = append(insights, Insight{
+				Text:         suggestionText,
+				Icon:         "lightbulb",
+				DataSourceID: dataSourceID,
+				SourceName:   dataSourceName,
+			})
 		}
 	}
 
@@ -5387,7 +5587,7 @@ func (a *App) WaitForShopifyOAuth() (map[string]string, error) {
 	shopifyOAuthMutex.Unlock()
 
 	if result.Error != "" {
-		return nil, fmt.Errorf(result.Error)
+		return nil, fmt.Errorf("%s", result.Error)
 	}
 
 	return map[string]string{
@@ -6443,8 +6643,6 @@ func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string
 
 	// Use event aggregator for new unified event system
 	if a.eventAggregator != nil {
-		// Get threadID from context if available
-		threadID := "" // Will be set by caller context
 		for _, metric := range validMetrics {
 			m := Metric{
 				Title:  fmt.Sprintf("%v", metric["name"]),
@@ -6476,54 +6674,12 @@ func (a *App) getConfigForExtraction() config.Config {
 // ExtractSuggestionsFromAnalysis extracts next-step suggestions from analysis response
 // and emits them to the dashboard insights area
 func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisContent string) error {
-	if analysisContent == "" {
-		return nil
-	}
-
-	// Look for patterns that indicate next steps or suggestions in the analysis
-	// Common patterns: numbered lists, "建议", "next steps", "you can", "可以", etc.
-	var insights []Insight
-	lines := strings.Split(analysisContent, "\n")
-
-	// Patterns for next-step suggestions
-	numberPattern := regexp.MustCompile(`^\s*(\d+)[.、]\s+(.+)$`)
-	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步)`)
-
-	foundSuggestionSection := false
-
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-
-		// Check if we're entering a suggestion/next-steps section
-		if suggestionPattern.MatchString(trimmedLine) {
-			foundSuggestionSection = true
-		}
-
-		// Extract numbered items (likely suggestions) - prefer items after suggestion markers
-		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
-			suggestionText := strings.TrimSpace(matches[2])
-			if suggestionText != "" && len(suggestionText) > 10 { // Filter out very short items
-				// Prioritize items found in/after suggestion sections
-				_ = foundSuggestionSection // Use variable to avoid compiler error
-				insights = append(insights, Insight{
-					Text:         suggestionText,
-					Icon:         "lightbulb",
-					DataSourceID: "",
-					SourceName:   "",
-				})
-			}
-		}
-	}
-
-	// Limit to 9 suggestions (auto insights)
-	if len(insights) > 9 {
-		insights = insights[:9]
-	}
+	// Delegate to shared extraction logic
+	insights := a.extractSuggestionInsights(analysisContent)
 
 	if len(insights) > 0 {
 		a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
 
-		// Use event aggregator for new unified event system
 		if a.eventAggregator != nil {
 			for _, insight := range insights {
 				a.eventAggregator.AddInsight(threadID, userMessageID, "", insight)
@@ -6533,6 +6689,138 @@ func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisCo
 	}
 
 	return nil
+}
+
+// extractSuggestionInsights is the shared extraction logic for suggestions.
+// It supports multiple formats commonly output by LLMs:
+// - Numbered: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
+// - Markdown list: "- xxx", "• xxx"
+// - Bold title with colon/dash: "**标题**：描述", "**Title** - description"
+func (a *App) extractSuggestionInsights(analysisContent string) []Insight {
+	if analysisContent == "" {
+		return nil
+	}
+
+	var insights []Insight
+	lines := strings.Split(analysisContent, "\n")
+
+	// Match numbered items: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	// Match markdown list items: "- xxx", "• xxx"
+	listPattern := regexp.MustCompile(`^\s*[-•]\s+(.+)`)
+	// Match bold title with colon/dash: "**标题**：描述" or "**标题** - 描述"
+	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[：:\-–—]\s*(.+)`)
+
+	// Suggestion section detection keywords
+	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步|后续|下一步|洞察|insight|分析方向|可以从|希望从哪)`)
+
+	inCodeBlock := false
+	foundSuggestionSection := false
+	consecutiveBoldItems := 0
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		// Track code blocks
+		if strings.HasPrefix(trimmedLine, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if inCodeBlock || trimmedLine == "" {
+			continue
+		}
+
+		// Check if this line marks a suggestion section
+		if suggestionPattern.MatchString(trimmedLine) {
+			foundSuggestionSection = true
+		}
+
+		var suggestionText string
+
+		// Strategy 1: Numbered items (only in suggestion section)
+		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
+			if foundSuggestionSection {
+				suggestionText = strings.TrimSpace(matches[2])
+			}
+		}
+
+		// Strategy 2: Bold title with colon/dash: "**季度销售趋势分析**：比较Q1-Q4的销售表现"
+		if suggestionText == "" {
+			if matches := boldTitlePattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
+				title := strings.TrimSpace(matches[1])
+				desc := strings.TrimSpace(matches[2])
+				if desc != "" {
+					suggestionText = title + "：" + desc
+				} else {
+					suggestionText = title
+				}
+				consecutiveBoldItems++
+				// 3+ consecutive bold items = likely a suggestion list
+				if consecutiveBoldItems >= 3 {
+					foundSuggestionSection = true
+				}
+			} else {
+				consecutiveBoldItems = 0
+			}
+		}
+
+		// Strategy 3: Markdown list items (only in suggestion section)
+		if suggestionText == "" && foundSuggestionSection {
+			if matches := listPattern.FindStringSubmatch(trimmedLine); len(matches) > 1 {
+				suggestionText = strings.TrimSpace(matches[1])
+			}
+		}
+
+		// Clean up markdown formatting
+		if suggestionText != "" {
+			suggestionText = strings.TrimPrefix(suggestionText, "**")
+			suggestionText = strings.TrimSuffix(suggestionText, "**")
+			suggestionText = strings.TrimSpace(suggestionText)
+		}
+
+		if suggestionText != "" && len([]rune(suggestionText)) > 5 {
+			insights = append(insights, Insight{
+				Text: suggestionText,
+				Icon: "lightbulb",
+			})
+		}
+	}
+
+	if len(insights) > 9 {
+		insights = insights[:9]
+	}
+
+	return insights
+}
+
+// ExtractSuggestionsAsItems extracts suggestions from analysis response,
+// emits them to the frontend, and returns them as AnalysisResultItems for persistence.
+//
+// Supported formats:
+// - Numbered: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
+// - Markdown list: "- xxx", "* xxx", "• xxx"
+// - Bold title with colon: "**标题**：描述", "**Title**: description"
+// - Bold title with dash: "**标题** - 描述"
+func (a *App) ExtractSuggestionsAsItems(threadID, userMessageID, analysisContent string) []AnalysisResultItem {
+	// Delegate to shared extraction logic
+	insights := a.extractSuggestionInsights(analysisContent)
+
+	if len(insights) == 0 {
+		return nil
+	}
+
+	a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
+
+	// Emit to frontend via event aggregator
+	var items []AnalysisResultItem
+	if a.eventAggregator != nil {
+		for _, insight := range insights {
+			a.eventAggregator.AddInsight(threadID, userMessageID, "", insight)
+		}
+		items = a.eventAggregator.FlushNow(threadID, true)
+	}
+
+	return items
 }
 
 // containsNumber checks if a string contains any digit

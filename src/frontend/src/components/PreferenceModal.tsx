@@ -77,6 +77,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
         maxPreviewRows: 100,
         maxConcurrentAnalysis: 5,
         detailedLog: false,
+        soundNotification: true,
         mcpServices: []
     }));
     const [isTesting, setIsTesting] = useState(false);
@@ -546,6 +547,17 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             type="checkbox"
                                             checked={config.detailedLog}
                                             onChange={(e) => updateConfig({ detailedLog: e.target.checked })}
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <span className="block text-sm font-medium text-slate-700">{t('sound_notification')}</span>
+                                            <span className="block text-xs text-slate-500">{t('sound_notification_desc')}</span>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={config.soundNotification !== false}
+                                            onChange={(e) => updateConfig({ soundNotification: e.target.checked })}
                                         />
                                     </div>
                                     

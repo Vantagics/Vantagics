@@ -232,8 +232,29 @@ func (v *CodeValidator) looksLikeSQL(s string) bool {
 	return false
 }
 
-// hasChartGeneration checks if the code generates charts
+// hasChartGeneration checks if the code generates and SAVES charts
+// Only returns true if the code contains actual chart saving code (savefig)
+// plt.show() alone is not sufficient as it doesn't produce output files
 func (v *CodeValidator) hasChartGeneration(code string) bool {
+	// Primary check: code must save the chart to a file
+	chartSavePatterns := []string{
+		"plt.savefig",
+		"fig.savefig",
+		"savefig(",
+	}
+	
+	for _, pattern := range chartSavePatterns {
+		if strings.Contains(code, pattern) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// hasChartCode checks if the code contains any chart-related code (for informational purposes)
+// This is different from hasChartGeneration which only checks for saved charts
+func (v *CodeValidator) hasChartCode(code string) bool {
 	chartPatterns := []string{
 		"plt.savefig",
 		"fig.savefig",
@@ -256,14 +277,15 @@ func (v *CodeValidator) hasChartGeneration(code string) bool {
 	return false
 }
 
-// hasFileExport checks if the code exports files
+// hasFileExport checks if the code exports data files (CSV, Excel, JSON)
+// Note: savefig is for charts, not data export
 func (v *CodeValidator) hasFileExport(code string) bool {
 	exportPatterns := []string{
 		".to_csv(",
 		".to_excel(",
 		".to_json(",
-		"savefig(",
-		"open(",
+		".to_parquet(",
+		".to_html(",
 	}
 	for _, pattern := range exportPatterns {
 		if strings.Contains(code, pattern) {

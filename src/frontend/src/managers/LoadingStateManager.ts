@@ -122,7 +122,7 @@ class LoadingStateManager {
                     this.updateProgress(threadId, {
                         stage: 'complete',
                         progress: 100,
-                        message: '分析完成',
+                        message: 'progress.analysis_complete',
                         step: 6,
                         total: 6
                     });
@@ -138,7 +138,7 @@ class LoadingStateManager {
                 const threadId = payload?.threadId || payload?.sessionId;
                 if (threadId) {
                     // 从 payload 中提取错误信息，支持多种字段名
-                    const errorMessage = payload?.message || payload?.error || '分析过程中发生错误';
+                    const errorMessage = payload?.message || payload?.error || 'progress.analysis_error';
                     const errorCode = payload?.code || 'ANALYSIS_ERROR';
                     
                     // 使用 setError 方法设置错误状态
@@ -181,7 +181,7 @@ class LoadingStateManager {
                         this.updateProgress(threadId, {
                             stage: 'waiting',
                             progress: 0,
-                            message: data.message || '等待分析队列中...',
+                            message: data.message || 'progress.waiting_queue',
                             step: 0,
                             total: 0
                         });
@@ -190,7 +190,7 @@ class LoadingStateManager {
                         this.updateProgress(threadId, {
                             stage: 'initializing',
                             progress: 0,
-                            message: data.message || '开始分析',
+                            message: data.message || 'progress.starting_analysis',
                             step: 0,
                             total: 0
                         });

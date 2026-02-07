@@ -307,6 +307,21 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		}
 	}
 
+	// 检测导出/下载需求
+	exportIndicators := []string{
+		"导出", "下载", "保存", "生成报告", "生成文件",
+		"export", "download", "save as", "generate report",
+		"excel", "pdf", "ppt", "csv", "xlsx",
+	}
+	for _, indicator := range exportIndicators {
+		if strings.Contains(strings.ToLower(message), strings.ToLower(indicator)) {
+			tools = append(tools, "export_data")
+			score += 0.7
+			reasons = append(reasons, "export_need")
+			break
+		}
+	}
+
 	// 去重
 	tools = unique(tools)
 	reasons = unique(reasons)

@@ -71,6 +71,8 @@ export function ExportDashboardToPDF(arg1:main.DashboardExportData):Promise<void
 
 export function ExportDashboardToPPT(arg1:main.DashboardExportData):Promise<void>;
 
+export function ExportDashboardToWord(arg1:main.DashboardExportData):Promise<void>;
+
 export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
 export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
@@ -91,9 +93,13 @@ export function ExportToSQL(arg1:string,arg2:Array<string>,arg3:string):Promise<
 
 export function ExtractMetricsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ExtractSuggestionsAsItems(arg1:string,arg2:string,arg3:string):Promise<Array<main.AnalysisResultItem>>;
+
 export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function GenerateCSVThumbnail(arg1:string,arg2:string):Promise<string>;
+
+export function GenerateFilePreview(arg1:string,arg2:string):Promise<string>;
 
 export function GenerateIntentSuggestions(arg1:string,arg2:string):Promise<Array<main.IntentSuggestion>>;
 

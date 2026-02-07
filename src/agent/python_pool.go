@@ -204,18 +204,40 @@ func (p *PythonPool) Execute(code string, workDir string) (string, error) {
 	var worker *PythonWorker
 	select {
 	case worker = <-p.available:
+		if worker == nil {
+			return "", fmt.Errorf("pool is closed")
+		}
 		// Got a worker
 	case <-time.After(30 * time.Second):
 		return "", fmt.Errorf("timeout waiting for available worker")
 	}
 
 	defer func() {
-		// Return worker to pool if still valid
+		// Return worker to pool if still valid and pool is not closed
+		p.mu.Lock()
+		poolClosed := p.closed
+		p.mu.Unlock()
+
+		if poolClosed {
+			// Pool is closed, just kill the worker process
+			worker.mu.Lock()
+			worker.ready = false
+			if worker.cmd.Process != nil {
+				worker.cmd.Process.Kill()
+			}
+			worker.mu.Unlock()
+			return
+		}
+
 		worker.mu.Lock()
 		if worker.ready {
 			worker.lastUsed = time.Now()
 			worker.mu.Unlock()
-			p.available <- worker
+			// Safe send: recover from panic if channel was closed between our check and send
+			func() {
+				defer func() { recover() }()
+				p.available <- worker
+			}()
 		} else {
 			worker.mu.Unlock()
 			// Worker is dead, try to create a new one
@@ -294,9 +316,8 @@ func (w *PythonWorker) execute(code string, workDir string) (string, error) {
 // replaceWorker replaces a dead worker with a new one
 func (p *PythonPool) replaceWorker(oldWorker *PythonWorker) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.closed {
+		p.mu.Unlock()
 		return
 	}
 
@@ -308,6 +329,7 @@ func (p *PythonPool) replaceWorker(oldWorker *PythonWorker) {
 	// Create new worker
 	newWorker, err := p.startWorker()
 	if err != nil {
+		p.mu.Unlock()
 		// Log error but don't fail
 		fmt.Printf("Failed to replace worker: %v\n", err)
 		return
@@ -320,9 +342,13 @@ func (p *PythonPool) replaceWorker(oldWorker *PythonWorker) {
 			break
 		}
 	}
+	p.mu.Unlock()
 
-	// Add to available channel
-	p.available <- newWorker
+	// Add to available channel (safe send in case pool closes concurrently)
+	func() {
+		defer func() { recover() }()
+		p.available <- newWorker
+	}()
 }
 
 // maintenance runs periodic cleanup
@@ -345,14 +371,15 @@ func (p *PythonPool) maintenance() {
 // Close shuts down all workers
 func (p *PythonPool) Close() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	if p.closed {
+		p.mu.Unlock()
 		return
 	}
 	p.closed = true
+	p.mu.Unlock()
 
-	// Close all workers
+	// Kill all worker processes first (this unblocks any pending Execute calls)
 	for _, worker := range p.workers {
 		worker.mu.Lock()
 		worker.ready = false
@@ -365,8 +392,12 @@ func (p *PythonPool) Close() {
 		worker.mu.Unlock()
 	}
 
-	// Drain available channel
-	close(p.available)
+	// Close the available channel and drain it
+	// Use recover to handle any concurrent sends
+	func() {
+		defer func() { recover() }()
+		close(p.available)
+	}()
 	for range p.available {
 		// Drain
 	}

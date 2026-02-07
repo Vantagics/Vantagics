@@ -984,6 +984,7 @@ export namespace config {
 	    maxPreviewRows: number;
 	    maxConcurrentAnalysis: number;
 	    detailedLog: boolean;
+	    soundNotification: boolean;
 	    logMaxSizeMB: number;
 	    autoIntentUnderstanding: boolean;
 	    mcpServices: MCPService[];
@@ -1026,6 +1027,7 @@ export namespace config {
 	        this.maxPreviewRows = source["maxPreviewRows"];
 	        this.maxConcurrentAnalysis = source["maxConcurrentAnalysis"];
 	        this.detailedLog = source["detailedLog"];
+	        this.soundNotification = source["soundNotification"];
 	        this.logMaxSizeMB = source["logMaxSizeMB"];
 	        this.autoIntentUnderstanding = source["autoIntentUnderstanding"];
 	        this.mcpServices = this.convertValues(source["mcpServices"], MCPService);

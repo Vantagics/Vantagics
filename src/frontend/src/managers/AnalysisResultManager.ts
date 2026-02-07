@@ -584,13 +584,26 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      
+      // 详细记录原始数据类型
+      const originalDataType = typeof item.data;
+      const originalDataPreview = originalDataType === 'string' 
+        ? (item.data as string).substring(0, 100) + '...'
+        : JSON.stringify(item.data).substring(0, 100) + '...';
+      logger.warn(`[restoreResults] Item ${i}: type=${item.type}, originalDataType=${originalDataType}, preview=${originalDataPreview}`);
+      
       const validationResult = this.validateRestoreItem(item, i);
       
       if (validationResult.valid) {
         // 规范化数据
+        logger.warn(`[restoreResults] Item ${i}: calling DataNormalizer.normalize(${item.type}, ${originalDataType})`);
         const normalizedResult = DataNormalizer.normalize(item.type, item.data);
         
         if (normalizedResult.success) {
+          // 记录规范化后的数据类型
+          const normalizedDataType = typeof normalizedResult.data;
+          logger.warn(`[restoreResults] Item ${i}: normalized successfully, resultDataType=${normalizedDataType}`);
+          
           // 创建恢复的数据项，标记来源为 'restored'
           const restoredItem: AnalysisResultItem = {
             ...item,
@@ -729,8 +742,10 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     if (item.type && item.data !== undefined && item.data !== null) {
       switch (item.type) {
         case 'echarts':
-          if (typeof item.data !== 'object') {
-            errors.push('ECharts data must be an object');
+          // ECharts data can be either an object or a JSON string
+          // DataNormalizer.normalizeECharts handles both formats
+          if (typeof item.data !== 'object' && typeof item.data !== 'string') {
+            errors.push('ECharts data must be an object or JSON string');
           }
           break;
         case 'image':
@@ -739,8 +754,10 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
           }
           break;
         case 'table':
-          if (!Array.isArray(item.data) && typeof item.data !== 'object') {
-            errors.push('Table data must be an array or object');
+          // Table data can be an array, object, or JSON string
+          // DataNormalizer.normalizeTable handles all formats
+          if (!Array.isArray(item.data) && typeof item.data !== 'object' && typeof item.data !== 'string') {
+            errors.push('Table data must be an array, object, or JSON string');
           }
           break;
         case 'metric':

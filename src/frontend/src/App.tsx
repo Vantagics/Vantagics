@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import DraggableDashboard from './components/DraggableDashboard';
@@ -16,6 +16,9 @@ import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
 import { ToastProvider, useToast } from './contexts/ToastContext';
+import { initAnalysisResultBridge } from './utils/AnalysisResultBridge';
+import { playAnalysisCompleteSound } from './utils/SoundNotification';
+import { loadingStateManager } from './managers/LoadingStateManager';
 import './App.css';
 
 const logger = createLogger('App');
@@ -57,6 +60,53 @@ function AppContent() {
     
     // Task 6.1: Timeout tracking for request timeout handling (Requirement 2.4)
     const [requestTimeouts, setRequestTimeouts] = useState<Map<string, number>>(new Map());
+
+    // Refs for AnalysisResultBridge to access current session/message IDs
+    const activeSessionIdRef = useRef<string | null>(null);
+    const selectedMessageIdRef = useRef<string | null>(null);
+    
+    // Keep refs in sync with state
+    useEffect(() => {
+        activeSessionIdRef.current = activeSessionId;
+    }, [activeSessionId]);
+    
+    useEffect(() => {
+        selectedMessageIdRef.current = selectedMessageId;
+    }, [selectedMessageId]);
+
+    // Sound notification setting ref
+    const soundEnabledRef = useRef<boolean>(true);
+    useEffect(() => {
+        GetConfig().then(cfg => {
+            soundEnabledRef.current = cfg.soundNotification !== false;
+        }).catch(() => {});
+        const unsub = EventsOn('config-updated', () => {
+            GetConfig().then(cfg => {
+                soundEnabledRef.current = cfg.soundNotification !== false;
+            }).catch(() => {});
+        });
+        return unsub;
+    }, []);
+    
+    // Initialize AnalysisResultBridge for handling analysis-result-restore events
+    useEffect(() => {
+        logger.info('Initializing AnalysisResultBridge');
+        const cleanup = initAnalysisResultBridge(
+            () => activeSessionIdRef.current,
+            () => selectedMessageIdRef.current
+        );
+        
+        return () => {
+            logger.info('Cleaning up AnalysisResultBridge');
+            cleanup();
+        };
+    }, []); // Only initialize once on mount
+
+    // Initialize LoadingStateManager to register Wails event listeners for analysis-progress
+    useEffect(() => {
+        logger.info('Initializing LoadingStateManager');
+        loadingStateManager.initialize();
+    }, []);
 
     // Generate unique request ID for tracking analysis requests (Requirements 2.1, 4.1)
     const generateRequestId = (): string => {
@@ -150,18 +200,19 @@ function AppContent() {
         setPendingRequestId(requestId);
         setIsAnalysisLoading(true);
         
-        // Task 6.1: Set 30-second timeout for the request (Requirement 2.4)
+        // Task 6.1: Set timeout for the request (Requirement 2.4)
+        // Note: Analysis can take several minutes for complex queries, so use a generous timeout
         const timeoutId = setTimeout(() => {
             // Check if this request is still pending
             setPendingRequestId(currentPendingId => {
                 if (currentPendingId === requestId) {
-                    logger.warn(`Request ${requestId} timed out after 30 seconds`);
+                    logger.warn(`Request ${requestId} timed out after 5 minutes`);
                     
                     // Clear loading state but keep dashboard data (Requirement 2.4)
                     setIsAnalysisLoading(false);
                     
                     // Show timeout error message
-                    showToast('error', '分析请求超时（30秒），请重试', '分析超时');
+                    showToast('error', '分析请求超时（5分钟），请重试', '分析超时');
                     
                     // Clear the timeout from the map
                     setRequestTimeouts(prev => {
@@ -174,7 +225,7 @@ function AppContent() {
                 }
                 return currentPendingId; // Keep current pending ID if it's different
             });
-        }, 30000); // 30 seconds timeout
+        }, 300000); // 5 minutes timeout (analysis can take several minutes)
         
         // Store the timeout ID for potential cancellation
         setRequestTimeouts(prev => {
@@ -752,12 +803,18 @@ function AppContent() {
             // Task 3.1: Verify requestId matches pending request (Requirements 1.3, 4.3, 4.4)
             if (requestId) {
                 // Check if this result matches the current pending request
-                if (requestId !== pendingRequestId) {
+                // Also accept results when pendingRequestId is null (timeout already cleared it)
+                // This prevents silently discarding valid results that arrived after timeout
+                if (pendingRequestId && requestId !== pendingRequestId) {
                     logger.info(`Ignoring stale analysis result - requestId mismatch: received=${requestId}, expected=${pendingRequestId}`);
-                    return; // Ignore outdated results
+                    return; // Ignore outdated results only when there's a DIFFERENT pending request
                 }
                 
-                logger.debug(`RequestId matched: ${requestId}, proceeding with dashboard update`);
+                if (!pendingRequestId) {
+                    logger.info(`Accepting late analysis result (pendingRequestId was cleared by timeout): requestId=${requestId}`);
+                }
+                
+                logger.debug(`RequestId accepted: ${requestId}, proceeding with dashboard update`);
                 
                 // Task 6.1: Clear the timeout for this request (Requirement 2.4)
                 const timeoutId = requestTimeouts.get(requestId);
@@ -784,6 +841,11 @@ function AppContent() {
                 setIsAnalysisLoading(false);
             }
 
+            // 播放分析完成提示音
+            if (soundEnabledRef.current) {
+                playAnalysisCompleteSound();
+            }
+
             // Set active session ID so that clicking insights will continue in this session
             if (threadId) {
                 logger.debug(`Setting activeSessionId to: ${threadId}`);
@@ -807,8 +869,25 @@ function AppContent() {
             // setActiveChart(null);
 
             // 延迟加载新的分析结果（确保清除操作完成）
-            setTimeout(() => {
+            setTimeout(async () => {
                 logger.debug(`Auto-loading analysis results for message: ${userMessageId}`);
+
+                // 设置当前选中的消息ID，以便文件下载组件能正确过滤文件
+                if (userMessageId) {
+                    setSelectedMessageId(userMessageId);
+                }
+
+                // 刷新会话文件列表，以便仪表盘文件下载组件能显示新生成的文件
+                if (threadId) {
+                    try {
+                        const { GetSessionFiles } = await import('../wailsjs/go/main/App');
+                        const files = await GetSessionFiles(threadId);
+                        logger.debug(`Refreshed session files after analysis: ${files?.length || 0} files`);
+                        setSessionFiles(files || []);
+                    } catch (err) {
+                        logger.error(`Failed to refresh session files after analysis: ${err}`);
+                    }
+                }
 
                 // 触发 user-message-clicked 事件来加载完整的分析结果
                 // 注意：不传递 chartData，让 ChatSidebar 从消息历史中加载
