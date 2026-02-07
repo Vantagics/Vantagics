@@ -1,0 +1,17 @@
+# Build outputs
+dist/
+build/bin/
+*.exe
+*.app/
+
+# Compiled binaries
+src/vantagedata
+tools/license_server/license_server
+tools/license_server/build/license_server_macos
+
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
