@@ -274,12 +274,16 @@ func (c *LicenseClient) SaveActivationData() error {
 		SavedAt       string          `json:"saved_at"`
 		ServerURL     string          `json:"server_url"`
 		LastRefreshAt string          `json:"last_refresh_at"` // Last time we refreshed from server
+		AnalysisCount int             `json:"analysis_count"`  // Today's analysis count
+		AnalysisDate  string          `json:"analysis_date"`   // Date of analysis count
 	}{
 		SN:            c.sn,
 		Data:          c.data,
 		SavedAt:       time.Now().Format(time.RFC3339),
 		ServerURL:     c.serverURL,
 		LastRefreshAt: time.Now().Format(time.RFC3339),
+		AnalysisCount: c.analysisCount,
+		AnalysisDate:  c.analysisDate,
 	}
 
 	jsonData, err := json.Marshal(saveData)
@@ -335,6 +339,8 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 		SavedAt       string          `json:"saved_at"`
 		ServerURL     string          `json:"server_url"`
 		LastRefreshAt string          `json:"last_refresh_at"`
+		AnalysisCount int             `json:"analysis_count"`
+		AnalysisDate  string          `json:"analysis_date"`
 	}
 	if err := json.Unmarshal(decrypted, &saveData); err != nil {
 		return fmt.Errorf("failed to parse data: %v", err)
@@ -366,6 +372,16 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 		if t, err := time.Parse(time.RFC3339, saveData.LastRefreshAt); err == nil {
 			c.lastRefreshAt = t
 		}
+	}
+
+	// Restore analysis count (only if same day)
+	today := time.Now().Format("2006-01-02")
+	if saveData.AnalysisDate == today {
+		c.analysisCount = saveData.AnalysisCount
+		c.analysisDate = saveData.AnalysisDate
+	} else {
+		c.analysisCount = 0
+		c.analysisDate = today
 	}
 
 	if c.log != nil {
@@ -502,10 +518,9 @@ func (c *LicenseClient) CanAnalyze() (bool, string) {
 	return true, ""
 }
 
-// IncrementAnalysis increments the analysis count for today
+// IncrementAnalysis increments the analysis count for today and persists it
 func (c *LicenseClient) IncrementAnalysis() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	
 	today := time.Now().Format("2006-01-02")
 	
@@ -519,6 +534,15 @@ func (c *LicenseClient) IncrementAnalysis() {
 	
 	if c.log != nil && c.data != nil && c.data.DailyAnalysis > 0 {
 		c.log(fmt.Sprintf("[LICENSE] Analysis count: %d/%d", c.analysisCount, c.data.DailyAnalysis))
+	}
+	
+	c.mu.Unlock()
+	
+	// Persist updated count to disk (outside lock to avoid deadlock with SaveActivationData)
+	if err := c.SaveActivationData(); err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Failed to persist analysis count: %v", err))
+		}
 	}
 }
 

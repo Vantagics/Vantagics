@@ -263,29 +263,22 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         return exclusionPatterns.some(pattern => pattern.test(text.trim()));
     };
 
-    // Enhanced: Extract actions from various formats
-    const extractedActions: any[] = [];
-    const extractedInsights: string[] = []; // 提取的洞察建议
+    // Enhanced: Extract actions from various formats — memoized to avoid re-parsing on every render
+    const { extractedActions, extractedInsights } = React.useMemo(() => {
+        const actions: any[] = [];
+        const insights: string[] = [];
 
-    if (!isUser) {
+        if (isUser) return { extractedActions: actions, extractedInsights: insights };
+
         const lines = content.split('\n');
         let inSuggestionSection = false;
         let suggestionCount = 0;
 
-        // Check if this is a suggestion response
         const hasSuggestionContext = isSuggestionContext(content);
-        
-        systemLog.info(`[EXTRACT] Starting extraction: hasSuggestionContext=${hasSuggestionContext}, linesCount=${lines.length}`);
-        systemLog.info(`[EXTRACT] Content preview: ${content.substring(0, 300)}`);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
-            
-            // Log each line for debugging
-            if (line.includes('INTENT_') || line.includes('重新') || line.includes('理解')) {
-                systemLog.info(`[EXTRACT] Processing line ${i}: ${line.substring(0, 150)}`);
-            }
 
             // Detect suggestion section headers
             if (/^(分析建议|推荐分析|建议|suggestions?|recommendations?|you (can|could|might))[:：]/i.test(line)) {
@@ -297,51 +290,26 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             const numberedMatch = line.match(/^(\d+)[.、)]\s+(.+)$/);
             if (numberedMatch) {
                 const rawLabel = numberedMatch[2].trim();
-                
-                // Log raw label for debugging intent buttons
-                if (rawLabel.includes('INTENT_') || rawLabel.includes('重新') || rawLabel.includes('理解')) {
-                    systemLog.info(`[EXTRACT] Found intent-related numbered item: rawLabel=${rawLabel.substring(0, 200)}`);
-                }
-                
-                // 计算显示长度时移除嵌入的数据标记（这些标记不会显示给用户）
                 const displayLabel = rawLabel
                     .replace(/\s*\[INTENT_RETRY_DATA:[^\]]*\]/g, '')
                     .replace(/\s*\[INTENT_STICK_DATA:[^\]]*\]/g, '')
                     .replace(/\s*\[INTENT_SELECT:[^\]]*\]/g, '');
                 const displayLength = displayLabel.length;
-                
-                systemLog.debug(`Found numbered item: rawLabel=${rawLabel.substring(0, 100)}, displayLength=${displayLength}, hasSuggestionContext=${hasSuggestionContext}, inSuggestionSection=${inSuggestionSection}, isActionable=${isActionableItem(displayLabel)}`);
 
-                // More lenient extraction in suggestion context
                 if (hasSuggestionContext || inSuggestionSection) {
                     if (displayLength > 5 && displayLength < 200) {
                         suggestionCount++;
                         const cleanValue = displayLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
-                        extractedActions.push({
-                            id: `auto_${suggestionCount}`,
-                            label: rawLabel,  // 保留原始标签（包含嵌入数据）用于点击处理
-                            value: cleanValue
-                        });
-                        extractedInsights.push(cleanValue);
-                        systemLog.info(`✅ Extracted action (suggestion context): id=auto_${suggestionCount}, label=${displayLabel.substring(0, 80)}`);
-                    } else {
-                        systemLog.debug(`❌ Skipped (length check): displayLength=${displayLength}`);
+                        actions.push({ id: `auto_${suggestionCount}`, label: rawLabel, value: cleanValue });
+                        insights.push(cleanValue);
                     }
                 } else if (isActionableItem(displayLabel) && !isExplanationPattern(displayLabel)) {
-                    // Stricter filtering outside suggestion context
                     if (displayLength > 5 && displayLength < 200) {
                         suggestionCount++;
                         const cleanValue = displayLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim();
-                        extractedActions.push({
-                            id: `auto_${suggestionCount}`,
-                            label: rawLabel,  // 保留原始标签（包含嵌入数据）用于点击处理
-                            value: cleanValue
-                        });
-                        extractedInsights.push(cleanValue);
-                        systemLog.info(`✅ Extracted action (actionable): id=auto_${suggestionCount}, label=${displayLabel.substring(0, 80)}`);
+                        actions.push({ id: `auto_${suggestionCount}`, label: rawLabel, value: cleanValue });
+                        insights.push(cleanValue);
                     }
-                } else {
-                    systemLog.debug(`❌ Skipped (not actionable or is explanation)`);
                 }
                 continue;
             }
@@ -352,35 +320,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                 const rawLabel = bulletMatch[1].trim();
                 if (rawLabel.length > 5 && rawLabel.length < 150 && isActionableItem(rawLabel)) {
                     suggestionCount++;
-                    extractedActions.push({
+                    actions.push({
                         id: `auto_bullet_${suggestionCount}`,
                         label: rawLabel,
                         value: rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
                     });
-                    extractedInsights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                    insights.push(rawLabel.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
                 }
             }
         }
-        
-        systemLog.info(`[EXTRACT] Extraction complete: extractedActionsCount=${extractedActions.length}`);
-        if (extractedActions.length > 0) {
-            extractedActions.forEach((a, i) => {
-                const hasRetryData = a.label?.includes('[INTENT_RETRY_DATA:');
-                const hasStickData = a.label?.includes('[INTENT_STICK_DATA:');
-                const hasSelectData = a.label?.includes('[INTENT_SELECT:');
-                systemLog.info(`[EXTRACT] Action ${i}: id=${a.id}, labelLen=${a.label?.length}, hasRetryData=${hasRetryData}, hasStickData=${hasStickData}, hasSelectData=${hasSelectData}`);
-                if (hasRetryData || hasStickData) {
-                    systemLog.info(`[EXTRACT] Action ${i} full label: ${a.label}`);
-                }
-            });
-        }
-        console.log('[MessageBubble] Extraction complete:', { 
-            extractedActionsCount: extractedActions.length,
-            actions: extractedActions.map(a => a.label.substring(0, 50))
-        });
 
         // Fallback: If no actions extracted but content suggests analysis, extract from sentences
-        if (extractedActions.length === 0 && hasSuggestionContext) {
+        if (actions.length === 0 && hasSuggestionContext) {
             const sentences = content.split(/[。.！!？?]/);
             for (const sentence of sentences) {
                 const trimmed = sentence.trim();
@@ -388,18 +339,20 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     isActionableItem(trimmed) &&
                     !isExplanationPattern(trimmed)) {
                     suggestionCount++;
-                    if (suggestionCount <= 5) { // Limit to 5 suggestions
-                        extractedActions.push({
+                    if (suggestionCount <= 5) {
+                        actions.push({
                             id: `auto_sentence_${suggestionCount}`,
                             label: trimmed,
                             value: trimmed.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim()
                         });
-                        extractedInsights.push(trimmed.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
+                        insights.push(trimmed.replace(/\*\*/g, '').replace(/\*/g, '').replace(/`/g, '').trim());
                     }
                 }
             }
         }
-    }
+
+        return { extractedActions: actions, extractedInsights: insights };
+    }, [content, isUser]);
 
     // 注意：关键指标现在通过后端自动提取，不再需要在这里解析json:metrics代码块
 
@@ -408,22 +361,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         ...extractedActions
     ];
 
-    // Debug: Log when allActions changes - 使用 useRef 来避免重复日志
+    // Debug: Log when allActions changes (not on every render)
     const prevAllActionsLengthRef = useRef(0);
     useEffect(() => {
         if (allActions.length !== prevAllActionsLengthRef.current) {
-            systemLog.info(`[RENDER] allActions changed: prevCount=${prevAllActionsLengthRef.current}, newCount=${allActions.length}`);
-            if (allActions.length > 0) {
-                systemLog.info(`[RENDER] allActions content: ${allActions.map(a => `${a.id}:${a.label?.substring(0, 30)}`).join(' | ')}`);
-            }
             prevAllActionsLengthRef.current = allActions.length;
-        }
-    });
-    
-    // Debug: Log on every render to track if buttons should be visible
-    useEffect(() => {
-        if (allActions.length > 0 && !isUser) {
-            systemLog.debug(`[RENDER] MessageBubble: role=${role}, allActionsLength=${allActions.length}, hasOnActionClick=${!!onActionClick}, messageId=${messageId}`);
         }
     });
 
@@ -890,6 +832,33 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                         }
                                     }
                                     return <pre {...rest}>{children}</pre>;
+                                },
+                                // 渲染标准 Markdown 表格为真正的表格
+                                table(props) {
+                                    const { children } = props;
+                                    return (
+                                        <div className="overflow-x-auto my-3">
+                                            <table className="min-w-full border-collapse text-sm">{children}</table>
+                                        </div>
+                                    );
+                                },
+                                thead(props) { return <thead>{props.children}</thead>; },
+                                tbody(props) { return <tbody>{props.children}</tbody>; },
+                                tr(props) {
+                                    const { children, node, ...rest } = props as any;
+                                    const isBody = node?.children?.some((c: any) => c.tagName === 'td');
+                                    const rowIndex = node?.position?.start?.line || 0;
+                                    return (
+                                        <tr className={isBody ? (rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50') : 'bg-blue-50'}>
+                                            {children}
+                                        </tr>
+                                    );
+                                },
+                                th(props) {
+                                    return <th className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700">{props.children}</th>;
+                                },
+                                td(props) {
+                                    return <td className="border border-slate-200 px-3 py-2 text-slate-600">{props.children}</td>;
                                 }
                             }}
                         >
@@ -1233,4 +1202,4 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     );
 };
 
-export default MessageBubble;
+export default React.memo(MessageBubble);

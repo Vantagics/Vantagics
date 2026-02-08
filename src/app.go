@@ -2148,6 +2148,13 @@ func (a *App) getLangPrompt(cfg config.Config) string {
 	return "English"
 }
 
+// getLangPromptFromMessage detects the language from the user's message
+// and returns the appropriate language prompt string.
+// This ensures the LLM responds in the same language as the user's question.
+func (a *App) getLangPromptFromMessage(message string) string {
+	return "the same language as the user's message"
+}
+
 // GenerateIntentSuggestions generates possible interpretations of user's intent
 func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentSuggestion, error) {
 	return a.GenerateIntentSuggestionsWithExclusions(threadID, userMessage, nil)
@@ -2157,6 +2164,14 @@ func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentS
 // excluding previously generated suggestions
 // Validates: Requirements 5.1, 5.2, 5.3, 2.3, 6.5, 2.2, 7.1
 func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage string, excludedSuggestions []IntentSuggestion) ([]IntentSuggestion, error) {
+	// Check analysis limit before proceeding (but don't increment yet - only on success)
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		canAnalyze, limitMsg := a.licenseClient.CanAnalyze()
+		if !canAnalyze {
+			return nil, fmt.Errorf("%s", limitMsg)
+		}
+	}
+
 	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, err
@@ -2242,6 +2257,11 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 			// Convert agent.IntentSuggestion to IntentSuggestion
 			suggestions := convertAgentSuggestions(agentSuggestions)
 			a.Log(fmt.Sprintf("[INTENT] Generated %d suggestions using new service", len(suggestions)))
+			// Increment analysis count on successful suggestion generation
+			if a.licenseClient != nil && a.licenseClient.IsActivated() {
+				a.licenseClient.IncrementAnalysis()
+				a.Log("[LICENSE] Analysis count incremented for successful intent suggestion generation")
+			}
 			return suggestions, nil
 		}
 	}
@@ -2366,6 +2386,12 @@ func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage stri
 
 		// Cache the suggestions for future similar requests
 		a.intentEnhancementService.CacheSuggestions(dataSourceID, userMessage, agentSuggestions)
+	}
+
+	// Increment analysis count on successful suggestion generation
+	if a.licenseClient != nil && a.licenseClient.IsActivated() {
+		a.licenseClient.IncrementAnalysis()
+		a.Log("[LICENSE] Analysis count incremented for successful intent suggestion generation (legacy)")
 	}
 
 	return suggestions, nil
@@ -2813,9 +2839,8 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			
 			return "", fmt.Errorf("%s", limitMsg)
 		}
-		// Increment analysis count
-		a.licenseClient.IncrementAnalysis()
-		a.Log("[LICENSE] Analysis count incremented")
+		// Analysis count will be incremented after successful completion
+		a.Log("[LICENSE] Analysis limit check passed, count will be incremented on success")
 	}
 
 	// Notify frontend that loading has started
@@ -2979,6 +3004,17 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				// Check if this was a cancellation
 				if strings.Contains(errStr, "cancelled by user") || strings.Contains(errStr, "cancelled while waiting") {
 					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
+					
+					// Emit progress complete event to ensure frontend progress bar clears
+					runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
+						"threadId": threadID,
+						"stage":    "complete",
+						"progress": 100,
+						"message":  "progress.analysis_cancelled",
+						"step":     0,
+						"total":    0,
+					})
+
 					// Use event aggregator for consistent event emission
 					if a.eventAggregator != nil {
 						a.eventAggregator.EmitCancelled(threadID, requestID)
@@ -3032,6 +3068,16 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					
 					a.Log(fmt.Sprintf("[ERROR] Analysis error for thread %s: code=%s, message=%s", threadID, errorCode, errStr))
 					
+					// Emit progress complete event FIRST to ensure frontend progress bar clears
+					runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
+						"threadId": threadID,
+						"stage":    "complete",
+						"progress": 100,
+						"message":  "progress.analysis_complete",
+						"step":     0,
+						"total":    0,
+					})
+
 					// Emit error event to frontend with detailed information
 					if a.eventAggregator != nil {
 						a.eventAggregator.EmitErrorWithCode(threadID, requestID, errorCode, userFriendlyMessage)
@@ -3459,18 +3505,72 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					// Task 3.1: Added requestId to event payload (Requirements 1.3, 4.3, 4.4)
 
 					// Flush all pending analysis results before emitting completion
-					var flushedItems []AnalysisResultItem
 					if a.eventAggregator != nil {
-						flushedItems = a.eventAggregator.FlushNow(threadID, true)
+						a.eventAggregator.FlushNow(threadID, true)
 					}
 
-					// Save analysis results to the user message for persistence
-					if len(flushedItems) > 0 && userMessageID != "" {
-						if err := a.chatService.SaveAnalysisResults(threadID, userMessageID, flushedItems); err != nil {
-							a.Log(fmt.Sprintf("[PERSISTENCE] Failed to save analysis results: %v", err))
-						} else {
-							a.Log(fmt.Sprintf("[PERSISTENCE] Saved %d analysis results to message %s", len(flushedItems), userMessageID))
+					// Save ALL analysis results (including those flushed by timer earlier)
+					// to the user message for persistence.
+					// Note: FlushNow only returns items pending at call time, but timer-based
+					// flushes may have already sent items to the frontend. GetAllFlushedItems
+					// returns the complete set of items flushed during this analysis session.
+					if a.eventAggregator != nil && userMessageID != "" {
+						allItems := a.eventAggregator.GetAllFlushedItems(threadID)
+						
+						// Log item types for debugging
+						typeCount := make(map[string]int)
+						for _, item := range allItems {
+							typeCount[item.Type]++
 						}
+						a.Log(fmt.Sprintf("[PERSISTENCE] GetAllFlushedItems returned %d items, types: %v", len(allItems), typeCount))
+						
+						// Safety net: if flushed items don't contain echarts/table but chartItems does,
+						// create AnalysisResultItem entries from chartItems as fallback
+						hasECharts := typeCount["echarts"] > 0
+						hasTable := typeCount["table"] > 0
+						if (!hasECharts || !hasTable) && len(chartItems) > 0 {
+							a.Log(fmt.Sprintf("[PERSISTENCE] Flushed items missing echarts=%v table=%v, extracting from chartItems (%d items)", !hasECharts, !hasTable, len(chartItems)))
+							for idx, ci := range chartItems {
+								if ci.Type == "echarts" && !hasECharts {
+									allItems = append(allItems, AnalysisResultItem{
+										ID:   fmt.Sprintf("fallback_echarts_%s_%d", userMessageID, idx),
+										Type: "echarts",
+										Data: ci.Data,
+										Metadata: map[string]interface{}{
+											"sessionId": threadID,
+											"messageId": userMessageID,
+											"timestamp": time.Now().UnixMilli(),
+										},
+										Source: "realtime",
+									})
+								} else if ci.Type == "table" && !hasTable {
+									// Parse table data from JSON string
+									var tableData []map[string]interface{}
+									if json.Unmarshal([]byte(ci.Data), &tableData) == nil {
+										allItems = append(allItems, AnalysisResultItem{
+											ID:   fmt.Sprintf("fallback_table_%s_%d", userMessageID, idx),
+											Type: "table",
+											Data: map[string]interface{}{"title": "", "rows": tableData},
+											Metadata: map[string]interface{}{
+												"sessionId": threadID,
+												"messageId": userMessageID,
+												"timestamp": time.Now().UnixMilli(),
+											},
+											Source: "realtime",
+										})
+									}
+								}
+							}
+						}
+						
+						if len(allItems) > 0 {
+							if err := a.chatService.SaveAnalysisResults(threadID, userMessageID, allItems); err != nil {
+								a.Log(fmt.Sprintf("[PERSISTENCE] Failed to save analysis results: %v", err))
+							} else {
+								a.Log(fmt.Sprintf("[PERSISTENCE] Saved %d analysis results to message %s", len(allItems), userMessageID))
+							}
+						}
+						a.eventAggregator.ClearFlushedItems(threadID)
 					}
 
 					runtime.EventsEmit(a.ctx, "analysis-completed", map[string]interface{}{
@@ -3481,6 +3581,12 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						"requestId":      requestID, // Task 3.1: Include requestId for frontend validation
 					})
 					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s with requestId %s", userMessageID, requestID))
+
+					// Increment analysis count on successful completion
+					if a.licenseClient != nil && a.licenseClient.IsActivated() {
+						a.licenseClient.IncrementAnalysis()
+						a.Log("[LICENSE] Analysis count incremented after successful completion")
+					}
 
 					// Record analysis completion for intent enhancement (Requirement 1.1)
 					if a.intentEnhancementService != nil && dataSourceID != "" {
@@ -3555,7 +3661,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		}
 	}
 
-	langPrompt := a.getLangPrompt(cfg)
+	langPrompt := a.getLangPromptFromMessage(message)
 	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
 
 	llm := agent.NewLLMService(cfg, a.Log)
@@ -3617,6 +3723,13 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (first 200 chars): %s", resp[:200]))
 		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (last 200 chars): %s", resp[len(resp)-200:]))
 	}
+
+	// Increment analysis count on successful completion (standard LLM path)
+	if err == nil && a.licenseClient != nil && a.licenseClient.IsActivated() {
+		a.licenseClient.IncrementAnalysis()
+		a.Log("[LICENSE] Analysis count incremented after successful completion (standard LLM)")
+	}
+
 	return resp, err
 }
 
@@ -3717,7 +3830,8 @@ func (a *App) SendFreeChatMessage(threadID, message, userMessageID string) (stri
 		routerResult.NeedsTools, routerResult.Confidence, routerResult.Reason, legacyNeedsSearch, needsTools))
 
 	// Build the prompt with conversation history
-	langPrompt := a.getLangPrompt(cfg)
+	// Detect language from user's message to respond in the same language
+	langPrompt := a.getLangPromptFromMessage(message)
 	var fullMessage string
 	if historyContext.Len() > 0 {
 		fullMessage = fmt.Sprintf("Previous conversation:\n%s\nUser: %s\n\n(Please answer in %s)", historyContext.String(), message, langPrompt)
@@ -7516,11 +7630,52 @@ func (a *App) RecordIntentSelection(threadID string, intent IntentSuggestion) er
 }
 
 // GetMessageAnalysisData retrieves analysis data for a specific message (for dashboard restoration)
+// Resolves any file:// references in chart data and analysis results before returning
 func (a *App) GetMessageAnalysisData(threadID, messageID string) (map[string]interface{}, error) {
 	if a.chatService == nil {
 		return nil, fmt.Errorf("chat service not initialized")
 	}
-	return a.chatService.GetMessageAnalysisData(threadID, messageID)
+	result, err := a.chatService.GetMessageAnalysisData(threadID, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve file:// references in legacy ChartData
+	if chartData, ok := result["chartData"]; chartData != nil && ok {
+		if cd, ok := chartData.(*ChartData); ok && cd != nil {
+			for i := range cd.Charts {
+				if strings.HasPrefix(cd.Charts[i].Data, "file://") {
+					resolved, readErr := a.ReadChartDataFile(threadID, cd.Charts[i].Data)
+					if readErr != nil {
+						a.Log(fmt.Sprintf("[RESTORE] Failed to resolve file ref %s: %v", cd.Charts[i].Data, readErr))
+					} else {
+						a.Log(fmt.Sprintf("[RESTORE] Resolved file ref %s (%d bytes)", cd.Charts[i].Data, len(resolved)))
+						cd.Charts[i].Data = resolved
+					}
+				}
+			}
+		}
+	}
+
+	// Resolve file:// references in AnalysisResults
+	if items, ok := result["analysisResults"]; items != nil && ok {
+		if resultItems, ok := items.([]AnalysisResultItem); ok {
+			for i := range resultItems {
+				if strData, ok := resultItems[i].Data.(string); ok && strings.HasPrefix(strData, "file://") {
+					resolved, readErr := a.ReadChartDataFile(threadID, strData)
+					if readErr != nil {
+						a.Log(fmt.Sprintf("[RESTORE] Failed to resolve analysis file ref %s: %v", strData, readErr))
+					} else {
+						a.Log(fmt.Sprintf("[RESTORE] Resolved analysis file ref %s (%d bytes)", strData, len(resolved)))
+						resultItems[i].Data = resolved
+					}
+				}
+			}
+			result["analysisResults"] = resultItems
+		}
+	}
+
+	return result, nil
 }
 
 // SaveMessageAnalysisResults saves analysis results for a specific message

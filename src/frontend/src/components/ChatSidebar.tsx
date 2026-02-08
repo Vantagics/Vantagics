@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2 } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo } from '../../wailsjs/go/main/App';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
@@ -12,6 +12,7 @@ import CancelConfirmationModal from './CancelConfirmationModal';
 import Toast, { ToastType } from './Toast';
 import { createLogger } from '../utils/systemLog';
 import { loadingStateManager } from '../managers/LoadingStateManager';
+import { getAnalysisResultManager } from '../managers/AnalysisResultManager';
 import { AnalysisStatusIndicator } from './AnalysisStatusIndicator';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { useLoadingState } from '../hooks/useLoadingState';
@@ -590,90 +591,69 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         });
 
         // Listen for load-message-data event (from analysis-completed)
-        const unsubscribeLoadMessageData = EventsOn('load-message-data', (data: any) => {
-            console.log('[ChatSidebar] load-message-data event received:', data);
+        const unsubscribeLoadMessageData = EventsOn('load-message-data', async (data: any) => {
+            systemLog.warn(`[load-message-data] event received: ${JSON.stringify(data)}`);
 
             const { messageId, threadId } = data;
             if (!messageId) {
-                console.log('[ChatSidebar] No messageId provided, ignoring');
+                systemLog.warn('[load-message-data] No messageId provided, ignoring');
                 return;
             }
 
-            // Find the message in the threads
-            const targetThread = threads?.find(t => t.id === threadId || t.id === activeThreadId);
-            if (!targetThread) {
-                console.log('[ChatSidebar] Target thread not found');
+            // Find the thread to get the thread ID
+            // 优先使用事件中提供的 threadId，避免依赖可能过时的 threads 状态
+            const targetThreadId = threadId || activeThreadId;
+            if (!targetThreadId) {
+                systemLog.warn('[load-message-data] No threadId available');
                 return;
             }
+            systemLog.warn(`[load-message-data] Loading message data on-demand: threadId=${targetThreadId}, messageId=${messageId}`);
 
-            const message = targetThread.messages?.find(m => m.id === messageId);
-            if (!message) {
-                console.log('[ChatSidebar] Message not found:', messageId);
-                return;
-            }
+            // 直接使用 AnalysisResultManager 恢复数据
+            const manager = getAnalysisResultManager();
 
-            console.log('[ChatSidebar] Loading message data:', messageId);
+            // Load analysis data on-demand from backend (heavy data is stripped from in-memory messages)
+            try {
+                const analysisData = await GetMessageAnalysisData(targetThreadId, messageId);
+                const analysisResults = analysisData?.analysisResults;
 
-            // Check for new analysis_results format first
-            const analysisResults = (message as any).analysis_results;
-            if (analysisResults && analysisResults.length > 0) {
-                console.log('[ChatSidebar] Using new analysis_results format:', analysisResults.length, 'items');
-                systemLog.warn(`[RestoreData] Using analysis_results format: ${analysisResults.length} items`);
-                // 详细记录每个 item 的类型和数据格式
-                analysisResults.forEach((item: any, i: number) => {
-                    const dataType = typeof item.data;
-                    const dataLen = dataType === 'string' ? item.data.length : JSON.stringify(item.data).length;
-                    systemLog.warn(`[RestoreData] item[${i}]: type=${item.type}, dataType=${dataType}, dataLen=${dataLen}`);
-                });
-                // Emit restore event for new unified system
-                EventsEmit('analysis-result-restore', {
-                    sessionId: targetThread.id,
-                    messageId: message.id,
-                    items: analysisResults
-                });
-            } else {
-                // Fallback to legacy chart_data format
-                console.log('[ChatSidebar] Has chart_data:', !!message.chart_data);
+                if (analysisResults && analysisResults.length > 0) {
+                    systemLog.warn(`[load-message-data] Loaded ${analysisResults.length} analysis_results`);
+                    const stats = manager.restoreResults(targetThreadId, messageId, analysisResults);
+                    systemLog.warn(`[load-message-data] restoreResults: valid=${stats.validItems}, invalid=${stats.invalidItems}`);
+                } else {
+                    // Fallback to legacy chart_data format
+                    const chartDataToUse = analysisData?.chartData;
+                    if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
+                        const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
+                            id: `legacy_${messageId}_${index}`,
+                            type: chart.type || 'echarts',
+                            data: chart.data,
+                            metadata: {
+                                sessionId: targetThreadId,
+                                messageId: messageId,
+                                timestamp: Date.now()
+                            },
+                            source: 'restored'
+                        }));
 
-                // Find chartData from user message or next assistant message
-                let chartDataToUse = message.chart_data;
-                const messageIndex = targetThread.messages.findIndex(m => m.id === messageId);
-                if (messageIndex !== -1 && messageIndex < targetThread.messages.length - 1) {
-                    const nextMessage = targetThread.messages[messageIndex + 1];
-                    if (nextMessage.role === 'assistant' && nextMessage.chart_data) {
-                        console.log('[ChatSidebar] Using chart_data from assistant response');
-                        chartDataToUse = nextMessage.chart_data;
+                        systemLog.warn(`[load-message-data] Converted ${convertedItems.length} legacy chart_data items`);
+                        const stats = manager.restoreResults(targetThreadId, messageId, convertedItems);
+                        systemLog.warn(`[load-message-data] legacy restoreResults: valid=${stats.validItems}, invalid=${stats.invalidItems}`);
+                    } else {
+                        systemLog.warn('[load-message-data] No analysis results or chart data found');
+                        manager.restoreResults(targetThreadId, messageId, []);
                     }
                 }
-
-                // Convert legacy chart_data to new format if present
-                if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
-                    const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
-                        id: `legacy_${messageId}_${index}`,
-                        type: chart.type || 'echarts',
-                        data: chart.data,
-                        metadata: {
-                            sessionId: targetThread.id,
-                            messageId: message.id,
-                            timestamp: Date.now()
-                        },
-                        source: 'restored'
-                    }));
-
-                    console.log('[ChatSidebar] Converted legacy chart_data to new format:', convertedItems.length, 'items');
-                    EventsEmit('analysis-result-restore', {
-                        sessionId: targetThread.id,
-                        messageId: message.id,
-                        items: convertedItems
-                    });
-                }
+            } catch (err) {
+                systemLog.error(`[load-message-data] Failed to load message analysis data: ${err}`);
             }
 
             // Emit user-message-clicked for UI state update
             EventsEmit('user-message-clicked', {
-                threadId: targetThread.id,
-                messageId: message.id,
-                content: message.content
+                threadId: targetThreadId,
+                messageId: messageId,
+                content: ''
             });
         });
 
@@ -780,12 +760,33 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     }, [threads]);
 
     // 监听活动会话变化，自动显示第一个分析结果
+    // 注意：仅在会话切换时加载历史数据，不在实时分析完成后重复加载
+    const prevAutoLoadThreadIdRef = useRef<string | null>(null);
     useEffect(() => {
         if (activeThreadId && threads) {
+            // 仅在 activeThreadId 真正变化时触发自动加载
+            // threads 变化（如分析完成后 GetChatHistory 重新加载）不应触发重新加载，
+            // 否则会覆盖 AnalysisResultManager 中的实时数据
+            if (prevAutoLoadThreadIdRef.current === activeThreadId) {
+                return;
+            }
+            prevAutoLoadThreadIdRef.current = activeThreadId;
+
+            // 检查 AnalysisResultManager 是否已有当前会话的数据
+            // 如果有，说明是实时分析刚完成（数据已通过 analysis-result-update 流式传入），
+            // 不需要从磁盘重新加载，否则会覆盖实时数据导致表格等丢失
+            const manager = getAnalysisResultManager();
+            const currentSession = manager.getCurrentSession();
+            const currentMessage = manager.getCurrentMessage();
+            if (currentSession === activeThreadId && currentMessage && manager.hasCurrentData()) {
+                console.log("[ChatSidebar] AnalysisResultManager already has data for this session, skipping auto-load to preserve live data");
+                return;
+            }
+
             const activeThread = threads.find(t => t.id === activeThreadId);
             if (activeThread && activeThread.messages) {
                 // 找到第一个有分析结果的用户消息
-                // 判断标准：用户消息后有助手回复，或者有 chart_data
+                // 判断标准：用户消息后有助手回复，或者有分析数据
                 let firstAnalysisMessage: main.ChatMessage | null = null;
 
                 for (let i = 0; i < activeThread.messages.length; i++) {
@@ -794,8 +795,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     // 必须是用户消息
                     if (msg.role !== 'user') continue;
 
-                    // 检查是否有 chart_data
-                    if (msg.chart_data) {
+                    // 检查是否有分析数据（chart_data已被strip，使用has_analysis_data标志）
+                    if (msg.chart_data || (msg as any).has_analysis_data) {
                         firstAnalysisMessage = msg;
                         break;
                     }
@@ -814,14 +815,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     console.log("[ChatSidebar] Auto-displaying first analysis result for thread:", activeThreadId);
                     console.log("[ChatSidebar] First analysis message:", firstAnalysisMessage.id);
 
-                    // 自动触发显示该消息的分析结果
+                    // 自动触发显示该消息的分析结果（通过handleUserMessageClick按需加载数据）
                     setTimeout(() => {
-                        EventsEmit('user-message-clicked', {
-                            threadId: activeThreadId,
-                            messageId: firstAnalysisMessage!.id,
-                            content: firstAnalysisMessage!.content,
-                            chartData: firstAnalysisMessage!.chart_data
-                        });
+                        handleUserMessageClick(firstAnalysisMessage!);
                     }, 100); // 小延迟确保UI更新完成
                 } else {
                     console.log("[ChatSidebar] No analysis results found in thread:", activeThreadId);
@@ -965,11 +961,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             const msg = newActiveThread.messages[i];
                             if (msg.role === 'user' && msg.id) {
                                 console.log('[DELETE-THREAD] Loading analysis results from new active thread, message:', msg.id);
-                                // 触发仪表盘更新
+                                // 触发仪表盘更新（chart_data已被strip，通过user-message-clicked触发按需加载）
                                 EventsEmit('user-message-clicked', {
                                     threadId: newActiveThread.id,
-                                    messageId: msg.id,
-                                    charts: msg.chart_data ? [msg.chart_data] : []
+                                    messageId: msg.id
                                 });
                                 break;
                             }
@@ -1733,7 +1728,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     console.log("[ChatSidebar] Backend didn't add assistant message, adding it manually");
                     reloadedThread.messages = [...(reloadedThread.messages || []), assistantMsg];
                 } else {
-                    console.log("[ChatSidebar] Backend already added assistant message with chart_data:", !!lastMessage.chart_data);
+                    console.log("[ChatSidebar] Backend already added assistant message");
                 }
 
                 // Update state with reloaded thread
@@ -1828,25 +1823,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     if (userMessage) {
                         console.log('[ChatSidebar] 🎯 Auto-updating dashboard after analysis completion');
 
-                        // Find chart data from user message or assistant response
-                        let chartDataToUse = userMessage.chart_data;
-
-                        // Check if there's an assistant response with chart_data
-                        const messageIndex = updatedThread.messages.findIndex(msg => msg.id === userMessage.id);
-                        if (messageIndex !== -1 && messageIndex < updatedThread.messages.length - 1) {
-                            const nextMessage = updatedThread.messages[messageIndex + 1];
-                            if (nextMessage.role === 'assistant' && nextMessage.chart_data) {
-                                console.log('[ChatSidebar] Using chart_data from assistant response for auto-update');
-                                chartDataToUse = nextMessage.chart_data;
-                            }
-                        }
-
-                        // Emit event to update dashboard (same as clicking the message)
+                        // Emit event to update dashboard UI state (chart data was already displayed in real-time during analysis)
                         EventsEmit('user-message-clicked', {
                             threadId: updatedThread.id,
                             messageId: userMessage.id,
-                            content: userMessage.content,
-                            chartData: chartDataToUse
+                            content: userMessage.content
                         });
                     }
                 }
@@ -2312,8 +2293,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         EventsEmit('user-message-clicked', {
                             threadId: updatedThread.id,
                             messageId: userMessage.id,
-                            content: userMessage.content,
-                            chartData: userMessage.chart_data
+                            content: userMessage.content
                         });
                     }
                 }
@@ -2329,7 +2309,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 分析结果的显示由useEffect自动处理
     };
 
-    const handleUserMessageClick = (message: main.ChatMessage) => {
+    const handleUserMessageClick = async (message: main.ChatMessage) => {
         // 检查消息是否完成（有对应的助手回复或有chart_data）
         let isCompleted = false;
 
@@ -2344,8 +2324,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     }
                 }
 
-                // 或者检查是否有chart_data
-                if (message.chart_data) {
+                // 或者检查是否有分析数据
+                if (message.chart_data || (message as any).has_analysis_data) {
                     isCompleted = true;
                 }
             }
@@ -2357,70 +2337,79 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             return;
         }
 
-        // Debug logging
-        console.log("[ChatSidebar] User message clicked:", message.id);
-        console.log("[ChatSidebar] Message content:", message.content?.substring(0, 100));
-        console.log("[ChatSidebar] Has chart_data:", !!message.chart_data);
+        const threadId = activeThread?.id || '';
+        const messageId = message.id;
 
-        // Check for new analysis_results format first
-        const analysisResults = (message as any).analysis_results;
-        if (analysisResults && analysisResults.length > 0) {
-            console.log('[ChatSidebar] handleUserMessageClick: Using analysis_results format:', analysisResults.length, 'items');
-            systemLog.warn(`[handleUserMessageClick] Using analysis_results format: ${analysisResults.length} items`);
-            analysisResults.forEach((item: any, i: number) => {
-                const dataType = typeof item.data;
-                const dataLen = dataType === 'string' ? item.data.length : JSON.stringify(item.data).length;
-                systemLog.warn(`[handleUserMessageClick] item[${i}]: type=${item.type}, dataType=${dataType}, dataLen=${dataLen}`);
-            });
-            EventsEmit('analysis-result-restore', {
-                sessionId: activeThread?.id || '',
-                messageId: message.id,
-                items: analysisResults
-            });
-        } else {
-            // Fallback to legacy chart_data format
-            let chartDataToUse = message.chart_data;
+        systemLog.warn(`[handleUserMessageClick] Clicked: threadId=${threadId}, messageId=${messageId}`);
 
-            if (activeThread) {
-                const messageIndex = activeThread.messages.findIndex(msg => msg.id === message.id);
-                if (messageIndex !== -1 && messageIndex < activeThread.messages.length - 1) {
-                    const nextMessage = activeThread.messages[messageIndex + 1];
-                    if (nextMessage.role === 'assistant' && nextMessage.chart_data) {
-                        console.log("[ChatSidebar] Using chart_data from assistant response");
-                        chartDataToUse = nextMessage.chart_data;
-                    }
+        // 直接使用 AnalysisResultManager 恢复数据，绕过 Wails 事件系统
+        // 这避免了 EventsEmit/EventsOn 的异步序列化/反序列化可能导致的数据丢失
+        const manager = getAnalysisResultManager();
+
+        // 修复 Bug 3：先清除当前数据，确保即使后续加载失败也能看到状态变化
+        // 这样用户至少能看到"加载中"或"空状态"，而不是"没有任何响应"
+        manager.setLoading(true, undefined, messageId);
+
+        // Load analysis_results on-demand from backend (they are stripped from LoadThreads for performance)
+        try {
+            const analysisData = await GetMessageAnalysisData(threadId, messageId);
+            systemLog.warn(`[handleUserMessageClick] GetMessageAnalysisData returned: keys=${Object.keys(analysisData || {}).join(',')}`);
+
+            const analysisResults = analysisData?.analysisResults;
+
+            if (analysisResults && analysisResults.length > 0) {
+                systemLog.warn(`[handleUserMessageClick] Loaded ${analysisResults.length} analysis_results, types: ${analysisResults.map((r: any) => r.type).join(',')}`);
+
+                // 直接调用 manager.restoreResults，不通过事件系统
+                const stats = manager.restoreResults(threadId, messageId, analysisResults);
+                systemLog.warn(`[handleUserMessageClick] restoreResults completed: valid=${stats.validItems}, invalid=${stats.invalidItems}, total=${stats.totalItems}, byType=${JSON.stringify(stats.itemsByType)}`);
+                
+                // 验证数据确实被设置了
+                const verifyResults = manager.getCurrentResults();
+                systemLog.warn(`[handleUserMessageClick] VERIFY after restoreResults: getCurrentResults()=${verifyResults.length}, types=${verifyResults.map((r: any) => r.type).join(',')}, currentSession=${manager.getCurrentSession()}, currentMessage=${manager.getCurrentMessage()}`);
+
+                if (stats.errors.length > 0) {
+                    stats.errors.forEach((err: string, i: number) => {
+                        systemLog.warn(`[handleUserMessageClick] restoreResults error[${i}]: ${err}`);
+                    });
+                }
+            } else {
+                // Fallback to legacy chart_data format (loaded from backend)
+                const chartDataToUse = analysisData?.chartData;
+
+                if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
+                    const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
+                        id: `legacy_${messageId}_${index}`,
+                        type: chart.type || 'echarts',
+                        data: chart.data,
+                        metadata: {
+                            sessionId: threadId,
+                            messageId: messageId,
+                            timestamp: Date.now()
+                        },
+                        source: 'restored'
+                    }));
+
+                    systemLog.warn(`[handleUserMessageClick] Converted ${convertedItems.length} legacy chart_data items`);
+                    const stats = manager.restoreResults(threadId, messageId, convertedItems);
+                    systemLog.warn(`[handleUserMessageClick] legacy restoreResults: valid=${stats.validItems}, invalid=${stats.invalidItems}`);
+                } else {
+                    // No results found - notify empty
+                    systemLog.warn(`[handleUserMessageClick] No analysis results or chart data found`);
+                    manager.restoreResults(threadId, messageId, []);
                 }
             }
-
-            // Convert legacy chart_data to new format if present
-            if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
-                const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
-                    id: `legacy_${message.id}_${index}`,
-                    type: chart.type || 'echarts',
-                    data: chart.data,
-                    metadata: {
-                        sessionId: activeThread?.id || '',
-                        messageId: message.id,
-                        timestamp: Date.now()
-                    },
-                    source: 'restored'
-                }));
-
-                console.log('[ChatSidebar] handleUserMessageClick: Converted legacy chart_data:', convertedItems.length, 'items');
-                EventsEmit('analysis-result-restore', {
-                    sessionId: activeThread?.id || '',
-                    messageId: message.id,
-                    items: convertedItems
-                });
-            }
+        } catch (err) {
+            systemLog.error(`[handleUserMessageClick] Failed to load analysis data: ${err}`);
+            // Fallback: restore empty so UI shows empty state
+            manager.restoreResults(threadId, messageId, []);
         }
 
         // Emit event with message data for UI state update
         EventsEmit('user-message-clicked', {
-            threadId: activeThread?.id,
-            messageId: message.id,
-            content: message.content,
-            chartData: message.chart_data
+            threadId: threadId,
+            messageId: messageId,
+            content: message.content
         });
     };
 
@@ -2695,8 +2684,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                             return true;
                                         }
                                     }
-                                    // 或者检查是否有chart_data
-                                    if (msg.chart_data) {
+                                    // 或者检查是否有分析数据（chart_data已被strip，使用has_analysis_data标志）
+                                    if (msg.chart_data || (msg as any).has_analysis_data) {
                                         return true;
                                     }
                                 }
@@ -2715,10 +2704,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     if (msgIndex === activeThread.messages.length - 1) {
                                         return false;
                                     }
-                                    // 如果没有对应的助手回复，且没有chart_data，则算失败
+                                    // 如果没有对应的助手回复，且没有分析数据，则算失败
                                     if (msgIndex < activeThread.messages.length - 1) {
                                         const nextMsg = activeThread.messages[msgIndex + 1];
-                                        if (nextMsg.role !== 'assistant' && !msg.chart_data) {
+                                        if (nextMsg.role !== 'assistant' && !msg.chart_data && !(msg as any).has_analysis_data) {
                                             return true;
                                         }
                                     }
@@ -2879,7 +2868,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         // 被中止的分析：直接复用原消息重新发起分析
                                         handleResumeCancelledAnalysis(msg);
                                     } : undefined}
-                                    hasChart={msg.role === 'user' && !!msg.chart_data}
+                                    hasChart={msg.role === 'user' && !!(msg.chart_data || (msg as any).has_analysis_data)}
                                     isDisabled={msg.role === 'user' && !isUserMessageCompleted && !isUserMessageCancelled}
                                     isCancelled={isUserMessageCancelled}
                                     timingData={msg.role === 'user' ? timingDataForUser : (msg as any).timing_data}

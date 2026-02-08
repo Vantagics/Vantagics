@@ -282,6 +282,31 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
                             }
                             return <pre className="bg-slate-100 p-2 rounded text-xs overflow-x-auto my-2" {...props}>{children}</pre>;
                         },
+                        // 渲染标准 Markdown 表格为真正的表格
+                        table: ({ children }) => (
+                            <div className="overflow-x-auto my-3">
+                                <table className="min-w-full border-collapse text-sm">{children}</table>
+                            </div>
+                        ),
+                        thead: ({ children }) => <thead>{children}</thead>,
+                        tbody: ({ children }) => <tbody>{children}</tbody>,
+                        tr: ({ children, ...props }) => {
+                            // 判断是否在 tbody 中（通过检查是否有 td 子元素）
+                            const node = (props as any).node;
+                            const isBody = node?.children?.some((c: any) => c.tagName === 'td');
+                            const rowIndex = node?.position?.start?.line || 0;
+                            return (
+                                <tr className={isBody ? (rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50') : 'bg-blue-50'}>
+                                    {children}
+                                </tr>
+                            );
+                        },
+                        th: ({ children }) => (
+                            <th className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700">{children}</th>
+                        ),
+                        td: ({ children }) => (
+                            <td className="border border-slate-200 px-3 py-2 text-slate-600">{children}</td>
+                        ),
                         // 处理图片
                         img: ({ src, alt }) => {
                             return <InsightImage src={src} alt={alt} threadId={threadId} />;

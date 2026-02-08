@@ -3,6 +3,11 @@
  * 
  * React Hook for integrating with AnalysisResultManager
  * Provides reactive state updates and convenient data access methods
+ * 
+ * NOTE: This hook does NOT register Wails event listeners.
+ * All Wails event handling is done by AnalysisResultBridge (initialized in App.tsx).
+ * This hook only subscribes to AnalysisResultManager state changes via manager.subscribe().
+ * This avoids duplicate event processing that can cause data clearing race conditions.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
@@ -10,13 +15,11 @@ import {
   AnalysisResultItem,
   AnalysisResultType,
   AnalysisResultState,
-  AnalysisResultBatch,
   NormalizedTableData,
   NormalizedMetricData,
   NormalizedInsightData,
 } from '../types/AnalysisResult';
-import { getAnalysisResultManager, AnalysisResultManagerImpl } from '../managers/AnalysisResultManager';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { getAnalysisResultManager } from '../managers/AnalysisResultManager';
 import { createLogger } from '../utils/systemLog';
 
 const logger = createLogger('useAnalysisResults');
@@ -61,82 +64,46 @@ export function useAnalysisResults(): UseAnalysisResultsReturn {
 
   // 本地状态（从manager同步）
   const [state, setState] = useState<AnalysisResultState>(() => manager.getState());
+  
+  // 直接存储计算后的结果数据，避免 useMemo 链式依赖可能导致的更新遗漏
+  const [cachedResults, setCachedResults] = useState<AnalysisResultItem[]>(() => manager.getCurrentResults());
 
   // 订阅manager状态变更
   useEffect(() => {
     const unsubscribe = manager.subscribe((newState) => {
+      // 在 subscriber 回调中直接计算结果，确保数据和状态同步更新
+      const currentResults = manager.getCurrentResults();
+      const resultTypes = currentResults.map(r => r.type).join(',');
+      logger.warn(`[subscribe] State update: session=${newState.currentSessionId}, message=${newState.currentMessageId}, isLoading=${newState.isLoading}, results=${currentResults.length} [${resultTypes}]`);
       setState(newState);
+      setCachedResults(currentResults);
     });
 
     return unsubscribe;
   }, [manager]);
 
-  // 监听后端事件
-  useEffect(() => {
-    // 监听 analysis-result-update 事件
-    const unsubscribeUpdate = EventsOn('analysis-result-update', (payload: AnalysisResultBatch) => {
-      logger.debug(`Received analysis-result-update: ${payload.items?.length || 0} items, session=${payload.sessionId}, message=${payload.messageId}`);
-      manager.updateResults(payload);
-    });
+  // 使用 cachedResults 而不是通过 useMemo 从 manager 重新获取
+  const results = cachedResults;
 
-    // 监听 analysis-result-clear 事件
-    const unsubscribeClear = EventsOn('analysis-result-clear', (payload: { sessionId: string; messageId?: string }) => {
-      logger.debug(`Received analysis-result-clear: session=${payload.sessionId}`);
-      manager.clearResults(payload.sessionId, payload.messageId);
-    });
-
-    // 监听 analysis-result-loading 事件
-    const unsubscribeLoading = EventsOn('analysis-result-loading', (payload: { sessionId: string; loading: boolean; requestId?: string }) => {
-      logger.debug(`Received analysis-result-loading: loading=${payload.loading}`);
-      manager.setLoading(payload.loading, payload.requestId);
-    });
-
-    // 监听 analysis-cancelled 事件，清除仪表盘的加载状态
-    const unsubscribeCancelled = EventsOn('analysis-cancelled', (payload: { threadId: string; message?: string }) => {
-      logger.debug(`Received analysis-cancelled: threadId=${payload.threadId}`);
-      manager.setLoading(false);
-    });
-
-    return () => {
-      unsubscribeUpdate();
-      unsubscribeClear();
-      unsubscribeLoading();
-      unsubscribeCancelled();
-    };
-  }, [manager]);
-
-  // 获取当前结果
-  const results = useMemo(() => {
-    return manager.getCurrentResults();
-  }, [state, manager]);
-
-  // 按类型获取结果
+  // 按类型获取结果 — 直接从 cachedResults 过滤
   const getResultsByType = useCallback((type: AnalysisResultType) => {
-    return manager.getCurrentResultsByType(type);
-  }, [state, manager]);
+    return cachedResults.filter(item => item.type === type);
+  }, [cachedResults]);
 
   // 检查是否有数据
   const hasData = useCallback((type?: AnalysisResultType) => {
-    return manager.hasCurrentData(type);
-  }, [state, manager]);
+    if (type) {
+      return cachedResults.some(item => item.type === type);
+    }
+    return cachedResults.length > 0;
+  }, [cachedResults]);
 
   // 便捷数据访问
-  const charts = useMemo(() => {
-    const result = getResultsByType('echarts');
-    logger.warn(`[useAnalysisResults] charts count: ${result.length}`);
-    if (result.length > 0) {
-      result.forEach((item, i) => {
-        logger.warn(`[useAnalysisResults] chart[${i}] data type: ${typeof item.data}, keys: ${typeof item.data === 'object' ? Object.keys(item.data).join(',') : 'N/A'}`);
-      });
-    }
-    return result;
-  }, [getResultsByType]);
+  const charts = useMemo(() => getResultsByType('echarts'), [getResultsByType]);
   const images = useMemo(() => getResultsByType('image'), [getResultsByType]);
   const tables = useMemo(() => {
-    const tableResults = getResultsByType('table');
-    const csvResults = getResultsByType('csv');
-    return [...tableResults, ...csvResults];
-  }, [getResultsByType]);
+    return cachedResults.filter(item => item.type === 'table' || item.type === 'csv');
+  }, [cachedResults]);
   const files = useMemo(() => getResultsByType('file'), [getResultsByType]);
 
   // 提取规范化的指标数据

@@ -51,15 +51,11 @@ export function initAnalysisResultBridge(
     logger.debug(`[EventReceived] analysis-result-update: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}, complete=${payload.isComplete}`);
     logger.debug(`[EventReceived] Item types: ${JSON.stringify(typeDistribution)}`);
     
-    // 同步会话和消息ID
-    if (payload.sessionId && payload.sessionId !== manager.getCurrentSession()) {
-      logger.debug(`[EventReceived] Syncing session: ${manager.getCurrentSession()} -> ${payload.sessionId}`);
-      manager.switchSession(payload.sessionId);
-    }
-    if (payload.messageId && payload.messageId !== manager.getCurrentMessage()) {
-      logger.debug(`[EventReceived] Syncing message: ${manager.getCurrentMessage()} -> ${payload.messageId}`);
-      manager.selectMessage(payload.messageId);
-    }
+    // NOTE: Do NOT call switchSession/selectMessage here before updateResults.
+    // processBatch already handles auto-switching session/message internally.
+    // Calling switchSession/selectMessage here would trigger session-switched/message-selected
+    // events that clear dataSourceStatistics in useDashboardData, causing a race condition
+    // where startup data source info gets cleared before it can be displayed.
     
     manager.updateResults(payload);
   });
@@ -133,6 +129,13 @@ export function initAnalysisResultBridge(
   });
   unsubscribers.push(unsubscribeAnalysisError);
   
+  // 监听 analysis-cancelled 事件，清除仪表盘的加载状态
+  const unsubscribeCancelled = EventsOn('analysis-cancelled', (payload: { threadId: string; message?: string }) => {
+    logger.debug(`[EventReceived] analysis-cancelled: threadId=${payload.threadId}`);
+    manager.setLoading(false);
+  });
+  unsubscribers.push(unsubscribeCancelled);
+  
   // 监听 analysis-result-restore 事件（用于恢复历史数据）
   // 
   // 改进的历史数据恢复逻辑 (Requirement 5.3):
@@ -146,13 +149,13 @@ export function initAnalysisResultBridge(
   }) => {
     logger.warn(`analysis-result-restore received: session=${payload.sessionId}, message=${payload.messageId}, items=${payload.items?.length || 0}`);
     
-    // 详细记录每个 item 的类型和数据格式
+    // 详细记录每个 item 的类型和数据格式（lightweight - avoid JSON.stringify on large objects）
     if (payload.items) {
       payload.items.forEach((item, i) => {
         const dataType = typeof item.data;
         const dataPreview = dataType === 'string' 
           ? (item.data as string).substring(0, 120) + '...'
-          : JSON.stringify(item.data).substring(0, 120) + '...';
+          : `(object, keys: ${Object.keys(item.data || {}).slice(0, 5).join(',')})`;
         logger.warn(`analysis-result-restore item[${i}]: type=${item.type}, dataType=${dataType}, preview=${dataPreview}`);
       });
     }

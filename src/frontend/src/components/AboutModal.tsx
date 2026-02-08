@@ -158,7 +158,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     </div>
                     <h1 className="text-xl font-bold">{isChinese ? '观界' : 'VantageData'}</h1>
                     <p className="text-white/80 text-xs mt-1">
-                        {isChinese ? '观数据之界，见商业全貌' : 'See Beyond Data'}
+                        {isChinese ? '观数据之界，见商业全貌' : 'See Beyond Data. Master Your Vantage.'}
                     </p>
                 </div>
 

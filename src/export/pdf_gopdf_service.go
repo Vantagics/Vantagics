@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/signintech/gopdf"
+	gopdf "github.com/VantageDataChat/GoPDF2"
 )
 
 // GopdfService handles PDF generation using gopdf with better Chinese support
@@ -58,7 +58,8 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 	isAnalysisOnly := len(data.Insights) > 0 &&
 		len(data.Metrics) == 0 &&
 		len(data.ChartImages) == 0 &&
-		(data.TableData == nil || len(data.TableData.Columns) == 0)
+		(data.TableData == nil || len(data.TableData.Columns) == 0) &&
+		len(data.AllTableData) == 0
 
 	if isAnalysisOnly {
 		return s.exportAnalysisResultToPDF(data)
@@ -104,25 +105,33 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 	}
 
 	// Add cover page with header
-	s.addCoverPage(&pdf, "智能仪表盘报告", data.UserRequest, fontName)
+	reportTitle := data.GetReportTitle()
+	s.addCoverPage(&pdf, reportTitle, data.DataSourceName, data.UserRequest, fontName)
 
-	// Add metrics section
-	if len(data.Metrics) > 0 {
-		s.addMetricsSection(&pdf, data.Metrics, fontName)
-	}
-
-	// Add chart images
-	if len(data.ChartImages) > 0 {
-		s.addChartsSection(&pdf, data.ChartImages, fontName)
-	}
-
-	// Add insights section
+	// Add insights section FIRST (LLM-generated analysis narrative is the main body)
 	if len(data.Insights) > 0 {
 		s.addInsightsSection(&pdf, data.Insights, fontName)
 	}
 
-	// Add table section
-	if data.TableData != nil && len(data.TableData.Columns) > 0 {
+	// Add metrics section (supporting data)
+	if len(data.Metrics) > 0 {
+		s.addMetricsSection(&pdf, data.Metrics, fontName)
+	}
+
+	// Add chart images (visual evidence)
+	if len(data.ChartImages) > 0 {
+		s.addChartsSection(&pdf, data.ChartImages, fontName)
+	}
+
+	// Add table section (detailed data)
+	if len(data.AllTableData) > 0 {
+		for _, namedTable := range data.AllTableData {
+			tableData := namedTable.Table
+			if len(tableData.Columns) > 0 {
+				s.addTableSection(&pdf, &tableData, fontName)
+			}
+		}
+	} else if data.TableData != nil && len(data.TableData.Columns) > 0 {
 		s.addTableSection(&pdf, data.TableData, fontName)
 	}
 
@@ -181,7 +190,7 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 	}
 
 	// 添加简洁的页眉
-	s.addAnalysisHeader(&pdf, fontName)
+	s.addAnalysisHeader(&pdf, fontName, data.DataSourceName, data.UserRequest, data.GetReportTitle())
 
 	// 添加分析内容
 	s.addAnalysisContent(&pdf, data.Insights, fontName)
@@ -200,7 +209,7 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 }
 
 // addAnalysisHeader adds a simple header for analysis result export
-func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string) {
+func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, dataSourceName string, userRequest string, reportTitle string) {
 	// 顶部装饰条
 	pdf.SetFillColor(59, 130, 246)
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 16, "F")
@@ -208,11 +217,60 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string) {
 	// 标题
 	pdf.SetFont(fontName, "B", 20)
 	pdf.SetTextColor(30, 64, 175)
-	title := "智能分析报告"
+	title := reportTitle
+	if title == "" {
+		title = "数据分析报告"
+		if dataSourceName != "" {
+			title = dataSourceName + "数据分析报告"
+		}
+	}
 	titleWidth, _ := pdf.MeasureTextWidth(title)
 	pdf.SetX((pdfPageWidth - titleWidth) / 2)
-	pdf.SetY(50)
+	pdf.SetY(40)
 	pdf.Cell(nil, title)
+
+	nextY := 68.0
+
+	// 数据源名称
+	if dataSourceName != "" {
+		pdf.SetFont(fontName, "", pdfFontBody)
+		pdf.SetTextColor(71, 85, 105)
+		dsText := "数据源: " + dataSourceName
+		dsWidth, _ := pdf.MeasureTextWidth(dsText)
+		pdf.SetX((pdfPageWidth - dsWidth) / 2)
+		pdf.SetY(nextY)
+		pdf.Cell(nil, dsText)
+		nextY += 18
+	}
+
+	// 分析请求 - 完整显示
+	if userRequest != "" {
+		pdf.SetFont(fontName, "", pdfFontBody)
+		pdf.SetTextColor(71, 85, 105)
+
+		labelText := "分析请求:"
+		labelWidth, _ := pdf.MeasureTextWidth(labelText)
+		pdf.SetX((pdfPageWidth - labelWidth) / 2)
+		pdf.SetY(nextY)
+		pdf.Cell(nil, labelText)
+		nextY += 18
+
+		pdf.SetFont(fontName, "", pdfFontBody)
+		pdf.SetTextColor(51, 65, 85)
+		maxLineLen := 55
+		if !s.containsChinese(userRequest) {
+			maxLineLen = 80
+		}
+		wrappedLines := s.wrapText(userRequest, maxLineLen)
+		for _, line := range wrappedLines {
+			lineWidth, _ := pdf.MeasureTextWidth(line)
+			pdf.SetX((pdfPageWidth - lineWidth) / 2)
+			pdf.SetY(nextY)
+			pdf.Cell(nil, line)
+			nextY += pdfLineHeightBody
+		}
+		nextY += 8
+	}
 
 	// 生成时间
 	pdf.SetFont(fontName, "", pdfFontSmall)
@@ -221,14 +279,14 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string) {
 	timeText := "生成时间: " + timestamp
 	timeWidth, _ := pdf.MeasureTextWidth(timeText)
 	pdf.SetX((pdfPageWidth - timeWidth) / 2)
-	pdf.SetY(80)
+	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
 	// 分隔线
 	pdf.SetStrokeColor(226, 232, 240)
-	pdf.Line(pdfMarginLeft, 100, pdfPageWidth-pdfMarginRight, 100)
+	pdf.Line(pdfMarginLeft, nextY+20, pdfPageWidth-pdfMarginRight, nextY+20)
 
-	pdf.SetY(120)
+	pdf.SetY(nextY + 40)
 }
 
 // addAnalysisContent adds the analysis content with proper formatting
@@ -271,13 +329,13 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 			fontSize = 18.0
 			lineHeight = 28.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(30, 64, 175)
+			pdf.SetTextColor(30, 58, 95)
 			y += 8 // 标题前额外间距
 		} else if format.isHeading == 2 {
 			fontSize = 16.0
 			lineHeight = 24.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(59, 130, 246)
+			pdf.SetTextColor(30, 64, 175)
 			y += 6
 		} else if format.isHeading == 3 {
 			fontSize = 14.0
@@ -306,19 +364,20 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 		// 检查分页
 		y = s.checkPageBreak(pdf, y, lineHeight)
 
-		// 文本换行
+		// 文本换行 - 使用像素宽度精确换行
 		text := format.text
-		maxLineLen := 75 - format.indent*4
-
-		if s.containsChinese(text) {
-			maxLineLen = 50 - format.indent*3
-		}
-
-		wrappedLines := s.wrapText(text, maxLineLen)
+		availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
+		wrappedLines := s.wrapTextByWidth(pdf, text, availableWidth)
 
 		for _, wrappedLine := range wrappedLines {
 			y = s.checkPageBreak(pdf, y, lineHeight)
-			pdf.SetX(leftMargin)
+			// 一级和二级标题居中对齐
+			if format.isHeading == 1 || format.isHeading == 2 {
+				textWidth, _ := pdf.MeasureTextWidth(wrappedLine)
+				pdf.SetX((pdfPageWidth - textWidth) / 2)
+			} else {
+				pdf.SetX(leftMargin)
+			}
 			pdf.SetY(y)
 			pdf.Cell(nil, wrappedLine)
 			y += lineHeight
@@ -334,7 +393,7 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 }
 
 // addCoverPage adds a professional cover page
-func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, userRequest string, fontName string) {
+func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceName string, userRequest string, fontName string) {
 	// 顶部装饰条
 	pdf.SetFillColor(59, 130, 246)
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 24, "F")
@@ -344,23 +403,52 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, userRequest 
 	pdf.SetTextColor(30, 64, 175)
 	titleWidth, _ := pdf.MeasureTextWidth(title)
 	pdf.SetX((pdfPageWidth - titleWidth) / 2)
-	pdf.SetY(180)
+	pdf.SetY(160)
 	pdf.Cell(nil, title)
 
-	// 用户请求 - 作为副标题显示
-	if userRequest != "" {
+	nextY := 200.0
+
+	// 数据源名称 - 标注在标题下方
+	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontHeading2)
 		pdf.SetTextColor(71, 85, 105)
+		dsText := "数据源: " + dataSourceName
+		dsWidth, _ := pdf.MeasureTextWidth(dsText)
+		pdf.SetX((pdfPageWidth - dsWidth) / 2)
+		pdf.SetY(nextY)
+		pdf.Cell(nil, dsText)
+		nextY += 35
+	}
 
-		// 根据可用宽度截断请求文本（居中区域约为页面宽度减去两侧边距）
-		maxDisplayWidth := pdfContentWidth - 40 // 留出「」的宽度
-		displayRequest := s.truncateTextToWidth(pdf, userRequest, maxDisplayWidth, 80)
-		displayRequest = "「" + displayRequest + "」"
+	// 用户请求 - 完整显示，支持多行换行
+	if userRequest != "" {
+		pdf.SetFont(fontName, "", pdfFontBody)
+		pdf.SetTextColor(71, 85, 105)
 
-		reqWidth, _ := pdf.MeasureTextWidth(displayRequest)
-		pdf.SetX((pdfPageWidth - reqWidth) / 2)
-		pdf.SetY(230)
-		pdf.Cell(nil, displayRequest)
+		// 先显示标签
+		labelText := "分析请求:"
+		labelWidth, _ := pdf.MeasureTextWidth(labelText)
+		pdf.SetX((pdfPageWidth - labelWidth) / 2)
+		pdf.SetY(nextY)
+		pdf.Cell(nil, labelText)
+		nextY += 22
+
+		// 完整显示用户请求，支持自动换行
+		pdf.SetFont(fontName, "", pdfFontBody)
+		pdf.SetTextColor(51, 65, 85)
+		maxLineLen := 55
+		if !s.containsChinese(userRequest) {
+			maxLineLen = 80
+		}
+		wrappedLines := s.wrapText(userRequest, maxLineLen)
+		for _, line := range wrappedLines {
+			lineWidth, _ := pdf.MeasureTextWidth(line)
+			pdf.SetX((pdfPageWidth - lineWidth) / 2)
+			pdf.SetY(nextY)
+			pdf.Cell(nil, line)
+			nextY += pdfLineHeightBody
+		}
+		nextY += 20
 	}
 
 	// 生成时间
@@ -370,14 +458,14 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, userRequest 
 	timeText := "生成时间: " + timestamp
 	timeWidth, _ := pdf.MeasureTextWidth(timeText)
 	pdf.SetX((pdfPageWidth - timeWidth) / 2)
-	pdf.SetY(290)
+	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
 	// 分隔线
 	pdf.SetStrokeColor(226, 232, 240)
-	pdf.Line(pdfMarginLeft, 340, pdfPageWidth-pdfMarginRight, 340)
+	pdf.Line(pdfMarginLeft, nextY+40, pdfPageWidth-pdfMarginRight, nextY+40)
 
-	pdf.SetY(380)
+	pdf.SetY(nextY + 80)
 }
 
 // addSectionTitle adds a styled section title
@@ -555,7 +643,8 @@ func (s *GopdfService) stripMarkdownBold(text string) string {
 }
 
 func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, fontName string) {
-	y := s.addSectionTitle(pdf, "智能洞察", fontName)
+	y := pdf.GetY()
+	// 不再添加"智能洞察"标题，因为 LLM 生成的内容已经包含了结构化的章节标题
 	pdf.SetY(y)
 
 	for _, insight := range insights {
@@ -594,15 +683,15 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 			leftMargin := pdfMarginLeft
 
 			if format.isHeading == 1 {
+				fontSize = 18.0
+				lineHeight = pdfLineHeightHeading + 4
+				pdf.SetFont(fontName, "B", fontSize)
+				pdf.SetTextColor(30, 58, 95) // 深蓝色，更正式
+			} else if format.isHeading == 2 {
 				fontSize = pdfFontHeading1
-				lineHeight = pdfLineHeightHeading
+				lineHeight = pdfLineHeightHeading + 2
 				pdf.SetFont(fontName, "B", fontSize)
 				pdf.SetTextColor(30, 64, 175)
-			} else if format.isHeading == 2 {
-				fontSize = pdfFontHeading2
-				lineHeight = pdfLineHeightHeading
-				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(59, 130, 246)
 			} else if format.isHeading == 3 {
 				fontSize = pdfFontHeading3
 				lineHeight = pdfLineHeightHeading
@@ -629,21 +718,20 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 			// Check page break before rendering
 			y = s.checkPageBreak(pdf, y, lineHeight)
 
-			// Render text with word wrapping
+			// Render text with word wrapping - 使用像素宽度精确换行
 			text := format.text
-			maxLineLen := 80 - format.indent*4
-
-			// For Chinese text, count characters differently
-			if s.containsChinese(text) {
-				maxLineLen = 55 - format.indent*3
-			}
-
-			// Word wrap the text
-			wrappedLines := s.wrapText(text, maxLineLen)
+			availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
+			wrappedLines := s.wrapTextByWidth(pdf, text, availableWidth)
 
 			for _, wrappedLine := range wrappedLines {
 				y = s.checkPageBreak(pdf, y, lineHeight)
-				pdf.SetX(leftMargin)
+				// 一级和二级标题居中对齐
+				if format.isHeading == 1 || format.isHeading == 2 {
+					textWidth, _ := pdf.MeasureTextWidth(wrappedLine)
+					pdf.SetX((pdfPageWidth - textWidth) / 2)
+				} else {
+					pdf.SetX(leftMargin)
+				}
 				pdf.SetY(y)
 				pdf.Cell(nil, wrappedLine)
 				y += lineHeight
@@ -1028,7 +1116,7 @@ func (s *GopdfService) containsChinese(text string) bool {
 	return false
 }
 
-// wrapText wraps text to fit within maxLen rune characters per line
+// wrapText wraps text to fit within maxLen rune characters per line (fallback, no PDF context)
 func (s *GopdfService) wrapText(text string, maxLen int) []string {
 	if len(text) == 0 {
 		return []string{}
@@ -1048,7 +1136,7 @@ func (s *GopdfService) wrapText(text string, maxLen int) []string {
 		
 		// Try to break at space or punctuation
 		for i := maxLen; i > maxLen/2; i-- {
-			if runes[i] == ' ' || runes[i] == '，' || runes[i] == '。' || runes[i] == '、' {
+			if runes[i] == ' ' || runes[i] == '，' || runes[i] == '。' || runes[i] == '、' || runes[i] == '；' || runes[i] == '：' {
 				breakPoint = i + 1
 				break
 			}
@@ -1063,6 +1151,98 @@ func (s *GopdfService) wrapText(text string, maxLen int) []string {
 		}
 	}
 	
+	return lines
+}
+
+// wrapTextByWidth wraps text using actual pixel-width measurement from the PDF engine.
+// This produces accurate line breaks that respect the available content width.
+// Falls back to rune-based wrapText if measurement fails.
+func (s *GopdfService) wrapTextByWidth(pdf *gopdf.GoPdf, text string, maxWidth float64) []string {
+	if len(text) == 0 {
+		return []string{}
+	}
+
+	// Quick check: if the whole text fits, return as-is
+	w, err := pdf.MeasureTextWidth(text)
+	if err != nil {
+		// Fallback to rune-based wrapping
+		maxLen := 50
+		if !s.containsChinese(text) {
+			maxLen = 80
+		}
+		return s.wrapText(text, maxLen)
+	}
+	if w <= maxWidth {
+		return []string{text}
+	}
+
+	var lines []string
+	runes := []rune(text)
+
+	for len(runes) > 0 {
+		// Check if remaining text fits
+		remaining := string(runes)
+		w, err := pdf.MeasureTextWidth(remaining)
+		if err != nil || w <= maxWidth {
+			lines = append(lines, remaining)
+			break
+		}
+
+		// Binary search for the maximum number of runes that fit within maxWidth
+		lo, hi := 1, len(runes)
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			candidate := string(runes[:mid])
+			cw, e := pdf.MeasureTextWidth(candidate)
+			if e != nil {
+				hi = mid - 1
+				continue
+			}
+			if cw <= maxWidth {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+
+		breakPoint := lo
+
+		// Try to find a better break point at a word/punctuation boundary
+		// Search backwards from breakPoint for a natural break character
+		bestBreak := -1
+		searchStart := breakPoint
+		if searchStart > len(runes) {
+			searchStart = len(runes)
+		}
+		minBreak := breakPoint / 2
+		if minBreak < 1 {
+			minBreak = 1
+		}
+		for i := searchStart; i >= minBreak; i-- {
+			ch := runes[i-1]
+			if ch == ' ' || ch == '，' || ch == '。' || ch == '、' || ch == '；' || ch == '：' ||
+				ch == '）' || ch == '）' || ch == '」' || ch == '"' || ch == '\'' {
+				bestBreak = i
+				break
+			}
+		}
+		if bestBreak > 0 {
+			breakPoint = bestBreak
+		}
+
+		if breakPoint <= 0 {
+			breakPoint = 1 // Ensure progress
+		}
+
+		lines = append(lines, string(runes[:breakPoint]))
+		runes = runes[breakPoint:]
+
+		// Trim leading spaces
+		for len(runes) > 0 && runes[0] == ' ' {
+			runes = runes[1:]
+		}
+	}
+
 	return lines
 }
 

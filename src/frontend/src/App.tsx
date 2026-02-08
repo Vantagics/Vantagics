@@ -19,6 +19,7 @@ import { ToastProvider, useToast } from './contexts/ToastContext';
 import { initAnalysisResultBridge } from './utils/AnalysisResultBridge';
 import { playAnalysisCompleteSound } from './utils/SoundNotification';
 import { loadingStateManager } from './managers/LoadingStateManager';
+import { getAnalysisResultManager } from './managers/AnalysisResultManager';
 import './App.css';
 
 const logger = createLogger('App');
@@ -765,6 +766,14 @@ function AppContent() {
             setSelectedUserRequest(null);
             setActiveChart(null);
             setSessionCharts({});
+            setSelectedMessageId(null);
+            setSessionFiles([]);
+
+            // 清除 AnalysisResultManager 中的所有分析数据，
+            // 使 useDashboardData 重新加载数据源统计信息（恢复到启动时的显示状态）
+            logger.debug("Clearing AnalysisResultManager to restore data source overview");
+            const manager = getAnalysisResultManager();
+            manager.clearAll();
 
             // 重新获取并显示系统初始的仪表盘数据（数据源统计和自动洞察）
             logger.debug("Reloading original system dashboard data");
@@ -868,17 +877,14 @@ function AppContent() {
             // 如果清除会导致实时更新的数据丢失
             // setActiveChart(null);
 
-            // 延迟加载新的分析结果（确保清除操作完成）
-            setTimeout(async () => {
-                logger.debug(`Auto-loading analysis results for message: ${userMessageId}`);
+            // 设置当前选中的消息ID，以便文件下载组件能正确过滤文件
+            if (userMessageId) {
+                setSelectedMessageId(userMessageId);
+            }
 
-                // 设置当前选中的消息ID，以便文件下载组件能正确过滤文件
-                if (userMessageId) {
-                    setSelectedMessageId(userMessageId);
-                }
-
-                // 刷新会话文件列表，以便仪表盘文件下载组件能显示新生成的文件
-                if (threadId) {
+            // 刷新会话文件列表，以便仪表盘文件下载组件能显示新生成的文件
+            if (threadId) {
+                (async () => {
                     try {
                         const { GetSessionFiles } = await import('../wailsjs/go/main/App');
                         const files = await GetSessionFiles(threadId);
@@ -887,16 +893,29 @@ function AppContent() {
                     } catch (err) {
                         logger.error(`Failed to refresh session files after analysis: ${err}`);
                     }
-                }
+                })();
+            }
 
-                // 触发 user-message-clicked 事件来加载完整的分析结果
-                // 注意：不传递 chartData，让 ChatSidebar 从消息历史中加载
-                // ChatSidebar 会监听这个事件并从消息的 chart_data 字段加载数据
+            // 分析完成后的数据加载策略：
+            // 后端在发送 analysis-completed 之前已：
+            //   1. 调用 FlushNow(threadID, true) 发送最终批次到前端
+            //   2. 调用 SaveAnalysisResults 将完整数据持久化到磁盘
+            // 
+            // 始终从磁盘加载完整数据作为最终权威数据源。
+            // 原因：实时流式传输可能因 React 状态批处理导致部分数据（如洞察）
+            // 未能及时渲染到 AnalysisResultManager。磁盘数据是后端保存的完整集合，
+            // 通过 restoreResults 设置后能确保所有类型（表格、图表、洞察等）都完整显示。
+            // 
+            // 修复 Bug 1 & 2：移除之前的条件判断逻辑（检查 hasInsights/hasMetrics），
+            // 因为该逻辑在实时数据不完整时会触发磁盘加载（正确），但在实时数据看似完整时
+            // 跳过磁盘加载（可能遗漏数据）。统一使用磁盘数据消除了这种不一致性。
+            setTimeout(() => {
+                logger.info(`Loading complete analysis data from disk as authoritative source`);
                 EventsEmit('load-message-data', {
                     messageId: userMessageId,
                     threadId: threadId
                 });
-            }, 150); // 150ms 延迟确保清除完成
+            }, 300);
         });
 
         const unsubscribeMessageModal = EventsOn("show-message-modal", (data: any) => {

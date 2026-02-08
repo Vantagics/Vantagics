@@ -167,7 +167,7 @@ func (c *CombinedClassifierPlanner) ClassifyAndPlan(ctx context.Context, userQue
 	prompt := c.buildCombinedPrompt(userQuery, dataSourceInfo)
 
 	messages := []*schema.Message{
-		{Role: schema.System, Content: "你是请求分类和任务规划专家。只输出有效JSON。"},
+		{Role: schema.System, Content: "You are a request classification and task planning expert. Output only valid JSON."},
 		{Role: schema.User, Content: prompt},
 	}
 
@@ -197,39 +197,39 @@ func (c *CombinedClassifierPlanner) ClassifyAndPlan(ctx context.Context, userQue
 }
 
 func (c *CombinedClassifierPlanner) buildCombinedPrompt(userQuery, dataSourceInfo string) string {
-	return fmt.Sprintf(`分析用户请求，同时完成分类和执行规划。
+	return fmt.Sprintf(`Analyze the user request, performing both classification and execution planning.
 
-## 用户请求
+## User Request
 "%s"
 
-## 数据源信息
+## Data Source Info
 %s
 
-## 分类规则
-- consultation: 纯咨询/建议（不需要实际分析）
-- data_analysis: 数据分析（查询+分析）
-- visualization: 明确需要图表
-- data_export: 数据导出
-- calculation: 简单计算（不需要数据库）
-- web_search: 需要网络搜索
+## Classification Rules
+- consultation: Pure consultation/advice (no actual analysis needed)
+- data_analysis: Data analysis (query + analysis)
+- visualization: Explicitly needs charts
+- data_export: Data export
+- calculation: Simple calculation (no database needed)
+- web_search: Needs web search
 
-## 可视化判断
-默认生成图表，除非是咨询/计算/用户只要文字结果。
-涉及分析、统计、趋势、分布、对比、排名 → needs_visualization=true
+## Visualization Decision
+Default to generating charts, unless it's consultation/calculation/user only wants text results.
+Involves analysis, statistics, trends, distribution, comparison, ranking → needs_visualization=true
 
-## 图表类型
-时间趋势→line, 分类对比→bar, 占比→pie, 多维→grouped_bar
+## Chart Types
+Time trends→line, Category comparison→bar, Proportions→pie, Multi-dimensional→grouped_bar
 
-## 复杂度
-trivial(无需工具), simple(1次调用), moderate(2-3次), complex(4+次)
+## Complexity
+trivial (no tools), simple (1 call), moderate (2-3 calls), complex (4+ calls)
 
-## 输出JSON
+## Output JSON
 {
   "request_type": "string",
   "needs_visualization": bool,
   "needs_data_export": bool,
   "confidence": 0.0-1.0,
-  "reasoning": "简短原因",
+  "reasoning": "brief reason",
   "suggested_chart_type": "line|bar|pie|grouped_bar|scatter|heatmap",
   "task_type": "simple|data_query|visualization|calculation|web_search",
   "complexity": "trivial|simple|moderate|complex",
@@ -240,10 +240,10 @@ trivial(无需工具), simple(1次调用), moderate(2-3次), complex(4+次)
   "needs_web_search": bool,
   "output_format": "text|table|chart|file",
   "estimated_calls": 1-8,
-  "steps": [{"step_num":1,"tool":"工具名","purpose":"目的","input":"输入","depends_on":[]}]
+  "steps": [{"step_num":1,"tool":"tool_name","purpose":"purpose","input":"input","depends_on":[]}]
 }
 
-只输出JSON。`, userQuery, dataSourceInfo)
+Output only JSON.`, userQuery, dataSourceInfo)
 }
 
 func (c *CombinedClassifierPlanner) cacheResult(key string, result *CombinedResult) {

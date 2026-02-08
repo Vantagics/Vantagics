@@ -539,6 +539,7 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     logger.debug(`[clearAll] State: currentSessionId=null, currentMessageId=null, isLoading=false`);
     
     this.notifySubscribers();
+    this.emit('data-cleared', {});
   }
   
   // ==================== 历史数据恢复 ====================
@@ -561,7 +562,7 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
    * @returns 恢复结果统计
    */
   restoreResults(sessionId: string, messageId: string, items: AnalysisResultItem[]): RestoreResultStats {
-    logger.info(`[restoreResults] Starting restoration: session=${sessionId}, message=${messageId}, items=${items?.length || 0}`);
+    logger.info(`[restoreResults] Starting restoration: session=${sessionId}, message=${messageId}, items=${items?.length || 0}, currentSession=${this.state.currentSessionId}, currentMessage=${this.state.currentMessageId}`);
     
     // 初始化统计
     const stats: RestoreResultStats = {
@@ -575,6 +576,9 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     // 处理空数据情况
     if (!items || items.length === 0) {
       logger.info(`[restoreResults] No items to restore, notifying empty result`);
+      // 即使空数据也要更新 currentMessageId，确保 UI 状态一致
+      this.state.currentSessionId = sessionId;
+      this.state.currentMessageId = messageId;
       this.notifyHistoricalEmptyResult(sessionId, messageId);
       return stats;
     }
@@ -585,25 +589,20 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       
-      // 详细记录原始数据类型
+      // 详细记录原始数据类型（lightweight - avoid JSON.stringify on large objects）
       const originalDataType = typeof item.data;
       const originalDataPreview = originalDataType === 'string' 
         ? (item.data as string).substring(0, 100) + '...'
-        : JSON.stringify(item.data).substring(0, 100) + '...';
-      logger.warn(`[restoreResults] Item ${i}: type=${item.type}, originalDataType=${originalDataType}, preview=${originalDataPreview}`);
+        : `(object, keys: ${Object.keys(item.data || {}).slice(0, 5).join(',')})`;
+      logger.debug(`[restoreResults] Item ${i}: type=${item.type}, dataType=${originalDataType}`);
       
       const validationResult = this.validateRestoreItem(item, i);
       
       if (validationResult.valid) {
         // 规范化数据
-        logger.warn(`[restoreResults] Item ${i}: calling DataNormalizer.normalize(${item.type}, ${originalDataType})`);
         const normalizedResult = DataNormalizer.normalize(item.type, item.data);
         
         if (normalizedResult.success) {
-          // 记录规范化后的数据类型
-          const normalizedDataType = typeof normalizedResult.data;
-          logger.warn(`[restoreResults] Item ${i}: normalized successfully, resultDataType=${normalizedDataType}`);
-          
           // 创建恢复的数据项，标记来源为 'restored'
           const restoredItem: AnalysisResultItem = {
             ...item,
@@ -653,17 +652,23 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
     // 如果没有有效数据项，通知空结果
     if (validItems.length === 0) {
       logger.info(`[restoreResults] No valid items after validation, notifying empty result`);
+      // 更新 currentMessageId 确保 UI 状态一致
+      this.state.currentSessionId = sessionId;
+      this.state.currentMessageId = messageId;
       this.notifyHistoricalEmptyResult(sessionId, messageId);
       return stats;
     }
     
-    // 清除当前会话的旧数据，确保数据隔离
-    if (this.state.currentSessionId && this.state.data.has(this.state.currentSessionId)) {
-      const oldSessionData = this.state.data.get(this.state.currentSessionId)!;
-      const clearedCount = oldSessionData.size;
-      oldSessionData.clear();
-      logger.debug(`[restoreResults] Cleared ${clearedCount} old messages from current session`);
-    }
+    // 清除所有会话数据，确保完全隔离
+    // 修复 Bug 3：即使是同一个 session 的不同 message，也要完全重建数据
+    // 之前的逻辑只清除 currentSessionId 的数据，可能遗漏边界情况
+    this.state.data.forEach((sessionData, sid) => {
+      const clearedCount = sessionData.size;
+      if (clearedCount > 0) {
+        sessionData.clear();
+        logger.debug(`[restoreResults] Cleared ${clearedCount} messages from session ${sid}`);
+      }
+    });
     
     // 更新当前会话和消息
     this.state.currentSessionId = sessionId;
@@ -1089,7 +1094,7 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
       return;
     }
     
-    logger.debug(`Emitting event: ${event}, data=${JSON.stringify(data)}`);
+    logger.debug(`Emitting event: ${event}, listeners=${listeners.size}`);
     
     listeners.forEach(callback => {
       try {

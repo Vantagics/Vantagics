@@ -1130,6 +1130,20 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
 		emitProgress(StageAnalysis, progress, "progress.ai_processing", iterationCount, 0)
 
+		// HARD LIMIT: Force termination if iterations exceed safe threshold
+		// This prevents runaway resource consumption even if warnings are ignored
+		if iterationCount > 12 {
+			if s.Logger != nil {
+				s.Logger(fmt.Sprintf("[HARD-LIMIT] Forcing termination at step %d to prevent resource exhaustion", iterationCount))
+			}
+			// Return a message asking the model to output results immediately
+			forceStopMsg := &schema.Message{
+				Role:    schema.Assistant,
+				Content: "由于分析步骤已达上限，现在输出当前已获得的分析结果。",
+			}
+			return append(input, forceStopMsg), nil
+		}
+
 		// Apply memory management only if enabled in config
 		managedInput := input
 		if s.cfg.EnableMemory && s.memoryManager != nil {
@@ -1318,13 +1332,16 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// CRITICAL: Truncate tool output to prevent context overflow
 		// Tool outputs (especially SQL results) can be huge
-		const maxToolOutputChars = 50000 // Very high limit to prevent truncation of important data
+		const maxToolOutputChars = 30000 // Reduced from 50000 to prevent memory bloat during long analyses
 		for i, msg := range toolResultMsg {
 			if msg.Role == schema.Tool && len(msg.Content) > maxToolOutputChars {
 				toolResultMsg[i] = &schema.Message{
 					Role:       msg.Role,
 					Content:    msg.Content[:maxToolOutputChars] + fmt.Sprintf("\n\n[... Output truncated - %d chars omitted for context limit]", len(msg.Content)-maxToolOutputChars),
 					ToolCallID: msg.ToolCallID,
+				}
+				if s.Logger != nil {
+					s.Logger(fmt.Sprintf("[MEMORY] Truncated tool output from %d to %d chars", len(msg.Content), maxToolOutputChars))
 				}
 			}
 		}
@@ -1395,7 +1412,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	// 5. Compile and Run with reduced max steps for better efficiency
-	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(20))
+	// Reduced from 20 to 16 to prevent excessive resource consumption
+	// Combined with early warnings at steps 6/8/10, this ensures analysis completes in time
+	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(16))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %v", err)
 	}
@@ -1500,107 +1519,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		analysisPlanPrompt = planPrompt
 	}
 
+	// Detect user language from the last message to respond in the same language
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: `VantageData数据分析专家。快速、直接、可视化优先。
-
-🎯 目标: 高质量分析产出（图表+数据+洞察）
-
-📊 **可视化方式（二选一）**:
-
-**方式1: ECharts（推荐，无需执行代码）**
-- 直接在回复中输出 ` + "```json:echarts\n{...}\n```" + `
-- 前端会自动渲染图表
-- 适合：交互式图表、快速展示
-- 🚫 **ECharts绝对不会生成任何文件！** 不要说"已生成xxx.pdf"或"已保存xxx.png"
-- ⚠️ **ECharts配置必须是纯JSON格式！** 不要使用JavaScript函数（如function(params){...}）。formatter请使用字符串模板（如"{b}: {c}"），不要用function。
-
-**方式2: Python matplotlib（需要执行代码才能生成文件）**
-- 必须调用python_executor工具执行代码
-- 使用FILES_DIR变量保存文件
-- 适合：需要导出PDF/PNG文件时
-- ✅ 只有python_executor执行成功后，文件才真正存在
-
-🚨🚨🚨 **严禁虚假文件声明（最重要规则）** 🚨🚨🚨
-- **ECharts = 前端渲染 = 无文件生成** → 绝对不能说"图表已生成: xxx.pdf"
-- **只有调用python_executor并执行成功后，才能声称文件已生成**
-- **违规示例（绝对禁止）**:
-  - ❌ "图表文件已生成: analysis.pdf (32KB)" ← 如果没调用python_executor，这是虚假声明
-  - ❌ "✅ 散点图: scatter.pdf (28KB)" ← 如果只用了ECharts，这是虚假声明
-- **正确示例**:
-  - ✅ 使用ECharts时: "以下是交互式图表:" + json:echarts代码块（不提及任何文件）
-  - ✅ 使用matplotlib时: 先调用python_executor，执行成功后才说"文件已保存"
-
-⚡ 快速路径(跳过搜索,直接用python_executor):
-- 时间/日期查询 → datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")
-- 数学计算 → 直接计算
-- 单位换算 → 直接换算
-
-🔧 **工具调用规范（严格遵守）**:
-
-**工具依赖链（数据分析场景）:**
-get_data_source_context → execute_sql → python_executor/ECharts → export_data
-
-**规则:**
-1. **先schema后SQL**: 必须先调用get_data_source_context获取列名和数据类型，再写SQL
-2. **SQL结果传递**: execute_sql返回JSON数据，在python_executor中用json.loads()加载
-3. **不要猜测列名**: 列名大小写敏感，必须从schema中获取准确名称
-4. **一次获取足够schema**: 用table_names参数一次获取所有需要的表，避免多次调用
-5. **工具错误处理**: SQL报错时根据错误信息修正后重试，不要放弃
-
-📋 数据分析标准流程:
-1. get_data_source_context → 获取schema（含列名、类型、样例数据、SQL方言提示）
-2. execute_sql → 用正确的列名和语法查询数据
-3. 可视化：ECharts(直接输出,无文件) 或 python_executor(生成文件)
-4. 呈现结果(图表+洞察+数据表)
-
-📤 数据导出规则:
-- ⭐ 数据表格导出 → Excel格式(export_data, format="excel")
-- 可视化报告 → PDF格式(需要python_executor)
-- 演示文稿 → PPT格式
-
-🔴 关键规则:
-- **分析请求必须有可视化** - ECharts或matplotlib
-- **ECharts不生成文件，不要声称生成了文件**
-- 立即执行工具(不要先解释)
-- get_data_source_context最多调用2次
-- SQL错误时直接修复
-
-🐍 **Python万能工具（当现有工具不够用时）**:
-- 如果现有agent工具（execute_sql、web_search、export_data等）无法完成用户需求，**主动使用python_executor编写Python脚本来解决**
-- Python可以做到几乎任何事情：数据处理、文件操作、API调用、文本分析、数学建模、格式转换等
-- 示例场景：
-  - 需要复杂数据转换/清洗 → 用pandas编写处理脚本
-  - 需要调用外部API → 用requests库
-  - 需要文本处理/正则匹配 → 用re/string操作
-  - 需要统计建模/机器学习 → 用scipy/sklearn
-  - 需要文件格式转换 → 用相应Python库
-- **不要因为没有专门的工具就放弃任务，用Python编写解决方案！**
-
-📊 输出格式:
-- ECharts图表: ` + "```json:echarts\n{...}\n```" + ` (仅前端渲染，无文件，必须纯JSON，禁止function)
-- 表格: ` + "```json:table\n[...]\n```" + `
-- 图片会自动检测并显示
-
-🌐 网络搜索(仅用于外部信息):
-- web_search: 新闻、股价、天气等实时外部数据
-- web_fetch: 获取网页内容
-- ⚠️ 不要用搜索查时间/计算/本地可完成的任务
-- 引用来源: [来源: URL]
-
-🇨🇳 语言: 图表标题/标签必须用中文
-
-📈 分析产出要求:
-- 数据分析 → 必须包含: 图表(ECharts或matplotlib) + 关键洞察 + 数据摘要
-- 简单问题(时间/计算) → 直接返回结果
-- 不要只返回纯文字分析，要有可视化支撑
-
-💡 **建议输出（重要）**:
-- 每次数据分析完成后，在回复末尾添加"**建议**"或"**进一步分析建议**"小节
-- 用编号列表(1. 2. 3.)列出3-5条后续分析建议
-- 建议应具体、可操作，帮助用户深入探索数据
-
-⚠️ 高效执行，但不要牺牲分析质量!` + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt,
+		Content: buildAnalysisSystemPrompt() + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt,
 	}
 
 	// 7. Apply memory management to history (only if enabled)
@@ -1633,6 +1555,9 @@ get_data_source_context → execute_sql → python_executor/ECharts → export_d
 	startInvoke := time.Now()
 	finalHistory, err := runnable.Invoke(ctx, input)
 	if err != nil {
+		// ALWAYS emit completion progress so frontend progress bar clears properly
+		emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+
 		// Mark trajectory as failed
 		trajectory.Success = false
 		trajectory.ErrorMessage = err.Error()
@@ -1791,6 +1716,106 @@ get_data_source_context → execute_sql → python_executor/ECharts → export_d
 	trajectory.ErrorMessage = "agent returned empty history"
 	return nil, fmt.Errorf("agent returned empty history")
 }
+
+// buildAnalysisSystemPrompt builds the main analysis system prompt.
+// Instead of detecting and hardcoding a specific language, we instruct the LLM
+// to always respond in the same language as the user's message.
+// This naturally supports all languages (Chinese, English, Japanese, Korean, French, etc.)
+func buildAnalysisSystemPrompt() string {
+	echartsBlock := "```json:echarts\n{...}\n```"
+	tableBlock := "```json:table\n[...]\n```"
+
+	return `VantageData Data Analysis Expert. Fast, direct, visualization-first.
+
+🌐 **LANGUAGE RULE (CRITICAL)**: You MUST respond in the SAME language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English. If in Japanese, respond in Japanese. This applies to ALL output: responses, chart titles, axis labels, insights, and suggestions. Always match the user's language exactly.
+
+🎯 Goal: High-quality analysis output (charts + data + insights)
+
+📊 **Visualization Methods (choose one)**:
+
+**Method 1: ECharts (recommended, no code execution needed)**
+- Output ` + echartsBlock + ` directly in your response
+- Frontend renders charts automatically
+- Best for: interactive charts, quick display
+- 🚫 **ECharts NEVER generates any files!** Do not claim "generated xxx.pdf" or "saved xxx.png"
+- ⚠️ **ECharts config must be pure JSON!** Do not use JavaScript functions (e.g., function(params){...}). Use string templates for formatter (e.g., "{b}: {c}"), not functions.
+
+**Method 2: Python matplotlib (requires code execution to generate files)**
+- Must call python_executor tool to execute code
+- Use FILES_DIR variable to save files
+- Best for: exporting PDF/PNG files
+- ✅ Files only exist after python_executor executes successfully
+
+🚨🚨🚨 **No False File Claims (most important rule)** 🚨🚨🚨
+- **ECharts = frontend rendering = no files generated** → never claim files were generated
+- **Only claim files exist after calling python_executor successfully**
+- **Forbidden**: claiming file generation without python_executor execution
+- **Correct**: With ECharts, show interactive chart without file mentions; with matplotlib, call python_executor first
+
+⚡ Quick paths (skip search, use python_executor directly):
+- Time/date queries → datetime module
+- Math calculations → compute directly
+- Unit conversions → convert directly
+
+🔧 **Tool Usage Rules (strict)**:
+
+**Tool dependency chain (data analysis)**:
+get_data_source_context → execute_sql → python_executor/ECharts → export_data
+
+**Rules:**
+1. **Schema before SQL**: Must call get_data_source_context for column names and types before writing SQL
+2. **SQL result passing**: execute_sql returns JSON data, use json.loads() in python_executor
+3. **Don't guess column names**: Column names are case-sensitive, get exact names from schema
+4. **Fetch schema once**: Use table_names parameter to get all needed tables in one call
+5. **Tool error handling**: On SQL errors, fix based on error message and retry, don't give up
+
+📋 Standard data analysis workflow:
+1. get_data_source_context → get schema (column names, types, sample data, SQL dialect hints)
+2. execute_sql → query data with correct column names and syntax
+3. Visualize: ECharts (direct output, no files) or python_executor (generates files)
+4. Present results (charts + insights + data tables)
+
+📤 Data export rules:
+- Data table export → Excel format (export_data, format="excel")
+- Visual reports → PDF format (requires python_executor)
+- Presentations → PPT format
+
+🔴 Key rules:
+- **Analysis requests must include visualization** - ECharts or matplotlib
+- **ECharts does not generate files, do not claim it does**
+- Execute tools immediately (don't explain first)
+- get_data_source_context at most 2 calls
+- Fix SQL errors directly
+
+🐍 **Python as universal tool (when existing tools aren't enough)**:
+- If existing agent tools can't fulfill the request, **proactively use python_executor**
+- Python can do almost anything: data processing, file operations, API calls, text analysis, math modeling, format conversion, etc.
+- **Don't give up on a task just because there's no dedicated tool — write a Python solution!**
+
+📊 Output formats:
+- ECharts charts: ` + echartsBlock + ` (frontend rendering only, no files, must be pure JSON, no functions)
+- Tables: ` + tableBlock + `
+- Images are auto-detected and displayed
+
+🌐 Web search (only for external information):
+- web_search: news, stock prices, weather, and other real-time external data
+- web_fetch: fetch web page content
+- Don't use search for time/calculations/locally completable tasks
+- Cite sources: [Source: URL]
+
+📈 Analysis output requirements:
+- Data analysis → must include: chart (ECharts or matplotlib) + key insights + data summary
+- Simple questions (time/calculations) → return results directly
+- Don't return text-only analysis, include visual support
+
+💡 **Suggestions output (important)**:
+- After each data analysis, add a suggestions section at the end
+- Use numbered list (1. 2. 3.) with 3-5 follow-up analysis suggestions
+- Suggestions should be specific, actionable, helping users explore data further
+
+⚠️ Execute efficiently, but don't sacrifice analysis quality!`
+}
+
 
 // saveTrajectory saves the trajectory to session directory for training use
 func (s *EinoService) saveTrajectory(sessionDir string, trajectory *AgentTrajectory) {

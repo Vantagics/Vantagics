@@ -97,6 +97,7 @@ type ChatMessage struct {
 	ChartData       *ChartData             `json:"chart_data,omitempty"`       // Legacy: Associated chart/visualization data
 	TimingData      map[string]interface{} `json:"timing_data,omitempty"`      // Detailed timing information for analysis stages
 	AnalysisResults []AnalysisResultItem   `json:"analysis_results,omitempty"` // New unified analysis results
+	HasAnalysisData bool                   `json:"has_analysis_data,omitempty"` // Lightweight flag: true if message has analysis_results or chart_data (set by LoadThreads after stripping heavy data)
 }
 
 // UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
@@ -312,6 +313,15 @@ func (s *ChatService) LoadThreads() ([]ChatThread, error) {
 				if err == nil {
 					var t ChatThread
 					if err := json.Unmarshal(data, &t); err == nil {
+						// Set lightweight flag before stripping heavy data,
+						// so frontend knows which messages have results without carrying the actual data.
+						for i := range t.Messages {
+							if len(t.Messages[i].AnalysisResults) > 0 || t.Messages[i].ChartData != nil {
+								t.Messages[i].HasAnalysisData = true
+							}
+							t.Messages[i].AnalysisResults = nil
+							t.Messages[i].ChartData = nil
+						}
 						threads = append(threads, t)
 					}
 				}
@@ -320,10 +330,6 @@ func (s *ChatService) LoadThreads() ([]ChatThread, error) {
 	}
 
 	// Sort by CreatedAt descending (newest first)
-	// Or preserve order if important? Usually UI sorts.
-	// Let's sort to be consistent with previous behavior (append prepend).
-	// Previous behavior was prepend new threads.
-	// We can sort by CreatedAt desc here.
 	for i := 0; i < len(threads); i++ {
 		for j := i + 1; j < len(threads); j++ {
 			if threads[i].CreatedAt < threads[j].CreatedAt {
@@ -451,7 +457,7 @@ func (s *ChatService) generateUniqueTitle(dataSourceID, title, excludeThreadID s
 	return newTitle, nil
 }
 
-// loadThreadsInternal loads threads without locking
+// loadThreadsInternal loads threads without locking (strips heavy data like LoadThreads)
 func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
 	entries, err := os.ReadDir(s.sessionsDir)
 	if err != nil {
@@ -469,6 +475,11 @@ func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
 				if err == nil {
 					var t ChatThread
 					if err := json.Unmarshal(data, &t); err == nil {
+						// Strip heavy data — this is used internally for title checks etc.
+						for i := range t.Messages {
+							t.Messages[i].AnalysisResults = nil
+							t.Messages[i].ChartData = nil
+						}
 						threads = append(threads, t)
 					}
 				}
@@ -701,12 +712,56 @@ func (s *ChatService) GetMessageAnalysisData(threadID, messageID string) (map[st
 	}
 
 	// Find the message
-	for _, msg := range t.Messages {
+	for i, msg := range t.Messages {
 		if msg.ID == messageID {
+			analysisResults := msg.AnalysisResults
+
+			// Check which item types are missing from analysis_results.
+			// This can happen with historical data where items weren't fully persisted.
+			// In that case, parse the next assistant message's content as a fallback.
+			hasECharts := false
+			hasTable := false
+			hasInsight := false
+			for _, item := range analysisResults {
+				switch item.Type {
+				case "echarts":
+					hasECharts = true
+				case "table":
+					hasTable = true
+				case "insight":
+					hasInsight = true
+				}
+			}
+
+			if !hasECharts || !hasTable || !hasInsight {
+				// Find the next assistant message
+				var assistantContent string
+				if i+1 < len(t.Messages) && t.Messages[i+1].Role == "assistant" {
+					assistantContent = t.Messages[i+1].Content
+				}
+
+				if assistantContent != "" {
+					extracted := s.extractAnalysisItemsFromContent(assistantContent, threadID, messageID)
+					for _, item := range extracted {
+						// Only add types that are missing from existing results
+						if item.Type == "echarts" && hasECharts {
+							continue
+						}
+						if item.Type == "table" && hasTable {
+							continue
+						}
+						if item.Type == "insight" && hasInsight {
+							continue
+						}
+						analysisResults = append(analysisResults, item)
+					}
+				}
+			}
+
 			result := map[string]interface{}{
 				"messageId":       msg.ID,
 				"threadId":        threadID,
-				"analysisResults": msg.AnalysisResults,
+				"analysisResults": analysisResults,
 			}
 			// Include legacy chart data if present
 			if msg.ChartData != nil {
@@ -717,4 +772,307 @@ func (s *ChatService) GetMessageAnalysisData(threadID, messageID string) (map[st
 	}
 
 	return nil, fmt.Errorf("message not found: %s", messageID)
+}
+
+// extractAnalysisItemsFromContent parses assistant message content for echarts/table blocks
+// and returns them as AnalysisResultItem entries. This is used as a fallback when
+// analysis_results on disk doesn't contain these items (e.g., historical data).
+func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, messageID string) []AnalysisResultItem {
+	var items []AnalysisResultItem
+	now := time.Now().UnixMilli()
+	seq := 0
+
+	// Extract ECharts blocks
+	reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
+	for _, match := range reECharts.FindAllStringSubmatch(content, -1) {
+		if len(match) > 1 {
+			jsonStr := strings.TrimSpace(match[1])
+			// Validate JSON
+			var testJSON map[string]interface{}
+			if json.Unmarshal([]byte(jsonStr), &testJSON) != nil {
+				// Try cleaning JS functions
+				cleaned := cleanEChartsJSONSimple(jsonStr)
+				if json.Unmarshal([]byte(cleaned), &testJSON) == nil {
+					jsonStr = cleaned
+				} else {
+					continue // Skip unparseable echarts
+				}
+			}
+			seq++
+			items = append(items, AnalysisResultItem{
+				ID:   fmt.Sprintf("restored_echarts_%s_%d", messageID, seq),
+				Type: "echarts",
+				Data: jsonStr,
+				Metadata: map[string]interface{}{
+					"sessionId": threadID,
+					"messageId": messageID,
+					"timestamp": now,
+				},
+				Source: "restored",
+			})
+		}
+	}
+
+	// Extract table blocks
+	reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
+	for idx, match := range reTable.FindAllStringSubmatchIndex(content, -1) {
+		if len(match) >= 4 {
+			fullMatchStart := match[0]
+			jsonContent := strings.TrimSpace(content[match[2]:match[3]])
+
+			// Extract table title from the line before the code block
+			tableTitle := ""
+			if fullMatchStart > 0 {
+				textBefore := content[:fullMatchStart]
+				lastNewline := strings.LastIndex(textBefore, "\n")
+				if lastNewline >= 0 {
+					lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
+					tableTitle = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
+					tableTitle = strings.TrimRight(tableTitle, ":：")
+					tableTitle = strings.TrimSpace(tableTitle)
+					if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
+						tableTitle = ""
+					}
+				}
+			}
+
+			// Try to parse as object array
+			var tableData []map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonContent), &tableData); err != nil {
+				// Try 2D array format
+				var arrayData [][]interface{}
+				if err2 := json.Unmarshal([]byte(jsonContent), &arrayData); err2 == nil && len(arrayData) > 1 {
+					headers := make([]string, len(arrayData[0]))
+					for i, h := range arrayData[0] {
+						headers[i] = fmt.Sprintf("%v", h)
+					}
+					tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+					for _, row := range arrayData[1:] {
+						rowMap := make(map[string]interface{})
+						for i, val := range row {
+							if i < len(headers) {
+								rowMap[headers[i]] = val
+							}
+						}
+						tableData = append(tableData, rowMap)
+					}
+				}
+			}
+
+			if len(tableData) > 0 {
+				tableDataWithTitle := map[string]interface{}{
+					"title": tableTitle,
+					"rows":  tableData,
+				}
+				seq++
+				items = append(items, AnalysisResultItem{
+					ID:   fmt.Sprintf("restored_table_%s_%d_%d", messageID, idx, seq),
+					Type: "table",
+					Data: tableDataWithTitle,
+					Metadata: map[string]interface{}{
+						"sessionId": threadID,
+						"messageId": messageID,
+						"timestamp": now,
+					},
+					Source: "restored",
+				})
+			}
+		}
+	}
+
+	// Extract insights from text (suggestions, recommendations, etc.)
+	insights := extractSuggestionInsightsFromContent(content)
+	for _, insight := range insights {
+		seq++
+		items = append(items, AnalysisResultItem{
+			ID:   fmt.Sprintf("restored_insight_%s_%d", messageID, seq),
+			Type: "insight",
+			Data: insight,
+			Metadata: map[string]interface{}{
+				"sessionId": threadID,
+				"messageId": messageID,
+				"timestamp": now,
+			},
+			Source: "restored",
+		})
+	}
+
+	return items
+}
+
+// extractSuggestionInsightsFromContent extracts suggestion/insight items from assistant message text.
+// This replicates the logic from App.extractSuggestionInsights for use in ChatService.
+func extractSuggestionInsightsFromContent(content string) []Insight {
+	if content == "" {
+		return nil
+	}
+
+	var insights []Insight
+	lines := strings.Split(content, "\n")
+
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	listPattern := regexp.MustCompile(`^\s*[-•]\s+(.+)`)
+	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[：:\-–—]\s*(.+)`)
+	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步|后续|下一步|洞察|insight|分析方向|可以从|希望从哪)`)
+
+	inCodeBlock := false
+	foundSuggestionSection := false
+	consecutiveBoldItems := 0
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmedLine, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if inCodeBlock || trimmedLine == "" {
+			continue
+		}
+
+		if suggestionPattern.MatchString(trimmedLine) {
+			foundSuggestionSection = true
+		}
+
+		var suggestionText string
+
+		// Numbered items (only in suggestion section)
+		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
+			if foundSuggestionSection {
+				suggestionText = strings.TrimSpace(matches[2])
+			}
+		}
+
+		// Bold title with colon/dash
+		if suggestionText == "" {
+			if matches := boldTitlePattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
+				title := strings.TrimSpace(matches[1])
+				desc := strings.TrimSpace(matches[2])
+				if desc != "" {
+					suggestionText = title + "：" + desc
+				} else {
+					suggestionText = title
+				}
+				consecutiveBoldItems++
+				if consecutiveBoldItems >= 3 {
+					foundSuggestionSection = true
+				}
+			} else {
+				consecutiveBoldItems = 0
+			}
+		}
+
+		// Markdown list items (only in suggestion section)
+		if suggestionText == "" && foundSuggestionSection {
+			if matches := listPattern.FindStringSubmatch(trimmedLine); len(matches) > 1 {
+				suggestionText = strings.TrimSpace(matches[1])
+			}
+		}
+
+		// Clean up markdown formatting
+		if suggestionText != "" {
+			suggestionText = strings.TrimPrefix(suggestionText, "**")
+			suggestionText = strings.TrimSuffix(suggestionText, "**")
+			suggestionText = strings.TrimSpace(suggestionText)
+		}
+
+		if suggestionText != "" && len([]rune(suggestionText)) > 5 {
+			insights = append(insights, Insight{
+				Text: suggestionText,
+				Icon: "lightbulb",
+			})
+		}
+	}
+
+	if len(insights) > 9 {
+		insights = insights[:9]
+	}
+
+	return insights
+}
+
+// cleanEChartsJSONSimple is a simplified version of cleanEChartsJSON for use in chat_service.
+// It removes JavaScript function definitions from ECharts JSON to make it parseable.
+func cleanEChartsJSONSimple(jsonStr string) string {
+	result := jsonStr
+
+	for {
+		idx := strings.Index(result, "function")
+		if idx < 0 {
+			break
+		}
+
+		// Check if preceded by colon (JSON value context)
+		prefixStart := idx - 1
+		for prefixStart >= 0 && (result[prefixStart] == ' ' || result[prefixStart] == '\t' || result[prefixStart] == '\n' || result[prefixStart] == '\r') {
+			prefixStart--
+		}
+		if prefixStart < 0 || result[prefixStart] != ':' {
+			result = result[:idx] + "FUNC_SKIP" + result[idx+8:]
+			continue
+		}
+
+		// Find opening brace
+		braceStart := strings.Index(result[idx:], "{")
+		if braceStart < 0 {
+			break
+		}
+		braceStart += idx
+
+		// Find matching closing brace
+		depth := 0
+		braceEnd := -1
+		for i := braceStart; i < len(result); i++ {
+			if result[i] == '{' {
+				depth++
+			} else if result[i] == '}' {
+				depth--
+				if depth == 0 {
+					braceEnd = i
+					break
+				}
+			}
+		}
+		if braceEnd < 0 {
+			break
+		}
+
+		// Walk back to find key start
+		removeStart := prefixStart
+		keyStart := removeStart - 1
+		for keyStart >= 0 && (result[keyStart] == ' ' || result[keyStart] == '\t' || result[keyStart] == '\n' || result[keyStart] == '\r') {
+			keyStart--
+		}
+		if keyStart >= 0 && result[keyStart] == '"' {
+			keyStart--
+			for keyStart >= 0 && result[keyStart] != '"' {
+				keyStart--
+			}
+			if keyStart > 0 {
+				keyStart--
+				for keyStart >= 0 && (result[keyStart] == ' ' || result[keyStart] == '\t' || result[keyStart] == '\n' || result[keyStart] == '\r') {
+					keyStart--
+				}
+				if keyStart >= 0 && result[keyStart] == ',' {
+					removeStart = keyStart
+				} else {
+					removeStart = keyStart + 1
+				}
+			}
+		}
+
+		after := result[braceEnd+1:]
+		trimmedAfter := strings.TrimLeft(after, " \t\n\r")
+		if len(trimmedAfter) > 0 && trimmedAfter[0] == ',' && removeStart > 0 && result[removeStart] != ',' {
+			after = trimmedAfter[1:]
+		}
+		result = result[:removeStart] + after
+	}
+
+	result = strings.ReplaceAll(result, "FUNC_SKIP", "function")
+
+	reTrailingComma := regexp.MustCompile(`,(\s*[}\]])`)
+	result = reTrailingComma.ReplaceAllString(result, "$1")
+
+	return result
 }

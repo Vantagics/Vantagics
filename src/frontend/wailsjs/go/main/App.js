@@ -202,6 +202,10 @@ export function GenerateIntentSuggestionsWithExclusions(arg1, arg2, arg3) {
   return window['go']['main']['App']['GenerateIntentSuggestionsWithExclusions'](arg1, arg2, arg3);
 }
 
+export function GenerateReport(arg1) {
+  return window['go']['main']['App']['GenerateReport'](arg1);
+}
+
 export function GetActivatedLLMConfig() {
   return window['go']['main']['App']['GetActivatedLLMConfig']();
 }

@@ -29,11 +29,32 @@ func NewPDFExportService() *PDFExportService {
 
 // DashboardData represents dashboard export data
 type DashboardData struct {
-	UserRequest string
-	Metrics     []MetricData
-	Insights    []string
-	ChartImages []string // base64 encoded images
-	TableData   *TableData
+	UserRequest    string
+	DataSourceName string // 数据源名称
+	ReportTitle    string // LLM生成的报告标题（可选，为空时使用默认标题）
+	Metrics        []MetricData
+	Insights       []string
+	ChartImages    []string // base64 encoded images
+	TableData      *TableData
+	AllTableData   []NamedTableExportData // 多个表格数据
+}
+
+// GetReportTitle returns the report title, using ReportTitle if set,
+// otherwise generating a default title from DataSourceName.
+func (d DashboardData) GetReportTitle() string {
+	if d.ReportTitle != "" {
+		return d.ReportTitle
+	}
+	if d.DataSourceName != "" {
+		return d.DataSourceName + "数据分析报告"
+	}
+	return "数据分析报告"
+}
+
+// NamedTableExportData represents a named table for export
+type NamedTableExportData struct {
+	Name  string
+	Table TableData
 }
 
 type MetricData struct {
@@ -84,29 +105,25 @@ func (s *PDFExportService) exportWithMaroto(data DashboardData) ([]byte, error) 
 	m := maroto.New(cfg)
 
 	// Add header
-	s.addHeader(m, "智能仪表盘报告")
+	reportTitle := data.GetReportTitle()
+	s.addHeader(m, reportTitle, data.DataSourceName, data.UserRequest)
 
-	// Add user request section
-	if data.UserRequest != "" {
-		s.addUserRequest(m, data.UserRequest)
-	}
-
-	// Add metrics section
-	if len(data.Metrics) > 0 {
-		s.addMetrics(m, data.Metrics)
-	}
-
-	// Add insights section
+	// Add insights section FIRST (LLM-generated analysis narrative is the main body)
 	if len(data.Insights) > 0 {
 		s.addInsights(m, data.Insights)
 	}
 
-	// Add chart images
+	// Add metrics section (supporting data)
+	if len(data.Metrics) > 0 {
+		s.addMetrics(m, data.Metrics)
+	}
+
+	// Add chart images (visual evidence)
 	if len(data.ChartImages) > 0 {
 		s.addCharts(m, data.ChartImages)
 	}
 
-	// Add table data
+	// Add table data (detailed data)
 	if data.TableData != nil && len(data.TableData.Columns) > 0 {
 		s.addTable(m, data.TableData)
 	}
@@ -124,7 +141,7 @@ func (s *PDFExportService) exportWithMaroto(data DashboardData) ([]byte, error) 
 }
 
 // addHeader adds the report header
-func (s *PDFExportService) addHeader(m core.Maroto, title string) {
+func (s *PDFExportService) addHeader(m core.Maroto, title string, dataSourceName string, userRequest string) {
 	m.AddRow(20,
 		col.New(12).Add(
 			text.New(title, props.Text{
@@ -136,6 +153,34 @@ func (s *PDFExportService) addHeader(m core.Maroto, title string) {
 			}),
 		),
 	)
+
+	// 数据源名称
+	if dataSourceName != "" {
+		m.AddRow(8,
+			col.New(12).Add(
+				text.New(fmt.Sprintf("数据源: %s", dataSourceName), props.Text{
+					Family: fontfamily.Arial,
+					Size:   11,
+					Align:  align.Center,
+					Color:  &props.Color{Red: 71, Green: 85, Blue: 105},
+				}),
+			),
+		)
+	}
+
+	// 分析请求
+	if userRequest != "" {
+		m.AddRow(8,
+			col.New(12).Add(
+				text.New(fmt.Sprintf("分析请求: %s", userRequest), props.Text{
+					Family: fontfamily.Arial,
+					Size:   11,
+					Align:  align.Center,
+					Color:  &props.Color{Red: 71, Green: 85, Blue: 105},
+				}),
+			),
+		)
+	}
 
 	// Add timestamp
 	timestamp := time.Now().Format("2006-01-02 15:04:05")

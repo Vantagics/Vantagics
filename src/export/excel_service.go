@@ -28,3 +28,17 @@ func (s *ExcelExportService) ExportMultipleTablesToExcel(tables map[string]*Tabl
 	}
 	return s.service.ExportMultipleTablesToExcel(tables)
 }
+
+// NamedTable represents a table with a name, preserving order for multi-sheet export
+type NamedTable struct {
+	Name  string
+	Table *TableData
+}
+
+// ExportOrderedTablesToExcel exports multiple tables to different sheets preserving order
+func (s *ExcelExportService) ExportOrderedTablesToExcel(tables []NamedTable) ([]byte, error) {
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("no tables to export")
+	}
+	return s.service.ExportOrderedTablesToExcel(tables)
+}

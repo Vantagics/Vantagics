@@ -420,16 +420,12 @@ function cleanEChartsJsonString(jsonStr: string): string {
  * 当 JSON 字符串中包含 function(...){...} 时，先清理这些函数再解析
  */
 export function normalizeECharts(data: string | object): NormalizedResult<object> {
-  logger.warn('[Normalize] Processing ECharts data, input type: ' + typeof data);
-  
   try {
     let parsed: object;
     
     if (typeof data === 'string') {
       // 检查是否为文件引用格式 - 直接返回，让组件层面处理
       if (isFileReference(data)) {
-        logger.debug(`[Normalize] ECharts data is a file reference: ${data}, passing through`);
-        // 返回一个特殊对象，标记这是一个文件引用
         return { 
           success: true, 
           data: { 
@@ -439,33 +435,23 @@ export function normalizeECharts(data: string | object): NormalizedResult<object
         };
       }
       
-      logger.warn('[Normalize] ECharts input is string (length=' + data.length + '), parsing JSON');
-      logger.warn('[Normalize] ECharts string preview: ' + data.substring(0, 150));
-      
       // 首先尝试直接解析
       try {
         parsed = JSON.parse(data);
-        logger.warn('[Normalize] ECharts JSON.parse succeeded, result type: ' + typeof parsed);
       } catch (parseError) {
         // 如果解析失败，可能是因为包含 JavaScript 函数
-        // 尝试清理函数后再解析
-        logger.warn('[Normalize] Initial JSON parse failed: ' + parseError + ', attempting to clean JavaScript functions');
         const cleanedData = cleanEChartsJsonString(data);
         
         try {
           parsed = JSON.parse(cleanedData);
-          logger.warn('[Normalize] Successfully parsed after cleaning JavaScript functions');
         } catch (cleanParseError) {
-          // 如果清理后仍然无法解析，抛出原始错误
           logger.error(`[Normalize] Failed to parse ECharts data even after cleaning: ${cleanParseError}`);
           throw parseError;
         }
       }
     } else if (typeof data === 'object' && data !== null) {
       parsed = data;
-      logger.warn('[Normalize] ECharts data is already an object, keys: ' + Object.keys(data).join(', '));
     } else {
-      logger.warn('[Normalize] Invalid ECharts data: expected string or object, got ' + typeof data);
       return { success: false, error: 'Invalid ECharts data: expected string or object' };
     }
     
@@ -477,10 +463,7 @@ export function normalizeECharts(data: string | object): NormalizedResult<object
     
     // 使用增强的验证方法
     if (!isValidEChartsConfig(parsed)) {
-      logger.warn('[Normalize] Data does not appear to be a valid ECharts config, but proceeding anyway');
       // 仍然返回成功，因为可能是简化的配置
-    } else {
-      logger.debug('[Normalize] ECharts config validation passed');
     }
     
     return { success: true, data: parsed };
@@ -559,6 +542,12 @@ export function normalizeTable(data: any): NormalizedResult<NormalizedTableData>
     
     // 解析字符串
     if (typeof data === 'string') {
+      // 检查是否为文件引用格式 - 后端应该已经解析，但作为安全网
+      if (isFileReference(data)) {
+        logger.warn('[Normalize] Table data is a file reference that was not resolved by backend: ' + data);
+        return { success: false, error: 'Table data is an unresolved file reference: ' + data };
+      }
+      
       logger.debug('[Normalize] Table input is string, parsing JSON');
       // 清理可能的formatter函数（ECharts残留）
       let cleanedData = data

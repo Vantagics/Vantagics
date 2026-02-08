@@ -59,132 +59,110 @@ func (b *AnalysisPromptBuilder) BuildPrompt(userRequest string, schemaContext *U
 	return b.BuildPromptWithHints(userRequest, schemaContext, outputFormat, nil)
 }
 
-// BuildPromptWithHints constructs the prompt with LLM classification hints
+// BuildPromptWithHints constructs the prompt with LLM classification hints.
+// Uses a single English prompt with a "match user's language" instruction,
+// so the LLM naturally adapts chart labels and print output to the user's language.
 func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaContext *UnifiedSchemaContext, outputFormat string, hints *ClassificationResult) string {
 	var sb strings.Builder
 
-	sb.WriteString("你是一个数据分析专家。请根据用户请求生成完整的Python分析代码。\n\n")
+	sb.WriteString("You are a data analysis expert. Generate complete Python analysis code based on the user request.\n\n")
 
-	// User request section
-	sb.WriteString("## 用户请求\n")
+	sb.WriteString("## User Request\n")
 	sb.WriteString(userRequest)
 	sb.WriteString("\n\n")
 
-	// Add classification hints if available - with stronger emphasis on visualization
+	// Add classification hints if available
 	if hints != nil {
-		sb.WriteString("## 分析要求（基于请求理解）\n")
+		sb.WriteString("## Analysis Requirements\n")
 		if hints.NeedsVisualization {
-			sb.WriteString("- ⭐⭐⭐ **【必须】生成可视化图表** - 这是核心要求！\n")
-			sb.WriteString("  - 使用 matplotlib/seaborn 创建图表\n")
-			sb.WriteString("  - 必须调用 plt.savefig() 保存图表到 FILES_DIR\n")
-			sb.WriteString("  - 图表文件名: chart.png\n")
+			sb.WriteString("- ⭐⭐⭐ **[MUST] Generate visualization chart** - core requirement!\n")
+			sb.WriteString("  - Use matplotlib/seaborn to create charts\n")
+			sb.WriteString("  - Must call plt.savefig() to save chart to FILES_DIR\n")
+			sb.WriteString("  - Chart filename: chart.png\n")
 			if hints.SuggestedChartType != "" {
 				chartTypeDesc := map[string]string{
-					"line":        "折线图 (plt.plot) - 适合展示趋势变化",
-					"bar":         "柱状图 (plt.bar) - 适合分类对比",
-					"pie":         "饼图 (plt.pie) - 适合展示占比分布",
-					"grouped_bar": "分组柱状图 - 适合多维度对比",
-					"scatter":     "散点图 (plt.scatter) - 适合相关性分析",
-					"heatmap":     "热力图 (sns.heatmap) - 适合矩阵数据",
+					"line":        "Line chart (plt.plot) - for trends",
+					"bar":         "Bar chart (plt.bar) - for category comparison",
+					"pie":         "Pie chart (plt.pie) - for proportions",
+					"grouped_bar": "Grouped bar chart - for multi-dimensional comparison",
+					"scatter":     "Scatter plot (plt.scatter) - for correlation analysis",
+					"heatmap":     "Heatmap (sns.heatmap) - for matrix data",
 				}
 				if desc, ok := chartTypeDesc[hints.SuggestedChartType]; ok {
-					sb.WriteString(fmt.Sprintf("  - 推荐图表类型: %s\n", desc))
+					sb.WriteString(fmt.Sprintf("  - Recommended chart type: %s\n", desc))
 				}
 			}
 		}
 		if hints.NeedsDataExport {
-			sb.WriteString("- ⭐ **必须导出数据文件** - 使用df.to_excel()保存到SESSION_DIR\n")
+			sb.WriteString("- ⭐ **Must export data file** - use df.to_excel() to save to FILES_DIR\n")
 		}
 		if len(hints.SuggestedOutputs) > 0 {
-			sb.WriteString(fmt.Sprintf("- 建议输出: %s\n", strings.Join(hints.SuggestedOutputs, ", ")))
+			sb.WriteString(fmt.Sprintf("- Suggested outputs: %s\n", strings.Join(hints.SuggestedOutputs, ", ")))
 		}
 		if hints.Reasoning != "" {
-			sb.WriteString(fmt.Sprintf("- 分析原因: %s\n", hints.Reasoning))
+			sb.WriteString(fmt.Sprintf("- Reasoning: %s\n", hints.Reasoning))
 		}
 		sb.WriteString("\n")
 	} else {
-		// Even without hints, encourage visualization for analysis requests
-		sb.WriteString("## 分析要求\n")
-		sb.WriteString("- ⭐ **建议生成可视化图表** - 图表能更直观地展示分析结果\n")
-		sb.WriteString("- 使用 plt.savefig() 保存图表到 FILES_DIR/chart.png\n\n")
+		sb.WriteString("## Analysis Requirements\n")
+		sb.WriteString("- ⭐ **Recommend generating visualization charts**\n")
+		sb.WriteString("- Use plt.savefig() to save chart to FILES_DIR/chart.png\n\n")
 	}
 
 	// Database info section
-	sb.WriteString("## 数据库信息\n")
-	sb.WriteString(fmt.Sprintf("- 数据库类型: %s\n", schemaContext.DatabaseType))
-	sb.WriteString("- 数据库路径: {DB_PATH} (运行时注入)\n")
-	sb.WriteString("- 文件保存目录: {FILES_DIR} (运行时注入，所有生成的文件必须保存到此目录)\n\n")
+	sb.WriteString("## Database Info\n")
+	sb.WriteString(fmt.Sprintf("- Database type: %s\n", schemaContext.DatabaseType))
+	sb.WriteString("- Database path: {DB_PATH} (injected at runtime)\n")
+	sb.WriteString("- File save directory: {FILES_DIR} (injected at runtime)\n\n")
 
 	// Schema section
-	sb.WriteString("## 数据库Schema\n")
+	sb.WriteString("## Database Schema\n")
 	sb.WriteString(b.formatSchemaForPrompt(schemaContext))
 	sb.WriteString("\n")
 
-	// Code requirements section - 更强调文件保存
-	sb.WriteString("## 代码要求（必须严格遵守）\n")
-	sb.WriteString("1. 代码必须完整可执行，不需要任何修改\n")
-	sb.WriteString("2. 使用sqlite3连接数据库，pandas处理数据\n")
-	sb.WriteString("3. **⭐⭐⭐ 图表必须实际保存**: \n")
+	// Code requirements section
+	sb.WriteString("## Code Requirements (strict)\n")
+	sb.WriteString("1. Code must be complete and executable without modifications\n")
+	sb.WriteString("2. Use sqlite3 for database, pandas for data processing\n")
+	sb.WriteString("3. **⭐⭐⭐ Charts must be saved**:\n")
 	sb.WriteString("   ```python\n")
-	sb.WriteString("   # 必须包含以下代码来保存图表\n")
 	sb.WriteString("   chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
 	sb.WriteString("   plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')\n")
 	sb.WriteString("   plt.close()\n")
-	sb.WriteString("   print(f'✅ 图表已保存: {chart_path}')\n")
 	sb.WriteString("   ```\n")
-	sb.WriteString("4. 所有输出使用中文（图表标题、标签、洞察）\n")
-	sb.WriteString("5. 包含完整的错误处理（try-except-finally）\n")
-	sb.WriteString("6. 在finally块中关闭数据库连接\n")
-	sb.WriteString("7. 使用print输出分析结果和关键洞察\n")
-	sb.WriteString("8. 数据库路径使用变量DB_PATH，文件保存目录使用变量FILES_DIR\n")
-	sb.WriteString("9. 图表配置: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei']\n")
-	sb.WriteString("10. **图表美化**: 使用合适的颜色、标题、标签，确保图表清晰易读\n")
-	
-	// Data export requirement based on hints
+	sb.WriteString("4. **LANGUAGE**: All user-facing output (chart titles, labels, print statements, insights) MUST be in the SAME language as the user's request above\n")
+	sb.WriteString("5. Include complete error handling (try-except-finally)\n")
+	sb.WriteString("6. Close database connection in finally block\n")
+	sb.WriteString("7. Use print to output analysis results and key insights\n")
+	sb.WriteString("8. Use DB_PATH for database path, FILES_DIR for file save directory\n")
+	sb.WriteString("9. Font config: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']\n")
+	sb.WriteString("10. **Chart styling**: Use appropriate colors, titles, labels\n")
+
+	// Data export requirement
 	if hints != nil && hints.NeedsDataExport {
-		sb.WriteString("10. **数据必须实际导出**: 使用以下代码保存Excel:\n")
+		sb.WriteString("11. **Data export**:\n")
 		sb.WriteString("    ```python\n")
 		sb.WriteString("    export_path = os.path.join(FILES_DIR, 'analysis_data.xlsx')\n")
-		sb.WriteString("    df.to_excel(export_path, index=False, sheet_name='数据')\n")
-		sb.WriteString("    print(f'✅ 数据已导出: {export_path}')\n")
+		sb.WriteString("    df.to_excel(export_path, index=False)\n")
 		sb.WriteString("    ```\n")
 	}
 	sb.WriteString("\n")
 
-	// Critical warning about file generation
-	sb.WriteString("## ⚠️ 重要警告 - 文件保存\n")
-	sb.WriteString("**必须使用 FILES_DIR 变量保存所有文件，不要使用其他路径！**\n\n")
-	sb.WriteString("正确示例:\n")
-	sb.WriteString("```python\n")
-	sb.WriteString("# 在代码开头定义（会被自动替换为实际路径）\n")
-	sb.WriteString("FILES_DIR = \"{FILES_DIR}\"\n")
-	sb.WriteString("os.makedirs(FILES_DIR, exist_ok=True)  # 确保目录存在\n\n")
-	sb.WriteString("# 保存图表\n")
-	sb.WriteString("chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
-	sb.WriteString("plt.savefig(chart_path, dpi=150, bbox_inches='tight')\n")
-	sb.WriteString("print(f'✅ 图表已保存: {chart_path}')\n\n")
-	sb.WriteString("# 保存Excel\n")
-	sb.WriteString("excel_path = os.path.join(FILES_DIR, 'data.xlsx')\n")
-	sb.WriteString("df.to_excel(excel_path, index=False)\n")
-	sb.WriteString("print(f'✅ Excel已保存: {excel_path}')\n")
-	sb.WriteString("```\n\n")
-	sb.WriteString("**错误示例（不要这样做）:**\n")
-	sb.WriteString("- ❌ `plt.savefig('chart.png')` - 没有使用 FILES_DIR\n")
-	sb.WriteString("- ❌ `plt.savefig('/tmp/chart.png')` - 使用了硬编码路径\n")
-	sb.WriteString("- ❌ `df.to_excel('data.xlsx')` - 没有使用 FILES_DIR\n\n")
+	// File saving warning
+	sb.WriteString("## ⚠️ File Saving\n")
+	sb.WriteString("**Must use FILES_DIR variable for all files. No other paths!**\n\n")
 
-	// Output format section
-	sb.WriteString("## 输出格式\n")
-	sb.WriteString("只输出Python代码，不要其他解释。代码用```python和```包裹。\n\n")
+	// Output format
+	sb.WriteString("## Output Format\n")
+	sb.WriteString("Output only Python code, no explanations. Wrap in ```python and ```.\n\n")
 
-	// Template section - always use visualization template for analysis
+	// Template section
 	template := b.GetTemplate(outputFormat)
 	if template == nil || outputFormat == "standard" {
-		// Default to visualization for analysis requests
 		template = b.templates["visualization"]
 	}
 	if template != nil {
-		sb.WriteString("## 代码结构参考\n")
+		sb.WriteString("## Code Structure Reference\n")
 		sb.WriteString("```python\n")
 		sb.WriteString(template.Structure)
 		sb.WriteString("\n```\n")
@@ -192,6 +170,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 
 	return sb.String()
 }
+
 
 // formatSchemaForPrompt formats schema context for the prompt
 func (b *AnalysisPromptBuilder) formatSchemaForPrompt(ctx *UnifiedSchemaContext) string {

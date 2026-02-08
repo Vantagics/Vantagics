@@ -1,6 +1,14 @@
 @echo off
 REM VantageData Build Script
 
+REM Proxy settings (SOCKS5)
+set "HTTP_PROXY=socks5://127.0.0.1:10808"
+set "HTTPS_PROXY=socks5://127.0.0.1:10808"
+
+REM Ensure GOPATH\bin is in PATH for wails, makefat, etc.
+for /f "delims=" %%i in ('go env GOPATH') do set "GOPATH_DIR=%%i"
+set "PATH=%GOPATH_DIR%\bin;%PATH%"
+
 set "SRC_DIR=src"
 set "DIST_DIR=dist"
 set "BUILD_DIR=src\build\bin"
@@ -160,6 +168,24 @@ if errorlevel 1 (
 
 cd /d ..\..
 echo   appdata_manager built successfully.
+
+REM Build license_server for Windows
+echo   Building license_server (Windows)...
+cd /d "tools\license_server"
+set GOOS=windows
+set GOARCH=amd64
+set CGO_ENABLED=1
+go build -o "..\..\%DIST_DIR%\tools\license_server.exe" -ldflags="-s -w" .
+if errorlevel 1 (
+    echo Error: license_server Windows build failed!
+    echo Note: go-sqlcipher requires GCC (MinGW-w64). Install via MSYS2:
+    echo   pacman -S mingw-w64-x86_64-gcc
+    cd /d ..\..
+    exit /b 1
+)
+cd /d ..\..
+echo   license_server built successfully.
+
 echo.
 echo Tools directory: %DIST_DIR%\tools
 exit /b 0
@@ -168,4 +194,6 @@ exit /b 0
 if exist "%DIST_DIR%" rmdir /s /q "%DIST_DIR%"
 if exist "tools\appdata_manager\appdata_manager.exe" del /q "tools\appdata_manager\appdata_manager.exe"
 if exist "tools\appdata_manager\appdata_manager" del /q "tools\appdata_manager\appdata_manager"
+if exist "tools\license_server\build\license_server.exe" del /q "tools\license_server\build\license_server.exe"
+if exist "tools\license_server\build\license_server_macos" del /q "tools\license_server\build\license_server_macos"
 exit /b 0

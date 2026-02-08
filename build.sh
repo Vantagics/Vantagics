@@ -73,6 +73,9 @@ case $COMMAND in
         rm -rf "$SRC_DIR/frontend/dist"
         rm -f "tools/appdata_manager/appdata_manager"
         rm -f "tools/appdata_manager/appdata_manager.exe"
+        rm -f "tools/license_server/build/license_server"
+        rm -f "tools/license_server/build/license_server.exe"
+        rm -f "tools/license_server/build/license_server_macos"
         echo "Done."
         exit 0
         ;;
@@ -232,6 +235,30 @@ EOF
         fi
         
         echo "  appdata_manager built successfully."
+        cd "../.."
+        
+        # Build license_server
+        echo "  Building license_server..."
+        cd "tools/license_server"
+        
+        if [[ "$PLATFORM" == *"darwin"* ]]; then
+            if [ "$PLATFORM" == "darwin/universal" ]; then
+                CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o license_server_amd64 -ldflags="-s -w" .
+                CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o license_server_arm64 -ldflags="-s -w" .
+                lipo -create -output "../../$BUILD_DIR/tools/license_server" license_server_amd64 license_server_arm64
+                rm -f license_server_amd64 license_server_arm64
+            else
+                CGO_ENABLED=1 go build -o "../../$BUILD_DIR/tools/license_server" -ldflags="-s -w" .
+            fi
+        elif [ "$PLATFORM" == "windows" ]; then
+            CGO_ENABLED=1 GOOS=windows GOARCH=amd64 go build -o "../../$BUILD_DIR/tools/license_server.exe" -ldflags="-s -w" .
+        elif [ "$PLATFORM" == "linux" ]; then
+            CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o "../../$BUILD_DIR/tools/license_server" -ldflags="-s -w" .
+        else
+            CGO_ENABLED=1 go build -o "../../$BUILD_DIR/tools/license_server" -ldflags="-s -w" .
+        fi
+        
+        echo "  license_server built successfully."
         cd "../../$SRC_DIR"
         
         echo ""

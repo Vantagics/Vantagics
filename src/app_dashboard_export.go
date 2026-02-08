@@ -20,12 +20,20 @@ import (
 
 // DashboardExportData represents the data structure for dashboard export
 type DashboardExportData struct {
-	UserRequest string            `json:"userRequest"`
-	Metrics     []DashboardMetric `json:"metrics"`
-	Insights    []string          `json:"insights"`
-	ChartImage  string            `json:"chartImage"`  // base64 image data (single chart, for backward compatibility)
-	ChartImages []string          `json:"chartImages"` // base64 image data (multiple charts)
-	TableData   *TableData        `json:"tableData"`   // table data if present
+	UserRequest    string            `json:"userRequest"`
+	DataSourceName string            `json:"dataSourceName"` // 数据源名称
+	Metrics        []DashboardMetric `json:"metrics"`
+	Insights       []string          `json:"insights"`
+	ChartImage     string            `json:"chartImage"`  // base64 image data (single chart, for backward compatibility)
+	ChartImages    []string          `json:"chartImages"` // base64 image data (multiple charts)
+	TableData      *TableData        `json:"tableData"`   // table data if present (single table, backward compatibility)
+	AllTableData   []NamedTableData  `json:"allTableData"` // all tables with names for multi-sheet export
+}
+
+// NamedTableData represents a table with a name, used for multi-sheet Excel export
+type NamedTableData struct {
+	Name    string    `json:"name"`
+	Table   TableData `json:"table"`
 }
 
 type DashboardMetric struct {
@@ -67,10 +75,11 @@ func (a *App) ExportDashboardToPDF(data DashboardExportData) error {
 	
 	// Convert DashboardExportData to export.DashboardData
 	exportData := export.DashboardData{
-		UserRequest: data.UserRequest,
-		Metrics:     make([]export.MetricData, len(data.Metrics)),
-		Insights:    data.Insights,
-		ChartImages: data.ChartImages,
+		UserRequest:    data.UserRequest,
+		DataSourceName: data.DataSourceName,
+		Metrics:        make([]export.MetricData, len(data.Metrics)),
+		Insights:       data.Insights,
+		ChartImages:    data.ChartImages,
 	}
 
 	// Convert metrics
@@ -779,8 +788,29 @@ func (a *App) ExportTableToExcel(tableData *TableData, sheetName string) error {
 
 
 // ExportDashboardToExcel exports dashboard table data to Excel
+// sanitizeSheetName sanitizes a string for use as an Excel sheet name
+func sanitizeSheetName(name string) string {
+	sanitized := name
+	for _, ch := range []string{":", "\\", "/", "?", "*", "[", "]"} {
+		sanitized = strings.ReplaceAll(sanitized, ch, " ")
+	}
+	sanitized = strings.TrimSpace(sanitized)
+	runes := []rune(sanitized)
+	if len(runes) > 28 {
+		runes = runes[:28]
+	}
+	if len(runes) > 0 {
+		return string(runes)
+	}
+	return ""
+}
+
 func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
-	if data.TableData == nil || len(data.TableData.Columns) == 0 {
+	// Check if we have multiple tables to export
+	hasMultipleTables := len(data.AllTableData) > 0
+	hasSingleTable := data.TableData != nil && len(data.TableData.Columns) > 0
+
+	if !hasMultipleTables && !hasSingleTable {
 		return fmt.Errorf("no table data to export")
 	}
 
@@ -800,42 +830,73 @@ func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
 		return nil // User cancelled
 	}
 
-	// Create Excel export service
 	excelService := export.NewExcelExportService()
 
-	// Convert TableData to export.TableData
-	exportTableData := &export.TableData{
-		Columns: make([]export.TableColumn, len(data.TableData.Columns)),
-		Data:    data.TableData.Data,
-	}
-	for i, col := range data.TableData.Columns {
-		exportTableData.Columns[i] = export.TableColumn{
-			Title:    col.Title,
-			DataType: col.DataType,
-		}
-	}
+	var excelBytes []byte
 
-	// Generate Excel file with dashboard info
-	sheetName := "数据分析"
-	if data.UserRequest != "" {
-		// Sanitize: Excel sheet names cannot contain :\/?*[]
-		sanitized := data.UserRequest
-		for _, ch := range []string{":", "\\", "/", "?", "*", "[", "]"} {
-			sanitized = strings.ReplaceAll(sanitized, ch, " ")
-		}
-		sanitized = strings.TrimSpace(sanitized)
-		runes := []rune(sanitized)
-		if len(runes) > 28 {
-			runes = runes[:28]
-		}
-		if len(runes) > 0 {
-			sheetName = string(runes)
-		}
-	}
+	if hasMultipleTables {
+		// Multi-sheet export: each table as a separate sheet (ordered)
+		var orderedTables []export.NamedTable
+		usedNames := make(map[string]int)
 
-	excelBytes, err := excelService.ExportTableToExcel(exportTableData, sheetName)
-	if err != nil {
-		return fmt.Errorf("Excel生成失败: %v", err)
+		for i, namedTable := range data.AllTableData {
+			sheetName := sanitizeSheetName(namedTable.Name)
+			if sheetName == "" {
+				sheetName = fmt.Sprintf("表格%d", i+1)
+			}
+
+			// Handle duplicate sheet names
+			if count, exists := usedNames[sheetName]; exists {
+				usedNames[sheetName] = count + 1
+				sheetName = fmt.Sprintf("%s(%d)", sheetName, count+1)
+			} else {
+				usedNames[sheetName] = 1
+			}
+
+			exportTableData := &export.TableData{
+				Columns: make([]export.TableColumn, len(namedTable.Table.Columns)),
+				Data:    namedTable.Table.Data,
+			}
+			for j, col := range namedTable.Table.Columns {
+				exportTableData.Columns[j] = export.TableColumn{
+					Title:    col.Title,
+					DataType: col.DataType,
+				}
+			}
+			orderedTables = append(orderedTables, export.NamedTable{
+				Name:  sheetName,
+				Table: exportTableData,
+			})
+		}
+
+		excelBytes, err = excelService.ExportOrderedTablesToExcel(orderedTables)
+		if err != nil {
+			return fmt.Errorf("Excel生成失败: %v", err)
+		}
+	} else {
+		// Single table export (backward compatibility)
+		exportTableData := &export.TableData{
+			Columns: make([]export.TableColumn, len(data.TableData.Columns)),
+			Data:    data.TableData.Data,
+		}
+		for i, col := range data.TableData.Columns {
+			exportTableData.Columns[i] = export.TableColumn{
+				Title:    col.Title,
+				DataType: col.DataType,
+			}
+		}
+
+		sheetName := "数据分析"
+		if data.UserRequest != "" {
+			if s := sanitizeSheetName(data.UserRequest); s != "" {
+				sheetName = s
+			}
+		}
+
+		excelBytes, err = excelService.ExportTableToExcel(exportTableData, sheetName)
+		if err != nil {
+			return fmt.Errorf("Excel生成失败: %v", err)
+		}
 	}
 
 	// Write Excel file
@@ -844,7 +905,7 @@ func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
 		return fmt.Errorf("写入Excel文件失败: %v", err)
 	}
 
-	a.Log(fmt.Sprintf("Dashboard data exported to Excel successfully: %s", savePath))
+	a.Log(fmt.Sprintf("Dashboard data exported to Excel successfully: %s (%d tables)", savePath, max(len(data.AllTableData), 1)))
 	return nil
 }
 
@@ -938,10 +999,11 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 
 	// Convert DashboardExportData to export.DashboardData
 	exportData := export.DashboardData{
-		UserRequest: data.UserRequest,
-		Metrics:     make([]export.MetricData, len(data.Metrics)),
-		Insights:    data.Insights,
-		ChartImages: data.ChartImages,
+		UserRequest:    data.UserRequest,
+		DataSourceName: data.DataSourceName,
+		Metrics:        make([]export.MetricData, len(data.Metrics)),
+		Insights:       data.Insights,
+		ChartImages:    data.ChartImages,
 	}
 
 	// Convert metrics
@@ -1011,10 +1073,11 @@ func (a *App) ExportDashboardToWord(data DashboardExportData) error {
 
 	// Convert DashboardExportData to export.DashboardData
 	exportData := export.DashboardData{
-		UserRequest: data.UserRequest,
-		Metrics:     make([]export.MetricData, len(data.Metrics)),
-		Insights:    data.Insights,
-		ChartImages: data.ChartImages,
+		UserRequest:    data.UserRequest,
+		DataSourceName: data.DataSourceName,
+		Metrics:        make([]export.MetricData, len(data.Metrics)),
+		Insights:       data.Insights,
+		ChartImages:    data.ChartImages,
 	}
 
 	for i, metric := range data.Metrics {

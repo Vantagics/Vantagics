@@ -6,6 +6,7 @@ require (
 	github.com/AxT-Team/uapi-sdk-go v0.1.4
 	github.com/PuerkitoBio/goquery v1.11.0
 	github.com/VantageDataChat/GoExcel v0.1.0
+	github.com/VantageDataChat/GoPDF2 v0.1.0
 	github.com/VantageDataChat/GoPPT v0.1.0
 	github.com/VantageDataChat/GoWord v0.1.0
 	github.com/cloudwego/eino v0.7.18
@@ -15,8 +16,6 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto/v2 v2.3.3
-	github.com/jung-kurt/gofpdf v1.16.2
-	github.com/signintech/gopdf v0.35.0
 	github.com/wailsapp/wails/v2 v2.11.0
 	modernc.org/sqlite v1.42.2
 )
@@ -93,6 +92,7 @@ require (
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yargevad/filepathx v1.0.0 // indirect
+	go.mozilla.org/pkcs7 v0.9.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
 	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
@@ -111,6 +111,7 @@ require (
 
 replace (
 	github.com/VantageDataChat/GoExcel v0.1.0 => github.com/VantageDataChat/GoExcel v0.0.0-20260207002334-8dd9b8c8d5f7
+	github.com/VantageDataChat/GoPDF2 v0.1.0 => github.com/VantageDataChat/GoPDF2 v0.0.0-20260208045416-72bc1fe51719
 	github.com/VantageDataChat/GoPPT v0.1.0 => github.com/VantageDataChat/GoPPT v0.0.0-20260207004326-8dd0027aaca8
 	github.com/VantageDataChat/GoWord v0.1.0 => github.com/VantageDataChat/GoWord v0.0.0-20260207005551-23d2a8f9c6a2
 )

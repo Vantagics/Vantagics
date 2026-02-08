@@ -265,7 +265,8 @@ type AnalysisResultBatch struct {
 // EventAggregator aggregates multiple events into batched updates
 type EventAggregator struct {
 	ctx          context.Context
-	pendingItems map[string]*pendingBatch // sessionId -> pending batch
+	pendingItems map[string]*pendingBatch    // sessionId -> pending batch
+	flushedItems map[string][]AnalysisResultItem // sessionId -> all items flushed so far (for persistence)
 	mutex        sync.Mutex
 	flushTimers  map[string]*time.Timer   // sessionId -> flush timer
 	flushDelay   time.Duration            // delay before flushing (default 50ms)
@@ -285,6 +286,7 @@ func NewEventAggregator(ctx context.Context) *EventAggregator {
 	return &EventAggregator{
 		ctx:          ctx,
 		pendingItems: make(map[string]*pendingBatch),
+		flushedItems: make(map[string][]AnalysisResultItem),
 		flushTimers:  make(map[string]*time.Timer),
 		flushDelay:   50 * time.Millisecond,
 		logger:       nil,
@@ -545,6 +547,37 @@ func (ea *EventAggregator) FlushNow(sessionID string, isComplete bool) []Analysi
 	return ea.flushAndReturn(sessionID, isComplete)
 }
 
+// GetAllFlushedItems returns all items that have been flushed for a session
+// (including items flushed by timer before FlushNow was called).
+// This is used for persistence to ensure all analysis results are saved.
+func (ea *EventAggregator) GetAllFlushedItems(sessionID string) []AnalysisResultItem {
+	ea.mutex.Lock()
+	defer ea.mutex.Unlock()
+	
+	items := ea.flushedItems[sessionID]
+	if len(items) == 0 {
+		ea.logf("[EVENT-AGG] GetAllFlushedItems: no flushed items for sessionID=%s", sessionID)
+		return nil
+	}
+	
+	// Return a copy
+	result := make([]AnalysisResultItem, len(items))
+	copy(result, items)
+	
+	ea.logf("[EVENT-AGG] GetAllFlushedItems: returning %d items for sessionID=%s", len(result), sessionID)
+	return result
+}
+
+// ClearFlushedItems clears the tracked flushed items for a session.
+// Should be called after items have been persisted.
+func (ea *EventAggregator) ClearFlushedItems(sessionID string) {
+	ea.mutex.Lock()
+	defer ea.mutex.Unlock()
+	
+	delete(ea.flushedItems, sessionID)
+	ea.logf("[EVENT-AGG] ClearFlushedItems: cleared flushed items for sessionID=%s", sessionID)
+}
+
 // flushAndReturn sends the pending batch as an event and returns the items
 func (ea *EventAggregator) flushAndReturn(sessionID string, isComplete bool) []AnalysisResultItem {
 	ea.mutex.Lock()
@@ -560,9 +593,12 @@ func (ea *EventAggregator) flushAndReturn(sessionID string, isComplete bool) []A
 	items := make([]AnalysisResultItem, len(batch.items))
 	copy(items, batch.items)
 	
+	// Track all flushed items for this session (used by GetAllFlushedItems for persistence)
+	ea.flushedItems[sessionID] = append(ea.flushedItems[sessionID], items...)
+	
 	// Log the flush operation with item count
-	ea.logf("[EVENT-AGG] Flushing %d items for sessionID=%s, messageID=%s, requestID=%s, isComplete=%v", 
-		len(items), batch.sessionID, batch.messageID, batch.requestID, isComplete)
+	ea.logf("[EVENT-AGG] Flushing %d items for sessionID=%s, messageID=%s, requestID=%s, isComplete=%v (total flushed: %d)", 
+		len(items), batch.sessionID, batch.messageID, batch.requestID, isComplete, len(ea.flushedItems[sessionID]))
 	
 	// Create the event payload
 	payload := AnalysisResultBatch{
@@ -603,6 +639,7 @@ func (ea *EventAggregator) Clear(sessionID string) {
 		delete(ea.flushTimers, sessionID)
 	}
 	delete(ea.pendingItems, sessionID)
+	delete(ea.flushedItems, sessionID)
 	
 	// Emit clear event
 	runtime.EventsEmit(ea.ctx, "analysis-result-clear", map[string]interface{}{

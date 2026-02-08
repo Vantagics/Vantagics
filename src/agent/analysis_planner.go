@@ -165,33 +165,33 @@ func (p *AnalysisPlanner) PlanAnalysis(ctx context.Context, userQuery string, da
 	}
 
 	// For complex requests, use LLM to plan
-	prompt := fmt.Sprintf(`你是一个数据分析任务规划专家。分析用户请求，创建最优执行计划。
+	prompt := fmt.Sprintf(`You are a data analysis task planning expert. Analyze the user request and create an optimal execution plan.
 
-## 用户请求
+## User Request
 "%s"
 
-## 数据源信息
+## Data Source Info
 %s
 
-## 任务分类规则
-1. **trivial** (无需工具): 问候、闲聊、简单问答
-2. **simple** (1次工具调用): 时间查询、简单计算、单位换算
-3. **moderate** (2-3次工具调用): 单表查询+可视化
-4. **complex** (4+次工具调用): 多表关联、复杂分析
+## Task Classification Rules
+1. **trivial** (no tools): Greetings, small talk, simple Q&A
+2. **simple** (1 tool call): Time queries, simple calculations, unit conversions
+3. **moderate** (2-3 tool calls): Single table query + visualization
+4. **complex** (4+ tool calls): Multi-table joins, complex analysis
 
-## 快速路径检测
-以下情况直接用python_executor，不需要数据源:
-- 时间/日期查询 → datetime模块
-- 数学计算 → 直接计算
-- 单位换算 → 直接换算
-- 随机数/UUID → random/uuid模块
+## Quick Path Detection
+These can use python_executor directly without data source:
+- Time/date queries → datetime module
+- Math calculations → direct computation
+- Unit conversions → direct conversion
+- Random numbers/UUID → random/uuid module
 
-## 输出格式 (JSON)
+## Output Format (JSON)
 {
   "task_type": "simple|data_query|visualization|calculation|web_search",
   "complexity": "trivial|simple|moderate|complex",
   "is_quick_path": true/false,
-  "quick_path_code": "如果is_quick_path为true，提供完整Python代码",
+  "quick_path_code": "if is_quick_path is true, provide complete Python code",
   "needs_schema": true/false,
   "needs_sql": true/false,
   "needs_python": true/false,
@@ -201,24 +201,24 @@ func (p *AnalysisPlanner) PlanAnalysis(ctx context.Context, userQuery string, da
   "steps": [
     {
       "step_num": 1,
-      "tool": "工具名称",
-      "purpose": "这一步的目的",
-      "input": "预期输入",
+      "tool": "tool_name",
+      "purpose": "purpose of this step",
+      "input": "expected input",
       "depends_on": []
     }
   ]
 }
 
-## 规划原则
-1. 最小化工具调用次数
-2. 避免重复获取schema
-3. 尽可能用一条SQL完成查询
-4. 只在需要可视化时才用python_executor
+## Planning Principles
+1. Minimize tool call count
+2. Avoid redundant schema fetches
+3. Use a single SQL query when possible
+4. Only use python_executor when visualization is needed
 
-只输出JSON，不要其他内容。`, userQuery, dataSourceInfo)
+Output only JSON.`, userQuery, dataSourceInfo)
 
 	msgs := []*einoSchema.Message{
-		{Role: einoSchema.System, Content: "你是数据分析任务规划专家。只输出有效JSON。"},
+		{Role: einoSchema.System, Content: "You are a data analysis task planning expert. Output only valid JSON."},
 		{Role: einoSchema.User, Content: prompt},
 	}
 

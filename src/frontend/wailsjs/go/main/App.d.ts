@@ -105,6 +105,8 @@ export function GenerateIntentSuggestions(arg1:string,arg2:string):Promise<Array
 
 export function GenerateIntentSuggestionsWithExclusions(arg1:string,arg2:string,arg3:Array<main.IntentSuggestion>):Promise<Array<main.IntentSuggestion>>;
 
+export function GenerateReport(arg1:main.ReportGenerateRequest):Promise<void>;
+
 export function GetActivatedLLMConfig():Promise<agent.ActivationData>;
 
 export function GetActivationStatus():Promise<Record<string, any>>;

@@ -62,12 +62,15 @@ func alignRight(p *ppt.Paragraph) {
 
 // ExportDashboardToPPT exports dashboard data to PowerPoint format using GoPPT
 func (s *GoPPTService) ExportDashboardToPPT(data DashboardData) ([]byte, error) {
+	// 生成报告标题
+	reportTitle := data.GetReportTitle()
+
 	p := ppt.New()
-	p.GetDocumentProperties().Title = "智能仪表盘报告"
+	p.GetDocumentProperties().Title = reportTitle
 	p.GetDocumentProperties().Creator = "VantageData"
 
 	// Add title slide
-	s.addTitleSlide(p, "智能仪表盘报告", data.UserRequest)
+	s.addTitleSlide(p, reportTitle, data.DataSourceName, data.UserRequest)
 
 	// Add metrics slide if present
 	if len(data.Metrics) > 0 {
@@ -107,7 +110,7 @@ func (s *GoPPTService) ExportDashboardToPPT(data DashboardData) ([]byte, error) 
 }
 
 // addTitleSlide adds a title slide with optional user request
-func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, userRequest string) {
+func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSourceName string, userRequest string) {
 	slide := p.GetActiveSlide()
 
 	// 顶部蓝色装饰条
@@ -118,26 +121,39 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, userRequ
 
 	// Title text
 	titleShape := slide.CreateRichTextShape()
-	titleShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(1.6 * emuPerInch))
-	titleShape.SetWidth(gopptContentWidth).SetHeight(int64(1.0 * emuPerInch))
+	titleShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(1.4 * emuPerInch))
+	titleShape.SetWidth(gopptContentWidth).SetHeight(int64(0.8 * emuPerInch))
 	tr := titleShape.CreateTextRun(title)
 	tr.GetFont().SetSize(gopptFontTitle).SetBold(true).SetColor(ppt.NewColor("FF1E40AF"))
 	alignCenter(titleShape.GetActiveParagraph())
 
+	nextY := 2.4
+
+	// 数据源名称
+	if dataSourceName != "" {
+		dsShape := slide.CreateRichTextShape()
+		dsShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(nextY * emuPerInch))
+		dsShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(0.5 * emuPerInch))
+		dsTr := dsShape.CreateTextRun("数据源: " + dataSourceName)
+		dsTr.GetFont().SetSize(gopptFontSubtitle).SetColor(ppt.NewColor("FF475569"))
+		alignCenter(dsShape.GetActiveParagraph())
+		nextY += 0.6
+	}
+
 	// User request subtitle
 	if userRequest != "" {
 		reqShape := slide.CreateRichTextShape()
-		reqShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(2.8 * emuPerInch))
-		reqShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(0.8 * emuPerInch))
-		reqShape.SetFill(solidFill("FFF8FAFC"))
+		reqShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(nextY * emuPerInch))
+		reqShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(0.5 * emuPerInch))
 
 		displayRequest := userRequest
 		if len([]rune(displayRequest)) > 80 {
 			displayRequest = string([]rune(displayRequest)[:77]) + "..."
 		}
-		reqTr := reqShape.CreateTextRun("「" + displayRequest + "」")
+		reqTr := reqShape.CreateTextRun("分析请求: " + displayRequest)
 		reqTr.GetFont().SetSize(gopptFontSubtitle).SetColor(ppt.NewColor("FF475569"))
 		alignCenter(reqShape.GetActiveParagraph())
+		nextY += 0.8
 	}
 
 	// Timestamp

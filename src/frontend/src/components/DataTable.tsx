@@ -10,6 +10,11 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
 
     // Extract columns from first item
     const columns = Object.keys(data[0]);
+    
+    // Limit displayed rows to prevent UI freeze with large datasets
+    const MAX_DISPLAY_ROWS = 200;
+    const displayData = data.length > MAX_DISPLAY_ROWS ? data.slice(0, MAX_DISPLAY_ROWS) : data;
+    const isTruncated = data.length > MAX_DISPLAY_ROWS;
 
     return (
         <div className="w-full bg-white overflow-hidden flex flex-col">
@@ -30,7 +35,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                         </tr>
                     </thead>
                     <tbody>
-                        {data.map((row, idx) => (
+                        {displayData.map((row, idx) => (
                             <tr key={idx} className="bg-white border-b border-slate-50 hover:bg-slate-50/50">
                                 {columns.map((col) => (
                                     <td key={`${idx}-${col}`} className="px-6 py-4 whitespace-nowrap">
@@ -43,7 +48,10 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                 </table>
             </div>
             <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-right">
-                {data.length} rows
+                {isTruncated 
+                    ? `显示前 ${MAX_DISPLAY_ROWS} 行 / 共 ${data.length} 行`
+                    : `${data.length} rows`
+                }
             </div>
         </div>
     );

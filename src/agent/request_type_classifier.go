@@ -64,85 +64,67 @@ func (c *RequestTypeClassifier) ClassifyRequest(ctx context.Context, userQuery s
 	startTime := time.Now()
 	c.log("[CLASSIFIER-LLM] Classifying request with LLM...")
 
-	prompt := fmt.Sprintf(`你是一个请求分类专家。分析用户请求，判断其类型和所需输出。
+	prompt := fmt.Sprintf(`You are a request classification expert. Analyze the user request and determine its type and required outputs.
 
-## 用户请求
+## User Request
 "%s"
 
-## 数据源信息
+## Data Source Info
 %s
 
-## 分类规则
+## Classification Rules
 
-### 请求类型 (request_type)
-1. **consultation** - 纯咨询/建议请求，用户只是想了解可以做什么，不需要实际执行分析
-   - 例如："这个数据可以做什么分析？"、"有什么分析建议？"、"能帮我做什么？"
-   
-2. **data_analysis** - 数据分析请求，需要查询数据并进行分析
-   - 例如："分析销售趋势"、"统计订单数量"、"查看客户分布"
-   
-3. **visualization** - 明确需要可视化的请求
-   - 例如："画一个图表"、"展示趋势图"、"生成饼图"
-   
-4. **data_export** - 数据导出请求
-   - 例如："导出数据"、"生成报告"、"下载Excel"
-   
-5. **calculation** - 简单计算请求（不需要数据库）
-   - 例如："计算2+2"、"现在几点"
-   
-6. **web_search** - 需要网络搜索的请求
-   - 例如："搜索最新新闻"、"查询股价"
+### Request Type (request_type)
+1. **consultation** - Pure consultation/advice, user just wants to know what can be done
+2. **data_analysis** - Data analysis request, needs querying and analyzing data
+3. **visualization** - Explicitly needs visualization/charts
+4. **data_export** - Data export request
+5. **calculation** - Simple calculation (no database needed)
+6. **web_search** - Needs web search
 
-### 判断是否需要可视化 (needs_visualization) - 重要！
-⭐ **默认应该生成可视化图表**，除非是以下情况：
-- 纯咨询请求（consultation）
-- 简单计算请求（calculation）
-- 用户明确只要文字/数字结果
+### Visualization Decision (needs_visualization)
+**Default to generating charts**, unless:
+- Pure consultation request
+- Simple calculation request
+- User explicitly only wants text/numbers
 
-✅ 以下情况**必须**设置 needs_visualization = true：
-- 任何涉及"分析"、"统计"、"趋势"、"分布"、"对比"、"排名"的请求
-- 涉及时间序列数据（按月、按年、按季度等）
-- 涉及分类数据（按产品、按地区、按客户等）
-- 涉及占比、比例、百分比的分析
-- 涉及 Top N、排行榜类分析
-- 涉及增长、下降、变化趋势分析
-- 涉及销售、收入、利润、订单等业务指标分析
+Must set needs_visualization = true when:
+- Any request involving analysis, statistics, trends, distribution, comparison, ranking
+- Time series data (by month, year, quarter, etc.)
+- Categorical data (by product, region, customer, etc.)
+- Proportions, percentages, ratios
+- Top N, leaderboard analysis
+- Growth, decline, trend analysis
+- Business metrics (sales, revenue, profit, orders)
 
-❌ 以下情况可以设置 needs_visualization = false：
-- 纯粹列出数据（如"列出所有订单"）
-- 查询单个数值（如"总共有多少订单"）
-- 咨询建议类请求
+### Data Export (needs_data_export)
+- true when user explicitly asks to export, download, or generate reports
 
-### 判断是否需要数据导出 (needs_data_export)
-- 用户明确要求导出、下载、生成报告时为true
-- 分析结果较大时建议导出
+### Chart Type (suggested_chart_type)
+- Time trends → "line"
+- Category comparison → "bar"
+- Proportions → "pie"
+- Multi-dimensional → "grouped_bar"
+- Correlation → "scatter"
+- Heat analysis → "heatmap"
 
-### 建议的图表类型 (suggested_chart_type)
-根据分析类型推荐最合适的图表：
-- 时间趋势 → "line"（折线图）
-- 分类对比 → "bar"（柱状图）
-- 占比分布 → "pie"（饼图）
-- 多维对比 → "grouped_bar"（分组柱状图）
-- 相关性分析 → "scatter"（散点图）
-- 热力分析 → "heatmap"（热力图）
-
-## 输出格式 (JSON)
+## Output Format (JSON)
 {
   "request_type": "consultation|data_analysis|visualization|data_export|calculation|web_search",
   "needs_visualization": true/false,
   "needs_data_export": true/false,
   "confidence": 0.0-1.0,
-  "reasoning": "简短解释分类原因",
+  "reasoning": "brief explanation",
   "suggested_outputs": ["chart", "table", "insight", "excel", "pdf"],
   "suggested_chart_type": "line|bar|pie|grouped_bar|scatter|heatmap"
 }
 
-只输出JSON，不要其他内容。`, userQuery, dataSourceInfo)
+Output only JSON.`, userQuery, dataSourceInfo)
 
 	messages := []*schema.Message{
 		{
 			Role:    schema.System,
-			Content: "你是请求分类专家。只输出有效JSON，不要其他内容。",
+			Content: "You are a request classification expert. Output only valid JSON.",
 		},
 		{
 			Role:    schema.User,

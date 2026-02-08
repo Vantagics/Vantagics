@@ -126,6 +126,9 @@ export interface AnalysisResultEvents {
     invalidCount: number;
     itemsByType: Record<string, number>;
   };
+  // 数据全部清除事件 - 当 clearAll() 被调用时触发
+  // 用于通知 useDashboardData 重置本地状态并重新加载数据源统计
+  'data-cleared': {};
 }
 
 // 恢复结果统计
