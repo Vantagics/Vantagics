@@ -177,26 +177,26 @@ func (b *AnalysisPromptBuilder) formatSchemaForPrompt(ctx *UnifiedSchemaContext)
 	var sb strings.Builder
 
 	for _, table := range ctx.Tables {
-		sb.WriteString(fmt.Sprintf("### 表: %s", table.Name))
+		sb.WriteString(fmt.Sprintf("### Table: %s", table.Name))
 		if table.RowCount > 0 {
-			sb.WriteString(fmt.Sprintf(" (约 %d 行)", table.RowCount))
+			sb.WriteString(fmt.Sprintf(" (~%d rows)", table.RowCount))
 		}
 		sb.WriteString("\n")
 
-		sb.WriteString("字段:\n")
+		sb.WriteString("Columns:\n")
 		for _, col := range table.Columns {
 			sb.WriteString(fmt.Sprintf("- %s (%s)", col.Name, col.Type))
 			if col.IsPK {
-				sb.WriteString(" [主键]")
+				sb.WriteString(" [PK]")
 			}
 			if col.IsFK && col.RefTable != "" {
-				sb.WriteString(fmt.Sprintf(" [外键->%s]", col.RefTable))
+				sb.WriteString(fmt.Sprintf(" [FK->%s]", col.RefTable))
 			}
 			sb.WriteString("\n")
 		}
 
 		if len(table.SampleData) > 0 {
-			sb.WriteString("\n示例数据:\n")
+			sb.WriteString("\nSample data:\n")
 			for i, row := range table.SampleData {
 				if i >= 2 { // Limit to 2 rows
 					break
@@ -217,7 +217,7 @@ func (b *AnalysisPromptBuilder) formatSchemaForPrompt(ctx *UnifiedSchemaContext)
 	}
 
 	if len(ctx.Relationships) > 0 {
-		sb.WriteString("### 表关系\n")
+		sb.WriteString("### Relationships\n")
 		for _, rel := range ctx.Relationships {
 			sb.WriteString(fmt.Sprintf("- %s.%s -> %s.%s\n", rel.FromTable, rel.FromColumn, rel.ToTable, rel.ToColumn))
 		}

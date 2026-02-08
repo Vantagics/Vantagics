@@ -75,6 +75,8 @@ export function ExportDashboardToWord(arg1:main.DashboardExportData):Promise<voi
 
 export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
+export function ExportReport(arg1:string,arg2:string):Promise<void>;
+
 export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
 
 export function ExportSessionHTML(arg1:string):Promise<void>;
@@ -183,6 +185,8 @@ export function GetStoreConfig(arg1:string):Promise<agent.StoreCredentials>;
 
 export function Greet(arg1:string):Promise<string>;
 
+export function HasActiveAnalysis():Promise<boolean>;
+
 export function ImportAnalysisProcess():Promise<void>;
 
 export function ImportCSVDataSource(arg1:string,arg2:string):Promise<agent.DataSource>;
@@ -226,6 +230,8 @@ export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
 export function OpenShopifyOAuthInBrowser(arg1:string):Promise<void>;
 
 export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
+
+export function PrepareReport(arg1:main.ReportGenerateRequest):Promise<string>;
 
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 

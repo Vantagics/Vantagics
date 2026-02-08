@@ -227,7 +227,7 @@ func (s *ExclusionSummarizer) buildSummary(categories []analysisCategory) string
 	}
 
 	var builder strings.Builder
-	builder.WriteString("已排除的分析方向：\n")
+	builder.WriteString("Excluded analysis directions:\n")
 
 	for _, cat := range categories {
 		line := "- " + cat.name
@@ -237,20 +237,20 @@ func (s *ExclusionSummarizer) buildSummary(categories []analysisCategory) string
 			if len(detailsToShow) > 3 {
 				detailsToShow = detailsToShow[:3]
 			}
-			line += "（" + strings.Join(detailsToShow, "、") + "）"
+			line += " (" + strings.Join(detailsToShow, ", ") + ")"
 		}
 		line += "\n"
 
 		// Check if adding this line would exceed maxLength
-		if builder.Len()+len(line)+len("请从其他角度理解用户意图。") > s.maxLength {
+		if builder.Len()+len(line)+len("Please interpret the user's intent from other angles.") > s.maxLength {
 			// Truncate: add ellipsis and break
-			builder.WriteString("- ...（更多已排除）\n")
+			builder.WriteString("- ...(more excluded)\n")
 			break
 		}
 		builder.WriteString(line)
 	}
 
-	builder.WriteString("请从其他角度理解用户意图。")
+	builder.WriteString("Please interpret the user's intent from other angles.")
 
 	result := builder.String()
 

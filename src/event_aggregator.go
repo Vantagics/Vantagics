@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"vantagedata/i18n"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -69,103 +71,101 @@ func getRecoverySuggestions(errorCode string) []string {
 	switch errorCode {
 	case ErrorCodeAnalysisError:
 		suggestions = append(suggestions, 
-			"请检查您的查询是否清晰明确",
-			"尝试简化查询条件",
-			"如果问题持续，请刷新页面后重试")
+			i18n.T("error.recovery.check_query"),
+			i18n.T("error.recovery.simplify_query"),
+			i18n.T("error.recovery.refresh_retry"))
 	
 	case ErrorCodeAnalysisTimeout:
 		suggestions = append(suggestions,
-			"请尝试简化查询或减少数据范围",
-			"检查网络连接是否稳定",
-			"稍后重试，系统可能正在处理其他任务")
+			i18n.T("error.recovery.reduce_data_range"),
+			i18n.T("error.recovery.check_network"),
+			i18n.T("error.recovery.retry_later"))
 	
 	case ErrorCodeAnalysisCancelled:
 		suggestions = append(suggestions,
-			"您可以重新发起分析请求",
-			"如果是误操作，请再次提交相同的查询")
+			i18n.T("error.recovery.resubmit"),
+			i18n.T("error.recovery.refresh_retry"))
 	
 	case ErrorCodePythonExecution:
 		suggestions = append(suggestions,
-			"请检查数据格式是否正确",
-			"尝试使用不同的分析方式",
-			"如果问题持续，请联系技术支持")
+			i18n.T("error.recovery.check_data_format"),
+			i18n.T("error.recovery.try_different_method"),
+			i18n.T("error.recovery.contact_support"))
 	
 	case ErrorCodePythonSyntax:
 		suggestions = append(suggestions,
-			"系统生成的代码存在语法问题",
-			"请尝试重新描述您的分析需求",
-			"使用更简单的查询语句")
+			i18n.T("error.recovery.rephrase_query"),
+			i18n.T("error.recovery.use_simpler_query"))
 	
 	case ErrorCodePythonImport:
 		suggestions = append(suggestions,
-			"所需的分析库可能未安装",
-			"请联系管理员检查系统配置",
-			"尝试使用其他分析方法")
+			i18n.T("error.recovery.check_libraries"),
+			i18n.T("error.recovery.check_admin"),
+			i18n.T("error.recovery.try_different_method"))
 	
 	case ErrorCodePythonMemory:
 		suggestions = append(suggestions,
-			"数据量可能过大，请减少查询范围",
-			"尝试分批处理数据",
-			"稍后重试，系统可能正在释放资源")
+			i18n.T("error.recovery.reduce_data_range"),
+			i18n.T("error.recovery.reduce_batch"),
+			i18n.T("error.recovery.retry_later"))
 	
 	case ErrorCodeDataNotFound:
 		suggestions = append(suggestions,
-			"请检查数据源是否已正确配置",
-			"确认查询的表或字段名称是否正确",
-			"检查数据是否已被删除或移动")
+			i18n.T("error.recovery.check_datasource"),
+			i18n.T("error.recovery.check_table_field"),
+			i18n.T("error.recovery.check_deleted"))
 	
 	case ErrorCodeDataInvalid:
 		suggestions = append(suggestions,
-			"请检查数据格式是否符合要求",
-			"确认数据类型是否正确",
-			"尝试清理或重新导入数据")
+			i18n.T("error.recovery.check_data_format"),
+			i18n.T("error.recovery.check_data_type"),
+			i18n.T("error.recovery.clean_reimport"))
 	
 	case ErrorCodeDataEmpty:
 		suggestions = append(suggestions,
-			"当前查询条件下没有数据",
-			"请尝试调整筛选条件",
-			"检查数据源是否包含所需数据")
+			i18n.T("error.recovery.adjust_filters"),
+			i18n.T("error.recovery.check_data_exists"))
 	
 	case ErrorCodeDataTooLarge:
 		suggestions = append(suggestions,
-			"请减少查询的数据范围",
-			"添加更多筛选条件",
-			"考虑分页或分批查询")
+			i18n.T("error.recovery.reduce_data_range"),
+			i18n.T("error.recovery.add_filters"),
+			i18n.T("error.recovery.consider_pagination"))
 	
 	case ErrorCodeConnectionFailed:
 		suggestions = append(suggestions,
-			"请检查网络连接",
-			"确认服务是否正常运行",
-			"稍后重试")
+			i18n.T("error.recovery.check_network"),
+			i18n.T("error.recovery.check_service"),
+			i18n.T("error.recovery.retry_later"))
 	
 	case ErrorCodeConnectionTimeout:
 		suggestions = append(suggestions,
-			"网络连接超时，请检查网络状态",
-			"服务可能繁忙，请稍后重试",
-			"如果问题持续，请联系技术支持")
+			i18n.T("error.recovery.check_network"),
+			i18n.T("error.recovery.retry_later"),
+			i18n.T("error.recovery.contact_support"))
 	
 	case ErrorCodePermissionDenied:
 		suggestions = append(suggestions,
-			"您可能没有访问此资源的权限",
-			"请联系管理员获取相应权限",
-			"检查您的账户状态")
+			i18n.T("error.recovery.check_permissions"),
+			i18n.T("error.recovery.contact_admin"),
+			i18n.T("error.recovery.check_account"))
 	
 	case ErrorCodeResourceBusy:
 		suggestions = append(suggestions,
-			"资源正在被其他任务使用",
-			"请稍后重试",
-			"如果问题持续，请联系技术支持")
+			i18n.T("error.recovery.resource_busy"),
+			i18n.T("error.recovery.retry_later"),
+			i18n.T("error.recovery.contact_support"))
 	
 	case ErrorCodeResourceNotFound:
 		suggestions = append(suggestions,
-			"请检查资源路径是否正确",
-			"确认资源是否已被删除",
-			"联系管理员确认资源状态")
+			i18n.T("error.recovery.check_path"),
+			i18n.T("error.recovery.check_deleted"),
+			i18n.T("error.recovery.confirm_resource"))
 	
 	default:
 		suggestions = append(suggestions,
-			"请稍后重试",
-			"如果问题持续，请联系技术支持")
+			i18n.T("error.recovery.retry_later"),
+			i18n.T("error.recovery.contact_support"))
 	}
 	
 	return suggestions
@@ -173,11 +173,11 @@ func getRecoverySuggestions(errorCode string) []string {
 
 // getUserFriendlyMessage returns a user-friendly message based on error code
 func getUserFriendlyMessage(errorCode, originalMessage string) string {
-	// If original message is already user-friendly (Chinese), use it
+	// If original message is already user-friendly, use it
 	if originalMessage != "" && len([]rune(originalMessage)) > 0 {
-		// Check if it's already a Chinese message
+		// Check if it's already a localized message (contains non-ASCII)
 		for _, r := range originalMessage {
-			if r >= 0x4e00 && r <= 0x9fff {
+			if r > 127 {
 				return originalMessage
 			}
 		}
@@ -186,42 +186,42 @@ func getUserFriendlyMessage(errorCode, originalMessage string) string {
 	// Generate user-friendly message based on error code
 	switch errorCode {
 	case ErrorCodeAnalysisError:
-		return "分析过程中发生错误"
+		return i18n.T("error.analysis_error")
 	case ErrorCodeAnalysisTimeout:
-		return "分析超时，请稍后重试"
+		return i18n.T("error.analysis_timeout")
 	case ErrorCodeAnalysisCancelled:
-		return "分析已取消"
+		return i18n.T("error.analysis_cancelled")
 	case ErrorCodePythonExecution:
-		return "代码执行失败"
+		return i18n.T("error.python_execution")
 	case ErrorCodePythonSyntax:
-		return "代码语法错误"
+		return i18n.T("error.python_syntax")
 	case ErrorCodePythonImport:
-		return "缺少必要的分析库"
+		return i18n.T("error.python_import")
 	case ErrorCodePythonMemory:
-		return "内存不足，数据量可能过大"
+		return i18n.T("error.python_memory")
 	case ErrorCodeDataNotFound:
-		return "未找到请求的数据"
+		return i18n.T("error.data_not_found")
 	case ErrorCodeDataInvalid:
-		return "数据格式无效"
+		return i18n.T("error.data_invalid")
 	case ErrorCodeDataEmpty:
-		return "查询结果为空"
+		return i18n.T("error.data_empty")
 	case ErrorCodeDataTooLarge:
-		return "数据量超出限制"
+		return i18n.T("error.data_too_large")
 	case ErrorCodeConnectionFailed:
-		return "连接失败，请检查网络"
+		return i18n.T("error.connection_failed")
 	case ErrorCodeConnectionTimeout:
-		return "连接超时"
+		return i18n.T("error.connection_timeout")
 	case ErrorCodePermissionDenied:
-		return "权限不足"
+		return i18n.T("error.permission_denied")
 	case ErrorCodeResourceBusy:
-		return "资源繁忙，请稍后重试"
+		return i18n.T("error.resource_busy")
 	case ErrorCodeResourceNotFound:
-		return "资源未找到"
+		return i18n.T("error.resource_not_found")
 	default:
 		if originalMessage != "" {
 			return originalMessage
 		}
-		return "发生未知错误"
+		return i18n.T("error.unknown")
 	}
 }
 
@@ -706,14 +706,14 @@ func (ea *EventAggregator) EmitErrorWithDetails(sessionID, requestID, errorCode,
 // EmitTimeout emits a timeout error event with recovery suggestions
 func (ea *EventAggregator) EmitTimeout(sessionID, requestID string, duration time.Duration) {
 	ea.EmitErrorWithDetails(sessionID, requestID, ErrorCodeAnalysisTimeout, 
-		fmt.Sprintf("分析超时（已运行 %v）", duration.Round(time.Second)),
+		i18n.T("error.analysis_timeout_duration", duration.Round(time.Second)),
 		fmt.Sprintf("Analysis timed out after %v", duration.Round(time.Second)))
 }
 
 // EmitCancelled emits a cancellation event with recovery suggestions
 func (ea *EventAggregator) EmitCancelled(sessionID, requestID string) {
 	// Create error info for cancellation
-	errorInfo := createErrorInfo(ErrorCodeAnalysisCancelled, "分析已取消", "")
+	errorInfo := createErrorInfo(ErrorCodeAnalysisCancelled, i18n.T("error.analysis_cancelled"), "")
 	
 	runtime.EventsEmit(ea.ctx, "analysis-cancelled", map[string]interface{}{
 		"sessionId":           sessionID,

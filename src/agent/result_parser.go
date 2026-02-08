@@ -714,7 +714,7 @@ func (p *ResultParser) FormatAsText(result *ExecutionResult) string {
 	var sb strings.Builder
 
 	if !result.Success {
-		sb.WriteString("执行失败: ")
+		sb.WriteString("Execution failed: ")
 		sb.WriteString(result.ErrorMsg)
 		sb.WriteString("\n")
 		return sb.String()
@@ -723,14 +723,14 @@ func (p *ResultParser) FormatAsText(result *ExecutionResult) string {
 	sb.WriteString(result.TextOutput)
 
 	if len(result.ChartFiles) > 0 {
-		sb.WriteString("\n\n生成的图表:\n")
+		sb.WriteString("\n\nGenerated charts:\n")
 		for _, f := range result.ChartFiles {
 			sb.WriteString("- " + f.Name + "\n")
 		}
 	}
 
 	if len(result.ExportFiles) > 0 {
-		sb.WriteString("\n导出的文件:\n")
+		sb.WriteString("\nExported files:\n")
 		for _, f := range result.ExportFiles {
 			sb.WriteString("- " + f.Name + "\n")
 		}

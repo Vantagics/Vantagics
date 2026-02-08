@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { TrendingUp, UserCheck, AlertCircle, Star, Info } from 'lucide-react';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 
@@ -232,6 +233,7 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
             </div>
             <div className="text-slate-700 text-sm leading-relaxed pt-1 prose prose-sm max-w-none">
                 <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                         // 自定义markdown组件样式
                         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,

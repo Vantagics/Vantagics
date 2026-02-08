@@ -8,11 +8,12 @@ interface ActivationModalProps {
     isOpen: boolean;
     onClose: () => void;
     onActivated?: () => void;
+    hideServerURL?: boolean; // Hide server URL input (use default)
 }
 
 const INVITE_URL = 'https://vantagedata.chat/invite';
 
-const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onActivated }) => {
+const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onActivated, hideServerURL = false }) => {
     const { t } = useLanguage();
     const [serverURL, setServerURL] = useState('https://license.vantagedata.chat');
     const [sn, setSN] = useState('');
@@ -186,18 +187,20 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                                 </div>
                             )}
 
-                            <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">
-                                    授权服务器地址
-                                </label>
-                                <input
-                                    type="text"
-                                    value={serverURL}
-                                    onChange={(e) => setServerURL(e.target.value)}
-                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                    placeholder="http://server:7799"
-                                />
-                            </div>
+                            {!hideServerURL && (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        授权服务器地址
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={serverURL}
+                                        onChange={(e) => setServerURL(e.target.value)}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                        placeholder="http://server:7799"
+                                    />
+                                </div>
+                            )}
 
                             <div>
                                 <div className="flex items-center justify-between mb-1">

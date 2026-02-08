@@ -144,25 +144,25 @@ func (path *AnalysisPath) GenerateStoryline() string {
 	}
 
 	var story strings.Builder
-	story.WriteString("## 分析路径总结\n\n")
+	story.WriteString("## Analysis Path Summary\n\n")
 
 	for i, step := range path.Steps {
-		story.WriteString(fmt.Sprintf("### 步骤 %d\n", i+1))
+		story.WriteString(fmt.Sprintf("### Step %d\n", i+1))
 		
 		if step.Phenomenon != "" {
-			story.WriteString(fmt.Sprintf("**发现现象**: %s\n\n", step.Phenomenon))
+			story.WriteString(fmt.Sprintf("**Observation**: %s\n\n", step.Phenomenon))
 		}
 		
 		if step.Action != "" {
-			story.WriteString(fmt.Sprintf("**采取行动**: %s\n\n", step.Action))
+			story.WriteString(fmt.Sprintf("**Action taken**: %s\n\n", step.Action))
 		}
 		
 		if step.Conclusion != "" {
-			story.WriteString(fmt.Sprintf("**得出结论**: %s\n\n", step.Conclusion))
+			story.WriteString(fmt.Sprintf("**Conclusion**: %s\n\n", step.Conclusion))
 		}
 		
 		if len(step.Evidence) > 0 {
-			story.WriteString("**支持证据**:\n")
+			story.WriteString("**Supporting evidence**:\n")
 			for _, ev := range step.Evidence {
 				story.WriteString(fmt.Sprintf("- %s: %s\n", ev.Type, ev.Description))
 			}

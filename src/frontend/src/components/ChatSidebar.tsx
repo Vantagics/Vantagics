@@ -2717,8 +2717,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                             // 检查用户消息是否是被中止/取消的分析（最后一条用户消息，没有助手回复，不在加载中）
                             // 这种消息应该允许点击以继续分析
+                            // 重要：只有当前活动会话的最后一条用户消息才算被中止，其他会话的历史消息不应该显示为被中止
                             const isUserMessageCancelled = msg.role === 'user' && !isUserMessageCompleted && !isUserMessageFailed && (() => {
+                                // 如果正在加载当前会话，不算被中止
                                 if (isLoading && loadingThreadId === activeThreadId) {
+                                    return false;
+                                }
+                                // 如果有其他会话正在加载，当前会话的未完成消息也不算被中止（因为用户已经切换到新会话）
+                                if (isLoading && loadingThreadId && loadingThreadId !== activeThreadId) {
                                     return false;
                                 }
                                 const msgIndex = activeThread.messages.findIndex(m => m.id === msg.id);

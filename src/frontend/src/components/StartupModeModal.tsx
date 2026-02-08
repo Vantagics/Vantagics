@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Code2, Key, Mail, Loader2, CheckCircle, AlertCircle, ArrowLeft, Settings, ExternalLink } from 'lucide-react';
 import { GetConfig, SaveConfig, GetActivationStatus, ActivateLicense, TestLLMConnection, RequestSN, LoadSavedActivation } from '../../wailsjs/go/main/App';
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { useLanguage } from '../i18n';
+import { createLogger } from '../utils/systemLog';
+
+const logger = createLogger('StartupModeModal');
 
 interface StartupModeModalProps {
     isOpen: boolean;
@@ -135,6 +138,10 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 await SaveConfig(config);
                 
                 setSuccessMessage(t('activation_success') || '激活成功！');
+                
+                // Emit event to notify AboutModal to refresh activation status
+                EventsEmit('activation-status-changed');
+                
                 // Verify LLM connection
                 setTimeout(() => verifyAndComplete(), 1000);
             } else {

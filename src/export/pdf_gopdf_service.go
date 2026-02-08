@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"vantagedata/i18n"
 
 	gopdf "github.com/VantageDataChat/GoPDF2"
 )
@@ -96,7 +97,7 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 	}
 
 	if fontName == "" {
-		return nil, fmt.Errorf("无法加载中文字体。请确保系统安装了以下字体之一：Arial Unicode MS、微软雅黑、黑体、宋体")
+		return nil, fmt.Errorf(i18n.T("report.font_load_failed"))
 	}
 
 	err = pdf.SetFont(fontName, "", 12)
@@ -195,6 +196,18 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 	// 添加分析内容
 	s.addAnalysisContent(&pdf, data.Insights, fontName)
 
+	// 添加数据表格（使用原始表格数据直接渲染，不经过 LLM）
+	if len(data.AllTableData) > 0 {
+		for _, namedTable := range data.AllTableData {
+			tableData := namedTable.Table
+			if len(tableData.Columns) > 0 {
+				s.addTableSection(&pdf, &tableData, fontName)
+			}
+		}
+	} else if data.TableData != nil && len(data.TableData.Columns) > 0 {
+		s.addTableSection(&pdf, data.TableData, fontName)
+	}
+
 	// 添加页脚
 	s.addPageFooters(&pdf, fontName)
 
@@ -219,9 +232,9 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 	pdf.SetTextColor(30, 64, 175)
 	title := reportTitle
 	if title == "" {
-		title = "数据分析报告"
+		title = i18n.T("report.data_analysis_report")
 		if dataSourceName != "" {
-			title = dataSourceName + "数据分析报告"
+			title = dataSourceName + i18n.T("report.data_analysis_report")
 		}
 	}
 	titleWidth, _ := pdf.MeasureTextWidth(title)
@@ -235,7 +248,7 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontBody)
 		pdf.SetTextColor(71, 85, 105)
-		dsText := "数据源: " + dataSourceName
+		dsText := i18n.T("report.data_source_label") + ": " + dataSourceName
 		dsWidth, _ := pdf.MeasureTextWidth(dsText)
 		pdf.SetX((pdfPageWidth - dsWidth) / 2)
 		pdf.SetY(nextY)
@@ -248,7 +261,7 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 		pdf.SetFont(fontName, "", pdfFontBody)
 		pdf.SetTextColor(71, 85, 105)
 
-		labelText := "分析请求:"
+		labelText := i18n.T("report.analysis_request_label") + ":"
 		labelWidth, _ := pdf.MeasureTextWidth(labelText)
 		pdf.SetX((pdfPageWidth - labelWidth) / 2)
 		pdf.SetY(nextY)
@@ -275,8 +288,8 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 	// 生成时间
 	pdf.SetFont(fontName, "", pdfFontSmall)
 	pdf.SetTextColor(148, 163, 184)
-	timestamp := time.Now().Format("2006年01月02日 15:04:05")
-	timeText := "生成时间: " + timestamp
+	timestamp := s.formatTimestamp(time.Now())
+	timeText := i18n.T("report.generated_time_label") + ": " + timestamp
 	timeWidth, _ := pdf.MeasureTextWidth(timeText)
 	pdf.SetX((pdfPageWidth - timeWidth) / 2)
 	pdf.SetY(nextY)
@@ -295,25 +308,68 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 
 	// 合并所有内容
 	allContent := strings.Join(insights, "\n")
-	lines := strings.Split(allContent, "\n")
+	// Extract JSON tables first
+	processedContent, jsonTables := s.extractJsonTables(allContent)
+	lines := strings.Split(processedContent, "\n")
 
 	inCodeBlock := false
 
-	for _, line := range lines {
+	i := 0
+	for i < len(lines) {
+		line := lines[i]
+
 		// 检查代码块标记
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
 			inCodeBlock = !inCodeBlock
+			i++
 			continue
 		}
 
 		// 跳过代码块内容
 		if inCodeBlock {
+			i++
 			continue
 		}
 
+		// 检测 markdown 表格（连续的 | 开头行）
+		trimmedLine := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmedLine, "|") && strings.Contains(trimmedLine, "|") {
+			tableLines := []string{trimmedLine}
+			j := i + 1
+			for j < len(lines) {
+				nextTrimmed := strings.TrimSpace(lines[j])
+				if strings.HasPrefix(nextTrimmed, "|") && strings.Contains(nextTrimmed, "|") {
+					tableLines = append(tableLines, nextTrimmed)
+					j++
+				} else {
+					break
+				}
+			}
+			if len(tableLines) >= 2 {
+				// Parse markdown table into [][]string for renderInlineTable
+				mdTable := s.parseMarkdownTable(tableLines)
+				if len(mdTable) > 0 {
+					y = s.renderInlineTable(pdf, mdTable, fontName, y)
+				}
+				i = j
+				continue
+			}
+		}
+
+		// 检测 key=value 结构化文本行，转为表格渲染
+		if strings.Contains(trimmedLine, "=") {
+			consumed, kvTable := s.parseKeyValueLines(lines, i)
+			if consumed > 0 && len(kvTable) > 0 {
+				y = s.renderInlineTable(pdf, kvTable, fontName, y)
+				i += consumed
+				continue
+			}
+		}
+
 		// 空行添加间距
-		if strings.TrimSpace(line) == "" {
+		if trimmedLine == "" {
 			y += 10
+			i++
 			continue
 		}
 
@@ -387,6 +443,12 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 		if format.isHeading > 0 {
 			y += 6
 		}
+		i++
+	}
+
+	// Render extracted JSON tables
+	for _, table := range jsonTables {
+		y = s.renderInlineTable(pdf, table, fontName, y)
 	}
 
 	pdf.SetY(y + 20)
@@ -412,7 +474,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontHeading2)
 		pdf.SetTextColor(71, 85, 105)
-		dsText := "数据源: " + dataSourceName
+		dsText := i18n.T("report.data_source_label") + ": " + dataSourceName
 		dsWidth, _ := pdf.MeasureTextWidth(dsText)
 		pdf.SetX((pdfPageWidth - dsWidth) / 2)
 		pdf.SetY(nextY)
@@ -426,7 +488,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 		pdf.SetTextColor(71, 85, 105)
 
 		// 先显示标签
-		labelText := "分析请求:"
+		labelText := i18n.T("report.analysis_request_label") + ":"
 		labelWidth, _ := pdf.MeasureTextWidth(labelText)
 		pdf.SetX((pdfPageWidth - labelWidth) / 2)
 		pdf.SetY(nextY)
@@ -454,8 +516,8 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	// 生成时间
 	pdf.SetFont(fontName, "", pdfFontSmall)
 	pdf.SetTextColor(148, 163, 184)
-	timestamp := time.Now().Format("2006年01月02日 15:04:05")
-	timeText := "生成时间: " + timestamp
+	timestamp := s.formatTimestamp(time.Now())
+	timeText := i18n.T("report.generated_time_label") + ": " + timestamp
 	timeWidth, _ := pdf.MeasureTextWidth(timeText)
 	pdf.SetX((pdfPageWidth - timeWidth) / 2)
 	pdf.SetY(nextY)
@@ -618,6 +680,33 @@ func (s *GopdfService) parseMarkdownLine(line string) lineFormat {
 	
 	return result
 }
+// parseMarkdownTable converts markdown table lines into [][]string for renderInlineTable
+func (s *GopdfService) parseMarkdownTable(lines []string) [][]string {
+	if len(lines) < 2 {
+		return nil
+	}
+
+	var result [][]string
+
+	for idx, line := range lines {
+		// Skip separator line (|---|---|)
+		if idx == 1 && (strings.Contains(line, "---") || strings.Contains(line, ":-")) {
+			continue
+		}
+		line = strings.TrimSpace(line)
+		line = strings.Trim(line, "|")
+		parts := strings.Split(line, "|")
+		row := make([]string, 0, len(parts))
+		for _, p := range parts {
+			row = append(row, strings.TrimSpace(p))
+		}
+		if len(row) > 0 {
+			result = append(result, row)
+		}
+	}
+
+	return result
+}
 
 // stripMarkdownBold removes ** and __ markers but keeps the text
 func (s *GopdfService) stripMarkdownBold(text string) string {
@@ -656,21 +745,61 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 
 		inCodeBlock := false
 
-		for _, line := range lines {
+		i := 0
+		for i < len(lines) {
+			line := lines[i]
+			trimmedLine := strings.TrimSpace(line)
+
 			// Check for code block markers (skip them)
-			if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			if strings.HasPrefix(trimmedLine, "```") {
 				inCodeBlock = !inCodeBlock
+				i++
 				continue
 			}
 
 			// Skip content inside code blocks (already processed json:table)
 			if inCodeBlock {
+				i++
 				continue
 			}
 
+			// 检测 markdown 表格（连续的 | 开头行）
+			if strings.HasPrefix(trimmedLine, "|") && strings.Contains(trimmedLine, "|") {
+				tableLines := []string{trimmedLine}
+				j := i + 1
+				for j < len(lines) {
+					nextTrimmed := strings.TrimSpace(lines[j])
+					if strings.HasPrefix(nextTrimmed, "|") && strings.Contains(nextTrimmed, "|") {
+						tableLines = append(tableLines, nextTrimmed)
+						j++
+					} else {
+						break
+					}
+				}
+				if len(tableLines) >= 2 {
+					mdTable := s.parseMarkdownTable(tableLines)
+					if len(mdTable) > 0 {
+						y = s.renderInlineTable(pdf, mdTable, fontName, y)
+					}
+					i = j
+					continue
+				}
+			}
+
+			// 检测 key=value 结构化文本行，转为表格渲染
+			if strings.Contains(trimmedLine, "=") {
+				consumed, kvTable := s.parseKeyValueLines(lines, i)
+				if consumed > 0 && len(kvTable) > 0 {
+					y = s.renderInlineTable(pdf, kvTable, fontName, y)
+					i += consumed
+					continue
+				}
+			}
+
 			// Skip empty lines but add some spacing
-			if strings.TrimSpace(line) == "" {
+			if trimmedLine == "" {
 				y += 8
+				i++
 				continue
 			}
 
@@ -741,6 +870,7 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 			if format.isHeading > 0 {
 				y += 8
 			}
+			i++
 		}
 
 		// Render extracted tables
@@ -860,6 +990,139 @@ func (s *GopdfService) extractStandaloneJsonArrays(text string, tables *[][][]st
 	}
 	
 	return result
+}
+
+// parseKeyValueLines detects consecutive lines with repeated key=value patterns
+// and converts them into table data. Returns the number of lines consumed and the table.
+// Example input lines:
+//   "<50字符：中性比例=35.8%，占比=0.7%，平均情感得分=2.85"
+//   "50-100字符：中性比例=28.5%，占比=1.5%，平均情感得分=3.42"
+// Each line has a label prefix (before ：or :) and key=value pairs separated by ，or ,
+func (s *GopdfService) parseKeyValueLines(lines []string, startIdx int) (int, [][]string) {
+	if startIdx >= len(lines) {
+		return 0, nil
+	}
+
+	// Try to parse the first line as key=value format
+	firstKeys, _, _ := s.extractKeyValuePairs(strings.TrimSpace(lines[startIdx]))
+	if len(firstKeys) < 2 {
+		return 0, nil
+	}
+
+	// Collect consecutive lines with the same key pattern
+	type parsedLine struct {
+		label  string
+		values []string
+	}
+	var parsed []parsedLine
+
+	for i := startIdx; i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" {
+			break
+		}
+		keys, values, label := s.extractKeyValuePairs(trimmed)
+		if len(keys) < 2 {
+			break
+		}
+		// Check keys match the first line
+		if len(keys) != len(firstKeys) {
+			break
+		}
+		match := true
+		for k := range keys {
+			if keys[k] != firstKeys[k] {
+				match = false
+				break
+			}
+		}
+		if !match {
+			break
+		}
+		parsed = append(parsed, parsedLine{label: label, values: values})
+	}
+
+	if len(parsed) < 2 {
+		return 0, nil
+	}
+
+	// Build table: header = [label_column, key1, key2, ...]
+	// Determine label column name
+	labelCol := ""
+	if parsed[0].label != "" {
+		labelCol = i18n.T("report.category_label")
+	}
+
+	var table [][]string
+	header := make([]string, 0, len(firstKeys)+1)
+	if labelCol != "" {
+		header = append(header, labelCol)
+	}
+	header = append(header, firstKeys...)
+	table = append(table, header)
+
+	for _, p := range parsed {
+		row := make([]string, 0, len(p.values)+1)
+		if labelCol != "" {
+			row = append(row, p.label)
+		}
+		row = append(row, p.values...)
+		table = append(table, row)
+	}
+
+	return len(parsed), table
+}
+
+// extractKeyValuePairs parses a line like "label：key1=val1，key2=val2" or "key1=val1, key2=val2"
+// Returns keys, values, and the optional label prefix.
+func (s *GopdfService) extractKeyValuePairs(line string) ([]string, []string, string) {
+	label := ""
+	content := line
+
+	// Strip leading list markers (-, *, numbered)
+	content = strings.TrimLeft(content, " \t")
+	if strings.HasPrefix(content, "- ") || strings.HasPrefix(content, "* ") {
+		content = content[2:]
+	} else if len(content) > 2 && content[0] >= '0' && content[0] <= '9' && (content[1] == '.' || (len(content) > 2 && content[1] >= '0' && content[1] <= '9' && content[2] == '.')) {
+		idx := strings.Index(content, ".")
+		if idx > 0 && idx < 4 {
+			content = strings.TrimLeft(content[idx+1:], " ")
+		}
+	}
+
+	// Check for label prefix (text before ： or : followed by key=value)
+	for _, sep := range []string{"：", ": "} {
+		idx := strings.Index(content, sep)
+		if idx > 0 && idx < 60 {
+			afterSep := content[idx+len(sep):]
+			// Verify what follows looks like key=value
+			if strings.Contains(afterSep, "=") {
+				label = strings.TrimSpace(content[:idx])
+				content = afterSep
+				break
+			}
+		}
+	}
+
+	// Split by Chinese comma or regular comma
+	var parts []string
+	// Replace Chinese commas with regular commas for uniform splitting
+	normalized := strings.ReplaceAll(content, "，", ",")
+	parts = strings.Split(normalized, ",")
+
+	var keys, values []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		eqIdx := strings.Index(part, "=")
+		if eqIdx <= 0 {
+			// Not a key=value pair, abort
+			return nil, nil, ""
+		}
+		keys = append(keys, strings.TrimSpace(part[:eqIdx]))
+		values = append(values, strings.TrimSpace(part[eqIdx+1:]))
+	}
+
+	return keys, values, label
 }
 
 // findJson2DArrayStart finds the start of a potential 2D JSON array
@@ -1297,24 +1560,30 @@ func (s *GopdfService) addChartsSection(pdf *gopdf.GoPdf, chartImages []string, 
 	}
 
 	for i, chartImage := range chartImages {
-		// 每个图表单独一页或检查空间
-		y := pdf.GetY()
 		chartHeight := 350.0 // 图表高度 (points)
+		// 图表总需空间：子标题(20) + 容器(chartHeight+12) + 间距(30)
+		totalChartSpace := 20 + chartHeight + 12 + 30
 
 		// 第一个图表添加章节标题
 		if i == 0 {
-			y = s.addSectionTitle(pdf, "数据可视化", fontName)
+			y := s.addSectionTitle(pdf, "数据可视化", fontName)
+			// 章节标题后检查剩余空间是否够放图表
+			y = s.checkPageBreak(pdf, y, totalChartSpace)
+			pdf.SetY(y)
 		} else {
-			// 检查是否需要新页
-			y = s.checkPageBreak(pdf, y, chartHeight+60)
+			y := pdf.GetY()
+			y = s.checkPageBreak(pdf, y, totalChartSpace)
+			pdf.SetY(y)
 		}
+
+		y := pdf.GetY()
 
 		// 图表子标题
 		pdf.SetFont(fontName, "", pdfFontSmall)
 		pdf.SetTextColor(100, 116, 139)
 		pdf.SetX(pdfMarginLeft)
 		pdf.SetY(y)
-		pdf.Cell(nil, fmt.Sprintf("图表 %d / %d", i+1, len(chartImages)))
+		pdf.Cell(nil, i18n.T("report.chart_label", i+1, len(chartImages)))
 		y += 20
 
 		// Extract base64 data
@@ -1493,7 +1762,7 @@ func (s *GopdfService) addPageFooters(pdf *gopdf.GoPdf, fontName string) {
 	pdf.SetFont(fontName, "", pdfFontFooter)
 	pdf.SetTextColor(148, 163, 184)
 	
-	footerText := "由 VantageData 智能分析系统生成"
+	footerText := i18n.T("export.generated_by")
 	footerWidth, _ := pdf.MeasureTextWidth(footerText)
 	
 	pdf.SetX((pdfPageWidth - footerWidth) / 2)
@@ -1504,4 +1773,15 @@ func (s *GopdfService) addPageFooters(pdf *gopdf.GoPdf, fontName string) {
 // addFooter is kept for backward compatibility
 func (s *GopdfService) addFooter(pdf *gopdf.GoPdf, fontName string) {
 	s.addPageFooters(pdf, fontName)
+}
+
+
+// formatTimestamp formats a timestamp according to the current language
+func (s *GopdfService) formatTimestamp(t time.Time) string {
+	lang := i18n.GetLanguage()
+	if lang == i18n.Chinese {
+		return t.Format("2006年01月02日 15:04:05")
+	}
+	// English format
+	return t.Format("January 02, 2006 15:04:05")
 }

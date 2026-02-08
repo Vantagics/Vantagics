@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
+	"vantagedata/i18n"
 )
 
 // GoExcelExportService handles Excel file generation using GoExcel (pure Go)
@@ -25,7 +26,7 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 	ws := wb.GetActiveSheet()
 
 	if sheetName == "" {
-		sheetName = "数据表"
+		sheetName = i18n.T("excel.default_sheet_name")
 	}
 	ws.SetTitle(sheetName)
 
@@ -110,10 +111,10 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 	// Add metadata
 	wb.Properties.Title = sheetName
 	wb.Properties.Creator = "VantageData"
-	wb.Properties.Description = "由 VantageData 智能分析系统生成"
-	wb.Properties.Subject = "数据分析报表"
-	wb.Properties.Keywords = "数据分析,报表,Excel"
-	wb.Properties.Category = "数据分析"
+	wb.Properties.Description = i18n.T("export.doc_description")
+	wb.Properties.Subject = i18n.T("excel.report_subject")
+	wb.Properties.Keywords = i18n.T("excel.report_keywords")
+	wb.Properties.Category = i18n.T("excel.report_category")
 	wb.Properties.LastModifiedBy = "VantageData"
 
 	// Save to bytes
@@ -229,12 +230,12 @@ func (s *GoExcelExportService) ExportMultipleTablesToExcel(tables map[string]*Ta
 	}
 
 	// Add metadata
-	wb.Properties.Title = "多表数据分析"
+	wb.Properties.Title = i18n.T("excel.multi_table_title")
 	wb.Properties.Creator = "VantageData"
-	wb.Properties.Description = "由 VantageData 智能分析系统生成"
-	wb.Properties.Subject = "数据分析报表"
-	wb.Properties.Keywords = "数据分析,报表,Excel"
-	wb.Properties.Category = "数据分析"
+	wb.Properties.Description = i18n.T("export.doc_description")
+	wb.Properties.Subject = i18n.T("excel.report_subject")
+	wb.Properties.Keywords = i18n.T("excel.report_keywords")
+	wb.Properties.Category = i18n.T("excel.report_category")
 	wb.Properties.LastModifiedBy = "VantageData"
 
 	// Save to bytes
@@ -353,12 +354,12 @@ func (s *GoExcelExportService) ExportOrderedTablesToExcel(tables []NamedTable) (
 	}
 
 	// Add metadata
-	wb.Properties.Title = "多表数据分析"
+	wb.Properties.Title = i18n.T("excel.multi_table_title")
 	wb.Properties.Creator = "VantageData"
-	wb.Properties.Description = "由 VantageData 智能分析系统生成"
-	wb.Properties.Subject = "数据分析报表"
-	wb.Properties.Keywords = "数据分析,报表,Excel"
-	wb.Properties.Category = "数据分析"
+	wb.Properties.Description = i18n.T("export.doc_description")
+	wb.Properties.Subject = i18n.T("excel.report_subject")
+	wb.Properties.Keywords = i18n.T("excel.report_keywords")
+	wb.Properties.Category = i18n.T("excel.report_category")
 	wb.Properties.LastModifiedBy = "VantageData"
 
 	// Save to bytes

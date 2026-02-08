@@ -8,6 +8,7 @@ import (
 	"time"
 
 	ppt "github.com/VantageDataChat/GoPPT"
+	"vantagedata/i18n"
 )
 
 // GoPPTService handles PowerPoint generation using GoPPT (pure Go, zero dependencies)
@@ -134,7 +135,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 		dsShape := slide.CreateRichTextShape()
 		dsShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(nextY * emuPerInch))
 		dsShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(0.5 * emuPerInch))
-		dsTr := dsShape.CreateTextRun("数据源: " + dataSourceName)
+		dsTr := dsShape.CreateTextRun(i18n.T("export.datasource_label") + dataSourceName)
 		dsTr.GetFont().SetSize(gopptFontSubtitle).SetColor(ppt.NewColor("FF475569"))
 		alignCenter(dsShape.GetActiveParagraph())
 		nextY += 0.6
@@ -150,7 +151,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 		if len([]rune(displayRequest)) > 80 {
 			displayRequest = string([]rune(displayRequest)[:77]) + "..."
 		}
-		reqTr := reqShape.CreateTextRun("分析请求: " + displayRequest)
+		reqTr := reqShape.CreateTextRun(i18n.T("export.analysis_request") + displayRequest)
 		reqTr.GetFont().SetSize(gopptFontSubtitle).SetColor(ppt.NewColor("FF475569"))
 		alignCenter(reqShape.GetActiveParagraph())
 		nextY += 0.8
@@ -160,7 +161,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 	tsShape := slide.CreateRichTextShape()
 	tsShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(4.0 * emuPerInch))
 	tsShape.SetWidth(gopptContentWidth).SetHeight(int64(0.4 * emuPerInch))
-	tsTr := tsShape.CreateTextRun(time.Now().Format("2006年01月02日 15:04"))
+	tsTr := tsShape.CreateTextRun(time.Now().Format("2006-01-02 15:04"))
 	tsTr.GetFont().SetSize(gopptFontSmall).SetColor(ppt.NewColor("FF94A3B8"))
 	alignCenter(tsShape.GetActiveParagraph())
 
@@ -168,7 +169,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 	footerShape := slide.CreateRichTextShape()
 	footerShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(4.8 * emuPerInch))
 	footerShape.SetWidth(gopptContentWidth).SetHeight(int64(0.3 * emuPerInch))
-	ftTr := footerShape.CreateTextRun("由 VantageData 智能分析系统生成")
+	ftTr := footerShape.CreateTextRun(i18n.T("export.generated_by"))
 	ftTr.GetFont().SetSize(gopptFontFooter).SetColor(ppt.NewColor("FF94A3B8"))
 	alignCenter(footerShape.GetActiveParagraph())
 
@@ -198,7 +199,7 @@ func (s *GoPPTService) addSlideHeader(slide *ppt.Slide, title string) {
 // addMetricsSlide adds a slide with metrics in a visually appealing grid
 func (s *GoPPTService) addMetricsSlide(p *ppt.Presentation, metrics []MetricData) {
 	slide := p.CreateSlide()
-	s.addSlideHeader(slide, "关键指标")
+	s.addSlideHeader(slide, i18n.T("ppt.key_metrics"))
 
 	maxMetrics := 6
 	if len(metrics) > maxMetrics {
@@ -263,7 +264,7 @@ func (s *GoPPTService) addMetricsSlide(p *ppt.Presentation, metrics []MetricData
 func (s *GoPPTService) addChartSlides(p *ppt.Presentation, chartImages []string) {
 	for i, chartImage := range chartImages {
 		slide := p.CreateSlide()
-		s.addSlideHeader(slide, fmt.Sprintf("数据可视化 %d", i+1))
+		s.addSlideHeader(slide, i18n.T("ppt.data_visualization", i+1))
 
 		// Extract base64 data
 		imageData := chartImage
@@ -324,9 +325,9 @@ func (s *GoPPTService) addInsightsSlides(p *ppt.Presentation, insights []string)
 func (s *GoPPTService) createInsightSlide(p *ppt.Presentation, lines []string, slideNum int) {
 	slide := p.CreateSlide()
 
-	title := "智能洞察"
+	title := i18n.T("ppt.smart_insights")
 	if slideNum > 1 {
-		title = fmt.Sprintf("智能洞察（续 %d）", slideNum)
+		title = i18n.T("ppt.smart_insights_continued", slideNum)
 	}
 	s.addSlideHeader(slide, title)
 
@@ -392,9 +393,9 @@ func (s *GoPPTService) addTableSlides(p *ppt.Presentation, tableData *TableData)
 func (s *GoPPTService) createTableSlide(p *ppt.Presentation, cols []TableColumn, rows [][]interface{}, slideNum int, startRow int, endRow int, totalRows int, colsTruncated bool) {
 	slide := p.CreateSlide()
 
-	title := "数据表格"
+	title := i18n.T("ppt.data_tables")
 	if slideNum > 1 {
-		title = fmt.Sprintf("数据表格（第 %d 页）", slideNum)
+		title = i18n.T("ppt.data_tables_page", slideNum)
 	}
 	s.addSlideHeader(slide, title)
 
@@ -472,9 +473,9 @@ func (s *GoPPTService) createTableSlide(p *ppt.Presentation, cols []TableColumn,
 		infoShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(5.2 * emuPerInch))
 		infoShape.SetWidth(gopptContentWidth).SetHeight(int64(0.25 * emuPerInch))
 
-		infoText := fmt.Sprintf("显示第 %d-%d 行，共 %d 行", startRow+1, endRow, totalRows)
+		infoText := i18n.T("ppt.table_info", startRow+1, endRow, totalRows)
 		if colsTruncated {
-			infoText += "（列数已截断）"
+			infoText += i18n.T("ppt.columns_truncated")
 		}
 		infoTr := infoShape.CreateTextRun(infoText)
 		infoTr.GetFont().SetSize(gopptFontFooter).SetColor(ppt.NewColor("FF94A3B8"))
@@ -496,7 +497,7 @@ func (s *GoPPTService) addEndingSlide(p *ppt.Presentation) {
 	thankShape := slide.CreateRichTextShape()
 	thankShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(2.0 * emuPerInch))
 	thankShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(1.0 * emuPerInch))
-	thankTr := thankShape.CreateTextRun("感谢查阅")
+	thankTr := thankShape.CreateTextRun(i18n.T("ppt.thank_you"))
 	thankTr.GetFont().SetSize(36).SetBold(true).SetColor(ppt.NewColor("FF1E40AF"))
 	alignCenter(thankShape.GetActiveParagraph())
 
@@ -504,7 +505,7 @@ func (s *GoPPTService) addEndingSlide(p *ppt.Presentation) {
 	subShape := slide.CreateRichTextShape()
 	subShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(3.2 * emuPerInch))
 	subShape.SetWidth(int64(8.0 * emuPerInch)).SetHeight(int64(0.5 * emuPerInch))
-	subTr := subShape.CreateTextRun("数据驱动决策，智能赋能未来")
+	subTr := subShape.CreateTextRun(i18n.T("ppt.tagline"))
 	subTr.GetFont().SetSize(18).SetColor(ppt.NewColor("FF64748B"))
 	alignCenter(subShape.GetActiveParagraph())
 
@@ -512,7 +513,7 @@ func (s *GoPPTService) addEndingSlide(p *ppt.Presentation) {
 	footerShape := slide.CreateRichTextShape()
 	footerShape.SetOffsetX(gopptMarginLeft).SetOffsetY(int64(4.8 * emuPerInch))
 	footerShape.SetWidth(gopptContentWidth).SetHeight(int64(0.3 * emuPerInch))
-	ftTr := footerShape.CreateTextRun("VantageData 智能分析系统 · " + time.Now().Format("2006"))
+	ftTr := footerShape.CreateTextRun(i18n.T("ppt.footer_year", time.Now().Format("2006")))
 	ftTr.GetFont().SetSize(gopptFontFooter).SetColor(ppt.NewColor("FF94A3B8"))
 	alignCenter(footerShape.GetActiveParagraph())
 

@@ -24,6 +24,7 @@ import (
 	"vantagedata/agent"
 	"vantagedata/config"
 	"vantagedata/database"
+	"vantagedata/i18n"
 	"vantagedata/logger"
 
 	"github.com/cloudwego/eino/components/tool"
@@ -171,27 +172,10 @@ func (a *App) SetChatOpen(isOpen bool) {
 
 // ShowAbout displays the about dialog
 func (a *App) ShowAbout() {
-	cfg, _ := a.GetConfig()
-
-	var title, message string
-	if cfg.Language == "简体中文" {
-		title = "关于 观界"
-		message = "观界 (VantageData)\n\n" +
-			"观数据之界，见商业全貌。\n\n" +
-			"版本：1.0.0\n" +
-			"© 2026 VantageData. All rights reserved."
-	} else {
-		title = "About VantageData"
-		message = "VantageData\n\n" +
-			"See Beyond Data. Master Your Vantage.\n\n" +
-			"Version: 1.0.0\n" +
-			"© 2026 VantageData. All rights reserved."
-	}
-
 	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
-		Title:   title,
-		Message: message,
+		Title:   i18n.T("app.about_title"),
+		Message: i18n.T("app.about_message"),
 	})
 }
 
@@ -199,33 +183,10 @@ func (a *App) ShowAbout() {
 func (a *App) OpenDevTools() {
 	// Wails v2 doesn't have direct API to open DevTools
 	// Show instructions to the user
-	cfg, _ := a.GetConfig()
-
-	var title, message string
-	if cfg.Language == "简体中文" {
-		title = "打开开发者工具"
-		message = "请使用以下方法打开开发者工具：\n\n" +
-			"方法1：按 F12 键\n" +
-			"方法2：按 Ctrl+Shift+I\n" +
-			"方法3：按 Ctrl+Shift+J\n" +
-			"方法4：在空白区域右键点击，选择\"检查\"\n\n" +
-			"如果以上方法都不行，请在开发模式下运行：\n" +
-			"wails dev"
-	} else {
-		title = "Open Developer Tools"
-		message = "Please use one of the following methods to open DevTools:\n\n" +
-			"Method 1: Press F12\n" +
-			"Method 2: Press Ctrl+Shift+I\n" +
-			"Method 3: Press Ctrl+Shift+J\n" +
-			"Method 4: Right-click in empty area and select 'Inspect'\n\n" +
-			"If none of these work, run in development mode:\n" +
-			"wails dev"
-	}
-
 	runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 		Type:    runtime.InfoDialog,
-		Title:   title,
-		Message: message,
+		Title:   i18n.T("app.devtools_title"),
+		Message: i18n.T("app.devtools_message"),
 	})
 }
 
@@ -248,21 +209,10 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 	a.activeThreadsMutex.RUnlock()
 
 	if hasActiveAnalysis {
-		// Get current language configuration
-		cfg, _ := a.GetConfig()
-
-		var title, message, yesButton, noButton string
-		if cfg.Language == "简体中文" {
-			title = "确认退出"
-			message = "当前有正在进行的分析任务，确定要退出吗？\n\n退出将中断分析过程。"
-			yesButton = "退出"
-			noButton = "取消"
-		} else {
-			title = "Confirm Exit"
-			message = "There is an analysis task in progress. Are you sure you want to exit?\n\nExiting will interrupt the analysis."
-			yesButton = "Exit"
-			noButton = "Cancel"
-		}
+		title := i18n.T("app.confirm_exit_title")
+		message := i18n.T("app.confirm_exit_message")
+		yesButton := i18n.T("app.exit_button")
+		noButton := i18n.T("app.cancel_button")
 
 		dialog, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
@@ -348,6 +298,10 @@ func (a *App) startup(ctx context.Context) {
 		}
 		return
 	}
+
+	// Initialize i18n with language from config
+	i18n.SyncLanguageFromConfig(&cfg)
+	a.Log(fmt.Sprintf("[STARTUP] i18n initialized with language: %s", i18n.GetLanguageString()))
 
 	// Use configured DataCacheDir
 	dataDir := cfg.DataCacheDir
@@ -483,7 +437,7 @@ func (a *App) startup(ctx context.Context) {
 						// Network or other error - show error and exit
 						a.Log(fmt.Sprintf("[STARTUP] FATAL: License activation failed after 10 retries: %v", lastErr))
 						a.licenseActivationFailed = true
-						a.licenseActivationError = fmt.Sprintf("授权验证失败: %v\n请检查网络连接或联系管理员。", lastErr)
+						a.licenseActivationError = i18n.T("app.license_activation_failed", lastErr)
 					}
 				}
 			} else {
@@ -549,7 +503,7 @@ func (a *App) startup(ctx context.Context) {
 							// Network or other error - show error and exit
 							a.Log(fmt.Sprintf("[STARTUP] FATAL: License refresh failed after 10 retries: %v", lastErr))
 							a.licenseActivationFailed = true
-							a.licenseActivationError = fmt.Sprintf("授权刷新失败: %v\n您的授权需要重新验证，请检查网络连接或联系管理员。", lastErr)
+							a.licenseActivationError = i18n.T("app.license_refresh_failed", lastErr)
 							// Clear the cached data since it's no longer valid
 							a.licenseClient.Clear()
 						}
@@ -1538,6 +1492,10 @@ func (a *App) SaveConfig(cfg config.Config) error {
 
 	// Reinitialize services that depend on configuration
 	a.reinitializeServices(cfg)
+
+	// Sync i18n language setting
+	i18n.SyncLanguageFromConfig(&cfg)
+	a.Log(fmt.Sprintf("[CONFIG] Language updated to: %s", i18n.GetLanguageString()))
 
 	// Update window title based on language
 	a.updateWindowTitle(cfg.Language)
@@ -7859,8 +7817,24 @@ func (a *App) GetActivatedLLMConfig() *agent.ActivationData {
 	return a.licenseClient.GetData()
 }
 
+// HasActiveAnalysis checks if there are any active analysis sessions
+func (a *App) HasActiveAnalysis() bool {
+	a.activeThreadsMutex.RLock()
+	defer a.activeThreadsMutex.RUnlock()
+	return len(a.activeThreads) > 0
+}
+
 // DeactivateLicense clears the activation
-func (a *App) DeactivateLicense() {
+func (a *App) DeactivateLicense() error {
+	// Check if there are active analysis sessions
+	if a.HasActiveAnalysis() {
+		cfg, _ := a.GetConfig()
+		if cfg.Language == "简体中文" {
+			return fmt.Errorf("当前有正在进行的分析任务，无法切换模式")
+		}
+		return fmt.Errorf("cannot switch mode while analysis is in progress")
+	}
+	
 	if a.licenseClient != nil {
 		a.licenseClient.ClearSavedData()
 	}
@@ -7881,6 +7855,8 @@ func (a *App) DeactivateLicense() {
 	// Reset activation failed flag
 	a.licenseActivationFailed = false
 	a.licenseActivationError = ""
+	
+	return nil
 }
 
 // RefreshLicense refreshes the license from server using stored SN

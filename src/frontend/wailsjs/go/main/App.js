@@ -142,6 +142,10 @@ export function ExportMessageToPDF(arg1, arg2) {
   return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
 }
 
+export function ExportReport(arg1, arg2) {
+  return window['go']['main']['App']['ExportReport'](arg1, arg2);
+}
+
 export function ExportSessionFilesToZip(arg1, arg2) {
   return window['go']['main']['App']['ExportSessionFilesToZip'](arg1, arg2);
 }
@@ -358,6 +362,10 @@ export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
 
+export function HasActiveAnalysis() {
+  return window['go']['main']['App']['HasActiveAnalysis']();
+}
+
 export function ImportAnalysisProcess() {
   return window['go']['main']['App']['ImportAnalysisProcess']();
 }
@@ -444,6 +452,10 @@ export function OpenShopifyOAuthInBrowser(arg1) {
 
 export function PrepareImportAnalysis() {
   return window['go']['main']['App']['PrepareImportAnalysis']();
+}
+
+export function PrepareReport(arg1) {
+  return window['go']['main']['App']['PrepareReport'](arg1);
 }
 
 export function ReadChartDataFile(arg1, arg2) {

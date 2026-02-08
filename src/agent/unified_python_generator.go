@@ -186,15 +186,15 @@ func (g *UnifiedPythonGenerator) GenerateAnalysisCode(
 			
 			// Try to inject chart saving code before the finally block or at the end
 			chartSaveCode := `
-    # 【自动添加】保存图表
+    # [Auto-injected] Save chart
     try:
         chart_path = os.path.join(FILES_DIR, 'chart.png')
         if plt.get_fignums():  # Check if there are any figures
             plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')
             plt.close('all')
-            print(f"✅ 图表已保存: {chart_path}")
+            print(f"Chart saved: {chart_path}")
     except Exception as chart_err:
-        print(f"⚠️ 图表保存失败: {chart_err}")
+        print(f"Chart save failed: {chart_err}")
 `
 			injected := false
 			

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Edit3, Lock, Unlock, Save, X, Download, FileText, Image, Table, FileSpreadsheet, ChevronLeft, ChevronRight, Presentation, FileChartColumn } from 'lucide-react';
+import { Edit3, Lock, Unlock, Save, X, Download, FileText, Image, Table, FileSpreadsheet, ChevronLeft, ChevronRight, Presentation, FileChartColumn, ClipboardList } from 'lucide-react';
 import MetricCard from './MetricCard';
 import SmartInsight from './SmartInsight';
 import DataTable from './DataTable';
@@ -16,7 +16,7 @@ import ChartModal from './ChartModal';
 import Toast, { ToastType } from './Toast';
 import { main } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
-import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, GenerateFilePreview, GenerateReport } from '../../wailsjs/go/main/App';
+import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, GenerateFilePreview, GenerateReport, PrepareReport, ExportReport } from '../../wailsjs/go/main/App';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { database } from '../../wailsjs/go/models';
 import { createLogger } from '../utils/systemLog';
@@ -154,6 +154,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+    const [preparedReportId, setPreparedReportId] = useState<string | null>(null);
 
     // 点击外部关闭导出下拉菜单
     useEffect(() => {
@@ -177,12 +178,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         return dashboardData.hasRealAnalysisResults;
     };
 
-    // 生成报告（使用LLM生成正式分析报告）
-    const generateReport = async (format: 'word' | 'pdf') => {
+    // 生成报告（使用LLM生成正式分析报告，缓存后可多次导出不同格式）
+    const prepareReport = async () => {
         try {
             setExportDropdownOpen(false);
             setIsGeneratingReport(true);
-            logger.debug(`Starting report generation (${format})...`);
+            setPreparedReportId(null);
+            logger.debug('Starting report preparation...');
 
             // 尝试从洞察数据中获取数据源名称
             let dataSourceName = '';
@@ -194,7 +196,6 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     }
                 }
             }
-            // 如果洞察中没有数据源名称，尝试从表格标题中提取
             if (!dataSourceName && dashboardData.hasTables && dashboardData.allTableData.length > 0) {
                 const firstTable = dashboardData.allTableData[0];
                 if (firstTable.title) {
@@ -210,7 +211,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 chartImages: [],
                 tableData: null,
                 allTableData: [],
-                format: format
+                format: ''
             };
 
             // 收集指标数据
@@ -308,15 +309,32 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
             logger.debug(`Report data prepared: metrics=${reportData.metrics.length}, insights=${reportData.insights.length}, charts=${chartImages.length}`);
 
-            await GenerateReport(reportData);
+            const reportId = await PrepareReport(reportData);
 
             setIsGeneratingReport(false);
-            setToast({ message: t('generate_report_success') || '报告生成成功！', type: 'success' });
+            setPreparedReportId(reportId);
+            setExportDropdownOpen(true);
+            setToast({ message: t('report_ready') || '报告已生成，请选择导出格式', type: 'success' });
         } catch (error) {
             setIsGeneratingReport(false);
-            console.error('[DraggableDashboard] Report generation failed:', error);
+            console.error('[DraggableDashboard] Report preparation failed:', error);
             setToast({
                 message: (t('generate_report_failed') || '报告生成失败：') + (error instanceof Error ? error.message : String(error)),
+                type: 'error'
+            });
+        }
+    };
+
+    // 导出已生成的报告
+    const exportReportAs = async (format: 'word' | 'pdf') => {
+        if (!preparedReportId) return;
+        try {
+            await ExportReport(preparedReportId, format);
+            setToast({ message: t('generate_report_success') || '报告导出成功！', type: 'success' });
+        } catch (error) {
+            console.error('[DraggableDashboard] Report export failed:', error);
+            setToast({
+                message: (t('generate_report_failed') || '报告导出失败：') + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -1749,33 +1767,50 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         <div className="flex items-center gap-2">
                             <div className="relative export-dropdown-container">
                                 <button
-                                    onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
-                                    className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
-                                        bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100 cursor-pointer"
-                                    title={t('export_dashboard_data')}
+                                    onClick={() => {
+                                        if (preparedReportId) {
+                                            setExportDropdownOpen(!exportDropdownOpen);
+                                        } else {
+                                            prepareReport();
+                                        }
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm cursor-pointer ${
+                                        preparedReportId
+                                            ? 'bg-green-50 border border-green-200 text-green-600 hover:bg-green-100'
+                                            : 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100'
+                                    }`}
+                                    title={preparedReportId ? (t('report_ready_title') || '报告已就绪，选择导出格式') : (t('reports_button_title') || '生成分析报告')}
                                 >
-                                    <Download size={14} />
-                                    <span>{t('export')}</span>
+                                    <ClipboardList size={14} />
+                                    <span>{preparedReportId ? (t('export_report') || '导出报告') : (t('reports') || '报告')}</span>
                                 </button>
 
-                                {/* 导出下拉菜单 */}
-                                {exportDropdownOpen && (
+                                {/* 格式选择下拉菜单 - 仅在报告已生成后显示 */}
+                                {exportDropdownOpen && preparedReportId && (
                                     <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
-                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wider">{t('generate_report_label') || '生成报告'}</div>
+                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wider">{t('select_export_format') || '选择导出格式'}</div>
                                         <button
-                                            onClick={() => generateReport('word')}
+                                            onClick={() => exportReportAs('word')}
                                             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-indigo-500" />
-                                            <span className="whitespace-nowrap">{t('generate_report_word') || '生成Word报告'}</span>
+                                            <span className="whitespace-nowrap">{t('export_as_word') || '导出为 Word'}</span>
                                         </button>
                                         <button
-                                            onClick={() => generateReport('pdf')}
+                                            onClick={() => exportReportAs('pdf')}
                                             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-rose-500" />
-                                            <span className="whitespace-nowrap">{t('generate_report_pdf') || '生成PDF报告'}</span>
+                                            <span className="whitespace-nowrap">{t('export_as_pdf') || '导出为 PDF'}</span>
                                         </button>
+                                        <div className="border-t border-slate-100 mt-1 pt-1">
+                                            <button
+                                                onClick={() => { setPreparedReportId(null); setExportDropdownOpen(false); prepareReport(); }}
+                                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 transition-colors"
+                                            >
+                                                <span className="whitespace-nowrap">{t('regenerate_report') || '重新生成报告'}</span>
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>

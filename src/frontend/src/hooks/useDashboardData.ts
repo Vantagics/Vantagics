@@ -42,6 +42,7 @@ import {
   NormalizedInsightData,
 } from '../types/AnalysisResult';
 import { GetDataSourceStatistics } from '../../wailsjs/go/main/App';
+import { useLanguage } from '../i18n';
 import { agent } from '../../wailsjs/go/models';
 import { createLogger } from '../utils/systemLog';
 import { getAnalysisResultManager } from '../managers/AnalysisResultManager';
@@ -124,6 +125,7 @@ export interface DashboardDataSource {
  */
 export function useDashboardData(): DashboardDataSource {
   const analysisResults = useAnalysisResults();
+  const { t } = useLanguage();
   const [dataSourceStatistics, setDataSourceStatistics] = useState<agent.DataSourceStatistics | null>(null);
   const [isDataSourceStatsLoading, setIsDataSourceStatsLoading] = useState<boolean>(false);
   
@@ -446,7 +448,7 @@ export function useDashboardData(): DashboardDataSource {
     if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.total_count > 0) {
       // Total data sources metric
       dataSourceMetrics.push({
-        title: '数据源总数',
+        title: t('total_data_sources'),
         value: String(dataSourceStatistics.total_count),
         change: ''
       });
@@ -458,7 +460,7 @@ export function useDashboardData(): DashboardDataSource {
       
       sortedTypes.forEach(([type, count]) => {
         dataSourceMetrics.push({
-          title: `${type.toUpperCase()} 数据源`,
+          title: t('type_data_sources', type.toUpperCase()),
           value: String(count),
           change: ''
         });
@@ -479,7 +481,7 @@ export function useDashboardData(): DashboardDataSource {
     if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.data_sources && dataSourceStatistics.data_sources.length > 0) {
       dataSourceStatistics.data_sources.forEach((ds: any) => {
         const insight = {
-          text: `${ds.name} (${ds.type.toUpperCase()}) - 点击启动智能分析`,
+          text: `${ds.name} (${ds.type.toUpperCase()}) - ${t('click_to_start_analysis')}`,
           icon: 'database',
           dataSourceId: ds.id,
           sourceName: ds.name

@@ -145,11 +145,11 @@ func (m *ConversationContextManager) GetContextForPrompt(threadID string) string
 	}
 
 	var sb strings.Builder
-	sb.WriteString("\n=== 对话上下文 ===\n")
+	sb.WriteString("\n=== Conversation Context ===\n")
 
 	// Add relevant entities with strong emphasis
 	if len(ctx.LastEntities) > 0 {
-		sb.WriteString("**已知信息（必须使用，不要重复询问）**:\n")
+		sb.WriteString("**Known information (must use, do not ask the user again)**:\n")
 		for entityType, value := range ctx.LastEntities {
 			sb.WriteString("  - ")
 			sb.WriteString(entityType)
@@ -161,14 +161,14 @@ func (m *ConversationContextManager) GetContextForPrompt(threadID string) string
 
 	// Add last intent if relevant
 	if ctx.LastIntent != "" {
-		sb.WriteString("上次意图: ")
+		sb.WriteString("Last intent: ")
 		sb.WriteString(ctx.LastIntent)
 		sb.WriteString("\n")
 	}
 
 	// Add recent conversation summary
 	if len(ctx.ConversationFlow) > 0 {
-		sb.WriteString("最近对话:\n")
+		sb.WriteString("Recent conversation:\n")
 		// Show last 3 turns
 		start := 0
 		if len(ctx.ConversationFlow) > 3 {
@@ -180,28 +180,29 @@ func (m *ConversationContextManager) GetContextForPrompt(threadID string) string
 			if len(userMsg) > 100 {
 				userMsg = userMsg[:100] + "..."
 			}
-			sb.WriteString("  用户: ")
+			sb.WriteString("  User: ")
 			sb.WriteString(userMsg)
 			sb.WriteString("\n")
-			
+
 			if turn.AssistantMessage != "" {
 				assistMsg := turn.AssistantMessage
 				if len(assistMsg) > 100 {
 					assistMsg = assistMsg[:100] + "..."
 				}
-				sb.WriteString("  助手: ")
+				sb.WriteString("  Assistant: ")
 				sb.WriteString(assistMsg)
 				sb.WriteString("\n")
 			}
 		}
 	}
 
-	sb.WriteString("=== 上下文结束 ===\n")
-	sb.WriteString("⚠️ 重要: 如果用户的问题涉及上述已知信息（如城市、地点），请直接使用该信息，不要重复询问用户！\n")
-	sb.WriteString("例如: 如果已知城市是'三亚'，用户问'天气怎样'，直接查询三亚的天气。\n")
+	sb.WriteString("=== End of Context ===\n")
+	sb.WriteString("⚠️ Important: If the user's question involves the known information above (e.g., city, location), use it directly — do not ask the user again!\n")
+	sb.WriteString("Example: If the known city is 'Sanya' and the user asks 'how is the weather', query the weather for Sanya directly.\n")
 
 	return sb.String()
 }
+
 
 // ResolveReferences resolves pronouns and references in user message
 func (m *ConversationContextManager) ResolveReferences(threadID, userMessage string) string {
@@ -219,7 +220,7 @@ func (m *ConversationContextManager) ResolveReferences(threadID, userMessage str
 	if isWeatherQuery(userMessage) && !hasExplicitCity(userMessage) {
 		if city, ok := ctx.LastEntities["city"]; ok {
 			// Add city context to the message
-			resolved = userMessage + " (城市: " + city + ")"
+			resolved = userMessage + " (city: " + city + ")"
 		}
 	}
 

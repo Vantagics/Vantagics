@@ -403,26 +403,26 @@ func (b *SchemaContextBuilder) estimateTokenCount(tables []UnifiedTableSchema) i
 func (b *SchemaContextBuilder) FormatForPrompt(ctx *UnifiedSchemaContext) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("数据库类型: %s\n", ctx.DatabaseType))
-	sb.WriteString(fmt.Sprintf("数据库路径: %s\n\n", ctx.DatabasePath))
+	sb.WriteString(fmt.Sprintf("Database type: %s\n", ctx.DatabaseType))
+	sb.WriteString(fmt.Sprintf("Database path: %s\n\n", ctx.DatabasePath))
 
 	for _, table := range ctx.Tables {
-		sb.WriteString(fmt.Sprintf("表名: %s (约 %d 行)\n", table.Name, table.RowCount))
-		sb.WriteString("字段:\n")
+		sb.WriteString(fmt.Sprintf("Table: %s (~%d rows)\n", table.Name, table.RowCount))
+		sb.WriteString("Columns:\n")
 
 		for _, col := range table.Columns {
 			flags := ""
 			if col.IsPK {
-				flags += " [主键]"
+				flags += " [PK]"
 			}
 			if col.IsFK {
-				flags += fmt.Sprintf(" [外键->%s]", col.RefTable)
+				flags += fmt.Sprintf(" [FK->%s]", col.RefTable)
 			}
 			sb.WriteString(fmt.Sprintf("  - %s (%s)%s\n", col.Name, col.Type, flags))
 		}
 
 		if len(table.SampleData) > 0 {
-			sb.WriteString("示例数据:\n")
+			sb.WriteString("Sample data:\n")
 			for i, row := range table.SampleData {
 				if i >= 2 { // Limit to 2 sample rows in prompt
 					break
@@ -443,7 +443,7 @@ func (b *SchemaContextBuilder) FormatForPrompt(ctx *UnifiedSchemaContext) string
 	}
 
 	if len(ctx.Relationships) > 0 {
-		sb.WriteString("表关系:\n")
+		sb.WriteString("Relationships:\n")
 		for _, rel := range ctx.Relationships {
 			sb.WriteString(fmt.Sprintf("  - %s.%s -> %s.%s\n", rel.FromTable, rel.FromColumn, rel.ToTable, rel.ToColumn))
 		}

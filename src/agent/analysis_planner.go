@@ -494,24 +494,25 @@ func (p *AnalysisPlanner) FormatPlanForPrompt(plan *AnalysisPlan) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("\n\n📋 执行计划:\n")
-	sb.WriteString(fmt.Sprintf("类型: %s | 复杂度: %s | 预计调用: %d次\n", plan.TaskType, plan.Complexity, plan.EstimatedCalls))
+	sb.WriteString("\n\n📋 Execution Plan:\n")
+	sb.WriteString(fmt.Sprintf("Type: %s | Complexity: %s | Estimated calls: %d\n", plan.TaskType, plan.Complexity, plan.EstimatedCalls))
 
 	if plan.IsQuickPath && plan.QuickPathCode != "" {
-		sb.WriteString("⚡ 快速路径: 直接执行以下代码\n")
+		sb.WriteString("⚡ Quick path: execute the following code directly\n")
 		sb.WriteString("```python\n")
 		sb.WriteString(plan.QuickPathCode)
 		sb.WriteString("\n```\n")
 		return sb.String()
 	}
 
-	sb.WriteString("步骤:\n")
+	sb.WriteString("Steps:\n")
 	for _, step := range plan.Steps {
 		sb.WriteString(fmt.Sprintf("  %d. [%s] %s\n", step.StepNum, step.Tool, step.Purpose))
 	}
 
 	return sb.String()
 }
+
 
 // containsAny checks if s contains any of the substrings
 func containsAny(s string, substrs []string) bool {

@@ -504,13 +504,24 @@ function AppContent() {
         });
 
         // Listen for menu event
-        const unsubscribeSettings = EventsOn("open-settings", () => {
+        const unsubscribeSettings = EventsOn("open-settings", (data?: any) => {
             setIsPreferenceOpen(true);
+            // If tab is specified, set it as initial tab
+            if (data && data.tab) {
+                setPreferenceInitialTab(data.tab);
+            } else {
+                setPreferenceInitialTab(undefined);
+            }
         });
 
         // Listen for about menu event
         const unsubscribeAbout = EventsOn("open-about", () => {
             setIsAboutOpen(true);
+        });
+
+        // Listen for open startup mode modal event (from AboutModal when switching to commercial mode)
+        const unsubscribeStartupMode = EventsOn("open-startup-mode-modal", () => {
+            setShowStartupModeModal(true);
         });
 
         // Listen for dashboard chart updates (with session ID)
@@ -1307,6 +1318,7 @@ function AppContent() {
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeSettings) unsubscribeSettings();
             if (unsubscribeAbout) unsubscribeAbout();
+            if (unsubscribeStartupMode) unsubscribeStartupMode();
             if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
             if (unsubscribeSessionSwitch) unsubscribeSessionSwitch();
             if (unsubscribeDashboardDataUpdate) unsubscribeDashboardDataUpdate();
@@ -1534,6 +1546,12 @@ function AppContent() {
                 <AboutModal
                     isOpen={isAboutOpen}
                     onClose={() => setIsAboutOpen(false)}
+                />
+
+                <StartupModeModal
+                    isOpen={showStartupModeModal}
+                    onComplete={handleStartupModeComplete}
+                    onOpenSettings={handleOpenSettingsFromStartup}
                 />
 
                 <MessageModal

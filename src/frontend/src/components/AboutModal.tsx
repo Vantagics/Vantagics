@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { X, BarChart3, CreditCard, Globe } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { GetActivationStatus, DeactivateLicense } from '../../wailsjs/go/main/App';
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
-import ActivationModal from './ActivationModal';
+import { BrowserOpenURL, EventsEmit } from '../../wailsjs/runtime/runtime';
+import { createLogger } from '../utils/systemLog';
+
+const logger = createLogger('AboutModal');
 
 interface AboutModalProps {
     isOpen: boolean;
@@ -26,7 +28,6 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     // State for license mode switch feature
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmAction, setConfirmAction] = useState<'toCommercial' | 'toOpenSource' | null>(null);
-    const [showActivationModal, setShowActivationModal] = useState(false);
     const [isDeactivating, setIsDeactivating] = useState(false);
     const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
@@ -44,6 +45,33 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                 setActivationStatus({ activated: false });
             });
         }
+    }, [isOpen]);
+
+    // Listen for activation success event to refresh status
+    useEffect(() => {
+        if (!isOpen) return;
+        
+        const refreshStatus = () => {
+            GetActivationStatus().then((status) => {
+                setActivationStatus({
+                    activated: status.activated || false,
+                    sn: status.sn || '',
+                    expires_at: status.expires_at || '',
+                    daily_analysis_limit: status.daily_analysis_limit || 0,
+                    daily_analysis_count: status.daily_analysis_count || 0,
+                });
+            }).catch(() => {
+                setActivationStatus({ activated: false });
+            });
+        };
+        
+        // Import EventsOn dynamically to avoid circular dependency
+        import('../../wailsjs/runtime/runtime').then(({ EventsOn }) => {
+            const unsubscribe = EventsOn('activation-status-changed', refreshStatus);
+            return () => {
+                if (unsubscribe) unsubscribe();
+            };
+        });
     }, [isOpen]);
 
     // Calculate days until expiration
@@ -80,10 +108,13 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     // Handle confirm action
     const handleConfirm = async () => {
         if (confirmAction === 'toCommercial') {
-            // Close the confirm dialog and AboutModal, then open ActivationModal
+            // Close the confirm dialog and AboutModal, then emit event to open StartupModeModal
             setShowConfirmDialog(false);
             onClose();
-            setShowActivationModal(true);
+            // Delay event emission to ensure AboutModal is fully closed
+            setTimeout(() => {
+                EventsEmit('open-startup-mode-modal');
+            }, 100);
         } else if (confirmAction === 'toOpenSource') {
             // Deactivate the license
             setIsDeactivating(true);
@@ -101,8 +132,15 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                 });
                 setShowConfirmDialog(false);
                 setConfirmAction(null);
+                
+                // Close AboutModal and open Settings with LLM tab
+                onClose();
+                // Emit event to open settings with LLM tab
+                EventsEmit('open-settings', { tab: 'llm' });
             } catch (error: any) {
-                setDeactivateError(t('deactivate_failed') + ': ' + error.toString());
+                // Show error message
+                const errorMsg = error?.message || error?.toString() || t('deactivate_failed');
+                setDeactivateError(errorMsg);
             } finally {
                 setIsDeactivating(false);
             }
@@ -114,23 +152,6 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         setShowConfirmDialog(false);
         setConfirmAction(null);
         setDeactivateError(null);
-    };
-
-    // Handle activation success - refresh activation status after successful activation
-    const handleActivationSuccess = async () => {
-        try {
-            const status = await GetActivationStatus();
-            setActivationStatus({
-                activated: status.activated || false,
-                sn: status.sn || '',
-                expires_at: status.expires_at || '',
-                daily_analysis_limit: status.daily_analysis_limit || 0,
-                daily_analysis_count: status.daily_analysis_count || 0,
-            });
-        } catch (error) {
-            console.error('Failed to refresh activation status:', error);
-        }
-        setShowActivationModal(false);
     };
 
     if (!isOpen) return null;
@@ -326,13 +347,6 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     </div>
                 </div>
             )}
-
-            {/* Activation Modal for switching to commercial mode */}
-            <ActivationModal
-                isOpen={showActivationModal}
-                onClose={() => setShowActivationModal(false)}
-                onActivated={handleActivationSuccess}
-            />
         </div>
     );
 };

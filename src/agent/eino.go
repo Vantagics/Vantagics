@@ -18,6 +18,7 @@ import (
 
 	"vantagedata/agent/templates"
 	"vantagedata/config"
+	"vantagedata/i18n"
 )
 
 // getProviderMaxTokens returns the maximum OUTPUT tokens for different providers
@@ -624,7 +625,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			userQuery := lastMsg.Content
 
 			// Get data source info (reused for both classification and planning)
-			dataSourceInfo := "无数据源"
+			dataSourceInfo := "No data source"
 			var dbPath string
 			if dataSourceID != "" {
 				if sources, err := s.dsService.LoadDataSources(); err == nil {
@@ -632,7 +633,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						if ds.ID == dataSourceID {
 							dbPath = ds.Config.DBPath
 							tables, _ := s.dsService.GetDataSourceTables(dataSourceID)
-							dataSourceInfo = fmt.Sprintf("数据源: %s, 表: %s", ds.Name, strings.Join(tables, ", "))
+							dataSourceInfo = fmt.Sprintf("Data source: %s, Tables: %s", ds.Name, strings.Join(tables, ", "))
 							break
 						}
 					}
@@ -1100,7 +1101,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		if iterationCount == warningStep1 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "⚡ 已用较多步骤。尽快完成分析，最多再用2次工具。",
+				Content: "⚡ Too many steps used. Wrap up the analysis soon, use at most 2 more tool calls.",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
@@ -1109,7 +1110,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		} else if iterationCount == warningStep2 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "⚠️ 步骤较多。立即呈现结果,不要再调用工具。",
+				Content: "⚠️ Too many steps. Present results immediately, do not call any more tools.",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
@@ -1118,7 +1119,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		} else if iterationCount == warningStep3 {
 			finalMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "🛑 停止! 立即输出当前结果。",
+				Content: "🛑 STOP! Output current results immediately.",
 			}
 			input = append(input, finalMsg)
 			if s.Logger != nil {
@@ -1139,7 +1140,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			// Return a message asking the model to output results immediately
 			forceStopMsg := &schema.Message{
 				Role:    schema.Assistant,
-				Content: "由于分析步骤已达上限，现在输出当前已获得的分析结果。",
+				Content: "Analysis step limit reached. Outputting current results now.",
 			}
 			return append(input, forceStopMsg), nil
 		}
@@ -1520,9 +1521,10 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	// Detect user language from the last message to respond in the same language
+	languageDirective := detectResponseLanguage(lastUserMessage)
 	sysMsg := &schema.Message{
 		Role:    schema.System,
-		Content: buildAnalysisSystemPrompt() + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt,
+		Content: buildAnalysisSystemPrompt() + analysisPlanPrompt + contextPrompt + workingContextPrompt + conversationContextPrompt + mcpToolsPrompt + languageDirective,
 	}
 
 	// 7. Apply memory management to history (only if enabled)
@@ -1721,99 +1723,58 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 // Instead of detecting and hardcoding a specific language, we instruct the LLM
 // to always respond in the same language as the user's message.
 // This naturally supports all languages (Chinese, English, Japanese, Korean, French, etc.)
+// detectResponseLanguage analyzes the user's message and returns a language directive
+// to append to the system prompt. This is placed at the END of the prompt (closest to
+// generation) to maximize its influence on Chinese-tuned models that tend to default
+// to Chinese even when the user writes in English.
+func detectResponseLanguage(userMessage string) string {
+	if userMessage == "" {
+		return ""
+	}
+
+	chineseCount := 0
+	japaneseCount := 0
+	totalCount := 0
+	for _, r := range userMessage {
+		if r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF {
+			chineseCount++
+		}
+		// Hiragana + Katakana
+		if r >= 0x3040 && r <= 0x309F || r >= 0x30A0 && r <= 0x30FF {
+			japaneseCount++
+		}
+		if r > 32 { // count non-whitespace
+			totalCount++
+		}
+	}
+
+	if totalCount == 0 {
+		return ""
+	}
+
+	chineseRatio := float64(chineseCount) / float64(totalCount)
+	japaneseRatio := float64(japaneseCount) / float64(totalCount)
+
+	if chineseRatio > 0.3 {
+		// User is writing in Chinese — no extra directive needed,
+		// Chinese-tuned models naturally respond in Chinese
+		return ""
+	}
+
+	if japaneseRatio > 0.1 {
+		return "\n\n🚨 **RESPONSE LANGUAGE: You MUST respond in Japanese (日本語).** The user's message is in Japanese. All output must be in Japanese. Do NOT use Chinese."
+	}
+
+	// User is writing in a non-CJK language (likely English).
+	// Add a strong directive at the end of the system prompt to override
+	// the model's Chinese default. Position matters: end-of-prompt has
+	// the strongest influence on generation.
+	return "\n\n🚨 **RESPONSE LANGUAGE: You MUST respond in English.** The user's message is in English. All text output — analysis, insights, suggestions, chart titles, labels — must be in English. Do NOT use Chinese."
+}
+
 func buildAnalysisSystemPrompt() string {
-	echartsBlock := "```json:echarts\n{...}\n```"
-	tableBlock := "```json:table\n[...]\n```"
-
-	return `VantageData Data Analysis Expert. Fast, direct, visualization-first.
-
-🌐 **LANGUAGE RULE (CRITICAL)**: You MUST respond in the SAME language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English. If in Japanese, respond in Japanese. This applies to ALL output: responses, chart titles, axis labels, insights, and suggestions. Always match the user's language exactly.
-
-🎯 Goal: High-quality analysis output (charts + data + insights)
-
-📊 **Visualization Methods (choose one)**:
-
-**Method 1: ECharts (recommended, no code execution needed)**
-- Output ` + echartsBlock + ` directly in your response
-- Frontend renders charts automatically
-- Best for: interactive charts, quick display
-- 🚫 **ECharts NEVER generates any files!** Do not claim "generated xxx.pdf" or "saved xxx.png"
-- ⚠️ **ECharts config must be pure JSON!** Do not use JavaScript functions (e.g., function(params){...}). Use string templates for formatter (e.g., "{b}: {c}"), not functions.
-
-**Method 2: Python matplotlib (requires code execution to generate files)**
-- Must call python_executor tool to execute code
-- Use FILES_DIR variable to save files
-- Best for: exporting PDF/PNG files
-- ✅ Files only exist after python_executor executes successfully
-
-🚨🚨🚨 **No False File Claims (most important rule)** 🚨🚨🚨
-- **ECharts = frontend rendering = no files generated** → never claim files were generated
-- **Only claim files exist after calling python_executor successfully**
-- **Forbidden**: claiming file generation without python_executor execution
-- **Correct**: With ECharts, show interactive chart without file mentions; with matplotlib, call python_executor first
-
-⚡ Quick paths (skip search, use python_executor directly):
-- Time/date queries → datetime module
-- Math calculations → compute directly
-- Unit conversions → convert directly
-
-🔧 **Tool Usage Rules (strict)**:
-
-**Tool dependency chain (data analysis)**:
-get_data_source_context → execute_sql → python_executor/ECharts → export_data
-
-**Rules:**
-1. **Schema before SQL**: Must call get_data_source_context for column names and types before writing SQL
-2. **SQL result passing**: execute_sql returns JSON data, use json.loads() in python_executor
-3. **Don't guess column names**: Column names are case-sensitive, get exact names from schema
-4. **Fetch schema once**: Use table_names parameter to get all needed tables in one call
-5. **Tool error handling**: On SQL errors, fix based on error message and retry, don't give up
-
-📋 Standard data analysis workflow:
-1. get_data_source_context → get schema (column names, types, sample data, SQL dialect hints)
-2. execute_sql → query data with correct column names and syntax
-3. Visualize: ECharts (direct output, no files) or python_executor (generates files)
-4. Present results (charts + insights + data tables)
-
-📤 Data export rules:
-- Data table export → Excel format (export_data, format="excel")
-- Visual reports → PDF format (requires python_executor)
-- Presentations → PPT format
-
-🔴 Key rules:
-- **Analysis requests must include visualization** - ECharts or matplotlib
-- **ECharts does not generate files, do not claim it does**
-- Execute tools immediately (don't explain first)
-- get_data_source_context at most 2 calls
-- Fix SQL errors directly
-
-🐍 **Python as universal tool (when existing tools aren't enough)**:
-- If existing agent tools can't fulfill the request, **proactively use python_executor**
-- Python can do almost anything: data processing, file operations, API calls, text analysis, math modeling, format conversion, etc.
-- **Don't give up on a task just because there's no dedicated tool — write a Python solution!**
-
-📊 Output formats:
-- ECharts charts: ` + echartsBlock + ` (frontend rendering only, no files, must be pure JSON, no functions)
-- Tables: ` + tableBlock + `
-- Images are auto-detected and displayed
-
-🌐 Web search (only for external information):
-- web_search: news, stock prices, weather, and other real-time external data
-- web_fetch: fetch web page content
-- Don't use search for time/calculations/locally completable tasks
-- Cite sources: [Source: URL]
-
-📈 Analysis output requirements:
-- Data analysis → must include: chart (ECharts or matplotlib) + key insights + data summary
-- Simple questions (time/calculations) → return results directly
-- Don't return text-only analysis, include visual support
-
-💡 **Suggestions output (important)**:
-- After each data analysis, add a suggestions section at the end
-- Use numbered list (1. 2. 3.) with 3-5 follow-up analysis suggestions
-- Suggestions should be specific, actionable, helping users explore data further
-
-⚠️ Execute efficiently, but don't sacrifice analysis quality!`
+	// Use internationalized system prompt from i18n package
+	return i18n.GetAnalysisSystemPrompt()
 }
 
 
