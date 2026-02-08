@@ -22,6 +22,7 @@ import (
 type DashboardExportData struct {
 	UserRequest    string            `json:"userRequest"`
 	DataSourceName string            `json:"dataSourceName"` // 数据源名称
+	MessageID      string            `json:"messageId"`      // 分析请求ID
 	Metrics        []DashboardMetric `json:"metrics"`
 	Insights       []string          `json:"insights"`
 	ChartImage     string            `json:"chartImage"`  // base64 image data (single chart, for backward compatibility)
@@ -52,11 +53,48 @@ type TableColumn struct {
 	DataType string `json:"dataType"`
 }
 
+// generateExportFilename generates a filename for export with datasource name and message ID
+func generateExportFilename(dataSourceName string, messageID string, extension string) string {
+	timestamp := time.Now().Format("20060102_150405")
+	
+	// 清理数据源名称，移除不合法的文件名字符
+	cleanDataSourceName := strings.Map(func(r rune) rune {
+		if r == ':' || r == '\\' || r == '/' || r == '?' || r == '*' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '_'
+		}
+		return r
+	}, dataSourceName)
+	
+	// 限制数据源名称长度
+	if len([]rune(cleanDataSourceName)) > 30 {
+		cleanDataSourceName = string([]rune(cleanDataSourceName)[:30])
+	}
+	
+	// 截取messageID的前8位
+	shortMessageID := messageID
+	if len(messageID) > 8 {
+		shortMessageID = messageID[:8]
+	}
+	
+	// 构建文件名
+	var filename string
+	if cleanDataSourceName != "" && shortMessageID != "" {
+		filename = fmt.Sprintf("%s_%s_%s.%s", cleanDataSourceName, shortMessageID, timestamp, extension)
+	} else if cleanDataSourceName != "" {
+		filename = fmt.Sprintf("%s_%s.%s", cleanDataSourceName, timestamp, extension)
+	} else if shortMessageID != "" {
+		filename = fmt.Sprintf("analysis_%s_%s.%s", shortMessageID, timestamp, extension)
+	} else {
+		filename = fmt.Sprintf("dashboard_%s.%s", timestamp, extension)
+	}
+	
+	return filename
+}
+
 // ExportDashboardToPDF exports dashboard data to PDF using gopdf library
 func (a *App) ExportDashboardToPDF(data DashboardExportData) error {
 	// Save dialog
-	timestamp := time.Now().Format("20060102_150405")
-	defaultFilename := fmt.Sprintf("dashboard_%s.pdf", timestamp)
+	defaultFilename := generateExportFilename(data.DataSourceName, data.MessageID, "pdf")
 
 	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "导出仪表盘为PDF",
@@ -815,8 +853,7 @@ func (a *App) ExportDashboardToExcel(data DashboardExportData) error {
 	}
 
 	// Save dialog
-	timestamp := time.Now().Format("20060102_150405")
-	defaultFilename := fmt.Sprintf("dashboard_data_%s.xlsx", timestamp)
+	defaultFilename := generateExportFilename(data.DataSourceName, data.MessageID, "xlsx")
 
 	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "导出仪表盘数据为Excel",
@@ -979,8 +1016,7 @@ func (a *App) ExportMessageToPDF(content string, messageID string) error {
 // ExportDashboardToPPT exports dashboard data to PowerPoint format
 func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 	// Save dialog
-	timestamp := time.Now().Format("20060102_150405")
-	defaultFilename := fmt.Sprintf("dashboard_%s.pptx", timestamp)
+	defaultFilename := generateExportFilename(data.DataSourceName, data.MessageID, "pptx")
 
 	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "导出仪表盘为PPT",
@@ -1053,8 +1089,7 @@ func (a *App) ExportDashboardToPPT(data DashboardExportData) error {
 // ExportDashboardToWord exports dashboard data to Word format
 func (a *App) ExportDashboardToWord(data DashboardExportData) error {
 	// Save dialog
-	timestamp := time.Now().Format("20060102_150405")
-	defaultFilename := fmt.Sprintf("dashboard_%s.docx", timestamp)
+	defaultFilename := generateExportFilename(data.DataSourceName, data.MessageID, "docx")
 
 	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title:           "导出仪表盘为Word",

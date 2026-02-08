@@ -194,6 +194,14 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setError('Please provide Jira URL, username/email, and password/API token');
             return;
         }
+        if (driverType === 'snowflake' && (!config.snowflakeAccount || !config.snowflakeUser || !config.snowflakePassword)) {
+            setError('Please provide Snowflake account, username, and password');
+            return;
+        }
+        if (driverType === 'bigquery' && (!config.bigqueryProjectId || !config.bigqueryCredentials)) {
+            setError('Please provide BigQuery project ID and service account credentials');
+            return;
+        }
 
         setIsImporting(true);
         setError(null);
@@ -287,6 +295,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 <option value="mysql">MySQL</option>
                                 <option value="postgresql">PostgreSQL</option>
                                 <option value="doris">Doris</option>
+                                <option value="snowflake">Snowflake</option>
+                                <option value="bigquery">BigQuery</option>
                                 <option value="shopify">Shopify API</option>
                                 <option value="bigcommerce">BigCommerce API</option>
                                 <option value="ebay">eBay API</option>
@@ -793,6 +803,188 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     </p>
                                 </div>
                             </div>
+                        ) : driverType === 'snowflake' ? (
+                            <div className="space-y-4">
+                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-sm font-medium text-blue-800 mb-2">
+                                        {t('snowflake_setup_guide') || '❄️ Snowflake Connection'}
+                                    </p>
+                                    <p className="text-xs text-blue-700">
+                                        {t('snowflake_desc') || 'Connect to your Snowflake data warehouse to import tables and run analytics.'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_account') || 'Account Identifier'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeAccount || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeAccount: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="xy12345.us-east-1"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('snowflake_account_hint') || 'Format: account_name.region (e.g., xy12345.us-east-1)'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('user') || 'Username'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeUser || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeUser: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="username"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password') || 'Password'}</label>
+                                    <input
+                                        type="password"
+                                        value={config.snowflakePassword || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakePassword: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="••••••••"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_warehouse') || 'Warehouse (Optional)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeWarehouse || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeWarehouse: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="COMPUTE_WH"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('database') || 'Database (Optional)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeDatabase || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeDatabase: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="MY_DATABASE"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_schema') || 'Schema (Optional)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeSchema || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeSchema: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="PUBLIC"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_role') || 'Role (Optional)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.snowflakeRole || ''}
+                                        onChange={(e) => setConfig({ ...config, snowflakeRole: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="ACCOUNTADMIN"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            </div>
+                        ) : driverType === 'bigquery' ? (
+                            <div className="space-y-4">
+                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-sm font-medium text-blue-800 mb-2">
+                                        {t('bigquery_setup_guide') || '📊 BigQuery Connection'}
+                                    </p>
+                                    <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+                                        <li>{t('bigquery_step1') || 'Go to Google Cloud Console'}</li>
+                                        <li>{t('bigquery_step2') || 'Create a service account with BigQuery permissions'}</li>
+                                        <li>{t('bigquery_step3') || 'Download the JSON key file'}</li>
+                                        <li>{t('bigquery_step4') || 'Paste the JSON content below'}</li>
+                                    </ol>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_project_id') || 'Project ID'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.bigqueryProjectId || ''}
+                                        onChange={(e) => setConfig({ ...config, bigqueryProjectId: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="my-gcp-project"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('bigquery_project_hint') || 'Your Google Cloud Project ID'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_dataset') || 'Dataset ID (Optional)'}</label>
+                                    <input
+                                        type="text"
+                                        value={config.bigqueryDatasetId || ''}
+                                        onChange={(e) => setConfig({ ...config, bigqueryDatasetId: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="my_dataset"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('bigquery_dataset_hint') || 'Leave empty to import all datasets'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_credentials') || 'Service Account JSON'}</label>
+                                    <textarea
+                                        value={config.bigqueryCredentials || ''}
+                                        onChange={(e) => setConfig({ ...config, bigqueryCredentials: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                                        placeholder='{"type": "service_account", "project_id": "...", ...}'
+                                        rows={6}
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {t('bigquery_credentials_hint') || 'Paste the entire JSON key file content'}
+                                    </p>
+                                </div>
+                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p className="text-xs text-amber-700">
+                                        ⚠️ {t('bigquery_note') || 'Note: BigQuery integration requires additional Go dependencies. The system will guide you through setup if needed.'}
+                                    </p>
+                                </div>
+                            </div>
                         ) : (
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="col-span-2">
@@ -904,7 +1096,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         )}
 
                         {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'jira' || isStoreLocally) && (
+                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || isStoreLocally) && (
                             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <input
                                     type="checkbox"

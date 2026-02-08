@@ -1,6 +1,6 @@
 import React from 'react';
 import { useLanguage } from '../i18n';
-import { Upload, Store, X, Briefcase } from 'lucide-react';
+import { Upload, Store, X, Briefcase, Database } from 'lucide-react';
 
 interface OnboardingWizardProps {
     isOpen: boolean;
@@ -30,6 +30,12 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     // Project management tools
     const projectTools = [
         { id: 'jira', name: 'Jira', icon: '📋', color: 'bg-indigo-50 hover:bg-indigo-100 border-indigo-200', textColor: 'text-indigo-700' }
+    ];
+
+    // Data warehouses
+    const dataWarehouses = [
+        { id: 'snowflake', name: 'Snowflake', icon: '❄️', color: 'bg-cyan-50 hover:bg-cyan-100 border-cyan-200', textColor: 'text-cyan-700' },
+        { id: 'bigquery', name: 'BigQuery', icon: '📊', color: 'bg-blue-50 hover:bg-blue-100 border-blue-200', textColor: 'text-blue-700' }
     ];
 
     return (
@@ -105,6 +111,31 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </div>
                     </div>
 
+                    {/* Data Warehouse Section */}
+                    <div>
+                        <div className="flex items-center gap-1.5 mb-2">
+                            <Database className="w-4 h-4 text-cyan-500" />
+                            <h3 className="text-xs font-semibold text-slate-700">
+                                {t('onboarding_warehouse_title') || '数据仓库'}
+                            </h3>
+                            <span className="text-xs text-slate-400">- {t('onboarding_warehouse_desc') || '连接云数据仓库'}</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2">
+                            {dataWarehouses.map((platform) => (
+                                <button
+                                    key={platform.id}
+                                    onClick={() => onSelectPlatform(platform.id)}
+                                    className={`p-2 rounded-lg border ${platform.color} transition-all hover:scale-[1.02] hover:shadow-sm flex flex-col items-center gap-1`}
+                                >
+                                    <span className="text-lg">{platform.icon}</span>
+                                    <span className={`font-medium text-xs ${platform.textColor}`}>
+                                        {platform.name}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
                     {/* Divider */}
                     <div className="flex items-center gap-3">
                         <div className="flex-1 h-px bg-slate-200"></div>
@@ -122,7 +153,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             {t('onboarding_self_import') || '自主导入数据'}
                         </span>
                         <span className="text-xs text-slate-400">
-                            ({t('onboarding_self_import_desc') || 'Excel、CSV、JSON、MySQL'})
+                            ({t('onboarding_self_import_desc') || 'Excel、CSV、JSON、MySQL、PostgreSQL'})
                         </span>
                     </button>
                 </div>

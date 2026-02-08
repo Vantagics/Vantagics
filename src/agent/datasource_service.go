@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/snowflakedb/gosnowflake"
 	_ "modernc.org/sqlite"
 )
 
@@ -296,6 +297,10 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportEtsy(name, config)
 	case "jira":
 		return s.ImportJira(name, config)
+	case "snowflake":
+		return s.ImportSnowflake(name, config)
+	case "bigquery":
+		return s.ImportBigQuery(name, config)
 	case "postgresql":
 		return nil, fmt.Errorf("postgresql driver not supported yet")
 	default:
@@ -7070,4 +7075,170 @@ func (s *DataSourceService) fetchJiraSprints(client *http.Client, db *sql.DB, ba
 
 	s.log(fmt.Sprintf("[JIRA] Total %d sprints fetched, creating table...", len(allSprints)))
 	return s.createTableFromJSON(db, "sprints", allSprints)
+}
+
+// ImportSnowflake imports data from Snowflake data warehouse
+func (s *DataSourceService) ImportSnowflake(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportSnowflake: %s (Account: %s)", name, config.SnowflakeAccount))
+
+	// Validate required fields
+	if config.SnowflakeAccount == "" || config.SnowflakeUser == "" || config.SnowflakePassword == "" {
+		return nil, fmt.Errorf("snowflake account, user, and password are required")
+	}
+
+	// Build Snowflake DSN
+	// Format: user:password@account/database/schema?warehouse=warehouse&role=role
+	dsn := fmt.Sprintf("%s:%s@%s", config.SnowflakeUser, config.SnowflakePassword, config.SnowflakeAccount)
+	
+	if config.SnowflakeDatabase != "" {
+		dsn += "/" + config.SnowflakeDatabase
+		if config.SnowflakeSchema != "" {
+			dsn += "/" + config.SnowflakeSchema
+		}
+	}
+	
+	params := []string{}
+	if config.SnowflakeWarehouse != "" {
+		params = append(params, "warehouse="+config.SnowflakeWarehouse)
+	}
+	if config.SnowflakeRole != "" {
+		params = append(params, "role="+config.SnowflakeRole)
+	}
+	if len(params) > 0 {
+		dsn += "?" + strings.Join(params, "&")
+	}
+
+	// Test connection
+	s.log("[Snowflake] Testing connection...")
+	snowflakeDB, err := sql.Open("snowflake", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Snowflake: %w", err)
+	}
+	defer snowflakeDB.Close()
+
+	if err := snowflakeDB.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping Snowflake: %w", err)
+	}
+	s.log("[Snowflake] Connection successful")
+
+	// Create local SQLite database
+	dbName := sanitizeFilename(name) + ".db"
+	dbPath := filepath.Join(s.dataCacheDir, dbName)
+	absDBDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	localDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create local database: %w", err)
+	}
+	defer localDB.Close()
+
+	// Get list of tables to import
+	var tables []string
+	var query string
+	
+	if config.SnowflakeDatabase != "" && config.SnowflakeSchema != "" {
+		query = fmt.Sprintf("SHOW TABLES IN SCHEMA %s.%s", config.SnowflakeDatabase, config.SnowflakeSchema)
+	} else if config.SnowflakeDatabase != "" {
+		query = fmt.Sprintf("SHOW TABLES IN DATABASE %s", config.SnowflakeDatabase)
+	} else {
+		query = "SHOW TABLES"
+	}
+
+	rows, err := snowflakeDB.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list tables: %w", err)
+	}
+	defer rows.Close()
+
+	// Snowflake SHOW TABLES returns multiple columns, we need the table name
+	cols, _ := rows.Columns()
+	for rows.Next() {
+		values := make([]interface{}, len(cols))
+		valuePtrs := make([]interface{}, len(cols))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+		if err := rows.Scan(valuePtrs...); err != nil {
+			continue
+		}
+		// Table name is typically in the second column (index 1)
+		if len(values) > 1 {
+			if tableName, ok := values[1].(string); ok {
+				tables = append(tables, tableName)
+			}
+		}
+	}
+
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("no tables found in Snowflake database")
+	}
+
+	s.log(fmt.Sprintf("[Snowflake] Found %d tables, importing...", len(tables)))
+
+	// Import each table
+	for _, tableName := range tables {
+		s.log(fmt.Sprintf("[Snowflake] Importing table: %s", tableName))
+		if err := s.copyTable(snowflakeDB, localDB, tableName); err != nil {
+			s.log(fmt.Sprintf("[Snowflake] Warning: Failed to import table %s: %v", tableName, err))
+			continue
+		}
+	}
+
+	// Create data source record
+	ds := DataSource{
+		ID:        uuid.New().String(),
+		Name:      name,
+		Type:      "snowflake",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:             dbName,
+			Host:               config.SnowflakeAccount,
+			User:               config.SnowflakeUser,
+			Database:           config.SnowflakeDatabase,
+			SnowflakeAccount:   config.SnowflakeAccount,
+			SnowflakeWarehouse: config.SnowflakeWarehouse,
+			SnowflakeSchema:    config.SnowflakeSchema,
+			SnowflakeRole:      config.SnowflakeRole,
+			StoreLocally:       true,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("[Snowflake] Successfully imported data source: %s", name))
+	return &ds, nil
+}
+
+// ImportBigQuery imports data from Google BigQuery
+func (s *DataSourceService) ImportBigQuery(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportBigQuery: %s (Project: %s)", name, config.BigQueryProjectID))
+
+	// Validate required fields
+	if config.BigQueryProjectID == "" {
+		return nil, fmt.Errorf("bigquery project ID is required")
+	}
+	if config.BigQueryCredentials == "" {
+		return nil, fmt.Errorf("bigquery service account credentials are required")
+	}
+
+	// Note: BigQuery integration requires the cloud.google.com/go/bigquery package
+	// For now, we'll return an error with instructions
+	return nil, fmt.Errorf("BigQuery integration requires additional setup. Please install the BigQuery Go client library:\n" +
+		"go get cloud.google.com/go/bigquery\n" +
+		"Then implement the BigQuery data import logic using the service account credentials")
+
+	// TODO: Implement BigQuery import
+	// The implementation would:
+	// 1. Parse the service account JSON credentials
+	// 2. Create a BigQuery client
+	// 3. List tables in the specified dataset (or all datasets if not specified)
+	// 4. Query each table and copy data to local SQLite
+	// 5. Create and return the DataSource record
 }

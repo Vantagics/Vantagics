@@ -75,39 +75,39 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 	// Metrics - 作为支撑数据展示
 	if len(data.Metrics) > 0 {
 		sec.AddText(i18n.T("export.key_metrics"),
-			&style.FontStyle{Bold: true, Size: 14, Color: "1E40AF"},
+			&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600 清新的青绿色
 			nil)
 
 		// Create metrics table
 		ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-		ts.SetAllBorders("single", 4, "D9D9D9")
+		ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
 		tbl := sec.AddTable(ts)
 
 		colWidth := contentWidth / 3
 
-		// Header row
+		// Header row - 清新的青绿色
 		headerRow := tbl.AddRow(0, &style.RowStyle{IsHeader: true})
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(i18n.T("export.metric_column"), &style.FontStyle{Bold: true, Size: 10, Color: "FFFFFF"}, nil)
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(i18n.T("export.value_column"), &style.FontStyle{Bold: true, Size: 10, Color: "FFFFFF"}, nil)
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(i18n.T("export.change_column"), &style.FontStyle{Bold: true, Size: 10, Color: "FFFFFF"}, nil)
 
 		// Data rows
 		for _, metric := range data.Metrics {
 			row := tbl.AddRow(0, nil)
 			row.AddCell(colWidth, nil).AddText(metric.Title, &style.FontStyle{Size: 10}, nil)
-			row.AddCell(colWidth, nil).AddText(metric.Value, &style.FontStyle{Size: 10, Bold: true, Color: "1E40AF"}, nil)
+			row.AddCell(colWidth, nil).AddText(metric.Value, &style.FontStyle{Size: 10, Bold: true, Color: "047857"}, nil) // emerald-700
 
 			changeColor := "64748B"
 			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "增") {
-				changeColor = "16A34A"
+				changeColor = "059669" // emerald-600 更清新的绿色
 			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "减") {
-				changeColor = "DC2626"
+				changeColor = "EF4444" // red-500 更柔和的红色
 			}
 			row.AddCell(colWidth, nil).AddText(metric.Change, &style.FontStyle{Size: 10, Color: changeColor}, nil)
 		}
@@ -197,15 +197,15 @@ func (s *WordExportService) renderMarkdownContent(sec *goword.Section, content s
 				&style.ParagraphStyle{SpaceBefore: 80, SpaceAfter: 40})
 		} else if strings.HasPrefix(trimmed, "### ") {
 			sec.AddText(strings.TrimPrefix(trimmed, "### "),
-				&style.FontStyle{Bold: true, Size: 12, Color: "3B82F6"},
+				&style.FontStyle{Bold: true, Size: 12, Color: "047857"}, // emerald-700
 				&style.ParagraphStyle{SpaceBefore: 120, SpaceAfter: 60})
 		} else if strings.HasPrefix(trimmed, "## ") {
 			sec.AddText(strings.TrimPrefix(trimmed, "## "),
-				&style.FontStyle{Bold: true, Size: 14, Color: "1E40AF"},
+				&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600
 				&style.ParagraphStyle{Alignment: style.AlignCenter, SpaceBefore: 200, SpaceAfter: 100})
 		} else if strings.HasPrefix(trimmed, "# ") {
 			sec.AddText(strings.TrimPrefix(trimmed, "# "),
-				&style.FontStyle{Bold: true, Size: 16, Color: "1E3A5F"},
+				&style.FontStyle{Bold: true, Size: 16, Color: "065F46"}, // emerald-800
 				&style.ParagraphStyle{Alignment: style.AlignCenter, SpaceBefore: 240, SpaceAfter: 120})
 		} else if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 			bulletText := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
@@ -260,18 +260,18 @@ func (s *WordExportService) renderMarkdownTable(sec *goword.Section, lines []str
 	colWidth := contentWidth / maxCols
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "D9D9D9")
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, maxCols)
 	for k := range tbl.Grid {
 		tbl.Grid[k] = colWidth
 	}
 
-	// Header row
+	// Header row - 清新的青绿色
 	headerRow := tbl.AddRow(0, &style.RowStyle{IsHeader: true})
 	for _, h := range headers {
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(strings.TrimSpace(h), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
 	}
 
@@ -308,7 +308,7 @@ func (s *WordExportService) renderAllTables(sec *goword.Section, data DashboardD
 	// Prefer AllTableData (multiple tables) over single TableData
 	if len(data.AllTableData) > 0 {
 		sec.AddText(i18n.T("export.data_tables"),
-			&style.FontStyle{Bold: true, Size: 14, Color: "1E40AF"},
+			&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600
 			nil)
 
 		for _, namedTable := range data.AllTableData {
@@ -320,7 +320,7 @@ func (s *WordExportService) renderAllTables(sec *goword.Section, data DashboardD
 			// Table name as sub-heading
 			if namedTable.Name != "" {
 				sec.AddText(namedTable.Name,
-					&style.FontStyle{Bold: true, Size: 12, Color: "3B82F6"},
+					&style.FontStyle{Bold: true, Size: 12, Color: "047857"}, // emerald-700
 					&style.ParagraphStyle{SpaceBefore: 120, SpaceAfter: 60})
 			}
 
@@ -329,7 +329,7 @@ func (s *WordExportService) renderAllTables(sec *goword.Section, data DashboardD
 		}
 	} else if data.TableData != nil && len(data.TableData.Columns) > 0 {
 		sec.AddText(i18n.T("export.data_tables"),
-			&style.FontStyle{Bold: true, Size: 14, Color: "1E40AF"},
+			&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600
 			nil)
 		s.renderSingleTable(sec, data.TableData, contentWidth)
 	}
@@ -346,18 +346,18 @@ func (s *WordExportService) renderSingleTable(sec *goword.Section, tableData *Ta
 	colWidth := contentWidth / len(cols)
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "D9D9D9")
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, len(cols))
 	for i := range tbl.Grid {
 		tbl.Grid[i] = colWidth
 	}
 
-	// Header row
+	// Header row - 清新的青绿色
 	headerRow := tbl.AddRow(0, &style.RowStyle{IsHeader: true})
 	for _, col := range cols {
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(col.Title, &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
 	}
 
@@ -423,7 +423,7 @@ func (s *WordExportService) addChartImages(sec *goword.Section, chartImages []st
 	}
 
 	sec.AddText(i18n.T("export.data_visualization"),
-		&style.FontStyle{Bold: true, Size: 14, Color: "1E40AF"},
+		&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600 清新的青绿色
 		&style.ParagraphStyle{SpaceBefore: 200, SpaceAfter: 100})
 
 	for i, chartImage := range chartImages {
@@ -711,18 +711,18 @@ func (s *WordExportService) renderJsonTable(sec *goword.Section, tableData [][]s
 	colWidth := contentWidth / numCols
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "D9D9D9")
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, numCols)
 	for k := range tbl.Grid {
 		tbl.Grid[k] = colWidth
 	}
 
-	// Header row (first row of JSON table)
+	// Header row (first row of JSON table) - 清新的青绿色
 	headerRow := tbl.AddRow(0, &style.RowStyle{IsHeader: true})
 	for c := 0; c < numCols && c < len(tableData[0]); c++ {
 		headerRow.AddCell(colWidth, &style.CellStyle{
-			Shading: &style.Shading{Fill: "4472C4"},
+			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
 		}).AddText(strings.TrimSpace(tableData[0][c]), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
 	}
 

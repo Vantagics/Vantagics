@@ -30,7 +30,7 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 	}
 	ws.SetTitle(sheetName)
 
-	// Header style
+	// Header style - 清新的青绿色
 	headerStyle := gospreadsheet.NewStyle().
 		SetFont(&gospreadsheet.Font{
 			Bold:  true,
@@ -40,7 +40,7 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 		}).
 		SetFill(&gospreadsheet.Fill{
 			Type:  "solid",
-			Color: "4472C4",
+			Color: "10B981", // emerald-500 清新的青绿色
 		}).
 		SetAlignment(&gospreadsheet.Alignment{
 			Horizontal: gospreadsheet.AlignCenter,
@@ -53,7 +53,7 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 			Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
 		})
 
-	// Data style
+	// Data style - 清新的边框
 	dataStyle := gospreadsheet.NewStyle().
 		SetFont(&gospreadsheet.Font{
 			Size: 10,
@@ -65,10 +65,10 @@ func (s *GoExcelExportService) ExportTableToExcel(tableData *TableData, sheetNam
 			WrapText:   true,
 		}).
 		SetBorders(&gospreadsheet.Borders{
-			Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-			Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-			Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-			Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+			Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"}, // emerald-200
+			Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+			Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+			Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
 		})
 
 	// Write headers
@@ -164,7 +164,7 @@ func (s *GoExcelExportService) ExportMultipleTablesToExcel(tables map[string]*Ta
 			}).
 			SetFill(&gospreadsheet.Fill{
 				Type:  "solid",
-				Color: "4472C4",
+				Color: "10B981", // emerald-500 清新的青绿色
 			}).
 			SetAlignment(&gospreadsheet.Alignment{
 				Horizontal: gospreadsheet.AlignCenter,
@@ -177,7 +177,7 @@ func (s *GoExcelExportService) ExportMultipleTablesToExcel(tables map[string]*Ta
 				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
 			})
 
-		// Data style
+		// Data style - 清新的边框
 		dataStyle := gospreadsheet.NewStyle().
 			SetFont(&gospreadsheet.Font{
 				Size: 10,
@@ -189,10 +189,10 @@ func (s *GoExcelExportService) ExportMultipleTablesToExcel(tables map[string]*Ta
 				WrapText:   true,
 			}).
 			SetBorders(&gospreadsheet.Borders{
-				Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+				Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"}, // emerald-200
+				Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+				Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
 			})
 
 		// Write headers
@@ -288,7 +288,7 @@ func (s *GoExcelExportService) ExportOrderedTablesToExcel(tables []NamedTable) (
 			}).
 			SetFill(&gospreadsheet.Fill{
 				Type:  "solid",
-				Color: "4472C4",
+				Color: "10B981", // emerald-500 清新的青绿色
 			}).
 			SetAlignment(&gospreadsheet.Alignment{
 				Horizontal: gospreadsheet.AlignCenter,
@@ -301,7 +301,7 @@ func (s *GoExcelExportService) ExportOrderedTablesToExcel(tables []NamedTable) (
 				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "FFFFFF"},
 			})
 
-		// Data style
+		// Data style - 清新的边框
 		dataStyle := gospreadsheet.NewStyle().
 			SetFont(&gospreadsheet.Font{
 				Size: 10,
@@ -313,10 +313,10 @@ func (s *GoExcelExportService) ExportOrderedTablesToExcel(tables []NamedTable) (
 				WrapText:   true,
 			}).
 			SetBorders(&gospreadsheet.Borders{
-				Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
-				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "D9D9D9"},
+				Left:   gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"}, // emerald-200
+				Top:    gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+				Bottom: gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
+				Right:  gospreadsheet.Border{Style: gospreadsheet.BorderThin, Color: "A7F3D0"},
 			})
 
 		// Write headers

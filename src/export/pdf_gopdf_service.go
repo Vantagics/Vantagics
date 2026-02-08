@@ -223,13 +223,13 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 
 // addAnalysisHeader adds a simple header for analysis result export
 func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, dataSourceName string, userRequest string, reportTitle string) {
-	// 顶部装饰条
-	pdf.SetFillColor(59, 130, 246)
+	// 顶部装饰条 - 清新的青绿色
+	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 16, "F")
 
-	// 标题
+	// 标题 - 深青色
 	pdf.SetFont(fontName, "B", 20)
-	pdf.SetTextColor(30, 64, 175)
+	pdf.SetTextColor(6, 95, 70) // emerald-800
 	title := reportTitle
 	if title == "" {
 		title = i18n.T("report.data_analysis_report")
@@ -295,8 +295,8 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
-	// 分隔线
-	pdf.SetStrokeColor(226, 232, 240)
+	// 分隔线 - 清新的青绿色
+	pdf.SetStrokeColor(167, 243, 208) // emerald-200
 	pdf.Line(pdfMarginLeft, nextY+20, pdfPageWidth-pdfMarginRight, nextY+20)
 
 	pdf.SetY(nextY + 40)
@@ -385,25 +385,25 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 			fontSize = 18.0
 			lineHeight = 28.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(30, 58, 95)
+			pdf.SetTextColor(6, 78, 59) // emerald-900 深青色
 			y += 8 // 标题前额外间距
 		} else if format.isHeading == 2 {
 			fontSize = 16.0
 			lineHeight = 24.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(30, 64, 175)
+			pdf.SetTextColor(6, 95, 70) // emerald-800
 			y += 6
 		} else if format.isHeading == 3 {
 			fontSize = 14.0
 			lineHeight = 22.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(71, 85, 105)
+			pdf.SetTextColor(4, 120, 87) // emerald-700
 			y += 4
 		} else if format.isHeading == 4 {
 			fontSize = 12.0
 			lineHeight = 20.0
 			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(71, 85, 105)
+			pdf.SetTextColor(5, 150, 105) // emerald-600
 		} else if format.isBold {
 			pdf.SetFont(fontName, "B", fontSize)
 			pdf.SetTextColor(51, 65, 85)
@@ -456,13 +456,13 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 
 // addCoverPage adds a professional cover page
 func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceName string, userRequest string, fontName string) {
-	// 顶部装饰条
-	pdf.SetFillColor(59, 130, 246)
+	// 顶部装饰条 - 清新的青绿色渐变效果
+	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 24, "F")
 
-	// 主标题 - 居中显示
+	// 主标题 - 居中显示，使用深青色
 	pdf.SetFont(fontName, "B", pdfFontTitle)
-	pdf.SetTextColor(30, 64, 175)
+	pdf.SetTextColor(6, 95, 70) // emerald-800
 	titleWidth, _ := pdf.MeasureTextWidth(title)
 	pdf.SetX((pdfPageWidth - titleWidth) / 2)
 	pdf.SetY(160)
@@ -473,7 +473,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	// 数据源名称 - 标注在标题下方
 	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontHeading2)
-		pdf.SetTextColor(71, 85, 105)
+		pdf.SetTextColor(71, 85, 105) // slate-600
 		dsText := i18n.T("report.data_source_label") + ": " + dataSourceName
 		dsWidth, _ := pdf.MeasureTextWidth(dsText)
 		pdf.SetX((pdfPageWidth - dsWidth) / 2)
@@ -485,7 +485,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	// 用户请求 - 完整显示，支持多行换行
 	if userRequest != "" {
 		pdf.SetFont(fontName, "", pdfFontBody)
-		pdf.SetTextColor(71, 85, 105)
+		pdf.SetTextColor(100, 116, 139) // slate-500
 
 		// 先显示标签
 		labelText := i18n.T("report.analysis_request_label") + ":"
@@ -515,7 +515,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 
 	// 生成时间
 	pdf.SetFont(fontName, "", pdfFontSmall)
-	pdf.SetTextColor(148, 163, 184)
+	pdf.SetTextColor(148, 163, 184) // slate-400
 	timestamp := s.formatTimestamp(time.Now())
 	timeText := i18n.T("report.generated_time_label") + ": " + timestamp
 	timeWidth, _ := pdf.MeasureTextWidth(timeText)
@@ -523,8 +523,8 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
-	// 分隔线
-	pdf.SetStrokeColor(226, 232, 240)
+	// 分隔线 - 清新的青绿色
+	pdf.SetStrokeColor(167, 243, 208) // emerald-200
 	pdf.Line(pdfMarginLeft, nextY+40, pdfPageWidth-pdfMarginRight, nextY+40)
 
 	pdf.SetY(nextY + 80)
@@ -535,13 +535,13 @@ func (s *GopdfService) addSectionTitle(pdf *gopdf.GoPdf, title string, fontName 
 	y := pdf.GetY()
 	y = s.checkPageBreak(pdf, y, 60)
 
-	// 蓝色左边框装饰
-	pdf.SetFillColor(59, 130, 246)
+	// 青绿色左边框装饰
+	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, 8, 24, "F")
 
-	// 标题文字
+	// 标题文字 - 深青色
 	pdf.SetFont(fontName, "B", pdfFontHeading1)
-	pdf.SetTextColor(30, 64, 175)
+	pdf.SetTextColor(6, 95, 70) // emerald-800
 	pdf.SetX(pdfMarginLeft + 20)
 	pdf.SetY(y + 4)
 	pdf.Cell(nil, title)
@@ -576,24 +576,24 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 			y = cardY
 		}
 
-		// 卡片背景
-		pdf.SetFillColor(248, 250, 252)
+		// 卡片背景 - 清新的浅青色
+		pdf.SetFillColor(236, 253, 245) // emerald-50
 		pdf.RectFromUpperLeftWithStyle(x, cardY, cardWidth, cardHeight, "F")
 
-		// 卡片边框
-		pdf.SetStrokeColor(226, 232, 240)
+		// 卡片边框 - 青绿色
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
 		pdf.RectFromUpperLeftWithStyle(x, cardY, cardWidth, cardHeight, "D")
 
 		// 指标标题
 		pdf.SetFont(fontName, "", pdfFontSmall)
-		pdf.SetTextColor(100, 116, 139)
+		pdf.SetTextColor(100, 116, 139) // slate-500
 		pdf.SetX(x + 12)
 		pdf.SetY(cardY + 12)
 		pdf.Cell(nil, metric.Title)
 
-		// 指标值 - 大字体突出
+		// 指标值 - 大字体突出，深青色
 		pdf.SetFont(fontName, "B", pdfFontHeading1)
-		pdf.SetTextColor(30, 64, 175)
+		pdf.SetTextColor(6, 95, 70) // emerald-800
 		pdf.SetX(x + 12)
 		pdf.SetY(cardY + 35)
 		pdf.Cell(nil, metric.Value)
@@ -602,11 +602,11 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 		if metric.Change != "" {
 			pdf.SetFont(fontName, "", pdfFontSmall)
 			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "增") || strings.Contains(metric.Change, "升") {
-				pdf.SetTextColor(22, 163, 74) // 绿色
+				pdf.SetTextColor(5, 150, 105) // emerald-600 更清新的绿色
 			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "减") || strings.Contains(metric.Change, "降") {
-				pdf.SetTextColor(220, 38, 38) // 红色
+				pdf.SetTextColor(239, 68, 68) // red-500 更柔和的红色
 			} else {
-				pdf.SetTextColor(100, 116, 139)
+				pdf.SetTextColor(100, 116, 139) // slate-500
 			}
 			// 计算值的宽度，将变化值放在右侧
 			pdf.SetX(x + cardWidth - 80)
@@ -815,22 +815,22 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 				fontSize = 18.0
 				lineHeight = pdfLineHeightHeading + 4
 				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(30, 58, 95) // 深蓝色，更正式
+				pdf.SetTextColor(6, 78, 59) // emerald-900 深青色
 			} else if format.isHeading == 2 {
 				fontSize = pdfFontHeading1
 				lineHeight = pdfLineHeightHeading + 2
 				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(30, 64, 175)
+				pdf.SetTextColor(6, 95, 70) // emerald-800
 			} else if format.isHeading == 3 {
 				fontSize = pdfFontHeading3
 				lineHeight = pdfLineHeightHeading
 				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(71, 85, 105)
+				pdf.SetTextColor(4, 120, 87) // emerald-700
 			} else if format.isHeading == 4 {
 				fontSize = pdfFontBody
 				lineHeight = pdfLineHeightBody
 				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(71, 85, 105)
+				pdf.SetTextColor(5, 150, 105) // emerald-600
 			} else if format.isBold {
 				pdf.SetFont(fontName, "B", fontSize)
 				pdf.SetTextColor(51, 65, 85)
@@ -1297,7 +1297,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 	headerHeight := 24.0
 	y = s.checkPageBreak(pdf, y, headerHeight)
 	pdf.SetFont(fontName, "B", pdfFontTableHead)
-	pdf.SetFillColor(59, 130, 246)
+	pdf.SetFillColor(16, 185, 129) // emerald-500 清新的青绿色
 	pdf.SetTextColor(255, 255, 255)
 	
 	x := pdfMarginLeft
@@ -1327,7 +1327,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 		// Re-draw header on new page
 		if y < pdfMarginTop + 30 {
 			pdf.SetFont(fontName, "B", pdfFontTableHead)
-			pdf.SetFillColor(59, 130, 246)
+			pdf.SetFillColor(16, 185, 129) // emerald-500
 			pdf.SetTextColor(255, 255, 255)
 			x = pdfMarginLeft
 			for i := 0; i < numCols && i < len(tableData[0]); i++ {
@@ -1345,11 +1345,11 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 			pdf.SetTextColor(51, 65, 85)
 		}
 		
-		// Alternating row colors
+		// Alternating row colors - 清新的青绿色调
 		if rowIdx%2 == 0 {
-			pdf.SetFillColor(248, 250, 252)
+			pdf.SetFillColor(236, 253, 245) // emerald-50
 		} else {
-			pdf.SetFillColor(241, 245, 249)
+			pdf.SetFillColor(209, 250, 229) // emerald-100
 		}
 		
 		x = pdfMarginLeft
@@ -1607,12 +1607,12 @@ func (s *GopdfService) addChartsSection(pdf *gopdf.GoPdf, chartImages []string, 
 			continue
 		}
 
-		// 图表容器背景
-		pdf.SetFillColor(250, 251, 252)
+		// 图表容器背景 - 清新的浅青色
+		pdf.SetFillColor(236, 253, 245) // emerald-50
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, chartHeight+12, "F")
 
-		// 图表边框
-		pdf.SetStrokeColor(226, 232, 240)
+		// 图表边框 - 青绿色
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, chartHeight+12, "D")
 
 		// Add image to PDF - 居中显示
@@ -1658,7 +1658,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 
 	// 绘制表头的辅助函数
 	drawHeader := func(atY float64) float64 {
-		pdf.SetFillColor(59, 130, 246)
+		pdf.SetFillColor(16, 185, 129) // emerald-500 清新的青绿色
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, atY, pdfContentWidth, headerHeight, "F")
 
 		pdf.SetFont(fontName, "B", pdfFontTableHead)
@@ -1698,16 +1698,16 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 			pdf.SetFont(fontName, "", pdfFontTableCell)
 		}
 
-		// 交替行背景色
+		// 交替行背景色 - 清新的青绿色调
 		if rowIdx%2 == 0 {
-			pdf.SetFillColor(248, 250, 252)
+			pdf.SetFillColor(236, 253, 245) // emerald-50
 		} else {
-			pdf.SetFillColor(241, 245, 249)
+			pdf.SetFillColor(209, 250, 229) // emerald-100
 		}
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, rowHeight, "F")
 
-		// 绘制单元格边框
-		pdf.SetStrokeColor(226, 232, 240)
+		// 绘制单元格边框 - 青绿色
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, rowHeight, "D")
 
 		// 绘制数据

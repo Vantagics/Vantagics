@@ -399,6 +399,16 @@ export namespace agent {
 	    jira_username?: string;
 	    jira_api_token?: string;
 	    jira_project_key?: string;
+	    snowflake_account?: string;
+	    snowflake_user?: string;
+	    snowflake_password?: string;
+	    snowflake_warehouse?: string;
+	    snowflake_database?: string;
+	    snowflake_schema?: string;
+	    snowflake_role?: string;
+	    bigquery_project_id?: string;
+	    bigquery_dataset_id?: string;
+	    bigquery_credentials?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSourceConfig(source);
@@ -434,6 +444,16 @@ export namespace agent {
 	        this.jira_username = source["jira_username"];
 	        this.jira_api_token = source["jira_api_token"];
 	        this.jira_project_key = source["jira_project_key"];
+	        this.snowflake_account = source["snowflake_account"];
+	        this.snowflake_user = source["snowflake_user"];
+	        this.snowflake_password = source["snowflake_password"];
+	        this.snowflake_warehouse = source["snowflake_warehouse"];
+	        this.snowflake_database = source["snowflake_database"];
+	        this.snowflake_schema = source["snowflake_schema"];
+	        this.snowflake_role = source["snowflake_role"];
+	        this.bigquery_project_id = source["bigquery_project_id"];
+	        this.bigquery_dataset_id = source["bigquery_dataset_id"];
+	        this.bigquery_credentials = source["bigquery_credentials"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1812,6 +1832,7 @@ export namespace main {
 	export class DashboardExportData {
 	    userRequest: string;
 	    dataSourceName: string;
+	    messageId: string;
 	    metrics: DashboardMetric[];
 	    insights: string[];
 	    chartImage: string;
@@ -1827,6 +1848,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.userRequest = source["userRequest"];
 	        this.dataSourceName = source["dataSourceName"];
+	        this.messageId = source["messageId"];
 	        this.metrics = this.convertValues(source["metrics"], DashboardMetric);
 	        this.insights = source["insights"];
 	        this.chartImage = source["chartImage"];

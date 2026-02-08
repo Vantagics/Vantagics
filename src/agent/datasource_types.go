@@ -122,6 +122,18 @@ type DataSourceConfig struct {
 	JiraUsername     string `json:"jira_username,omitempty"` // Email for Cloud, username for Server
 	JiraApiToken     string `json:"jira_api_token,omitempty"` // API token for Cloud, password for Server
 	JiraProjectKey   string `json:"jira_project_key,omitempty"` // Optional: specific project to import
+	// Snowflake configuration
+	SnowflakeAccount   string `json:"snowflake_account,omitempty"`   // Account identifier (e.g., xy12345.us-east-1)
+	SnowflakeUser      string `json:"snowflake_user,omitempty"`
+	SnowflakePassword  string `json:"snowflake_password,omitempty"`
+	SnowflakeWarehouse string `json:"snowflake_warehouse,omitempty"` // Optional: compute warehouse
+	SnowflakeDatabase  string `json:"snowflake_database,omitempty"`  // Optional: default database
+	SnowflakeSchema    string `json:"snowflake_schema,omitempty"`    // Optional: default schema
+	SnowflakeRole      string `json:"snowflake_role,omitempty"`      // Optional: role to use
+	// BigQuery configuration
+	BigQueryProjectID   string `json:"bigquery_project_id,omitempty"`   // GCP Project ID
+	BigQueryDatasetID   string `json:"bigquery_dataset_id,omitempty"`   // Optional: specific dataset
+	BigQueryCredentials string `json:"bigquery_credentials,omitempty"`  // JSON service account key
 }
 
 // DataSourceStatistics holds aggregated statistics about data sources
