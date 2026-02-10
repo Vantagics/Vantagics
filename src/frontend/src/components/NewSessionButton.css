@@ -1,0 +1,54 @@
+/* NewSessionButton Component Styles */
+/* Requirements: 4.1, 4.3 */
+
+.new-session-button-container {
+    padding: 16px;
+    border-top: 1px solid var(--border-color, #e0e0e0);
+    border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+.new-session-button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    border: none;
+    border-radius: 6px;
+    background-color: var(--primary-color, #007bff);
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.new-session-button:hover:not(:disabled) {
+    background-color: var(--primary-hover, #0056b3);
+}
+
+.new-session-button:disabled {
+    background-color: var(--disabled-bg, #ccc);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.new-session-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.new-session-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Dark Theme Support */
+@media (prefers-color-scheme: dark) {
+    .new-session-button-container {
+        border-top-color: var(--border-color-dark, #333);
+        border-bottom-color: var(--border-color-dark, #333);
+    }
+}

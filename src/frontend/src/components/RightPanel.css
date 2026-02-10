@@ -1,0 +1,50 @@
+/**
+ * RightPanel Styles
+ *
+ * Fixed dashboard panel on the right side of the three-panel layout.
+ * Requirements: 6.1, 6.2, 6.5
+ */
+
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: var(--bg-primary, #ffffff);
+    border-left: none;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+/* Scrollable content area - Requirement 6.5 */
+.right-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+}
+
+/* Scrollbar Styling */
+.right-panel-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.right-panel-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.right-panel-content::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb, #ccc);
+    border-radius: 3px;
+}
+
+.right-panel-content::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover, #999);
+}
+
+/* Dark Theme Support */
+@media (prefers-color-scheme: dark) {
+    .right-panel {
+        background-color: var(--bg-primary-dark, #1a1a1a);
+        border-left-color: var(--border-color-dark, #333);
+    }
+}

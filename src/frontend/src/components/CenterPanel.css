@@ -1,0 +1,278 @@
+/**
+ * CenterPanel Styles
+ * 
+ * Fixed chat panel in the center of the three-panel layout.
+ * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8
+ */
+
+.center-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: #ffffff;
+    position: relative;
+    overflow: hidden;
+    border-left: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+}
+
+/* Header */
+.center-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    padding: 0 1.5rem;
+    height: 4rem;
+    border-bottom: 1px solid #f1f5f9;
+    background-color: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+.center-panel-header-icon {
+    background: linear-gradient(to bottom right, #3b82f6, #4f46e5);
+    padding: 0.5rem;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+}
+
+.center-panel-header-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.center-panel-header-title {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 0.875rem;
+    letter-spacing: -0.025em;
+}
+
+.center-panel-header-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.125rem;
+}
+
+.center-panel-status-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    background-color: #22c55e;
+    border-radius: 9999px;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.center-panel-status-text {
+    font-size: 0.625rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* Content Area */
+.center-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* Messages */
+.center-panel-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    background-color: rgba(248, 250, 252, 0.1);
+}
+
+.center-panel-messages::-webkit-scrollbar {
+    width: 4px;
+}
+
+.center-panel-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.center-panel-messages::-webkit-scrollbar-thumb {
+    background-color: #e2e8f0;
+    border-radius: 2px;
+}
+
+/* Loading Indicator */
+.center-panel-loading {
+    padding: 1rem 0;
+}
+
+.center-panel-loading-simple {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 0;
+}
+
+/* Welcome Message */
+.center-panel-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    flex: 1;
+}
+
+.center-panel-welcome-icon {
+    background: linear-gradient(to bottom right, #eff6ff, #eef2ff);
+    padding: 1.5rem;
+    border-radius: 2.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+    border: 1px solid white;
+}
+
+.center-panel-welcome-title {
+    color: #0f172a;
+    font-weight: 800;
+    font-size: 1.25rem;
+    letter-spacing: -0.025em;
+    margin-bottom: 0.75rem;
+}
+
+.center-panel-welcome-text {
+    font-size: 0.875rem;
+    color: #64748b;
+    max-width: 280px;
+    line-height: 1.625;
+    font-weight: 500;
+}
+
+/* Empty Session */
+.center-panel-empty-session {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 2rem;
+    flex: 1;
+}
+
+.center-panel-empty-icon {
+    background: linear-gradient(to bottom right, #eff6ff, #eef2ff);
+    padding: 1.25rem;
+    border-radius: 2rem;
+    margin-bottom: 1.25rem;
+    box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05);
+    border: 1px solid white;
+}
+
+.center-panel-empty-text {
+    font-size: 0.875rem;
+    color: #64748b;
+    text-align: center;
+    max-width: 280px;
+}
+
+/* Data Browser Overlay */
+.center-panel-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(255, 255, 255, 0.95);
+    z-index: 20;
+    cursor: pointer;
+}
+
+/* Input Area */
+.center-panel-input-area {
+    padding: 1.5rem;
+    border-top: 1px solid #f1f5f9;
+    background-color: #ffffff;
+    flex-shrink: 0;
+}
+
+.center-panel-input-container {
+    display: flex;
+    align-items: stretch;
+    gap: 0.75rem;
+    max-width: 42rem;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.center-panel-input {
+    flex: 1;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 1rem;
+    padding: 0.375rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: #0f172a;
+    outline: none;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.center-panel-input:focus {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    background-color: #ffffff;
+    border-color: #93c5fd;
+}
+
+.center-panel-input:hover:not(:disabled) {
+    border-color: #cbd5e1;
+}
+
+.center-panel-input:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    cursor: not-allowed;
+}
+
+.center-panel-input::placeholder {
+    color: #94a3b8;
+}
+
+.center-panel-send-button {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #2563eb;
+    color: #ffffff;
+    border-radius: 1rem;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    padding: 0.5rem;
+}
+
+.center-panel-send-button:hover:not(:disabled) {
+    background-color: #1d4ed8;
+}
+
+.center-panel-send-button:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.center-panel-send-button:disabled {
+    background-color: #e2e8f0;
+    color: #94a3b8;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* Pulse animation for status dot */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
