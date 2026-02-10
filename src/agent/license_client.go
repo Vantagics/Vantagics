@@ -33,6 +33,7 @@ type LicenseClient struct {
 const (
 	licenseEncryptionKey = "vantagedata-license-2024"
 	licenseDataFile      = "license.dat"
+	CreditsPerAnalysis   = 1.5
 )
 
 // ActivationData contains the decrypted configuration from server
@@ -51,6 +52,9 @@ type ActivationData struct {
 	TrustLevel      string                 `json:"trust_level"`      // "high" (正式) or "low" (试用)
 	RefreshInterval int                    `json:"refresh_interval"` // SN refresh interval in days (1=daily, 30=monthly)
 	ExtraInfo       map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
+	TotalCredits    float64                `json:"total_credits"`       // Total credits, 0 = unlimited in credits mode
+	CreditsMode     bool                   `json:"credits_mode"`        // true = credits mode, false = daily limit mode
+	UsedCredits     float64                `json:"used_credits"`        // Used credits
 }
 
 // ActivationResponse from server
@@ -276,6 +280,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		LastRefreshAt string          `json:"last_refresh_at"` // Last time we refreshed from server
 		AnalysisCount int             `json:"analysis_count"`  // Today's analysis count
 		AnalysisDate  string          `json:"analysis_date"`   // Date of analysis count
+		UsedCredits   float64         `json:"used_credits"`    // Used credits
 	}{
 		SN:            c.sn,
 		Data:          c.data,
@@ -284,6 +289,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		LastRefreshAt: time.Now().Format(time.RFC3339),
 		AnalysisCount: c.analysisCount,
 		AnalysisDate:  c.analysisDate,
+		UsedCredits:   c.data.UsedCredits,
 	}
 
 	jsonData, err := json.Marshal(saveData)
@@ -341,6 +347,7 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 		LastRefreshAt string          `json:"last_refresh_at"`
 		AnalysisCount int             `json:"analysis_count"`
 		AnalysisDate  string          `json:"analysis_date"`
+		UsedCredits   float64         `json:"used_credits"`
 	}
 	if err := json.Unmarshal(decrypted, &saveData); err != nil {
 		return fmt.Errorf("failed to parse data: %v", err)
@@ -366,6 +373,9 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 	c.sn = sn
 	c.data = saveData.Data
 	c.serverURL = saveData.ServerURL
+
+	// Restore used credits from save data
+	c.data.UsedCredits = saveData.UsedCredits
 	
 	// Parse last refresh time
 	if saveData.LastRefreshAt != "" {
@@ -497,7 +507,23 @@ func (c *LicenseClient) CanAnalyze() (bool, string) {
 	if c.data == nil {
 		return true, "" // Not activated, allow (will use user's own config)
 	}
-	
+
+	// Credits mode: check credits instead of daily limit
+	if c.data.CreditsMode {
+		// TotalCredits == 0 means unlimited in credits mode
+		if c.data.TotalCredits == 0 {
+			return true, ""
+		}
+		remaining := c.data.TotalCredits - c.data.UsedCredits
+		if remaining < 0 {
+			remaining = 0
+		}
+		if remaining < CreditsPerAnalysis {
+			return false, fmt.Sprintf("Credits 不足，剩余 %.1f credits，每次分析需要 %.1f credits", remaining, CreditsPerAnalysis)
+		}
+		return true, ""
+	}
+
 	// 0 means unlimited
 	if c.data.DailyAnalysis == 0 {
 		return true, ""
@@ -521,23 +547,50 @@ func (c *LicenseClient) CanAnalyze() (bool, string) {
 // IncrementAnalysis increments the analysis count for today and persists it
 func (c *LicenseClient) IncrementAnalysis() {
 	c.mu.Lock()
-	
+
+	// Credits mode branch: deduct credits and return early (skip daily count logic)
+	// Note: check c.data.CreditsMode directly instead of calling IsCreditsMode()
+	// because we already hold c.mu.Lock() and IsCreditsMode() uses RLock (would deadlock)
+	if c.data != nil && c.data.CreditsMode {
+		// TotalCredits == 0 means unlimited, no need to deduct
+		if c.data.TotalCredits > 0 {
+			c.data.UsedCredits += CreditsPerAnalysis
+			if c.log != nil {
+				c.log(fmt.Sprintf("[LICENSE] Credits used: %.1f/%.1f", c.data.UsedCredits, c.data.TotalCredits))
+			}
+			c.mu.Unlock()
+
+			// Persist updated credits to disk (outside lock to avoid deadlock with SaveActivationData)
+			if err := c.SaveActivationData(); err != nil {
+				if c.log != nil {
+					c.log(fmt.Sprintf("[LICENSE] Failed to persist credits data: %v", err))
+				}
+			}
+		} else {
+			if c.log != nil {
+				c.log("[LICENSE] Credits mode: unlimited (total_credits=0)")
+			}
+			c.mu.Unlock()
+		}
+		return
+	}
+
 	today := time.Now().Format("2006-01-02")
-	
+
 	// Reset count if it's a new day
 	if c.analysisDate != today {
 		c.analysisDate = today
 		c.analysisCount = 0
 	}
-	
+
 	c.analysisCount++
-	
+
 	if c.log != nil && c.data != nil && c.data.DailyAnalysis > 0 {
 		c.log(fmt.Sprintf("[LICENSE] Analysis count: %d/%d", c.analysisCount, c.data.DailyAnalysis))
 	}
-	
+
 	c.mu.Unlock()
-	
+
 	// Persist updated count to disk (outside lock to avoid deadlock with SaveActivationData)
 	if err := c.SaveActivationData(); err != nil {
 		if c.log != nil {
@@ -545,6 +598,7 @@ func (c *LicenseClient) IncrementAnalysis() {
 		}
 	}
 }
+
 
 // GetAnalysisStatus returns current analysis count and limit
 func (c *LicenseClient) GetAnalysisStatus() (count int, limit int, date string) {
@@ -676,6 +730,23 @@ func (c *LicenseClient) GetRefreshInterval() int {
 		return 30
 	}
 	return 1
+}
+
+// IsCreditsMode returns true if the current license is in credits mode
+func (c *LicenseClient) IsCreditsMode() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.data != nil && c.data.CreditsMode
+}
+
+// GetCreditsStatus returns the credits status: totalCredits, usedCredits, isCreditsMode
+func (c *LicenseClient) GetCreditsStatus() (float64, float64, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.data == nil {
+		return 0, 0, false
+	}
+	return c.data.TotalCredits, c.data.UsedCredits, c.data.CreditsMode
 }
 
 // GetLastRefreshAt returns the last refresh time

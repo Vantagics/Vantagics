@@ -127,8 +127,14 @@ const SettingsHTML = `
         <div class="bg-white rounded-xl shadow-sm p-6 col-span-2">
             <h2 class="text-lg font-bold text-red-600 mb-4">⚠️ 危险操作</h2>
             <div class="space-y-3">
-                <button onclick="showForceDeleteLicense()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">🗑️ 强制删除序列号</button>
-                <p class="text-xs text-slate-500">* 强制删除指定序列号及其所有相关记录（邮箱申请记录等），此操作不可恢复</p>
+                <div class="flex items-center gap-3">
+                    <button onclick="showClearEmailRecords()" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">📧 清除邮箱记录</button>
+                    <p class="text-xs text-slate-500">清除指定邮箱的所有申请绑定记录，清除后该邮箱可重新申请序列号</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="showForceDeleteLicense()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">🗑️ 强制删除序列号</button>
+                    <p class="text-xs text-slate-500">强制删除指定序列号及其所有相关记录（邮箱申请记录等），此操作不可恢复</p>
+                </div>
             </div>
         </div>
     </div>
@@ -290,6 +296,35 @@ function showForceDeleteLicense() {
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
         '<button onclick="doForceDeleteLicense()" class="flex-1 py-2 bg-red-600 text-white rounded-lg">确认删除</button></div>' +
         '</div></div>');
+}
+
+function showClearEmailRecords() {
+    showModal('<div class="p-6"><h3 class="text-lg font-bold text-orange-600 mb-4">📧 清除邮箱记录</h3><div class="space-y-3">' +
+        '<div><label class="text-sm text-slate-600">输入要清除记录的邮箱地址</label>' +
+        '<input type="email" id="clear-email-input" placeholder="user@example.com" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<p class="text-xs text-orange-500">清除后，该邮箱之前绑定的序列号将被释放，邮箱可重新申请新的序列号。</p>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
+        '<button onclick="doClearEmailRecords()" class="flex-1 py-2 bg-orange-600 text-white rounded-lg">确认清除</button></div>' +
+        '</div></div>');
+}
+
+function doClearEmailRecords() {
+    var email = document.getElementById('clear-email-input').value.trim().toLowerCase();
+    if (!email || !email.includes('@')) { alert('请输入有效的邮箱地址'); return; }
+    if (!confirm('确定要清除邮箱 ' + email + ' 的所有申请记录吗？\\n\\n清除后该邮箱可重新申请序列号。')) return;
+
+    fetch('/api/email-records/clear-by-email', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email})})
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) {
+            hideModal();
+            if (result.success) {
+                alert(result.message);
+                refreshAllPanels();
+            } else {
+                alert('清除失败: ' + result.error);
+            }
+        })
+        .catch(function(err) { hideModal(); alert('请求失败: ' + err); });
 }
 
 function doForceDeleteLicense() {

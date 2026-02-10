@@ -530,4 +530,4 @@ export const AnalysisStatusIndicator: React.FC<AnalysisStatusIndicatorProps> = (
     }
 };
 
-export default AnalysisStatusIndicator;
+export default React.memo(AnalysisStatusIndicator);

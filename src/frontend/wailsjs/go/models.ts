@@ -15,6 +15,9 @@ export namespace agent {
 	    trust_level: string;
 	    refresh_interval: number;
 	    extra_info?: Record<string, any>;
+	    total_credits: number;
+	    credits_mode: boolean;
+	    used_credits: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ActivationData(source);
@@ -36,6 +39,9 @@ export namespace agent {
 	        this.trust_level = source["trust_level"];
 	        this.refresh_interval = source["refresh_interval"];
 	        this.extra_info = source["extra_info"];
+	        this.total_credits = source["total_credits"];
+	        this.credits_mode = source["credits_mode"];
+	        this.used_credits = source["used_credits"];
 	    }
 	}
 	export class ConfirmedFinding {

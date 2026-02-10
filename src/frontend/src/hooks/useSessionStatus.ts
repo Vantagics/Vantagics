@@ -40,7 +40,7 @@ const DEFAULT_RESULT: UseSessionStatusResult = {
 };
 
 /** 已用时间更新间隔（毫秒） */
-const ELAPSED_TIME_UPDATE_INTERVAL = 100;
+const ELAPSED_TIME_UPDATE_INTERVAL = 500;
 
 /**
  * React Hook: 订阅并响应单个会话的状态变化

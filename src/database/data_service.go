@@ -55,11 +55,39 @@ func (s *DataService) CheckComponentHasData(componentType string, instanceID str
 func (s *DataService) BatchCheckHasData(components map[string]string) (map[string]bool, error) {
 	results := make(map[string]bool)
 	
-	for instanceID, componentType := range components {
-		hasData, err := s.CheckComponentHasData(componentType, instanceID)
+	// Use a shared datasources.json check to avoid repeated file reads
+	var datasourcesHasData *bool
+	checkDatasources := func() (bool, error) {
+		if datasourcesHasData != nil {
+			return *datasourcesHasData, nil
+		}
+		metadataPath := filepath.Join(s.dataCacheDir, "datasources.json")
+		info, err := os.Stat(metadataPath)
 		if err != nil {
-			// Log error but continue with other components
-			// Assume no data on error (fail closed for visibility)
+			if os.IsNotExist(err) {
+				val := false
+				datasourcesHasData = &val
+				return false, nil
+			}
+			return false, err
+		}
+		val := info.Size() > 2 // more than just "[]"
+		datasourcesHasData = &val
+		return val, nil
+	}
+	
+	for instanceID, componentType := range components {
+		var hasData bool
+		var err error
+		
+		switch componentType {
+		case "metrics", "table":
+			hasData, err = checkDatasources()
+		default:
+			hasData, err = s.CheckComponentHasData(componentType, instanceID)
+		}
+		
+		if err != nil {
 			results[instanceID] = false
 			continue
 		}
@@ -71,59 +99,29 @@ func (s *DataService) BatchCheckHasData(components map[string]string) (map[strin
 
 // checkMetricsHasData checks if metrics component has data
 func (s *DataService) checkMetricsHasData(instanceID string) (bool, error) {
-	// Check if there are any data sources with tables
-	// Metrics are typically derived from data source queries
-	
-	// For now, check if any data sources exist with data
-	// This is a simplified implementation - in production, you might want to
-	// check specific metric queries or cached metric values
-	
-	// Check if datasources.json exists and has entries
 	metadataPath := filepath.Join(s.dataCacheDir, "datasources.json")
-	if _, err := os.Stat(metadataPath); err != nil {
+	info, err := os.Stat(metadataPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	
-	// Read and check if there are any data sources
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		return false, err
-	}
-	
-	// Simple check: if file is empty or just "[]", no data
-	if len(data) == 0 || string(data) == "[]" || string(data) == "[\n]" {
-		return false, nil
-	}
-	
-	return true, nil
+	// File with only "[]" or "[\n]" is at most 3 bytes
+	return info.Size() > 3, nil
 }
 
 // checkTableHasData checks if table component has data
 func (s *DataService) checkTableHasData(instanceID string) (bool, error) {
-	// Check if there are any data sources with tables
-	// Similar to metrics, check if data sources exist
-	
 	metadataPath := filepath.Join(s.dataCacheDir, "datasources.json")
-	if _, err := os.Stat(metadataPath); err != nil {
+	info, err := os.Stat(metadataPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	
-	data, err := os.ReadFile(metadataPath)
-	if err != nil {
-		return false, err
-	}
-	
-	if len(data) == 0 || string(data) == "[]" || string(data) == "[\n]" {
-		return false, nil
-	}
-	
-	return true, nil
+	return info.Size() > 3, nil
 }
 
 // checkImageHasData checks if image component has data
@@ -161,28 +159,15 @@ func (s *DataService) checkImageHasData(instanceID string) (bool, error) {
 
 // checkInsightsHasData checks if insights component has data
 func (s *DataService) checkInsightsHasData(instanceID string) (bool, error) {
-	// Check if there are any insights stored
-	// Insights might be stored in a database table or file
-	
-	// Check for insights file or database table
 	insightsPath := filepath.Join(s.dataCacheDir, "insights.json")
-	if _, err := os.Stat(insightsPath); err != nil {
+	info, err := os.Stat(insightsPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	
-	data, err := os.ReadFile(insightsPath)
-	if err != nil {
-		return false, err
-	}
-	
-	if len(data) == 0 || string(data) == "[]" || string(data) == "[\n]" {
-		return false, nil
-	}
-	
-	return true, nil
+	return info.Size() > 3, nil
 }
 
 // checkFileDownloadHasData checks if file download component has data

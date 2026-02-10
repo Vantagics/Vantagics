@@ -132,6 +132,8 @@ type License struct {
 	UsageCount     int       `json:"usage_count"`
 	LastUsedAt     time.Time `json:"last_used_at"`
 	DailyAnalysis  int       `json:"daily_analysis"`  // Daily analysis limit, 0 = unlimited
+	TotalCredits   float64   `json:"total_credits"`   // Credits total, 0 = unlimited in credits mode
+	CreditsMode    bool      `json:"credits_mode"`    // true = credits mode, false = daily limit mode
 	LLMGroupID     string    `json:"llm_group_id"`    // Bound LLM group
 	LicenseGroupID string    `json:"license_group_id"` // License group for organization
 	SearchGroupID  string    `json:"search_group_id"` // Bound Search group
@@ -187,6 +189,8 @@ type ActivationData struct {
 	ExpiresAt       string                 `json:"expires_at"`
 	ActivatedAt     string                 `json:"activated_at"`
 	DailyAnalysis   int                    `json:"daily_analysis"`   // Daily analysis limit
+	TotalCredits    float64                `json:"total_credits"`    // Credits total, 0 = unlimited in credits mode
+	CreditsMode     bool                   `json:"credits_mode"`     // true = credits mode, false = daily limit mode
 	ProductID       int                    `json:"product_id"`       // Product ID
 	ProductName     string                 `json:"product_name"`     // Product name
 	TrustLevel      string                 `json:"trust_level"`      // "high" or "low"
@@ -224,7 +228,18 @@ var (
 	useSSL     = false
 	sslCert    = ""
 	sslKey     = ""
+
+	// Login attempt tracking
+	loginAttempts     = make(map[string]*loginAttemptInfo)
+	loginAttemptsLock sync.Mutex
 )
+
+type loginAttemptInfo struct {
+	FailCount      int       // failures in current window (resets after cooldown)
+	TotalFailCount int       // total failures ever (never resets, for permanent lock)
+	LastFailTime   time.Time
+	Locked         bool      // permanently locked after 15 total failures
+}
 
 func main() {
 	execPath, _ := os.Executable()
@@ -369,6 +384,8 @@ func initDB() {
 	db.Exec("ALTER TABLE licenses ADD COLUMN license_group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE licenses ADD COLUMN product_id INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE licenses ADD COLUMN valid_days INTEGER DEFAULT 365")
+	db.Exec("ALTER TABLE licenses ADD COLUMN total_credits FLOAT DEFAULT 0")
+	db.Exec("ALTER TABLE licenses ADD COLUMN credits_mode INTEGER DEFAULT 0")
 	db.Exec("ALTER TABLE llm_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	db.Exec("ALTER TABLE search_configs ADD COLUMN group_id TEXT DEFAULT ''")
 	// Migration: Add trust_level to license_groups
@@ -851,6 +868,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/licenses/toggle", authMiddleware(handleToggleLicense))
 	mux.HandleFunc("/api/licenses/extend", authMiddleware(handleExtendLicense))
 	mux.HandleFunc("/api/licenses/set-daily", authMiddleware(handleSetDailyAnalysis))
+	mux.HandleFunc("/api/licenses/set-credits", authMiddleware(handleSetCredits))
 	mux.HandleFunc("/api/licenses/set-groups", authMiddleware(handleSetLicenseGroups))
 	mux.HandleFunc("/api/licenses/search", authMiddleware(handleSearchLicenses))
 	mux.HandleFunc("/api/licenses/delete-unused-by-group", authMiddleware(handleDeleteUnusedByGroup))
@@ -875,6 +893,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/email-records/update", authMiddleware(handleUpdateEmailRecord))
 	mux.HandleFunc("/api/email-records/manual-request", authMiddleware(handleManualRequest))
 	mux.HandleFunc("/api/email-records/manual-bind", authMiddleware(handleManualBind))
+	mux.HandleFunc("/api/email-records/clear-by-email", authMiddleware(handleClearEmailRecords))
 	mux.HandleFunc("/api/api-keys", authMiddleware(handleAPIKeys))
 	mux.HandleFunc("/api/api-keys/toggle", authMiddleware(handleToggleAPIKey))
 	mux.HandleFunc("/api/api-keys/bindings", authMiddleware(handleAPIKeyBindings))
@@ -1160,6 +1179,13 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session")
 		if err != nil || !validateSession(cookie.Value) {
+			// For API requests, return JSON error instead of redirect
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未登录或会话已过期"})
+				return
+			}
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 			return
 		}
@@ -1182,9 +1208,88 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func checkLoginAllowed(ip string) (bool, string) {
+	loginAttemptsLock.Lock()
+	defer loginAttemptsLock.Unlock()
+
+	info, exists := loginAttempts[ip]
+	if !exists {
+		return true, ""
+	}
+
+	if info.Locked {
+		return false, "登录已被永久锁定，请在服务器上使用密码重置工具解锁"
+	}
+
+	if info.FailCount >= 5 {
+		elapsed := time.Since(info.LastFailTime)
+		if elapsed < time.Hour {
+			remaining := time.Hour - elapsed
+			mins := int(remaining.Minutes()) + 1
+			return false, fmt.Sprintf("密码错误次数过多，请在 %d 分钟后重试", mins)
+		}
+		// Cooldown passed, reset to allow retry but keep accumulating toward permanent lock
+		info.FailCount = 0
+	}
+
+	return true, ""
+}
+
+func recordLoginFailure(ip string) {
+	loginAttemptsLock.Lock()
+	defer loginAttemptsLock.Unlock()
+
+	info, exists := loginAttempts[ip]
+	if !exists {
+		info = &loginAttemptInfo{}
+		loginAttempts[ip] = info
+	}
+
+	info.FailCount++
+	info.TotalFailCount++
+	info.LastFailTime = time.Now()
+
+	if info.TotalFailCount >= 15 {
+		info.Locked = true
+		log.Printf("[LOGIN] IP %s permanently locked after %d total failed attempts", ip, info.TotalFailCount)
+	} else if info.FailCount >= 5 {
+		log.Printf("[LOGIN] IP %s temporarily locked after %d failed attempts (total: %d)", ip, info.FailCount, info.TotalFailCount)
+	}
+}
+
+func clearLoginFailures(ip string) {
+	loginAttemptsLock.Lock()
+	defer loginAttemptsLock.Unlock()
+	delete(loginAttempts, ip)
+}
+
+func resetAllLoginLocks() {
+	loginAttemptsLock.Lock()
+	defer loginAttemptsLock.Unlock()
+	loginAttempts = make(map[string]*loginAttemptInfo)
+	log.Printf("[LOGIN] All login locks cleared")
+}
+
 func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	clientIP := getClientIP(r)
+
+	// Check if login is allowed for this IP
+	allowed, lockMsg := checkLoginAllowed(clientIP)
+	if !allowed {
+		newCaptchaID, newCaptchaImage := generateCaptcha()
+		tmpl := template.Must(template.New("login").Parse(templates.LoginHTML))
+		tmpl.Execute(w, map[string]interface{}{
+			"Error":        lockMsg,
+			"CaptchaID":    newCaptchaID,
+			"CaptchaImage": newCaptchaImage,
+			"ManagePort":   managePort,
+			"AuthPort":     authPort,
+		})
 		return
 	}
 	
@@ -1213,10 +1318,19 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	validPassword := getSetting("admin_password")
 	if username != validUsername || password != validPassword {
+		recordLoginFailure(clientIP)
+
+		// Check lock status after recording failure
+		_, lockMsg := checkLoginAllowed(clientIP)
+		errorMsg := "用户名或密码错误"
+		if lockMsg != "" {
+			errorMsg = lockMsg
+		}
+
 		newCaptchaID, newCaptchaImage := generateCaptcha()
 		tmpl := template.Must(template.New("login").Parse(templates.LoginHTML))
 		tmpl.Execute(w, map[string]interface{}{
-			"Error":        "用户名或密码错误",
+			"Error":        errorMsg,
 			"CaptchaID":    newCaptchaID,
 			"CaptchaImage": newCaptchaImage,
 			"ManagePort":   managePort,
@@ -1224,6 +1338,10 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	// Login success - clear failure records
+	clearLoginFailures(clientIP)
+
 	token := createSession()
 	http.SetCookie(w, &http.Cookie{Name: "session", Value: token, Path: "/", HttpOnly: true, MaxAge: 86400})
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
@@ -1272,13 +1390,15 @@ func handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Description    string `json:"description"`
-		Days           int    `json:"days"`
-		DailyAnalysis  int    `json:"daily_analysis"`
-		LLMGroupID     string `json:"llm_group_id"`
-		LicenseGroupID string `json:"license_group_id"`
-		SearchGroupID  string `json:"search_group_id"`
-		ProductID      int    `json:"product_id"`
+		Description    string  `json:"description"`
+		Days           int     `json:"days"`
+		DailyAnalysis  int     `json:"daily_analysis"`
+		LLMGroupID     string  `json:"llm_group_id"`
+		LicenseGroupID string  `json:"license_group_id"`
+		SearchGroupID  string  `json:"search_group_id"`
+		ProductID      int     `json:"product_id"`
+		TotalCredits   float64 `json:"total_credits"`
+		CreditsMode    bool    `json:"credits_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1290,18 +1410,21 @@ func handleCreateLicense(w http.ResponseWriter, r *http.Request) {
 	if req.DailyAnalysis < 0 {
 		req.DailyAnalysis = 20
 	}
+	if req.TotalCredits < 0 {
+		req.TotalCredits = 0
+	}
 	sn := generateSN()
 	now := time.Now()
 	expires := now.AddDate(0, 0, req.Days)
 	
-	_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
-		sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID)
+	_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id, total_credits, credits_mode) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
+		sn, now, expires, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID, req.TotalCredits, req.CreditsMode)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	
-	license := License{SN: sn, CreatedAt: now, ExpiresAt: expires, Description: req.Description, IsActive: true, DailyAnalysis: req.DailyAnalysis, LLMGroupID: req.LLMGroupID, SearchGroupID: req.SearchGroupID, ProductID: req.ProductID}
+	license := License{SN: sn, CreatedAt: now, ExpiresAt: expires, Description: req.Description, IsActive: true, DailyAnalysis: req.DailyAnalysis, LLMGroupID: req.LLMGroupID, SearchGroupID: req.SearchGroupID, ProductID: req.ProductID, TotalCredits: req.TotalCredits, CreditsMode: req.CreditsMode}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(license)
 }
@@ -1340,14 +1463,16 @@ func handleBatchCreateLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Description    string `json:"description"`
-		Days           int    `json:"days"`
-		Count          int    `json:"count"`
-		DailyAnalysis  int    `json:"daily_analysis"`
-		LLMGroupID     string `json:"llm_group_id"`
-		LicenseGroupID string `json:"license_group_id"`
-		SearchGroupID  string `json:"search_group_id"`
-		ProductID      int    `json:"product_id"`
+		Description    string  `json:"description"`
+		Days           int     `json:"days"`
+		Count          int     `json:"count"`
+		DailyAnalysis  int     `json:"daily_analysis"`
+		LLMGroupID     string  `json:"llm_group_id"`
+		LicenseGroupID string  `json:"license_group_id"`
+		SearchGroupID  string  `json:"search_group_id"`
+		ProductID      int     `json:"product_id"`
+		TotalCredits   float64 `json:"total_credits"`
+		CreditsMode    bool    `json:"credits_mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1365,6 +1490,9 @@ func handleBatchCreateLicense(w http.ResponseWriter, r *http.Request) {
 	if req.DailyAnalysis < 0 {
 		req.DailyAnalysis = 20
 	}
+	if req.TotalCredits < 0 {
+		req.TotalCredits = 0
+	}
 	
 	now := time.Now()
 	// expires_at is NULL until SN is bound to email
@@ -1372,8 +1500,8 @@ func handleBatchCreateLicense(w http.ResponseWriter, r *http.Request) {
 	
 	for i := 0; i < req.Count; i++ {
 		sn := generateSN()
-		_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) VALUES (?, ?, NULL, ?, ?, 1, ?, ?, ?, ?, ?)",
-			sn, now, req.Days, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID)
+		_, err := db.Exec("INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id, total_credits, credits_mode) VALUES (?, ?, NULL, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
+			sn, now, req.Days, req.Description, req.DailyAnalysis, req.LicenseGroupID, req.LLMGroupID, req.SearchGroupID, req.ProductID, req.TotalCredits, req.CreditsMode)
 		if err == nil {
 			created = append(created, sn)
 		}
@@ -1463,6 +1591,43 @@ func handleSetDailyAnalysis(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
+
+func handleSetCredits(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SN           string  `json:"sn"`
+		TotalCredits float64 `json:"total_credits"`
+		CreditsMode  bool    `json:"credits_mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.TotalCredits < 0 {
+		req.TotalCredits = 0
+	}
+
+	result, err := db.Exec("UPDATE licenses SET total_credits=?, credits_mode=? WHERE sn=?", req.TotalCredits, req.CreditsMode, req.SN)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不存在"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 
 func handleSetLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -1832,7 +1997,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow(countQuery, args...).Scan(&total)
 	
 	// Get paginated results
-	selectQuery := `SELECT sn, created_at, expires_at, COALESCE(valid_days, 365), description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0) 
+	selectQuery := `SELECT sn, created_at, expires_at, COALESCE(valid_days, 365), description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0) 
 		FROM licenses` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err = db.Query(selectQuery, args...)
@@ -1848,7 +2013,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 		var l License
 		var lastUsed sql.NullTime
 		var expiresAt sql.NullTime
-		rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID)
+		rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID, &l.TotalCredits, &l.CreditsMode)
 		if lastUsed.Valid {
 			l.LastUsedAt = lastUsed.Time
 		}
@@ -2640,6 +2805,57 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"records": records, "total": total, "page": page, "pageSize": pageSize, "totalPages": totalPages,
+	})
+}
+
+// handleClearEmailRecords clears all email records for a given email address
+func handleClearEmailRecords(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "请输入有效的邮箱地址"})
+		return
+	}
+
+	// Count records first
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM email_records WHERE email=?", email).Scan(&count)
+	if count == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("未找到邮箱 %s 的申请记录", email)})
+		return
+	}
+
+	// Delete all email records for this email
+	result, err := db.Exec("DELETE FROM email_records WHERE email=?", email)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	deleted, _ := result.RowsAffected()
+	log.Printf("[CLEAR-EMAIL] Cleared %d email records for %s", deleted, email)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("已清除邮箱 %s 的 %d 条申请记录", email, deleted),
+		"deleted": deleted,
 	})
 }
 
@@ -3826,8 +4042,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	
 	var license License
 	var lastUsed sql.NullTime
-	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0) FROM licenses WHERE sn=?", sn).
-		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID, &license.ProductID)
+	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0) FROM licenses WHERE sn=?", sn).
+		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID, &license.ProductID, &license.TotalCredits, &license.CreditsMode)
 	
 	if err == sql.ErrNoRows {
 		w.Header().Set("Content-Type", "application/json")
@@ -3927,6 +4143,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 		TrustLevel:      trustLevel,
 		RefreshInterval: refreshInterval,
 		ExtraInfo:       extraInfo,
+		TotalCredits:    license.TotalCredits,
+		CreditsMode:     license.CreditsMode,
 	}
 	if bestLLM != nil {
 		activationData.LLMType = bestLLM.Type
@@ -4122,25 +4340,68 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// No group specified, find any available SN with matching product_id
+		// When conditions are enabled, first try to exclude SNs that have group bindings
+		// (those are reserved for condition-matched emails only)
+		// If no ungrouped SNs are available, fall back to any available SN
+		conditionsEnabled := getSetting("conditions_enabled") == "true"
+		groupExclusion := ""
+		if conditionsEnabled {
+			groupExclusion = ` AND (llm_group_id IS NULL OR llm_group_id = '') AND (search_group_id IS NULL OR search_group_id = '')`
+		}
 		if productID > 0 {
 			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + `
-				AND ` + baseCondition + `
+				AND ` + baseCondition + groupExclusion + `
 				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
 			args = []interface{}{productID, now}
 		} else {
 			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
 				WHERE ` + productCondition + `
-				AND ` + baseCondition + `
+				AND ` + baseCondition + groupExclusion + `
 				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
 			args = []interface{}{now}
+		}
+
+		// Try the query with group exclusion first
+		if conditionsEnabled {
+			var testSN string
+			var testDays int
+			var testExpires sql.NullTime
+			testErr := db.QueryRow(query, args...).Scan(&testSN, &testDays, &testExpires)
+			if testErr != nil {
+				// No ungrouped SNs available, fall back to any available SN
+				log.Printf("[REQUEST-SN] No ungrouped SNs available, falling back to any available SN for email %s", email)
+				if productID > 0 {
+					query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+						WHERE ` + productCondition + `
+						AND ` + baseCondition + `
+						ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+					args = []interface{}{productID, now}
+				} else {
+					query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
+						WHERE ` + productCondition + `
+						AND ` + baseCondition + `
+						ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
+					args = []interface{}{now}
+				}
+			}
 		}
 	}
 	
 	var nullableExpiresAt sql.NullTime
 	err := db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
 	if err != nil {
+		// Diagnostic logging: count available SNs at each filter stage
+		var totalCount, activeCount, unexpiredCount, unusedCount, unboundCount int
+		db.QueryRow("SELECT COUNT(*) FROM licenses").Scan(&totalCount)
+		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE is_active = 1").Scan(&activeCount)
+		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > ?)", now).Scan(&unexpiredCount)
+		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0", now).Scan(&unusedCount)
+		db.QueryRow("SELECT COUNT(*) FROM licenses WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)", now).Scan(&unboundCount)
+		log.Printf("[REQUEST-SN] Diagnostic - Total: %d, Active: %d, Unexpired: %d, Unused(usage_count=0): %d, Unbound: %d",
+			totalCount, activeCount, unexpiredCount, unusedCount, unboundCount)
 		log.Printf("[REQUEST-SN] No available SN found for email %s (Product: %d, LLM Group: %s, Search Group: %s): %v", email, productID, llmGroupID, searchGroupID, err)
+		log.Printf("[REQUEST-SN] Query: %s", query)
 		var msg string
 		if productID > 0 || llmGroupID != "" || searchGroupID != "" {
 			msg = fmt.Sprintf("暂无匹配的可用序列号（产品ID: %d, LLM分组: %s, 搜索分组: %s），请联系管理员", productID, llmGroupID, searchGroupID)

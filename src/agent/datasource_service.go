@@ -2782,6 +2782,13 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Enable WAL mode and performance PRAGMAs for SQLite connections
+	if ds.Config.DBPath != "" {
+		db.Exec("PRAGMA journal_mode=WAL")
+		db.Exec("PRAGMA synchronous=NORMAL")
+		db.Exec("PRAGMA cache_size=-8000") // 8MB cache
+	}
+
 	return db, nil
 }
 

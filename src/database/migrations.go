@@ -66,6 +66,11 @@ func InitDB(dataDir string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Enable WAL mode for better concurrent read/write performance
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		fmt.Printf("Warning: Failed to enable WAL mode: %v\n", err)
+	}
+
 	// Create migrations table if it doesn't exist
 	if err := createMigrationsTable(db); err != nil {
 		db.Close()

@@ -39,6 +39,13 @@ const LicensesHTML = `
 
 // LicensesScripts contains the licenses management JavaScript
 const LicensesScripts = `
+function refreshAllPanels() {
+    loadLicenses(licenseCurrentPage, licenseSearchTerm);
+    if (typeof loadEmailRecords === 'function') {
+        loadEmailRecords(emailCurrentPage, emailSearchTerm);
+    }
+}
+
 function loadLicenses(page, search) {
     page = page || 1;
     search = search || '';
@@ -92,15 +99,16 @@ function loadLicenses(page, search) {
             html += '</div>';
             html += '<p class="text-xs text-slate-500 mt-1">' + (l.description || '无描述') + '</p>';
             if (isActivated) {
-                html += '<p class="text-xs text-slate-400">过期: ' + new Date(l.expires_at).toLocaleDateString() + ' | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
+                html += '<p class="text-xs text-slate-400">过期: ' + new Date(l.expires_at).toLocaleDateString() + ' | 使用: ' + l.usage_count + '次 | ' + (l.credits_mode ? (l.total_credits > 0 ? 'Credits: ' + l.total_credits : 'Credits: 无限制') : '每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次')) + '</p>';
             } else {
-                html += '<p class="text-xs text-slate-400">有效期: ' + (l.valid_days || 365) + '天 | 使用: ' + l.usage_count + '次 | 每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次') + '</p>';
+                html += '<p class="text-xs text-slate-400">有效期: ' + (l.valid_days || 365) + '天 | 使用: ' + l.usage_count + '次 | ' + (l.credits_mode ? (l.total_credits > 0 ? 'Credits: ' + l.total_credits : 'Credits: 无限制') : '每日分析: ' + (l.daily_analysis === 0 ? '无限' : l.daily_analysis + '次')) + '</p>';
             }
             html += '</div>';
             html += '<div class="flex gap-2">';
             html += '<button onclick="setLicenseGroups(\'' + l.sn + '\', \'' + (l.license_group_id || '') + '\', \'' + (l.llm_group_id || '') + '\', \'' + (l.search_group_id || '') + '\', ' + (l.product_id || 0) + ')" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs">分组</button>';
             html += '<button onclick="extendLicense(\'' + l.sn + '\', \'' + l.expires_at + '\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">展期</button>';
             html += '<button onclick="setDailyAnalysis(\'' + l.sn + '\', ' + l.daily_analysis + ')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">分析次数</button>';
+            html += '<button onclick="setCredits(\'' + l.sn + '\', ' + (l.total_credits || 0) + ')" class="px-2 py-1 bg-teal-100 text-teal-700 rounded text-xs">Credits</button>';
             html += '<button onclick="toggleLicense(\'' + l.sn + '\')" class="px-2 py-1 ' + (l.is_active ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs">' + (l.is_active ? '禁用' : '启用') + '</button>';
             html += '</div>';
             html += '</div>';
@@ -141,7 +149,9 @@ function showBatchCreate() {
         '<div><label class="text-sm text-slate-600">有效天数</label><input type="number" id="batch-days" value="365" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">生成数量</label><input type="number" id="batch-count" value="100" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '</div>' +
-        '<div><label class="text-sm text-slate-600">每日分析次数 (0=无限)</label><input type="number" id="batch-daily" value="20" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div><label class="text-sm text-slate-600">授权模式</label><div class="flex gap-4 mt-1"><label class="flex items-center gap-1"><input type="radio" name="batch-mode" value="daily" checked onchange="toggleBatchMode()"><span class="text-sm">每日限制</span></label><label class="flex items-center gap-1"><input type="radio" name="batch-mode" value="credits" onchange="toggleBatchMode()"><span class="text-sm">Credits</span></label></div></div>' +
+        '<div id="batch-daily-div"><label class="text-sm text-slate-600">每日分析次数 (0=无限)</label><input type="number" id="batch-daily" value="20" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div id="batch-credits-div" style="display:none"><label class="text-sm text-slate-600">Credits 总量 (0=无限制)</label><input type="number" id="batch-credits" value="1000" step="0.5" class="w-full px-3 py-2 border rounded-lg"></div>' +
         '<div><label class="text-sm text-slate-600">产品类型</label><select id="batch-product" class="w-full px-3 py-2 border rounded-lg">' + productOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">序列号分组</label><select id="batch-license-group" class="w-full px-3 py-2 border rounded-lg">' + licenseGroupOpts + '</select></div>' +
         '<div><label class="text-sm text-slate-600">LLM分组</label><select id="batch-llm-group" class="w-full px-3 py-2 border rounded-lg">' + llmGroupOpts + '</select></div>' +
@@ -150,12 +160,23 @@ function showBatchCreate() {
         '</div></div>');
 }
 
+function toggleBatchMode() {
+    var modeEl = document.querySelector('input[name="batch-mode"]:checked');
+    var mode = modeEl ? modeEl.value : 'daily';
+    document.getElementById('batch-daily-div').style.display = mode === 'daily' ? '' : 'none';
+    document.getElementById('batch-credits-div').style.display = mode === 'credits' ? '' : 'none';
+}
+
 function doBatchCreate() {
+    var modeEl = document.querySelector('input[name="batch-mode"]:checked');
+    var mode = modeEl ? modeEl.value : 'daily';
     var data = {
         description: document.getElementById('batch-desc').value,
         days: parseInt(document.getElementById('batch-days').value) || 365,
         count: parseInt(document.getElementById('batch-count').value) || 100,
-        daily_analysis: parseInt(document.getElementById('batch-daily').value) || 0,
+        daily_analysis: mode === 'daily' ? (parseInt(document.getElementById('batch-daily').value) || 0) : 0,
+        total_credits: mode === 'credits' ? (parseFloat(document.getElementById('batch-credits').value) || 0) : 0,
+        credits_mode: mode === 'credits',
         product_id: parseInt(document.getElementById('batch-product').value) || 0,
         license_group_id: document.getElementById('batch-license-group').value,
         llm_group_id: document.getElementById('batch-llm-group').value,
@@ -163,7 +184,8 @@ function doBatchCreate() {
     };
     fetch('/api/licenses/batch-create', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
         .then(function(resp) { return resp.json(); })
-        .then(function(result) { hideModal(); if (result.success) { alert('成功生成 ' + result.count + ' 个序列号'); loadLicenses(); } else { alert('生成失败: ' + result.error); } });
+        .then(function(result) { hideModal(); if (result.success) { alert('成功生成 ' + result.count + ' 个序列号'); refreshAllPanels(); } else { alert('生成失败: ' + (result.error || '未知错误')); } })
+        .catch(function(err) { alert('请求失败: ' + err); });
 }
 
 function toggleLicense(sn) {
@@ -184,7 +206,7 @@ function extendLicense(sn, currentExpiry) {
 function doExtendLicense(sn) {
     var days = parseInt(document.getElementById('extend-days').value) || 365;
     fetch('/api/licenses/extend', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, days: days})})
-        .then(function() { hideModal(); loadLicenses(licenseCurrentPage, licenseSearchTerm); });
+        .then(function() { hideModal(); refreshAllPanels(); });
 }
 
 function setDailyAnalysis(sn, current) {
@@ -198,7 +220,21 @@ function setDailyAnalysis(sn, current) {
 function doSetDailyAnalysis(sn) {
     var count = parseInt(document.getElementById('daily-count').value) || 0;
     fetch('/api/licenses/set-daily', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, daily_analysis: count})})
-        .then(function() { hideModal(); loadLicenses(licenseCurrentPage, licenseSearchTerm); });
+        .then(function() { hideModal(); refreshAllPanels(); });
+}
+
+function setCredits(sn, current) {
+    showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">设置 Credits</h3><div class="space-y-3">' +
+        '<p class="text-sm text-slate-600">序列号: <code class="font-mono text-blue-600">' + sn + '</code></p>' +
+        '<div><label class="text-sm text-slate-600">Credits 总量 (0=关闭Credits模式)</label><input type="number" id="credits-value" value="' + current + '" step="0.5" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doSetCredits(\'' + sn + '\')" class="flex-1 py-2 bg-teal-600 text-white rounded-lg">确认</button></div>' +
+        '</div></div>');
+}
+
+function doSetCredits(sn) {
+    var credits = parseFloat(document.getElementById('credits-value').value) || 0;
+    fetch('/api/licenses/set-credits', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, total_credits: credits, credits_mode: true})})
+        .then(function() { hideModal(); refreshAllPanels(); });
 }
 
 function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId, productId) {
@@ -230,7 +266,7 @@ function doSetLicenseGroups(sn) {
         search_group_id: document.getElementById('set-search-group').value
     };
     fetch('/api/licenses/set-groups', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
-        .then(function() { hideModal(); loadLicenses(licenseCurrentPage, licenseSearchTerm); });
+        .then(function() { hideModal(); refreshAllPanels(); });
 }
 
 function deleteUnusedByGroup() {

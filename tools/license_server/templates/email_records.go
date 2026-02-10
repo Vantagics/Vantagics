@@ -117,6 +117,8 @@ function loadEmailRecords(page, search) {
                     productId: license.product_id || 0,
                     expiresAt: license.expires_at || '',
                     dailyAnalysis: dailyAnalysis,
+                    creditsMode: license.credits_mode || false,
+                    totalCredits: license.total_credits || 0,
                     isActive: isActive
                 };
                 
@@ -141,7 +143,7 @@ function loadEmailRecords(page, search) {
                 html += '<p class="text-xs text-slate-400">申请时间: ' + new Date(r.created_at).toLocaleString() + ' | IP: ' + r.ip + '</p>';
                 html += '<p class="text-xs text-slate-400">';
                 if (expiresAt) html += '过期: <span class="' + (isExpired ? 'text-red-600' : '') + '">' + expiresAt.toLocaleDateString() + '</span> | ';
-                html += '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次') + ' | ';
+                html += (license.credits_mode ? 'Credits: ' + (license.total_credits > 0 ? license.total_credits : '无限制') : '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次')) + ' | ';
                 html += '序列号分组: <span class="text-purple-600">' + (licenseGroupName || '默认') + '</span> | ';
                 html += 'LLM分组: <span class="text-blue-600">' + (llmGroupName || '默认') + '</span> | ';
                 html += '搜索分组: <span class="text-green-600">' + (searchGroupName || '默认') + '</span>';
@@ -151,8 +153,14 @@ function loadEmailRecords(page, search) {
                 html += '<button data-action="edit" data-key="' + dataKey + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">修改</button>';
                 html += '<button data-action="groups" data-key="' + dataKey + '" class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs hover:bg-indigo-200">分组</button>';
                 html += '<button data-action="extend" data-key="' + dataKey + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">展期</button>';
-                html += '<button data-action="analysis" data-key="' + dataKey + '" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">分析次数</button>';
+                if (license.credits_mode) {
+                    html += '<button data-action="credits" data-key="' + dataKey + '" class="px-2 py-1 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200">Credits</button>';
+                } else {
+                    html += '<button data-action="analysis" data-key="' + dataKey + '" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">分析次数</button>';
+                }
+                html += '<button data-action="switchmode" data-key="' + dataKey + '" class="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs hover:bg-orange-200">授权方式</button>';
                 html += '<button data-action="toggle" data-key="' + dataKey + '" class="px-2 py-1 ' + (isActive ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs hover:opacity-80">' + (isActive ? '禁用' : '启用') + '</button>';
+                html += '<button data-action="delete" data-key="' + dataKey + '" class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">删除</button>';
                 html += '</div>';
                 html += '</div>';
                 html += '</div>';
@@ -198,8 +206,17 @@ document.getElementById('email-records-list').addEventListener('click', function
         case 'analysis':
             setDailyAnalysis(data.sn, data.dailyAnalysis);
             break;
+        case 'credits':
+            setCredits(data.sn, data.totalCredits);
+            break;
+        case 'switchmode':
+            switchLicenseMode(data.sn, data.creditsMode, data.dailyAnalysis, data.totalCredits);
+            break;
         case 'toggle':
             toggleLicenseFromEmail(data.sn);
+            break;
+        case 'delete':
+            deleteLicenseFromEmail(data.sn, data.email);
             break;
     }
 });
@@ -211,6 +228,80 @@ function searchEmails() {
 function toggleLicenseFromEmail(sn) {
     fetch('/api/licenses/toggle', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn})})
         .then(function() { loadEmailRecords(emailCurrentPage, emailSearchTerm); });
+}
+
+function deleteLicenseFromEmail(sn, email) {
+    if (!confirm('确定要删除序列号 ' + sn + ' 及其邮箱绑定记录（' + email + '）吗？\\n\\n⚠️ 此操作不可恢复！')) return;
+    fetch('/api/licenses/force-delete', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn})})
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) {
+            if (result.success) {
+                alert(result.message);
+                refreshAllPanels();
+            } else {
+                alert('删除失败: ' + result.error);
+            }
+        });
+}
+
+function switchLicenseMode(sn, currentCreditsMode, dailyAnalysis, totalCredits) {
+    showModal('<div class="p-6"><h3 class="text-lg font-bold mb-4">切换授权方式</h3><div class="space-y-3">' +
+        '<p class="text-sm text-slate-600">序列号: <code class="font-mono text-blue-600">' + sn + '</code></p>' +
+        '<p class="text-sm text-slate-500">当前模式: <span class="font-bold ' + (currentCreditsMode ? 'text-teal-600' : 'text-purple-600') + '">' + (currentCreditsMode ? 'Credits' : '每日限制') + '</span></p>' +
+        '<div class="space-y-2">' +
+        '<label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer hover:bg-slate-50' + (!currentCreditsMode ? ' border-purple-400 bg-purple-50' : '') + '">' +
+        '<input type="radio" name="switch-mode" value="daily"' + (!currentCreditsMode ? ' checked' : '') + ' onchange="onSwitchModeChange()"> <span class="text-sm">📊 每日限制模式</span></label>' +
+        '<label class="flex items-center gap-2 p-2 rounded-lg border cursor-pointer hover:bg-slate-50' + (currentCreditsMode ? ' border-teal-400 bg-teal-50' : '') + '">' +
+        '<input type="radio" name="switch-mode" value="credits"' + (currentCreditsMode ? ' checked' : '') + ' onchange="onSwitchModeChange()"> <span class="text-sm">🪙 Credits 模式</span></label>' +
+        '</div>' +
+        '<div id="switch-mode-params">' +
+        (currentCreditsMode ?
+            '<div><label class="text-sm text-slate-600">Credits 总量 (0=无限制)</label><input type="number" id="switch-credits-value" value="' + totalCredits + '" step="0.5" class="w-full px-3 py-2 border rounded-lg"></div>' :
+            '<div><label class="text-sm text-slate-600">每日分析次数 (0=无限)</label><input type="number" id="switch-daily-value" value="' + dailyAnalysis + '" class="w-full px-3 py-2 border rounded-lg"></div>'
+        ) +
+        '</div>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button><button onclick="doSwitchMode(\'' + sn + '\')" class="flex-1 py-2 bg-orange-600 text-white rounded-lg">确认切换</button></div>' +
+        '</div></div>');
+    // Store context for param switching
+    window._switchModeCtx = {dailyAnalysis: dailyAnalysis, totalCredits: totalCredits};
+}
+
+function onSwitchModeChange() {
+    var mode = document.querySelector('input[name="switch-mode"]:checked');
+    if (!mode) return;
+    var paramsDiv = document.getElementById('switch-mode-params');
+    var ctx = window._switchModeCtx || {dailyAnalysis: 20, totalCredits: 1000};
+    if (mode.value === 'credits') {
+        paramsDiv.innerHTML = '<div><label class="text-sm text-slate-600">Credits 总量 (0=无限制)</label><input type="number" id="switch-credits-value" value="' + ctx.totalCredits + '" step="0.5" class="w-full px-3 py-2 border rounded-lg"></div>';
+    } else {
+        paramsDiv.innerHTML = '<div><label class="text-sm text-slate-600">每日分析次数 (0=无限)</label><input type="number" id="switch-daily-value" value="' + ctx.dailyAnalysis + '" class="w-full px-3 py-2 border rounded-lg"></div>';
+    }
+}
+
+function doSwitchMode(sn) {
+    var mode = document.querySelector('input[name="switch-mode"]:checked');
+    if (!mode) { alert('请选择授权方式'); return; }
+    if (mode.value === 'credits') {
+        var credits = parseFloat(document.getElementById('switch-credits-value').value) || 0;
+        fetch('/api/licenses/set-credits', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, total_credits: credits, credits_mode: true})})
+            .then(function(resp) { return resp.json(); })
+            .then(function(result) {
+                hideModal();
+                if (result.success) { refreshAllPanels(); } else { alert('切换失败: ' + (result.error || '未知错误')); }
+            }).catch(function(err) { hideModal(); alert('请求失败: ' + err); });
+    } else {
+        var daily = parseInt(document.getElementById('switch-daily-value').value) || 0;
+        // Switch to daily mode: set credits_mode=false, then set daily analysis
+        fetch('/api/licenses/set-credits', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, total_credits: 0, credits_mode: false})})
+            .then(function(resp) { return resp.json(); })
+            .then(function(result) {
+                if (!result.success) { hideModal(); alert('切换失败: ' + (result.error || '未知错误')); return; }
+                return fetch('/api/licenses/set-daily', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({sn: sn, daily_analysis: daily})});
+            })
+            .then(function(resp) { if (resp) return resp.json(); })
+            .then(function() { hideModal(); refreshAllPanels(); })
+            .catch(function(err) { hideModal(); alert('请求失败: ' + err); });
+    }
 }
 
 function editEmailRecord(id, email, sn) {

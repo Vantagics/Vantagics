@@ -23,6 +23,9 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         expires_at?: string;
         daily_analysis_limit?: number;
         daily_analysis_count?: number;
+        total_credits?: number;
+        used_credits?: number;
+        credits_mode?: boolean;
     }>({ activated: false });
 
     // State for license mode switch feature
@@ -40,6 +43,9 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     expires_at: status.expires_at || '',
                     daily_analysis_limit: status.daily_analysis_limit || 0,
                     daily_analysis_count: status.daily_analysis_count || 0,
+                    total_credits: status.total_credits || 0,
+                    used_credits: status.used_credits || 0,
+                    credits_mode: status.credits_mode || false,
                 });
             }).catch(() => {
                 setActivationStatus({ activated: false });
@@ -59,6 +65,9 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     expires_at: status.expires_at || '',
                     daily_analysis_limit: status.daily_analysis_limit || 0,
                     daily_analysis_count: status.daily_analysis_count || 0,
+                    total_credits: status.total_credits || 0,
+                    used_credits: status.used_credits || 0,
+                    credits_mode: status.credits_mode || false,
                 });
             }).catch(() => {
                 setActivationStatus({ activated: false });
@@ -88,8 +97,13 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     const showSubscribeButton = activationStatus.activated && daysUntilExpiration !== null && daysUntilExpiration <= 31;
     const isExpired = daysUntilExpiration !== null && daysUntilExpiration <= 0;
     
-    // Determine if trial or official license (trial has daily_analysis_limit > 0)
-    const isTrial = activationStatus.activated && activationStatus.daily_analysis_limit !== undefined && activationStatus.daily_analysis_limit > 0;
+    // Determine if trial or official license
+    // Trial = has limits: daily_analysis_limit > 0 (次数有限制) or credits_mode with total_credits > 0 (credits有限制)
+    // credits_mode with total_credits == 0 means unlimited, not trial
+    const isTrial = activationStatus.activated && (
+        (!activationStatus.credits_mode && activationStatus.daily_analysis_limit !== undefined && activationStatus.daily_analysis_limit > 0) ||
+        (activationStatus.credits_mode === true && activationStatus.total_credits !== undefined && activationStatus.total_credits > 0)
+    );
 
     const handleSubscribe = () => {
         BrowserOpenURL(PURCHASE_URL);
@@ -129,6 +143,9 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     expires_at: status.expires_at || '',
                     daily_analysis_limit: status.daily_analysis_limit || 0,
                     daily_analysis_count: status.daily_analysis_count || 0,
+                    total_credits: status.total_credits || 0,
+                    used_credits: status.used_credits || 0,
+                    credits_mode: status.credits_mode || false,
                 });
                 setShowConfirmDialog(false);
                 setConfirmAction(null);
@@ -267,8 +284,33 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                         </button>
                     )}
 
-                    {/* Daily Analysis Usage */}
-                    {activationStatus.activated && activationStatus.daily_analysis_limit !== undefined && activationStatus.daily_analysis_limit > 0 && (
+                    {/* Credits Usage - shown when credits_mode is true */}
+                    {activationStatus.activated && activationStatus.credits_mode === true && (
+                        <div className="p-3 bg-blue-50 rounded-lg">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-1.5">
+                                    <BarChart3 className="w-3.5 h-3.5 text-blue-600" />
+                                    <span className="text-xs font-medium text-slate-700">{t('credits_usage') || 'Credits 用量'}</span>
+                                </div>
+                                <span className="text-xs text-slate-600">
+                                    {activationStatus.total_credits === 0 ? '无限制' : `${activationStatus.used_credits || 0} / ${activationStatus.total_credits}`}
+                                </span>
+                            </div>
+                            {activationStatus.total_credits !== undefined && activationStatus.total_credits > 0 && (
+                            <div className="w-full bg-blue-200 rounded-full h-1.5">
+                                <div 
+                                    className={`h-1.5 rounded-full transition-all ${
+                                        (activationStatus.used_credits || 0) >= activationStatus.total_credits ? 'bg-red-500' : 'bg-blue-500'
+                                    }`}
+                                    style={{ width: `${Math.min(100, ((activationStatus.used_credits || 0) / activationStatus.total_credits) * 100)}%` }}
+                                />
+                            </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Daily Analysis Usage - shown when NOT in credits mode */}
+                    {activationStatus.activated && activationStatus.credits_mode !== true && activationStatus.daily_analysis_limit !== undefined && activationStatus.daily_analysis_limit > 0 && (
                         <div className="p-3 bg-blue-50 rounded-lg">
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-1.5">

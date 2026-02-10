@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database } from 'lucide-react';
 import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
 import { useLanguage } from '../i18n';
+import { getDataSourceIcon } from './DataSourcesSection';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
@@ -2616,29 +2617,47 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 {/* Main Chat Area */}
                 <div className="flex-1 flex flex-col min-w-0 bg-white relative">
 
-                    <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative"
-                    >
-                        <div className="flex items-center gap-3.5">
-                            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200">
+                    <div className="px-4 pt-3 pb-2 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200 flex-shrink-0">
                                 <MessageSquare className="w-5 h-5 text-white" />
                             </div>
-                            <div>
+                            <div className="flex items-center gap-2">
                                 <h3 className="font-bold text-slate-900 text-sm tracking-tight">{t('ai_assistant')}</h3>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                                    <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px]">
-                                        {activeThread?.title || t('ready_to_help')}
-                                    </p>
-                                    {activeDataSource && (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full border border-slate-200">
-                                            {activeDataSource.name}
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
+                            </div>
+                        </div>
+                        {activeDataSource ? (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <button
+                                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                                        title={activeDataSource.name}
+                                        onClick={() => EventsEmit('open-data-browser', { sourceId: activeDataSource.id, sourceName: activeDataSource.name })}
+                                    >
+                                        {getDataSourceIcon(activeDataSource.type)} {activeDataSource.name}
+                                    </button>
+                                    <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium uppercase tracking-wide">
+                                        {activeDataSource.type}
+                                    </span>
+                                    {activeDataSource.analysis?.schema?.length > 0 && (
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-white text-slate-500 rounded border border-slate-200 flex items-center gap-1">
+                                            <Database className="w-2.5 h-2.5" />
+                                            {t('ds_tables_count').replace('{0}', String(activeDataSource.analysis.schema.length))}
                                         </span>
                                     )}
                                 </div>
+                                {activeDataSource.analysis?.summary && (
+                                    <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                                        {activeDataSource.analysis.summary}
+                                    </p>
+                                )}
                             </div>
-                        </div>
-                        <div className="flex items-center gap-1">
-                        </div>
+                        ) : (
+                            <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px] ml-11">
+                                {activeThread?.title || t('ready_to_help')}
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">

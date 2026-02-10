@@ -17,7 +17,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 
 // 最小日志级别 - 只有 >= 此级别的日志才会被写入
 // 生产环境设为 'WARN'，调试时可改为 'DEBUG' 或 'INFO'
-let minLogLevel: LogLevel = 'DEBUG';
+let minLogLevel: LogLevel = 'WARN';
 
 /**
  * 设置最小日志级别
@@ -32,6 +32,13 @@ export function setMinLogLevel(level: LogLevel): void {
  */
 export function getMinLogLevel(): LogLevel {
     return minLogLevel;
+}
+
+/**
+ * Check if a log level would be written (for avoiding expensive string construction)
+ */
+export function isLogEnabled(level: LogLevel): boolean {
+    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[minLogLevel];
 }
 
 /**

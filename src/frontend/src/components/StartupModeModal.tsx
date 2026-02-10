@@ -76,16 +76,22 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const verifyAndComplete = async () => {
         setIsLoading(true);
         setError(null);
+        setMode('commercial');
+        setCommercialStep('activating');
         try {
             const config = await GetConfig();
             const result = await TestLLMConnection(config);
             if (result.success) {
                 onComplete();
             } else {
+                setSuccessMessage(null);
                 setError(t('llm_connection_failed') || 'LLM连接失败，请检查配置');
+                setCommercialStep('check');
             }
         } catch (err: any) {
+            setSuccessMessage(null);
             setError(err.toString());
+            setCommercialStep('check');
         } finally {
             setIsLoading(false);
         }
@@ -142,16 +148,16 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 // Emit event to notify AboutModal to refresh activation status
                 EventsEmit('activation-status-changed');
                 
-                // Verify LLM connection
-                setTimeout(() => verifyAndComplete(), 1000);
+                // Verify LLM connection (verifyAndComplete handles its own loading state)
+                await verifyAndComplete();
             } else {
                 setError(result.message);
                 setCommercialStep('check');
+                setIsLoading(false);
             }
         } catch (err: any) {
             setError(err.toString());
             setCommercialStep('check');
-        } finally {
             setIsLoading(false);
         }
     };

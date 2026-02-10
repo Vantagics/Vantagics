@@ -7940,6 +7940,7 @@ func (a *App) GetActivationStatus() map[string]interface{} {
 
 	data := a.licenseClient.GetData()
 	count, limit, date := a.licenseClient.GetAnalysisStatus()
+	totalCredits, usedCredits, isCreditsMode := a.licenseClient.GetCreditsStatus()
 	
 	return map[string]interface{}{
 		"activated":            true,
@@ -7955,6 +7956,9 @@ func (a *App) GetActivationStatus() map[string]interface{} {
 		"daily_analysis_date":  date,
 		"trust_level":          data.TrustLevel,
 		"refresh_interval":     data.RefreshInterval,
+		"total_credits":        totalCredits,
+		"used_credits":         usedCredits,
+		"credits_mode":         isCreditsMode,
 	}
 }
 
