@@ -3037,39 +3037,6 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					errorCode = "CANCELLED"
 					userFriendlyMessage = "分析已取消"
 					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
-					
-					// Emit progress complete event to ensure frontend progress bar clears
-					runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
-						"threadId": threadID,
-						"stage":    "complete",
-						"progress": 100,
-						"message":  "progress.analysis_cancelled",
-						"step":     0,
-						"total":    0,
-					})
-
-					// Use event aggregator for consistent event emission
-					if a.eventAggregator != nil {
-						a.eventAggregator.EmitCancelled(threadID, requestID)
-						a.eventAggregator.SetLoading(threadID, false, requestID)
-					} else {
-						runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
-							"threadId":  threadID,
-							"requestId": requestID,
-							"message":   "分析已取消",
-							"timestamp": time.Now().UnixMilli(),
-						})
-						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
-							"sessionId": threadID,
-							"loading":   false,
-							"requestId": requestID,
-						})
-					}
-					// Emit chat-loading false to update App.tsx loading state
-					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-						"loading":  false,
-						"threadId": threadID,
-					})
 				} else {
 					// Determine error code based on error message
 					switch {
@@ -3097,18 +3064,62 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					}
 					
 					a.Log(fmt.Sprintf("[ERROR] Analysis error for thread %s: code=%s, message=%s", threadID, errorCode, errStr))
-					
-					// Emit progress complete event FIRST to ensure frontend progress bar clears
-					runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
-						"threadId": threadID,
-						"stage":    "complete",
-						"progress": 100,
-						"message":  "progress.analysis_complete",
-						"step":     0,
-						"total":    0,
-					})
+				}
 
-					// Emit error event to frontend with detailed information
+				// CRITICAL: Save error message to database BEFORE emitting events.
+				// The frontend event handlers call loadThreads() which reads from the
+				// database. If we emit events first, the frontend may load threads before
+				// the error message is persisted, causing a brief flash of "分析已中止"
+				// instead of showing the actual error reason.
+				if threadID != "" {
+					var chatErrorMsg string
+					if errorCode == "CANCELLED" {
+						chatErrorMsg = "⚠️ 分析已取消。"
+					} else {
+						chatErrorMsg = fmt.Sprintf("❌ **分析出错** [%s]\n\n%s\n\n<details><summary>详细错误信息</summary>\n\n```\n%s\n```\n</details>",
+							errorCode, userFriendlyMessage, errStr)
+					}
+					errChatMsg := ChatMessage{
+						ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
+						Role:      "assistant",
+						Content:   chatErrorMsg,
+						Timestamp: time.Now().Unix(),
+					}
+					if addErr := a.chatService.AddMessage(threadID, errChatMsg); addErr != nil {
+						a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat: %v", addErr))
+					}
+				}
+
+				// NOW emit events — the error message is already in the database,
+				// so frontend loadThreads() will find it.
+				// Emit progress complete event to ensure frontend progress bar clears
+				runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
+					"threadId": threadID,
+					"stage":    "complete",
+					"progress": 100,
+					"message":  "progress.analysis_cancelled",
+					"step":     0,
+					"total":    0,
+				})
+
+				if errorCode == "CANCELLED" {
+					if a.eventAggregator != nil {
+						a.eventAggregator.EmitCancelled(threadID, requestID)
+						a.eventAggregator.SetLoading(threadID, false, requestID)
+					} else {
+						runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
+							"threadId":  threadID,
+							"requestId": requestID,
+							"message":   "分析已取消",
+							"timestamp": time.Now().UnixMilli(),
+						})
+						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
+							"sessionId": threadID,
+							"loading":   false,
+							"requestId": requestID,
+						})
+					}
+				} else {
 					if a.eventAggregator != nil {
 						a.eventAggregator.EmitErrorWithCode(threadID, requestID, errorCode, userFriendlyMessage)
 						a.eventAggregator.SetLoading(threadID, false, requestID)
@@ -3128,32 +3139,12 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 							"requestId": requestID,
 						})
 					}
-					// Emit chat-loading false to update App.tsx loading state
-					runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-						"loading":  false,
-						"threadId": threadID,
-					})
 				}
-
-				// Save error message as assistant chat message so user can see it in chat area
-				if threadID != "" {
-					var chatErrorMsg string
-					if errorCode == "CANCELLED" {
-						chatErrorMsg = "⚠️ 分析已取消。"
-					} else {
-						chatErrorMsg = fmt.Sprintf("❌ **分析出错** [%s]\n\n%s\n\n<details><summary>详细错误信息</summary>\n\n```\n%s\n```\n</details>",
-							errorCode, userFriendlyMessage, errStr)
-					}
-					errChatMsg := ChatMessage{
-						ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
-						Role:      "assistant",
-						Content:   chatErrorMsg,
-						Timestamp: time.Now().Unix(),
-					}
-					if addErr := a.chatService.AddMessage(threadID, errChatMsg); addErr != nil {
-						a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat: %v", addErr))
-					}
-				}
+				// Emit chat-loading false to update App.tsx loading state
+				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
+					"loading":  false,
+					"threadId": threadID,
+				})
 
 				return "", err
 			}

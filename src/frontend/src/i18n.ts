@@ -1059,7 +1059,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'app_title': '观界 - 智能数据分析',
         // 数据源
         'data_sources': '数据源',
-        'chat_analysis': '对话分析',
+        'chat_analysis': '开始分析',
         'add_source': '+ 添加数据源',
         'settings': '设置',
         'smart_dashboard': '智能仪表盘',

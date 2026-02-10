@@ -172,6 +172,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     // Task 3.1: Updated type to include requestId parameter
     const handleSendMessageRef = useRef<((text?: string, explicitThreadId?: string, explicitThread?: main.ChatThread, requestId?: string) => Promise<void>) | null>(null);
 
+    // Pending error message ref: protects error messages from being overwritten
+    // by loadThreads() race conditions. When the catch block creates an error message,
+    // it stores it here. loadThreads() will merge it into the loaded data.
+    const pendingErrorRef = useRef<{ threadId: string; errorMsg: main.ChatMessage } | null>(null);
+
     // Refs to store latest state values for event handlers (avoid closure issues)
     const threadsRef = useRef<main.ChatThread[]>([]);
     const activeThreadIdRef = useRef<string | null>(null);
@@ -686,36 +691,38 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         const unsubscribeCancelled = EventsOn('analysis-cancelled', (data: any) => {
             console.log('[ChatSidebar] Analysis cancelled event received:', data);
 
+            setShowCancelConfirm(false);
+            const cancelledThreadId = data?.threadId || activeThreadIdRef.current;
+
             // Clear loading state
             setIsLoading(false);
             setLoadingThreadId(null);
-            setShowCancelConfirm(false);
-            // 通知 LoadingStateManager
-            const cancelledThreadId = data?.threadId || activeThreadIdRef.current;
             if (cancelledThreadId) {
                 loadingStateManager.setLoading(cancelledThreadId, false);
             }
 
-            console.log('[ChatSidebar] Loading state cleared after cancellation');
-
-            // Reload threads so the cancellation message (saved by backend) appears in chat
+            // Reload threads to pick up the backend-saved cancellation message
             loadThreads();
+
+            console.log('[ChatSidebar] Loading state cleared after cancellation');
         });
 
-        // Listen for analysis error event — reload threads so the error assistant message shows in chat
+        // Listen for analysis error event
+        // NOTE: The error message display is handled by the catch block in
+        // handleSendMessage. This handler only clears loading state for cases
+        // where the error occurs outside handleSendMessage (e.g., background).
+        // The App.tsx handler shows the toast notification.
         const unsubscribeAnalysisError = EventsOn('analysis-error', (data: any) => {
             console.log('[ChatSidebar] Analysis error event received:', data);
+
+            const errorThreadId = data?.threadId || data?.sessionId || activeThreadIdRef.current;
 
             // Clear loading state
             setIsLoading(false);
             setLoadingThreadId(null);
-            const errorThreadId = data?.threadId || data?.sessionId || activeThreadIdRef.current;
             if (errorThreadId) {
                 loadingStateManager.setLoading(errorThreadId, false);
             }
-
-            // Reload threads so the error message (saved by backend as assistant message) appears in chat
-            loadThreads();
         });
 
         // Listen for free chat streaming events
@@ -908,6 +915,34 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const loadThreads = async () => {
         try {
             const history = await GetChatHistory();
+
+            // Merge any pending error message that hasn't been persisted yet.
+            // This prevents the race condition where loadThreads() is called
+            // (e.g., from analysis-cancelled event) before SaveChatHistory
+            // in the catch block has completed writing the error message.
+            const pending = pendingErrorRef.current;
+            if (pending && history) {
+                const threadIndex = history.findIndex(t => t.id === pending.threadId);
+                if (threadIndex !== -1) {
+                    const thread = history[threadIndex];
+                    const messages = thread.messages || [];
+                    // Check if the backend already saved an error/assistant message
+                    // (either our exact message by ID, or any assistant error message)
+                    const alreadyHasThisError = messages.some(m => m.id === pending.errorMsg.id);
+                    const alreadyHasBackendError = messages.some(m =>
+                        m.role === 'assistant' && m.id?.startsWith('error_')
+                    );
+                    if (!alreadyHasThisError && !alreadyHasBackendError) {
+                        console.log('[ChatSidebar] loadThreads: merging pending error message into loaded data');
+                        thread.messages = [...messages, pending.errorMsg];
+                    } else {
+                        console.log('[ChatSidebar] loadThreads: error message already present, skipping merge');
+                        // Error is already persisted, clear the ref
+                        pendingErrorRef.current = null;
+                    }
+                }
+            }
+
             setThreads(history);
             if (history && history.length > 0 && !activeThreadId) {
                 setActiveThreadId(history[0].id);
@@ -2016,8 +2051,30 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setInput('');
 
             // Await save before sending message to prevent race condition
-            // Now passing the explicitly calculated updatedThreads
-            await SaveChatHistory(updatedThreads);
+            // IMPORTANT: Reload from backend first to avoid overwriting backend-saved
+            // messages (e.g., error messages from previous failed analyses).
+            // The frontend state may be stale if the backend added messages via AddMessage.
+            try {
+                const freshThreads = await GetChatHistory();
+                const freshThread = freshThreads?.find(t => t.id === currentThreadId);
+                if (freshThread) {
+                    // Check if user message already exists in fresh data
+                    const userMsgExists = freshThread.messages?.some(m => m.id === userMsg.id);
+                    if (!userMsgExists) {
+                        freshThread.messages = [...(freshThread.messages || []), userMsg];
+                    }
+                    const mergedThreads = freshThreads.map(t =>
+                        t.id === currentThreadId ? freshThread : t
+                    );
+                    await SaveChatHistory(mergedThreads);
+                } else {
+                    // Thread not found in backend, save our version
+                    await SaveChatHistory(updatedThreads);
+                }
+            } catch (saveErr) {
+                console.error('[ChatSidebar] Failed to merge and save, falling back:', saveErr);
+                await SaveChatHistory(updatedThreads);
+            }
         } else {
             systemLog.info('[ChatSidebar] User message already added during intent understanding, skipping duplicate');
             // Find the existing user message that was added during intent understanding
@@ -2156,31 +2213,59 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
 
         } catch (error) {
-            console.error(error);
+            console.error('[ChatSidebar] Analysis error:', error);
+
+            // Create an error message directly in the frontend and add it to the thread.
             const errorMsg = new main.ChatMessage();
-            errorMsg.id = (Date.now() + 1).toString();
+            errorMsg.id = `error_${Date.now()}`;
             errorMsg.role = 'assistant';
-
-            let errorText = 'Sorry, I encountered an error. Please check your connection and API keys.';
-            if (typeof error === 'string') {
-                errorText = `Error: ${error}`;
-            } else if (error instanceof Error) {
-                errorText = `Error: ${error.message}`;
-            }
-            errorMsg.content = errorText;
-
             errorMsg.timestamp = Math.floor(Date.now() / 1000);
-            currentThread.messages = [...(currentThread.messages || []), errorMsg];
 
-            setThreads(prevThreads => {
-                const index = (prevThreads || []).findIndex(t => t.id === currentThread!.id);
-                if (index !== -1) {
-                    const newThreads = [...(prevThreads || [])];
-                    newThreads[index] = currentThread!;
-                    return newThreads;
-                }
-                return prevThreads || [];
-            });
+            // Extract meaningful error text from the error object
+            let errorText: string;
+            if (typeof error === 'string') {
+                errorText = error;
+            } else if (error instanceof Error) {
+                errorText = error.message;
+            } else {
+                errorText = 'Unknown error';
+            }
+            errorMsg.content = `❌ **分析出错**\n\n${errorText}`;
+
+            // CRITICAL: Store the error message in pendingErrorRef BEFORE updating state.
+            // This ensures that if any event handler (analysis-cancelled, thread-updated, etc.)
+            // calls loadThreads() during or after our setThreads, the error message will be
+            // merged back into the loaded data and won't be lost.
+            pendingErrorRef.current = { threadId: currentThreadId, errorMsg };
+
+            // Build the updated threads with the error message for both state and persistence
+            const currentThreads = threadsRef.current || [];
+            const newThreads = [...currentThreads];
+            const threadIndex = newThreads.findIndex(t => t.id === currentThreadId);
+            if (threadIndex !== -1) {
+                const thread = newThreads[threadIndex];
+                newThreads[threadIndex] = main.ChatThread.createFrom({
+                    ...thread,
+                    messages: [...(thread.messages || []), errorMsg]
+                });
+            }
+
+            // Update state immediately so the user sees the error
+            setThreads(newThreads);
+
+            // Await SaveChatHistory to persist the error message before any loadThreads() can read stale data
+            try {
+                await SaveChatHistory(newThreads);
+                console.log('[ChatSidebar] Error message persisted successfully');
+            } catch (saveErr) {
+                console.error('[ChatSidebar] Failed to save error message:', saveErr);
+            }
+
+            // Clear the pending error ref now that it's persisted
+            // Use a small delay to handle any in-flight loadThreads() calls
+            setTimeout(() => {
+                pendingErrorRef.current = null;
+            }, 2000);
         } finally {
             clearTimeout(timeoutId); // 清除定时器
             console.log('[ChatSidebar] 🧹 Clearing loading state:', {
