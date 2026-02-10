@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { X, Clock, Zap } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -60,7 +61,7 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
         { bg: 'bg-gray-100', text: 'text-gray-700', bar: 'bg-gray-500' }
     ];
 
-    return (
+    return ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={onClose}>
             <div
                 className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
@@ -195,7 +196,8 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
