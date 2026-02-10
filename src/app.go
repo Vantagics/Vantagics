@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"archive/zip"
@@ -1510,6 +1510,35 @@ func (a *App) SaveConfig(cfg config.Config) error {
 	return nil
 }
 
+// SaveLayoutConfig saves only layout-related config fields (sidebarWidth, panelRightRatio)
+// without triggering config-updated event or reinitializing services.
+func (a *App) SaveLayoutConfig(sidebarWidth int, panelRightRatio float64) error {
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return err
+	}
+
+	cfg.SidebarWidth = sidebarWidth
+	cfg.PanelRightRatio = panelRightRatio
+	cfg.PanelRightWidth = 0 // Clear deprecated field
+
+	configPath, err := a.getConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	return nil
+}
+
 // LogStats represents statistics about log files
 type LogStats struct {
 	TotalSizeMB  float64 `json:"totalSizeMB"`
@@ -1968,8 +1997,11 @@ func (a *App) TestUAPIConnection(apiToken, baseURL string) ConnectionResult {
 func (a *App) TestSearchAPI(apiConfig config.SearchAPIConfig) ConnectionResult {
 	a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] Testing %s...", apiConfig.Name))
 
+	// Load proxy config for search API testing
+	currentCfg, _ := a.GetConfig()
+
 	// Create search API tool
-	searchTool, err := agent.NewSearchAPITool(a.logger.Log, &apiConfig)
+	searchTool, err := agent.NewSearchAPITool(a.logger.Log, &apiConfig, currentCfg.ProxyConfig)
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to create search tool: %v", err)
 		a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s", errMsg))
@@ -2591,6 +2623,22 @@ func (a *App) getString(m map[string]interface{}, key string) string {
 	return ""
 }
 
+// saveErrorToChatThread saves an error message as an assistant chat message so the user can see it in the chat area.
+func (a *App) saveErrorToChatThread(threadID, errorCode, message string) {
+	if a.chatService == nil || threadID == "" {
+		return
+	}
+	chatMsg := ChatMessage{
+		ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
+		Role:      "assistant",
+		Content:   fmt.Sprintf("❌ **错误** [%s]\n\n%s", errorCode, message),
+		Timestamp: time.Now().Unix(),
+	}
+	if err := a.chatService.AddMessage(threadID, chatMsg); err != nil {
+		a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat thread %s: %v", threadID, err))
+	}
+}
+
 // SendMessage sends a message to the AI
 // Task 3.1: Added requestId parameter for request tracking (Requirements 1.3, 4.3, 4.4)
 func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (string, error) {
@@ -2737,6 +2785,9 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			} else {
 				errorMessage = fmt.Sprintf("Timeout waiting for analysis queue (waited %v). There are currently %d analysis tasks in progress. Please try again later.", time.Since(waitStartTime).Round(time.Second), activeCount)
 			}
+			if threadID != "" {
+				a.saveErrorToChatThread(threadID, "QUEUE_TIMEOUT", errorMessage)
+			}
 			return "", fmt.Errorf("%s", errorMessage)
 		}
 
@@ -2749,6 +2800,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					"loading":  false,
 					"threadId": threadID,
 				})
+				a.saveErrorToChatThread(threadID, "QUEUE_CANCELLED", "⚠️ 分析已取消（等待队列中取消）。")
 			}
 			return "", fmt.Errorf("analysis cancelled while waiting in queue")
 		}
@@ -2793,6 +2845,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					"loading":  false,
 					"threadId": threadID,
 				})
+				a.saveErrorToChatThread(threadID, "LICENSE_LIMIT", limitMsg)
 			}
 			
 			return "", fmt.Errorf("%s", limitMsg)
@@ -2958,9 +3011,13 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 
 				// Determine error type and emit appropriate event
 				errStr := err.Error()
+				var errorCode string
+				var userFriendlyMessage string
 				
 				// Check if this was a cancellation
 				if strings.Contains(errStr, "cancelled by user") || strings.Contains(errStr, "cancelled while waiting") {
+					errorCode = "CANCELLED"
+					userFriendlyMessage = "分析已取消"
 					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
 					
 					// Emit progress complete event to ensure frontend progress bar clears
@@ -2997,9 +3054,6 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					})
 				} else {
 					// Determine error code based on error message
-					var errorCode string
-					var userFriendlyMessage string
-					
 					switch {
 					case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "Timeout"):
 						errorCode = "ANALYSIS_TIMEOUT"
@@ -3061,6 +3115,26 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 						"loading":  false,
 						"threadId": threadID,
 					})
+				}
+
+				// Save error message as assistant chat message so user can see it in chat area
+				if threadID != "" {
+					var chatErrorMsg string
+					if errorCode == "CANCELLED" {
+						chatErrorMsg = "⚠️ 分析已取消。"
+					} else {
+						chatErrorMsg = fmt.Sprintf("❌ **分析出错** [%s]\n\n%s\n\n<details><summary>详细错误信息</summary>\n\n```\n%s\n```\n</details>",
+							errorCode, userFriendlyMessage, errStr)
+					}
+					errChatMsg := ChatMessage{
+						ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
+						Role:      "assistant",
+						Content:   chatErrorMsg,
+						Timestamp: time.Now().Unix(),
+					}
+					if addErr := a.chatService.AddMessage(threadID, errChatMsg); addErr != nil {
+						a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat: %v", addErr))
+					}
 				}
 
 				return "", err
@@ -3781,11 +3855,20 @@ func (a *App) SendFreeChatMessage(threadID, message, userMessageID string) (stri
 	// Also check legacy keyword detection as fallback
 	legacyNeedsSearch := a.detectWebSearchNeed(message)
 	
-	// Combine both methods: use tools if either method suggests it
-	needsTools := routerResult.NeedsTools || legacyNeedsSearch
+	// Check if conversation history suggests analysis context
+	// (e.g., user previously asked to analyze something and is now replying with a data source name)
+	historyStr := historyContext.String()
+	historyHasAnalysisContext := strings.Contains(historyStr, "分析") ||
+		strings.Contains(historyStr, "数据源") ||
+		strings.Contains(historyStr, "analyze") ||
+		strings.Contains(historyStr, "data source") ||
+		strings.Contains(historyStr, "start_datasource_analysis")
 	
-	a.Log(fmt.Sprintf("[FREE-CHAT] Tool routing: router=%v (confidence=%.2f, reason=%s), legacy=%v, final=%v",
-		routerResult.NeedsTools, routerResult.Confidence, routerResult.Reason, legacyNeedsSearch, needsTools))
+	// Combine both methods: use tools if either method suggests it, or if history has analysis context
+	needsTools := routerResult.NeedsTools || legacyNeedsSearch || historyHasAnalysisContext
+	
+	a.Log(fmt.Sprintf("[FREE-CHAT] Tool routing: router=%v (confidence=%.2f, reason=%s), legacy=%v, historyAnalysis=%v, final=%v",
+		routerResult.NeedsTools, routerResult.Confidence, routerResult.Reason, legacyNeedsSearch, historyHasAnalysisContext, needsTools))
 
 	// Build the prompt with conversation history
 	// Detect language from user's message to respond in the same language
@@ -4032,6 +4115,14 @@ func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyCont
 		return "", err
 	}
 
+	// Log proxy config status for diagnostics
+	if cfg.ProxyConfig != nil {
+		a.Log(fmt.Sprintf("[FREE-CHAT] Proxy config: enabled=%v, tested=%v, host=%s, port=%d, protocol=%s",
+			cfg.ProxyConfig.Enabled, cfg.ProxyConfig.Tested, cfg.ProxyConfig.Host, cfg.ProxyConfig.Port, cfg.ProxyConfig.Protocol))
+	} else {
+		a.Log("[FREE-CHAT] Proxy config: nil (no proxy configured)")
+	}
+
 	// Initialize tools
 	var webSearchTool *agent.SearchAPITool
 	var webFetchTool *agent.WebFetchTool
@@ -4069,7 +4160,7 @@ func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyCont
 	}
 
 	if activeAPI != nil && activeAPI.Enabled {
-		searchTool, err := agent.NewSearchAPITool(a.Log, activeAPI)
+		searchTool, err := agent.NewSearchAPITool(a.Log, activeAPI, cfg.ProxyConfig)
 		if err != nil {
 			a.Log(fmt.Sprintf("[FREE-CHAT] Failed to initialize search tool: %v", err))
 		} else {
@@ -4096,6 +4187,25 @@ func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyCont
 	}
 	if webFetchTool != nil {
 		tools = append(tools, webFetchTool)
+	}
+
+	// Initialize start_datasource_analysis tool (always available if data source service exists)
+	var startAnalysisTool *agent.StartAnalysisTool
+	if a.dataSourceService != nil {
+		// Emit start-new-chat event to trigger the existing frontend analysis flow
+		emitStartChat := func(dataSourceID, dataSourceName string) {
+			sessionName := fmt.Sprintf("分析: %s", dataSourceName)
+			a.Log(fmt.Sprintf("[FREE-CHAT] Emitting start-new-chat for datasource %s (%s)", dataSourceID, dataSourceName))
+			runtime.EventsEmit(a.ctx, "start-new-chat", map[string]interface{}{
+				"dataSourceId":   dataSourceID,
+				"dataSourceName": dataSourceName,
+				"sessionName":    sessionName,
+				"keepChatOpen":   true,
+			})
+		}
+		startAnalysisTool = agent.NewStartAnalysisTool(a.Log, a.dataSourceService, emitStartChat)
+		tools = append(tools, startAnalysisTool)
+		a.Log("[FREE-CHAT] Initialized start_datasource_analysis tool")
 	}
 
 	// If no tools available, fall back to simple chat
@@ -4131,6 +4241,10 @@ func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyCont
 	}
 	if hasFetchTool {
 		toolDescriptions.WriteString("- web_fetch: Fetch full content from a specific URL. Use this to get detailed information from URLs found in search results.\n")
+	}
+	hasAnalysisTool := startAnalysisTool != nil
+	if hasAnalysisTool {
+		toolDescriptions.WriteString("- start_datasource_analysis: List available data sources or start a data analysis session. Use when user wants to analyze data or mentions a data source name.\n")
 	}
 
 	var systemPrompt string
@@ -4207,6 +4321,33 @@ Example 5: "最新新闻"
 - Flights/Stocks/News/Hotels → web_search (NEVER web_fetch!)
 - Time → get_local_time
 - Location → get_device_location
+- Data analysis → start_datasource_analysis
+
+📊 DATA ANALYSIS (HIGHEST PRIORITY):
+🚨 CRITICAL: When user mentions "分析", "analyze", "analysis", or any word meaning "analyze" in ANY language, 
+you MUST call start_datasource_analysis tool IMMEDIATELY. Do NOT respond with text asking for clarification.
+The user is referring to a data source registered in this application.
+
+MANDATORY WORKFLOW:
+1. FIRST call start_datasource_analysis(action="list") to get available data sources
+2. Match the user's request to a data source by name (fuzzy match is OK)
+3. If a match is found, call start_datasource_analysis(action="start", data_source_id="<id>") to begin analysis
+4. If multiple possible matches, ask user to choose from the list
+5. If no match at all, show the available data sources and ask which one
+6. If no data sources exist, tell the user to add a data source first
+
+🚨 AFTER CALLING start action: The analysis will be launched in a NEW dedicated analysis session automatically.
+Your response MUST be VERY SHORT, e.g. "正在为您启动对 Bookshop 的分析，请稍候。" or "Starting analysis for Bookshop, please wait."
+Do NOT describe what the analysis will do. Do NOT list analysis steps. Do NOT explain the process.
+The dedicated analysis session will handle everything — just confirm it's starting and STOP.
+
+Examples:
+- "分析bookshop2" → list → match "Bookshop2" → start analysis
+- "我想分析销售数据" → list → find matching one → start analysis  
+- "analyze user data" → list → find matching one → start analysis
+- "帮我看看bookshop2" → list → match "Bookshop2" → start analysis
+
+⚠️ NEVER respond with generic text like "请提供更多信息" when user says "分析xxx". ALWAYS call the tool first!
 
 Please respond in %s.`, toolDescriptions.String(), langPrompt)
 	} else {
@@ -4261,6 +4402,32 @@ Available tools:
 When user asks for flights, stocks, news, etc., respond like this:
 - Chinese: "抱歉，查询航班/股票/新闻等实时信息需要配置搜索引擎。请在「设置」→「搜索API」中启用 Serper 或 UAPI Pro 后再试。目前我只能帮您查询天气、时间和位置信息。"
 - English: "Sorry, querying flights/stocks/news requires a search API. Please enable Serper or UAPI Pro in Settings → Search API. Currently I can only help with weather, time, and location queries."
+
+=== DATA ANALYSIS (ALWAYS AVAILABLE - HIGHEST PRIORITY) ===
+
+🚨 CRITICAL: When user mentions "分析", "analyze", "analysis", or any word meaning "analyze" in ANY language,
+you MUST call start_datasource_analysis tool IMMEDIATELY. Do NOT respond with text asking for clarification.
+The user is referring to a data source registered in this application.
+
+MANDATORY WORKFLOW:
+1. FIRST call start_datasource_analysis(action="list") to get available data sources
+2. Match the user's request to a data source by name (fuzzy match is OK)
+3. If a match is found, call start_datasource_analysis(action="start", data_source_id="<id>") to begin analysis
+4. If multiple possible matches, ask user to choose from the list
+5. If no match at all, show the available data sources and ask which one
+6. If no data sources exist, tell the user to add a data source first
+
+🚨 AFTER CALLING start action: The analysis will be launched in a NEW dedicated analysis session automatically.
+Your response MUST be VERY SHORT, e.g. "正在为您启动对 Bookshop 的分析，请稍候。" or "Starting analysis for Bookshop, please wait."
+Do NOT describe what the analysis will do. Do NOT list analysis steps. Do NOT explain the process.
+The dedicated analysis session will handle everything — just confirm it's starting and STOP.
+
+Examples:
+- "分析bookshop2" → list → match "Bookshop2" → start analysis
+- "我想分析销售数据" → list → find matching one → start analysis
+- "analyze user data" → list → find matching one → start analysis
+
+⚠️ NEVER respond with generic text like "请提供更多信息" when user says "分析xxx". ALWAYS call the tool first!
 
 Please respond in %s.`, toolDescriptions.String(), langPrompt)
 	}
@@ -5406,6 +5573,14 @@ func (a *App) ClearHistory() error {
 	return nil
 }
 
+// ClearThreadMessages clears all messages from a thread but keeps the thread itself
+func (a *App) ClearThreadMessages(threadID string) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	return a.chatService.ClearThreadMessages(threadID)
+}
+
 // --- Data Source Management ---
 
 // GetDataSources returns the list of registered data sources
@@ -5504,6 +5679,14 @@ func (a *App) StartDataSourceAnalysis(dataSourceID string) (string, error) {
 	runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
 		"loading":  true,
 		"threadId": threadID,
+	})
+
+	// Notify frontend that a new analysis thread was created (so it can reload and switch)
+	runtime.EventsEmit(a.ctx, "analysis-session-created", map[string]interface{}{
+		"threadId":       threadID,
+		"dataSourceId":   dataSourceID,
+		"dataSourceName": targetDS.Name,
+		"title":          sessionTitle,
 	})
 
 	// Call SendMessage asynchronously so we can return the threadID immediately

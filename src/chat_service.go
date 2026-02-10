@@ -552,6 +552,45 @@ func (s *ChatService) DeleteThread(threadID string) error {
 	return os.RemoveAll(dir)
 }
 
+// ClearThreadMessages clears all messages from a thread but keeps the thread itself
+func (s *ChatService) ClearThreadMessages(threadID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read thread: %w", err)
+	}
+
+	var thread ChatThread
+	if err := json.Unmarshal(data, &thread); err != nil {
+		return fmt.Errorf("failed to parse thread: %w", err)
+	}
+
+	thread.Messages = []ChatMessage{}
+	thread.Files = []SessionFile{}
+
+	newData, err := json.MarshalIndent(thread, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal thread: %w", err)
+	}
+
+	if err := os.WriteFile(path, newData, 0644); err != nil {
+		return fmt.Errorf("failed to write thread: %w", err)
+	}
+
+	// Clean up analysis results directory
+	resultsDir := filepath.Join(s.sessionsDir, threadID, "analysis_results")
+	os.RemoveAll(resultsDir)
+
+	// Clean up files directory
+	filesDir := filepath.Join(s.sessionsDir, threadID, "files")
+	os.RemoveAll(filesDir)
+
+	return nil
+}
+
 // ClearHistory deletes all chat history
 func (s *ChatService) ClearHistory() error {
 	s.mu.Lock()

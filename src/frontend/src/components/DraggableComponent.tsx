@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { ComponentInstance } from '../utils/ComponentManager';
+import { useLanguage } from '../i18n';
 
 // ============================================================================
 // INTERFACES AND TYPES
@@ -129,6 +130,7 @@ export const DraggableComponent: React.FC<DraggableComponentProps> = ({
   });
 
   const [isHovered, setIsHovered] = useState(false);
+  const { t } = useLanguage();
 
   // ========================================================================
   // REFS
@@ -653,7 +655,7 @@ export const DraggableComponent: React.FC<DraggableComponentProps> = ({
           color: 'white',
           fontSize: '12px',
         }}
-        title="Drag to move"
+        title={t('drag_to_move')}
       >
         ⋮⋮
       </div>

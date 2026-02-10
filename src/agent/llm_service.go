@@ -22,6 +22,7 @@ type LLMService struct {
 	MaxTokens         int
 	ClaudeHeaderStyle string
 	Log               func(string)
+	httpClient        *http.Client
 }
 
 func NewLLMService(cfg config.Config, logFunc func(string)) *LLMService {
@@ -33,6 +34,7 @@ func NewLLMService(cfg config.Config, logFunc func(string)) *LLMService {
 		MaxTokens:         cfg.MaxTokens,
 		ClaudeHeaderStyle: cfg.ClaudeHeaderStyle,
 		Log:               logFunc,
+		httpClient:        NewProxyHTTPClient(300*time.Second, cfg.ProxyConfig),
 	}
 }
 
@@ -131,8 +133,7 @@ func (s *LLMService) chatOpenAI(ctx context.Context, message string) (string, er
 		req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	}
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -208,8 +209,7 @@ func (s *LLMService) chatAnthropic(ctx context.Context, message string) (string,
 	req.Header.Set("x-api-key", s.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -295,8 +295,7 @@ func (s *LLMService) chatClaudeCompatible(ctx context.Context, message string) (
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -422,8 +421,7 @@ func (s *LLMService) chatOpenAIStream(ctx context.Context, message string, onChu
 		req.Header.Set("Authorization", "Bearer "+s.APIKey)
 	}
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -538,8 +536,7 @@ func (s *LLMService) chatAnthropicStream(ctx context.Context, message string, on
 	req.Header.Set("x-api-key", s.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -661,8 +658,7 @@ func (s *LLMService) chatClaudeCompatibleStream(ctx context.Context, message str
 		req.Header.Set("anthropic-version", "2023-06-01")
 	}
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -785,8 +781,7 @@ func (s *LLMService) chatGemini(ctx context.Context, message string) (string, er
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -847,8 +842,7 @@ func (s *LLMService) chatGeminiStream(ctx context.Context, message string, onChu
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}

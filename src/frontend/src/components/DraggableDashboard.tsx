@@ -1686,7 +1686,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     return (
         <div className="relative h-full w-full bg-slate-50 flex flex-col">
             {/* 顶部标题栏 */}
-            <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3">
+            <div className="flex-shrink-0 bg-white border-b border-slate-200 pr-6 pl-4 py-3">
                 <div className="flex items-center justify-between">
                     {/* 左侧：编辑按钮 + 标题 */}
                     <div className="flex items-center gap-4">
@@ -1821,7 +1821,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
             {/* 编辑模式下的控件库面板 - 只显示有数据的组件类型 */}
             {isEditMode && (
-                <div className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3">
+                <div className="flex-shrink-0 bg-white border-b border-slate-200 pr-6 pl-4 py-3">
                     <div className="flex items-center gap-4">
                         <span className="text-sm font-medium text-slate-600">控件库：</span>
                         <div className="flex items-center gap-2 flex-wrap">
@@ -1982,7 +1982,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             {/* 仪表盘容器 */}
             <div
                 id="dashboard-container"
-                className="relative flex-1 overflow-auto p-6"
+                className="relative flex-1 overflow-auto pr-6 py-6"
                 onMouseMove={handleDrag}
                 onMouseUp={handleDragEnd}
                 onMouseLeave={handleDragEnd}

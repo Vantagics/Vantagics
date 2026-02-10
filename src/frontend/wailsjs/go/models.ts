@@ -1003,6 +1003,7 @@ export namespace config {
 	    pythonPath: string;
 	    maxPreviewRows: number;
 	    maxConcurrentAnalysis: number;
+	    maxAnalysisSteps: number;
 	    detailedLog: boolean;
 	    soundNotification: boolean;
 	    logMaxSizeMB: number;
@@ -1024,6 +1025,9 @@ export namespace config {
 	    licenseSN?: string;
 	    licenseServerURL?: string;
 	    licenseExtraInfo?: Record<string, any>;
+	    sidebarWidth?: number;
+	    panelRightRatio?: number;
+	    panelRightWidth?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1046,6 +1050,7 @@ export namespace config {
 	        this.pythonPath = source["pythonPath"];
 	        this.maxPreviewRows = source["maxPreviewRows"];
 	        this.maxConcurrentAnalysis = source["maxConcurrentAnalysis"];
+	        this.maxAnalysisSteps = source["maxAnalysisSteps"];
 	        this.detailedLog = source["detailedLog"];
 	        this.soundNotification = source["soundNotification"];
 	        this.logMaxSizeMB = source["logMaxSizeMB"];
@@ -1067,6 +1072,9 @@ export namespace config {
 	        this.licenseSN = source["licenseSN"];
 	        this.licenseServerURL = source["licenseServerURL"];
 	        this.licenseExtraInfo = source["licenseExtraInfo"];
+	        this.sidebarWidth = source["sidebarWidth"];
+	        this.panelRightRatio = source["panelRightRatio"];
+	        this.panelRightWidth = source["panelRightWidth"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig, OpenExternalURL, GetJiraProjects } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
@@ -240,7 +241,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         }
     };
 
-    return (
+    return ReactDOM.createPortal(
         <>
             {/* Toast Notification */}
             {showToast && (
@@ -252,13 +253,13 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                 </div>
             )}
 
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                <div className="bg-white w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                <div className="bg-white w-[500px] max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
                     <div className="p-6 border-b border-slate-200">
                         <h2 className="text-xl font-bold text-slate-800">{t('add_data_source')}</h2>
                     </div>
 
-                    <div className="p-6 space-y-4">
+                    <div className="p-6 space-y-3 overflow-y-auto max-h-[calc(90vh-180px)]">
                         {error && (
                             <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-md break-words">
                                 {error}
@@ -272,7 +273,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                placeholder="e.g. Sales 2023"
+                                placeholder={t('source_name_placeholder')}
                                 spellCheck={false}
                                 autoCorrect="off"
                                 autoComplete="off"
@@ -514,7 +515,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('bigcommerce_store_hash_hint') || 'Found in your BigCommerce API path: api.bigcommerce.com/stores/{store_hash}'}
                                     </p>
                                 </div>
@@ -526,12 +527,12 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         onChange={(e) => setConfig({ ...config, bigcommerceAccessToken: e.target.value })}
                                         onKeyDown={(e) => e.stopPropagation()}
                                         className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="API Access Token"
+                                        placeholder={t('api_access_token_placeholder')}
                                         spellCheck={false}
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('bigcommerce_token_hint') || 'API Account Access Token from BigCommerce'}
                                     </p>
                                 </div>
@@ -696,7 +697,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {config.jiraInstanceType === 'server' 
                                             ? (t('jira_server_url_hint') || 'e.g., jira.your-company.com')
                                             : (t('jira_cloud_url_hint') || 'e.g., your-domain.atlassian.net')}
@@ -734,7 +735,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     {config.jiraInstanceType === 'cloud' && (
-                                        <p className="text-xs text-slate-500 mt-1">
+                                        <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                             {t('jira_api_token_hint') || 'Generate from Atlassian Account Settings → Security → API tokens'}
                                         </p>
                                     )}
@@ -762,7 +763,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         )}
                                     </button>
                                     {jiraProjectsError && (
-                                        <p className="text-xs text-red-600 mt-1">{jiraProjectsError}</p>
+                                        <p className="text-xs text-red-600 mt-0.5 leading-tight">{jiraProjectsError}</p>
                                     )}
                                 </div>
                                 {/* Project Selection */}
@@ -792,7 +793,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                 </option>
                                             ))}
                                         </select>
-                                        <p className="text-xs text-slate-500 mt-1">
+                                        <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                             {t('jira_project_select_hint') || 'Select a specific project or leave empty to import all'}
                                         </p>
                                     </div>
@@ -805,11 +806,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         ) : driverType === 'snowflake' ? (
                             <div className="space-y-4">
-                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                    <p className="text-sm font-medium text-blue-800 mb-2">
+                                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-xs font-medium text-blue-800 mb-1 leading-tight">
                                         {t('snowflake_setup_guide') || '❄️ Snowflake Connection'}
                                     </p>
-                                    <p className="text-xs text-blue-700">
+                                    <p className="text-xs text-blue-700 leading-snug">
                                         {t('snowflake_desc') || 'Connect to your Snowflake data warehouse to import tables and run analytics.'}
                                     </p>
                                 </div>
@@ -826,7 +827,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('snowflake_account_hint') || 'Format: account_name.region (e.g., xy12345.us-east-1)'}
                                     </p>
                                 </div>
@@ -838,7 +839,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         onChange={(e) => setConfig({ ...config, snowflakeUser: e.target.value })}
                                         onKeyDown={(e) => e.stopPropagation()}
                                         className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="username"
+                                        placeholder={t('username_placeholder')}
                                         spellCheck={false}
                                         autoCorrect="off"
                                         autoComplete="off"
@@ -917,11 +918,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         ) : driverType === 'bigquery' ? (
                             <div className="space-y-4">
-                                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                                    <p className="text-sm font-medium text-blue-800 mb-2">
+                                <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                                    <p className="text-xs font-medium text-blue-800 mb-1 leading-tight">
                                         {t('bigquery_setup_guide') || '📊 BigQuery Connection'}
                                     </p>
-                                    <ol className="text-xs text-blue-700 space-y-1 list-decimal list-inside">
+                                    <ol className="text-xs text-blue-700 space-y-0.5 list-decimal list-inside leading-snug">
                                         <li>{t('bigquery_step1') || 'Go to Google Cloud Console'}</li>
                                         <li>{t('bigquery_step2') || 'Create a service account with BigQuery permissions'}</li>
                                         <li>{t('bigquery_step3') || 'Download the JSON key file'}</li>
@@ -941,7 +942,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('bigquery_project_hint') || 'Your Google Cloud Project ID'}
                                     </p>
                                 </div>
@@ -958,7 +959,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('bigquery_dataset_hint') || 'Leave empty to import all datasets'}
                                     </p>
                                 </div>
@@ -968,19 +969,19 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         value={config.bigqueryCredentials || ''}
                                         onChange={(e) => setConfig({ ...config, bigqueryCredentials: e.target.value })}
                                         onKeyDown={(e) => e.stopPropagation()}
-                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono resize-y"
                                         placeholder='{"type": "service_account", "project_id": "...", ...}'
-                                        rows={6}
+                                        rows={4}
                                         spellCheck={false}
                                         autoCorrect="off"
                                         autoComplete="off"
                                     />
-                                    <p className="text-xs text-slate-500 mt-1">
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('bigquery_credentials_hint') || 'Paste the entire JSON key file content'}
                                     </p>
                                 </div>
-                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                    <p className="text-xs text-amber-700">
+                                <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                    <p className="text-xs text-amber-700 leading-snug">
                                         ⚠️ {t('bigquery_note') || 'Note: BigQuery integration requires additional Go dependencies. The system will guide you through setup if needed.'}
                                     </p>
                                 </div>
@@ -1029,7 +1030,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                             <button
                                                 onClick={() => setAvailableDatabases([])}
                                                 className="px-2 text-slate-400 hover:text-slate-600"
-                                                title="Switch to manual entry"
+                                                title={t('switch_to_manual_entry')}
                                             >
                                                 ✕
                                             </button>
@@ -1107,7 +1108,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 />
                                 <label htmlFor="shouldOptimize" className="text-sm text-slate-700 select-none cursor-pointer flex-1">
                                     <span className="font-medium">{t('optimize_after_import') || '导入后优化数据'}</span>
-                                    <span className="block text-xs text-slate-500 mt-0.5">
+                                    <span className="block text-xs text-slate-500 mt-0.5 leading-tight">
                                         {t('optimize_description') || '自动创建索引以提升查询性能'}
                                     </span>
                                 </label>
@@ -1140,7 +1141,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                     </div>
                 </div>
             </div>
-        </>
+        </>,
+        document.body
     );
 };
 

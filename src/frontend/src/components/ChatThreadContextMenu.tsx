@@ -1,16 +1,17 @@
 import React, { useEffect, useRef } from 'react';
-import { Download, Briefcase, Brain, FolderOpen, Check } from 'lucide-react';
+import { Download, Briefcase, Brain, FolderOpen, Check, Eraser } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface ChatThreadContextMenuProps {
     position: { x: number; y: number };
     threadId: string;
     onClose: () => void;
-    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding', threadId: string) => void;
+    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages', threadId: string) => void;
     autoIntentUnderstanding?: boolean;
+    isFreeChatThread?: boolean;
 }
 
-const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position, threadId, onClose, onAction, autoIntentUnderstanding = true }) => {
+const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position, threadId, onClose, onAction, autoIntentUnderstanding = true, isFreeChatThread = false }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +25,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [onClose]);
 
-    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding') => {
+    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages') => {
         onAction(action, threadId);
         // Don't close menu for toggle action so user can see the state change
         if (action !== 'toggle_intent_understanding') {
@@ -74,6 +75,18 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                 <Download className="w-4 h-4 text-slate-400" />
                 Export
             </button>
+            {isFreeChatThread && (
+                <>
+                    <div className="h-px bg-slate-100 my-1" />
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleAction('clear_messages'); }}
+                        className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                        <Eraser className="w-4 h-4 text-red-400" />
+                        {t('clear_chat_history') || '清除历史会话'}
+                    </button>
+                </>
+            )}
         </div>
     );
 };

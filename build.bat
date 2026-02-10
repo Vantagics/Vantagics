@@ -21,13 +21,10 @@ if "%COMMAND%"=="" set "COMMAND=build"
 if /i "%COMMAND%"=="clean" goto :clean
 if /i "%COMMAND%"=="build" goto :build_all
 if /i "%COMMAND%"=="windows" goto :build_windows
-if /i "%COMMAND%"=="macos" goto :build_macos
 
 :build_all
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 call :build_windows
-if errorlevel 1 exit /b 1
-call :build_macos
 if errorlevel 1 exit /b 1
 call :build_tools
 if errorlevel 1 exit /b 1
@@ -53,73 +50,6 @@ if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
 )
 exit /b 0
 
-:build_macos
-echo [macOS] Starting...
-echo DEBUG: 1
-set "ZIG_EXE=zig"
-echo DEBUG: 2
-go install github.com/randall77/makefat@latest
-if errorlevel 1 (
-    echo Error: Failed to install makefat!
-    pause
-    exit /b 1
-)
-echo DEBUG: 3
-
-cd /d "%SRC_DIR%"
-set CGO_ENABLED=1
-set "CC=%CD%\zcc.bat"
-set "CXX=%CD%\zxx.bat"
-set "ZIG_EXE=%ZIG_EXE%"
-set GOOS=darwin
-set GOARCH=arm64
-echo DEBUG: 4
-go build -o ..\%DIST_DIR%\vantagedata_arm64 -ldflags="-s -w" .
-if errorlevel 1 (
-    echo Error: macOS arm64 build failed!
-    pause
-    exit /b 1
-)
-
-set GOARCH=amd64
-echo DEBUG: 5
-go build -o ..\%DIST_DIR%\vantagedata_amd64 -ldflags="-s -w" .
-if errorlevel 1 (
-    echo Error: macOS amd64 build failed!
-    pause
-    exit /b 1
-)
-
-echo [macOS] Creating Universal...
-cd /d ..\%DIST_DIR%
-makefat vantagedata_universal vantagedata_arm64 vantagedata_amd64
-if errorlevel 1 (
-    echo Error: Failed to create universal binary!
-    pause
-    exit /b 1
-)
-
-echo [macOS] Bundling...
-set "APP_BUNDLE=VantageData.app"
-if exist "%APP_BUNDLE%" rmdir /s /q "%APP_BUNDLE%"
-mkdir "%APP_BUNDLE%\Contents\MacOS"
-mkdir "%APP_BUNDLE%\Contents\Resources"
-move /y vantagedata_universal "%APP_BUNDLE%\Contents\MacOS\%OUTPUT_NAME%" >nul
-copy /y "..\src\build\Info.plist" "%APP_BUNDLE%\Contents\Info.plist" >nul
-copy /y "..\src\build\appicon.png" "%APP_BUNDLE%\Contents\Resources\iconfile.png" >nul
-del /q vantagedata_arm64 vantagedata_amd64
-
-echo [macOS] Zipping App Bundle...
-powershell -Command "Compress-Archive -Path '%APP_BUNDLE%' -DestinationPath 'VantageData_macOS_Universal.zip' -Force"
-if errorlevel 1 (
-    echo Error: Failed to create zip archive!
-    pause
-    exit /b 1
-)
-
-cd /d ..
-exit /b 0
-
 :build_tools
 echo.
 echo [Tools] Building standalone tools...
@@ -137,33 +67,6 @@ if errorlevel 1 (
     echo Error: appdata_manager Windows build failed!
     cd /d ..\..
     exit /b 1
-)
-
-REM Build appdata_manager for macOS (Universal)
-echo   Building appdata_manager (macOS Universal)...
-set GOOS=darwin
-set GOARCH=arm64
-go build -o "..\..\%DIST_DIR%\tools\appdata_manager_arm64" .
-if errorlevel 1 (
-    echo Error: appdata_manager macOS arm64 build failed!
-    cd /d ..\..
-    exit /b 1
-)
-
-set GOARCH=amd64
-go build -o "..\..\%DIST_DIR%\tools\appdata_manager_amd64" .
-if errorlevel 1 (
-    echo Error: appdata_manager macOS amd64 build failed!
-    cd /d ..\..
-    exit /b 1
-)
-
-cd /d "..\..\%DIST_DIR%\tools"
-makefat appdata_manager appdata_manager_arm64 appdata_manager_amd64
-if errorlevel 1 (
-    echo Warning: Failed to create universal binary, keeping separate binaries
-) else (
-    del /q appdata_manager_arm64 appdata_manager_amd64 2>nul
 )
 
 cd /d ..\..

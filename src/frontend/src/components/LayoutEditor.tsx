@@ -41,14 +41,14 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               }
             `}
             data-testid="lock-toggle-button"
-            aria-label={isLocked ? 'Unlock layout for editing' : 'Lock layout to prevent editing'}
+            aria-label={isLocked ? t('unlock_layout') : t('lock_layout')}
           >
             {/* Lock/Unlock Icon */}
             <span className="text-lg" aria-hidden="true">
               {isLocked ? '🔒' : '🔓'}
             </span>
             <span>
-              {isLocked ? 'Locked' : 'Editing'}
+              {isLocked ? t('locked') : t('editing')}
             </span>
           </button>
 
@@ -63,7 +63,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-hidden="true"
             />
             <span className="text-sm text-gray-600">
-              {isLocked ? 'Dashboard is locked' : 'Dashboard is editable'}
+              {isLocked ? t('dashboard_locked') : t('dashboard_editable')}
             </span>
           </div>
         </div>
@@ -71,7 +71,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
         {/* Right side - Add component buttons (only visible when unlocked) */}
         {!isLocked && (
           <div className="flex items-center space-x-3">
-            <span className="text-sm text-gray-600 mr-2">Add Component:</span>
+            <span className="text-sm text-gray-600 mr-2">{t('add_component')}</span>
             
             <button
               onClick={() => handleAddComponent(ComponentType.METRICS)}
@@ -80,7 +80,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-label={t('add_metrics_component')}
             >
               <span className="text-2xl">📊</span>
-              <span>Metrics</span>
+              <span>{t('metrics_label')}</span>
             </button>
 
             <button
@@ -90,7 +90,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-label={t('add_table_component')}
             >
               <span className="text-2xl">📋</span>
-              <span>Table</span>
+              <span>{t('table_label')}</span>
             </button>
 
             <button
@@ -100,7 +100,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-label={t('add_image_component')}
             >
               <span className="text-2xl">🖼️</span>
-              <span>Image</span>
+              <span>{t('image_label')}</span>
             </button>
 
             <button
@@ -110,7 +110,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-label={t('add_insights_component')}
             >
               <span className="text-2xl">💡</span>
-              <span>Insights</span>
+              <span>{t('insights_label')}</span>
             </button>
 
             <button
@@ -120,7 +120,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
               aria-label={t('add_file_download_component')}
             >
               <span className="text-2xl">📁</span>
-              <span>Files</span>
+              <span>{t('files_label')}</span>
             </button>
           </div>
         )}
@@ -131,7 +131,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
         <div className="px-4 pb-3">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <p className="text-sm text-blue-800">
-              <span className="font-medium">Edit Mode:</span> Drag components to reposition, resize using corner handles, or add new components using the buttons above.
+              <span className="font-medium">{t('edit_mode_help')}</span>
             </p>
           </div>
         </div>

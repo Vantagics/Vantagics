@@ -12,21 +12,24 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"vantagedata/config"
 )
 
 // GeminiChatModel implements the Eino ChatModel interface for Google Gemini
 type GeminiChatModel struct {
-	config          *GeminiConfig
-	tools           []*schema.ToolInfo
+	config           *GeminiConfig
+	tools            []*schema.ToolInfo
 	thoughtSignature string // Store the thought signature from model responses
+	httpClient       *http.Client
 }
 
 // GeminiConfig holds configuration for Gemini API
 type GeminiConfig struct {
-	APIKey    string
-	BaseURL   string // Optional custom base URL
-	Model     string // e.g., "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"
-	MaxTokens int
+	APIKey      string
+	BaseURL     string // Optional custom base URL
+	Model       string // e.g., "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-exp"
+	MaxTokens   int
+	ProxyConfig *config.ProxyConfig
 }
 
 // NewGeminiChatModel creates a new Gemini chat model
@@ -42,7 +45,8 @@ func NewGeminiChatModel(ctx context.Context, config *GeminiConfig) (*GeminiChatM
 	}
 
 	return &GeminiChatModel{
-		config: config,
+		config:     config,
+		httpClient: NewProxyHTTPClient(300*time.Second, config.ProxyConfig),
 	}, nil
 }
 
@@ -81,8 +85,7 @@ func (m *GeminiChatModel) Generate(ctx context.Context, input []*schema.Message,
 
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %v", err)
 	}
@@ -202,8 +205,12 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 				"name":        tool.Name,
 				"description": tool.Desc,
 			}
+			// Convert ParamsOneOf to JSON Schema — ParamsOneOf fields are unexported
+			// so json.Marshal produces "{}" unless we call ToJSONSchema() first
 			if tool.ParamsOneOf != nil {
-				funcDecl["parameters"] = tool.ParamsOneOf
+				if jsonSchema, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && jsonSchema != nil {
+					funcDecl["parameters"] = jsonSchema
+				}
 			}
 			functionDeclarations = append(functionDeclarations, funcDecl)
 		}

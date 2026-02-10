@@ -150,6 +150,12 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 	
 	if logger != nil {
 		logger(fmt.Sprintf("[EINO-INIT] Creating EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
+		if cfg.ProxyConfig != nil {
+			logger(fmt.Sprintf("[EINO-INIT] Proxy config: enabled=%v, tested=%v, host=%s, port=%d",
+				cfg.ProxyConfig.Enabled, cfg.ProxyConfig.Tested, cfg.ProxyConfig.Host, cfg.ProxyConfig.Port))
+		} else {
+			logger("[EINO-INIT] Proxy config: nil")
+		}
 	}
 	
 	var chatModel model.ChatModel
@@ -161,20 +167,22 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 			logger(fmt.Sprintf("[EINO-INIT] Initializing Anthropic model: %s", cfg.ModelName))
 		}
 		chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-			APIKey:    cfg.APIKey,
-			BaseURL:   cfg.BaseURL,
-			Model:     cfg.ModelName,
-			MaxTokens: cfg.MaxTokens,
+			APIKey:      cfg.APIKey,
+			BaseURL:     cfg.BaseURL,
+			Model:       cfg.ModelName,
+			MaxTokens:   cfg.MaxTokens,
+			ProxyConfig: cfg.ProxyConfig,
 		})
 	case "Gemini":
 		if logger != nil {
 			logger(fmt.Sprintf("[EINO-INIT] Initializing Gemini model: %s", cfg.ModelName))
 		}
 		chatModel, err = NewGeminiChatModel(context.Background(), &GeminiConfig{
-			APIKey:    cfg.APIKey,
-			BaseURL:   cfg.BaseURL,
-			Model:     cfg.ModelName,
-			MaxTokens: cfg.MaxTokens,
+			APIKey:      cfg.APIKey,
+			BaseURL:     cfg.BaseURL,
+			Model:       cfg.ModelName,
+			MaxTokens:   cfg.MaxTokens,
+			ProxyConfig: cfg.ProxyConfig,
 		})
 	default:
 		// Default to OpenAI (includes "OpenAI", "OpenAI-Compatible", "Claude-Compatible" if using OAI format)
@@ -187,10 +195,11 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 				logger(fmt.Sprintf("[EINO-INIT] Initializing Claude-Compatible model: %s", cfg.ModelName))
 			}
 			chatModel, err = NewAnthropicChatModel(context.Background(), &AnthropicConfig{
-				APIKey:    cfg.APIKey,
-				BaseURL:   cfg.BaseURL,
-				Model:     cfg.ModelName,
-				MaxTokens: cfg.MaxTokens,
+				APIKey:      cfg.APIKey,
+				BaseURL:     cfg.BaseURL,
+				Model:       cfg.ModelName,
+				MaxTokens:   cfg.MaxTokens,
+				ProxyConfig: cfg.ProxyConfig,
 			})
 		} else {
 			if logger != nil {
@@ -213,11 +222,11 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 			}
 			
 			innerModel, innerErr := openai.NewChatModel(context.Background(), &openai.ChatModelConfig{
-				APIKey:    cfg.APIKey,
-				BaseURL:   normalizedBaseURL,
-				Model:     cfg.ModelName,
-				MaxTokens: &maxTokens, // Use pointer to int
-				Timeout:   0, // Default
+				APIKey:     cfg.APIKey,
+				BaseURL:    normalizedBaseURL,
+				Model:      cfg.ModelName,
+				MaxTokens:  &maxTokens, // Use pointer to int
+				HTTPClient: NewProxyHTTPClient(300*time.Second, cfg.ProxyConfig),
 			})
 			if innerErr != nil {
 				err = innerErr
@@ -866,7 +875,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			activeAPI := s.cfg.GetActiveSearchAPI()
 		
 		if activeAPI != nil && activeAPI.Enabled {
-			searchTool, err := NewSearchAPITool(s.Logger, activeAPI)
+			searchTool, err := NewSearchAPITool(s.Logger, activeAPI, s.cfg.ProxyConfig)
 			if err != nil {
 				if s.Logger != nil {
 					s.Logger(fmt.Sprintf("[SEARCH-API] Failed to initialize search tool: %v", err))
@@ -942,7 +951,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 
 	// Build tools list - only add search tool if it was successfully initialized
-	tools := []tool.BaseTool{pyTool, dsTool, sqlTool, webFetchTool, exportTool}
+	// Add composite query_and_chart tool for efficient visualization workflows
+	queryChartTool := NewQueryAndChartTool(sqlTool, pyTool, s.Logger)
+	tools := []tool.BaseTool{pyTool, dsTool, sqlTool, queryChartTool, webFetchTool, exportTool}
 	
 	if webSearchTool != nil {
 		tools = append(tools, webSearchTool)
@@ -1069,6 +1080,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		return result
 	}
 
+	// Calculate max steps from config (used by both graph compile and early warnings)
+	maxSteps := s.cfg.MaxAnalysisSteps
+	if maxSteps < 10 {
+		maxSteps = 25 // default
+	} else if maxSteps > 50 {
+		maxSteps = 50
+	}
+
 	// Define Model Node Wrapper
 	modelLambda := compose.InvokableLambda(func(ctx context.Context, input []*schema.Message) ([]*schema.Message, error) {
 		iterationCount++
@@ -1086,16 +1105,18 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		input = deduplicateMessages(input)
 
 		// ⚡ EARLY WARNINGS: Encourage completion before hitting limits
-		// Dynamic warnings based on estimated complexity
-		warningStep1 := 6  // Default first warning at step 6
-		warningStep2 := 8  // Default second warning at step 8
-		warningStep3 := 10 // Default final warning at step 10
+		// Dynamic warnings based on maxSteps and estimated complexity
+		// Warnings at ~60%, ~70%, ~80% of max iterations (maxSteps/2 since each round = 2 steps)
+		maxIter := maxSteps / 2
+		warningStep1 := max(4, maxIter*60/100)  // ~60% of max iterations
+		warningStep2 := max(5, maxIter*70/100)  // ~70% of max iterations
+		warningStep3 := max(6, maxIter*80/100)  // ~80% of max iterations
 		
-		// Adjust warning thresholds for complex analyses
+		// Adjust warning thresholds for complex analyses (push later)
 		if combinedResult != nil && combinedResult.EstimatedCalls >= 5 {
-			warningStep1 = 8
-			warningStep2 = 10
-			warningStep3 = 12
+			warningStep1 = max(warningStep1, maxIter*70/100)
+			warningStep2 = max(warningStep2, maxIter*80/100)
+			warningStep3 = max(warningStep3, maxIter*90/100)
 		}
 		
 		if iterationCount == warningStep1 {
@@ -1412,10 +1433,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		return nil, err
 	}
 
-	// 5. Compile and Run with reduced max steps for better efficiency
-	// Reduced from 20 to 16 to prevent excessive resource consumption
-	// Combined with early warnings at steps 6/8/10, this ensures analysis completes in time
-	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(16))
+	// 5. Compile and Run with configurable max steps
+	// Each model→tools round trip counts as 2 steps
+	runnable, err := g.Compile(ctx, compose.WithMaxRunSteps(maxSteps))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile graph: %v", err)
 	}
@@ -1425,7 +1445,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	emitProgress(StageInitializing, 15, "progress.tools_ready", 0, 0)
 
-	// 6. Build Context Prompt (minimal - only table names, let tool provide details)
+	// 6. Build Context Prompt (include table names and column names for data background)
 	startContext := time.Now()
 	var contextPrompt string
 	var dbType string = "sqlite"
@@ -1440,20 +1460,33 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 					dbType = ds.Type
 				}
 
-				contextPrompt = fmt.Sprintf("\n\nData: %s (ID: %s, Type: %s)\n", ds.Name, ds.ID, strings.ToUpper(dbType))
+				contextPrompt = fmt.Sprintf("\n\n## Data Source\nName: %s (ID: %s, Type: %s)\n", ds.Name, ds.ID, strings.ToUpper(dbType))
 				if ds.Analysis != nil && ds.Analysis.Summary != "" {
 					contextPrompt += fmt.Sprintf("Summary: %s\n", ds.Analysis.Summary)
 				}
 
-				// Only send table names, not full schema
+				// Include table names AND column names for better data background
 				if ds.Analysis != nil && len(ds.Analysis.Schema) > 0 {
-					var tableNames []string
+					contextPrompt += "\n### Tables & Columns\n"
 					for _, t := range ds.Analysis.Schema {
-						tableNames = append(tableNames, t.TableName)
+						contextPrompt += fmt.Sprintf("- **%s**: %s\n", t.TableName, strings.Join(t.Columns, ", "))
 					}
-					contextPrompt += fmt.Sprintf("Tables: %s\n", strings.Join(tableNames, ", "))
-					contextPrompt += "⚠️ Call get_data_source_context for columns.\n"
+				} else {
+					// Fallback: try to get tables and columns directly
+					tables, err := s.dsService.GetDataSourceTables(dataSourceID)
+					if err == nil && len(tables) > 0 {
+						contextPrompt += "\n### Tables & Columns\n"
+						for _, tbl := range tables {
+							cols, err := s.dsService.GetDataSourceTableColumns(dataSourceID, tbl)
+							if err == nil && len(cols) > 0 {
+								contextPrompt += fmt.Sprintf("- **%s**: %s\n", tbl, strings.Join(cols, ", "))
+							} else {
+								contextPrompt += fmt.Sprintf("- **%s**\n", tbl)
+							}
+						}
+					}
 				}
+				contextPrompt += "\n💡 Column names above are exact (case-sensitive). For simple queries with obvious columns, you may write SQL directly. Call get_data_source_context only if you need sample data, data types, or relationship info.\n"
 
 				// SQL dialect
 				if dbType == "sqlite" {
@@ -1467,6 +1500,11 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	}
 	if s.Logger != nil {
 		s.Logger(fmt.Sprintf("[TIMING] Context Prompt preparation took: %v", time.Since(startContext)))
+		if contextPrompt != "" {
+			s.Logger(fmt.Sprintf("[CONTEXT] Data context prompt length: %d chars", len(contextPrompt)))
+		} else {
+			s.Logger("[CONTEXT] WARNING: No data context prompt generated!")
+		}
 	}
 
 	// Load working context if available for context-aware analysis

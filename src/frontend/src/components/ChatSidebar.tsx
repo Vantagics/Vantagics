@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2 } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2 } from 'lucide-react';
 import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
@@ -42,7 +42,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null); // 跟踪哪个会话正在加载
     const isLoadingRef = useRef<boolean>(false); // Ref to track loading state for event handlers
     const loadingThreadIdRef = useRef<string | null>(null); // Ref to track loading thread ID
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [dataSources, setDataSources] = useState<any[]>([]);
     const [deleteThreadTarget, setDeleteThreadTarget] = useState<{ id: string, title: string } | null>(null);
@@ -226,6 +226,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     // 更新线程列表
                     setThreads(prev => [thread, ...(prev || [])]);
                     setActiveThreadId(thread.id);
+                    EventsEmit('chat-thread-created', thread.id);
 
                     // 发送 session-switched 事件，确保 App.tsx 更新 activeSessionId
                     EventsEmit('session-switched', thread.id);
@@ -372,30 +373,39 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     }, []); // Empty deps - only register once
 
     // Listen for start-free-chat event from Sidebar (when no data source is selected)
+    // Instead of creating a new free chat thread, switch to the existing one (system has only one free chat)
     useEffect(() => {
         const unsubscribeStartFreeChat = EventsOn('start-free-chat', async (data: any) => {
             systemLog.info(`start-free-chat event received: ${JSON.stringify(data)}`);
 
             try {
-                // Create a new thread without data source for free chat
-                // Use the session name from data if provided, otherwise use translated 'free_chat'
-                const title = data.sessionName || t('free_chat');
-                const thread = await CreateChatThread('', title);
+                // Find the existing free chat thread (no data_source_id)
+                const currentThreads = threadsRef.current;
+                let freeChatThread = currentThreads?.find(t => !t.data_source_id || t.data_source_id === '');
 
-                if (thread) {
-                    // Add the new thread to the list and set it as active
-                    setThreads(prev => [thread, ...(prev || [])]);
-                    setActiveThreadId(thread.id);
+                // If no free chat thread exists yet, create one
+                if (!freeChatThread) {
+                    systemLog.info('No existing free chat thread found, creating one');
+                    const title = data.sessionName || t('free_chat');
+                    freeChatThread = await CreateChatThread('', title);
+                    if (freeChatThread) {
+                        setThreads(prev => [freeChatThread!, ...(prev || [])]);
+                        EventsEmit('chat-thread-created', freeChatThread.id);
+                    }
+                }
 
-                    // Emit session-switched event
-                    EventsEmit('session-switched', thread.id);
+                if (freeChatThread) {
+                    // Switch to the existing free chat thread
+                    systemLog.info(`Switching to existing free chat thread: ${freeChatThread.id}`);
+                    setActiveThreadId(freeChatThread.id);
+                    EventsEmit('session-switched', freeChatThread.id);
 
                     // Open chat panel if requested
                     if (data.openChat) {
                         EventsEmit('ensure-chat-open');
                     }
 
-                    // Get active search API info and show toast
+                    // Show toast with search API info
                     try {
                         const [apiName, apiId, isEnabled] = await GetActiveSearchAPIInfo();
                         let toastMessage = t('free_chat_started');
@@ -409,7 +419,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             type: 'info'
                         });
                     } catch (apiErr) {
-                        // Fallback to simple message if API info fails
                         setToast({
                             message: t('free_chat_started'),
                             type: 'info'
@@ -430,6 +439,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeStartFreeChat) unsubscribeStartFreeChat();
         };
     }, []); // Empty deps - only register once
+
+
 
     useEffect(() => {
         // Listen for open chat request from Sidebar context menu
@@ -672,6 +683,25 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
 
             console.log('[ChatSidebar] Loading state cleared after cancellation');
+
+            // Reload threads so the cancellation message (saved by backend) appears in chat
+            loadThreads();
+        });
+
+        // Listen for analysis error event — reload threads so the error assistant message shows in chat
+        const unsubscribeAnalysisError = EventsOn('analysis-error', (data: any) => {
+            console.log('[ChatSidebar] Analysis error event received:', data);
+
+            // Clear loading state
+            setIsLoading(false);
+            setLoadingThreadId(null);
+            const errorThreadId = data?.threadId || data?.sessionId || activeThreadIdRef.current;
+            if (errorThreadId) {
+                loadingStateManager.setLoading(errorThreadId, false);
+            }
+
+            // Reload threads so the error message (saved by backend as assistant message) appears in chat
+            loadThreads();
         });
 
         // Listen for free chat streaming events
@@ -752,6 +782,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeSendMessageInSession) unsubscribeSendMessageInSession();
             if (unsubscribeLoadMessageData) unsubscribeLoadMessageData();
             if (unsubscribeCancelled) unsubscribeCancelled();
+            if (unsubscribeAnalysisError) unsubscribeAnalysisError();
             if (unsubscribeStreamStart) unsubscribeStreamStart();
             if (unsubscribeStreamChunk) unsubscribeStreamChunk();
             if (unsubscribeStreamEnd) unsubscribeStreamEnd();
@@ -876,6 +907,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             const newThread = await CreateChatThread(dataSourceId || '', title || 'New Chat');
             setThreads(prev => [newThread, ...(prev || [])]);
             setActiveThreadId(newThread.id);
+            EventsEmit('chat-thread-created', newThread.id);
             return newThread;
         } catch (err: any) {
             console.error('Failed to create thread:', err);
@@ -1036,6 +1068,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // Add the new thread to the list and set it as active
                 setThreads(prev => [thread, ...(prev || [])]);
                 setActiveThreadId(thread.id);
+                EventsEmit('chat-thread-created', thread.id);
 
                 // Emit session-switched event
                 EventsEmit('session-switched', thread.id);
@@ -1112,6 +1145,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     // Add the new thread to the list and set it as active
                     setThreads(prev => [thread, ...(prev || [])]);
                     setActiveThreadId(thread.id);
+                    EventsEmit('chat-thread-created', thread.id);
 
                     // Emit session-switched event
                     EventsEmit('session-switched', thread.id);
@@ -1374,6 +1408,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         intentThread = await CreateChatThread('', title);
                         setThreads([intentThread, ...threads]);
                         setActiveThreadId(intentThread.id);
+                        EventsEmit('chat-thread-created', intentThread.id);
                         actualThreadId = intentThread.id;
                         setPendingThreadId(actualThreadId);
                         pendingThreadIdRef.current = actualThreadId; // 立即同步 ref
@@ -1519,6 +1554,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 currentThreads = [newThread, ...(currentThreads || [])];
                 setThreads(prev => [newThread, ...(prev || [])]);
                 setActiveThreadId(newThread.id);
+                EventsEmit('chat-thread-created', newThread.id);
                 console.log('[ChatSidebar] ✅ Created new thread:', newThread.id);
             } catch (err) {
                 console.error("Failed to create thread on send:", err);
@@ -1623,6 +1659,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
             // Update UI immediately
             setThreads(updatedThreads);
+
+            // Set loading state BEFORE await to prevent flash of "cancelled" state
+            // (await breaks React batching, so setThreads renders before setIsLoading if we wait)
+            const isFreeChatEarly = !currentThread.data_source_id || currentThread.data_source_id === '';
+            if (!isFreeChatEarly) {
+                setIsLoading(true);
+                setLoadingThreadId(currentThreadId);
+            }
 
             setInput('');
 
@@ -2478,18 +2522,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
             <div
                 data-testid="chat-sidebar"
-                style={{ width: sidebarWidth }}
-                className={`fixed inset-y-0 left-0 bg-white shadow-2xl transform transition-transform duration-300 ease-in-out z-50 flex overflow-hidden border-r border-slate-200 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}
+                style={{ width: '100%' }}
+                className={`relative h-full bg-white flex overflow-hidden`}
             >
-                {/* Sidebar Resizer (Right Edge) */}
+                {/* Thread List Sidebar - hidden, sessions managed in left Sidebar */}
                 <div
-                    className="absolute right-0 top-0 bottom-0 w-1 hover:bg-blue-400 cursor-col-resize z-[60] transition-colors"
-                    onMouseDown={() => { setIsResizingSidebar(true); document.body.style.cursor = 'col-resize'; }}
-                />
-
-                {/* Thread List Sidebar */}
-                <div
-                    style={{ width: isSidebarCollapsed ? 0 : historyWidth }}
+                    style={{ width: 0 }}
                     className="bg-slate-50 border-r border-slate-200 flex flex-col transition-all duration-300 overflow-hidden relative flex-shrink-0"
                 >
                     {/* Collapse button on the left edge of history panel */}
@@ -2577,12 +2615,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                 {/* Main Chat Area */}
                 <div className="flex-1 flex flex-col min-w-0 bg-white relative">
-                    <button
-                        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                        className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 rounded-full p-1.5 shadow-lg hover:bg-slate-50 text-slate-400 hover:text-blue-500 transition-all hover:scale-110 ${isSidebarCollapsed ? 'translate-x-3' : ''}`}
-                    >
-                        {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-                    </button>
 
                     <div className="h-16 flex items-center justify-between px-6 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative"
                     >
@@ -2606,46 +2638,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </div>
                         </div>
                         <div className="flex items-center gap-1">
-                            <button
-                                onClick={(e) => {
-                                    console.log('Skills button clicked');
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    EventsEmit('open-skills');
-                                }}
-                                aria-label={t('open_skills')}
-                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
-                                title="Skills Plugin"
-                            >
-                                <Zap className="w-5 h-5 pointer-events-none" />
-                            </button>
-                            <div
-                                onClick={(e) => {
-                                    console.log('Close div clicked');
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    onClose();
-                                }}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault();
-                                        onClose();
-                                    }
-                                }}
-                                aria-label={t('close_sidebar')}
-                                className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
-                            >
-                                <X className="w-5 h-5 pointer-events-none" />
-                            </div>
                         </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                         {activeThread?.messages.map((msg, index) => {
-                            // 如果是空的助手消息且正在搜索，跳过渲染（避免显示空气泡）
-                            if (msg.role === 'assistant' && !msg.content && isSearching) {
+                            // 如果是空的助手消息，跳过渲染（避免显示空气泡）
+                            if (msg.role === 'assistant' && !msg.content) {
                                 return null;
                             }
                             
@@ -2720,7 +2719,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             // 重要：只有当前活动会话的最后一条用户消息才算被中止，其他会话的历史消息不应该显示为被中止
                             const isUserMessageCancelled = msg.role === 'user' && !isUserMessageCompleted && !isUserMessageFailed && (() => {
                                 // 如果正在加载当前会话，不算被中止
+                                // Check both local isLoading state AND LoadingStateManager (sessionStatus)
+                                // They can be out of sync — sessionStatus is the authoritative source
                                 if (isLoading && loadingThreadId === activeThreadId) {
+                                    return false;
+                                }
+                                if (sessionStatus.isLoading) {
                                     return false;
                                 }
                                 // 如果有其他会话正在加载，当前会话的未完成消息也不算被中止（因为用户已经切换到新会话）

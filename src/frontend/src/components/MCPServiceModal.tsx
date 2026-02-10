@@ -181,7 +181,7 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
                             className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                                 errors.name ? 'border-red-300' : 'border-slate-300'
                             }`}
-                            placeholder="e.g., Web Search, Database Tools"
+                            placeholder={t('mcp_name_placeholder')}
                             autoFocus
                         />
                         {errors.name && (
@@ -201,7 +201,7 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
                             value={formData.description}
                             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                             className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Brief description of what this service provides"
+                            placeholder={t('brief_description_placeholder')}
                         />
                     </div>
 

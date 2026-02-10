@@ -12,3 +12,35 @@
 .animate-slide-in-right {
   animation: slide-in-right 0.3s ease-out;
 }
+
+/* Three-panel layout container (Requirements: 1.1, 1.2, 10.1, 10.2) */
+.three-panel-layout {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Ensure panels don't overflow */
+.three-panel-layout > * {
+  flex-shrink: 0;
+}
+
+/* Panel focus indicators (Requirements: 11.1, 11.2, 11.3, 11.6) */
+.left-panel:focus-visible,
+.center-panel:focus-visible,
+.right-panel:focus-visible {
+  outline: 2px solid var(--primary-color, #3b82f6);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+/* Remove default outline for programmatic focus (non-keyboard) */
+.left-panel:focus:not(:focus-visible),
+.center-panel:focus:not(:focus-visible),
+.right-panel:focus:not(:focus-visible) {
+  outline: 2px solid var(--primary-color, #3b82f6);
+  outline-offset: -2px;
+  z-index: 1;
+}

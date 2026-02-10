@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2 } from 'lucide-react';
 
@@ -47,7 +48,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
         }
     };
 
-    return (
+    return ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={isDeleting ? undefined : onClose}>
             <div
                 className="bg-white w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 p-6"
@@ -75,7 +76,8 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

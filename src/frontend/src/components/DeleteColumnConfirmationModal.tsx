@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -30,9 +31,9 @@ const DeleteColumnConfirmationModal: React.FC<DeleteColumnConfirmationModalProps
     // Determine the warning level
     const willDeleteDataSource = isLastColumn && isLastTable;
 
-    return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+    return ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]" onClick={onClose}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className={`flex items-center justify-between px-6 py-4 border-b border-slate-200 ${willDeleteDataSource ? 'bg-orange-50' : 'bg-red-50'}`}>
                     <div className="flex items-center gap-3">
@@ -87,7 +88,8 @@ const DeleteColumnConfirmationModal: React.FC<DeleteColumnConfirmationModalProps
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

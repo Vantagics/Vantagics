@@ -831,6 +831,27 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                             {t('max_concurrent_analysis_hint')}
                                         </p>
                                     </div>
+
+                                    {/* Max Analysis Steps */}
+                                    <div className="py-3 border-b border-slate-100">
+                                        <label htmlFor="maxAnalysisSteps" className="block text-sm font-medium text-slate-700 mb-1">{t('max_analysis_steps')}</label>
+                                        <input
+                                            id="maxAnalysisSteps"
+                                            type="number"
+                                            value={config.maxAnalysisSteps || 25}
+                                            onChange={(e) => {
+                                                const value = parseInt(e.target.value) || 25;
+                                                const clampedValue = Math.max(10, Math.min(50, value));
+                                                updateConfig({ maxAnalysisSteps: clampedValue });
+                                            }}
+                                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                            min="10"
+                                            max="50"
+                                        />
+                                        <p className="mt-1 text-xs text-slate-500">
+                                            {t('max_analysis_steps_hint')}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -1322,7 +1343,7 @@ const NetworkSettings: React.FC<NetworkSettingsProps> = ({ config, updateConfig 
                             type="text"
                             value={proxyConfig.username}
                             onChange={(e) => updateProxyConfig({ username: e.target.value })}
-                            placeholder="username"
+                            placeholder={t('username_placeholder')}
                             autoComplete="off"
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
@@ -1335,7 +1356,7 @@ const NetworkSettings: React.FC<NetworkSettingsProps> = ({ config, updateConfig 
                             type="password"
                             value={proxyConfig.password}
                             onChange={(e) => updateProxyConfig({ password: e.target.value })}
-                            placeholder="password"
+                            placeholder={t('password_placeholder')}
                             autoComplete="off"
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />

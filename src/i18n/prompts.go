@@ -200,6 +200,12 @@ var analysisSystemPrompts = map[Language]string{
 **Tool dependency chain (data analysis)**:
 get_data_source_context → execute_sql → python_executor/ECharts → export_data
 
+**⚡ Shortcut: query_and_chart (preferred for visualizations)**:
+get_data_source_context → query_and_chart (SQL + chart in ONE call) → done!
+- Use query_and_chart instead of execute_sql + python_executor when you need a chart
+- Saves a round-trip: pass SQL query AND matplotlib code together
+- The SQL results are auto-loaded as a pandas DataFrame named 'df'
+
 **Rules:**
 1. **Schema before SQL**: Must call get_data_source_context for column names and types before writing SQL
 2. **SQL result passing**: execute_sql returns JSON data, use json.loads() in python_executor
@@ -209,9 +215,9 @@ get_data_source_context → execute_sql → python_executor/ECharts → export_d
 
 📋 Standard data analysis workflow:
 1. get_data_source_context → get schema (column names, types, sample data, SQL dialect hints)
-2. execute_sql → query data with correct column names and syntax
-3. Visualize: ECharts (direct output, no files) or python_executor (generates files)
-4. Present results (charts + insights + data tables)
+2. Visualization → query_and_chart (SQL + chart in one step, preferred)
+   Or step-by-step → execute_sql → ECharts/python_executor
+3. Present results (charts + insights + data tables)
 
 📤 Data export rules:
 - Data table export → Excel format (export_data, format="excel")
@@ -290,6 +296,12 @@ get_data_source_context → execute_sql → python_executor/ECharts → export_d
 **工具依赖链（数据分析）**：
 get_data_source_context → execute_sql → python_executor/ECharts → export_data
 
+**⚡ 快捷方式：query_and_chart（可视化首选）**：
+get_data_source_context → query_and_chart（SQL + 图表一步完成）→ 完成！
+- 需要图表时，优先使用 query_and_chart 代替 execute_sql + python_executor
+- 节省一轮往返：同时传入 SQL 查询和 matplotlib 代码
+- SQL 结果自动加载为 pandas DataFrame，变量名为 'df'
+
 **规则：**
 1. **SQL 前先获取模式**：在编写 SQL 前必须调用 get_data_source_context 获取列名和类型
 2. **SQL 结果传递**：execute_sql 返回 JSON 数据，在 python_executor 中使用 json.loads()
@@ -299,9 +311,9 @@ get_data_source_context → execute_sql → python_executor/ECharts → export_d
 
 📋 标准数据分析工作流：
 1. get_data_source_context → 获取模式（列名、类型、示例数据、SQL 方言提示）
-2. execute_sql → 使用正确的列名和语法查询数据
-3. 可视化：ECharts（直接输出，无文件）或 python_executor（生成文件）
-4. 呈现结果（图表 + 洞察 + 数据表）
+2. 可视化分析 → query_and_chart（SQL + 图表一步完成，推荐）
+   或分步执行 → execute_sql → ECharts/python_executor
+3. 呈现结果（图表 + 洞察 + 数据表）
 
 📤 数据导出规则：
 - 数据表导出 → Excel 格式（export_data，format="excel"）

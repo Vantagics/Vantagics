@@ -63,31 +63,20 @@ type TableData struct {
 
 // NewWebFetchTool creates a new web fetch tool using HTTP client
 func NewWebFetchTool(logger func(string), proxyConfig *config.ProxyConfig) *WebFetchTool {
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow up to 10 redirects
-			if len(via) >= 10 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
+	// Create HTTP client with timeout and optional proxy
+	client := NewProxyHTTPClient(30*time.Second, proxyConfig)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		// Allow up to 10 redirects
+		if len(via) >= 10 {
+			return fmt.Errorf("too many redirects")
+		}
+		return nil
 	}
 
-	// Configure proxy if enabled
 	if proxyConfig != nil && proxyConfig.Enabled && proxyConfig.Tested &&
-		proxyConfig.Host != "" && proxyConfig.Port > 0 {
-		proxyURL, err := url.Parse(fmt.Sprintf("%s://%s:%d",
+		proxyConfig.Host != "" && proxyConfig.Port > 0 && logger != nil {
+		logger(fmt.Sprintf("[WEB-FETCH] Using proxy: %s://%s:%d",
 			proxyConfig.Protocol, proxyConfig.Host, proxyConfig.Port))
-		if err == nil {
-			client.Transport = &http.Transport{
-				Proxy: http.ProxyURL(proxyURL),
-			}
-			if logger != nil {
-				logger(fmt.Sprintf("[WEB-FETCH] Using proxy: %s", proxyURL.String()))
-			}
-		}
 	}
 
 	return &WebFetchTool{

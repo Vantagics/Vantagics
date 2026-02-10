@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -23,6 +24,7 @@ type ToolRouter struct {
 	locationPatterns []*regexp.Regexp
 	searchPatterns   []*regexp.Regexp
 	questionPatterns []*regexp.Regexp
+	analysisPatterns []*regexp.Regexp
 }
 
 // NewToolRouter 创建新的工具路由器
@@ -135,6 +137,18 @@ func (r *ToolRouter) compilePatterns() {
 		`(?i)find\s+out`,
 	})
 
+	// 数据分析相关模式
+	r.analysisPatterns = compilePatterns([]string{
+		`(?i)分析`,            // 任何包含"分析"的消息
+		`(?i)看看.*数据`,
+		`(?i)数据源`,
+		`(?i)有哪些数据`,
+		`(?i)analyze`,
+		`(?i)analysis`,
+		`(?i)data\s*source`,
+		`(?i)dataset`,
+	})
+
 	// 疑问句模式（用于辅助判断）
 	r.questionPatterns = compilePatterns([]string{
 		`(?i)^(什么|哪|谁|怎么|为什么|多少|几|是否|能否|可以|有没有)`,
@@ -146,7 +160,7 @@ func (r *ToolRouter) compilePatterns() {
 
 // compilePatterns 编译正则表达式列表
 func compilePatterns(patterns []string) []*regexp.Regexp {
-	var compiled []*regexp.Regexp
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {
 		if re, err := regexp.Compile(p); err == nil {
 			compiled = append(compiled, re)
@@ -190,6 +204,14 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 		r.log("[TOOL-ROUTER] Matched search pattern")
 	}
 
+	// 3.5 检查数据分析相关模式
+	if r.matchesAny(message, r.analysisPatterns) {
+		suggestedTools = append(suggestedTools, "start_datasource_analysis")
+		reasons = append(reasons, "analysis_pattern")
+		totalScore += 0.9
+		r.log("[TOOL-ROUTER] Matched analysis pattern")
+	}
+
 	// 4. 语义特征分析
 	semanticScore, semanticTools, semanticReason := r.analyzeSemanticFeatures(message)
 	if semanticScore > 0 {
@@ -212,7 +234,10 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 	}
 
 	// 计算最终置信度
-	confidence := minFloat(totalScore, 1.0)
+	confidence := totalScore
+	if confidence > 1.0 {
+		confidence = 1.0
+	}
 	needsTools := confidence >= 0.5 && len(suggestedTools) > 0
 
 	result := ToolRouterResult{
@@ -234,13 +259,16 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 	var reasons []string
 	score := 0.0
 
+	// Lowercase once for all Contains checks below
+	msgLower := strings.ToLower(message)
+
 	// 检测实时性需求
 	realtimeIndicators := []string{
 		"现在", "当前", "今天", "此刻", "目前", "实时", "最新",
 		"now", "current", "today", "right now", "at the moment", "latest", "recent",
 	}
 	for _, indicator := range realtimeIndicators {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(indicator)) {
+		if strings.Contains(msgLower, indicator) {
 			score += 0.3
 			reasons = append(reasons, "realtime_indicator")
 			break
@@ -253,7 +281,7 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		"here", "local", "nearby", "around",
 	}
 	for _, indicator := range geoIndicators {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(indicator)) {
+		if strings.Contains(msgLower, indicator) {
 			tools = append(tools, "get_device_location")
 			score += 0.4
 			reasons = append(reasons, "geo_indicator")
@@ -274,13 +302,13 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 	hasIndicator := false
 	hasTopic := false
 	for _, indicator := range externalInfoIndicators {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(indicator)) {
+		if strings.Contains(msgLower, indicator) {
 			hasIndicator = true
 			break
 		}
 	}
 	for _, topic := range externalInfoTopics {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(topic)) {
+		if strings.Contains(msgLower, topic) {
 			hasTopic = true
 			break
 		}
@@ -295,10 +323,10 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 	}
 
 	// 检测"我"+"位置/地点"组合
-	if strings.Contains(message, "我") {
+	if strings.Contains(msgLower, "我") {
 		locationWords := []string{"在哪", "位置", "地方", "城市", "国家", "地址"}
 		for _, word := range locationWords {
-			if strings.Contains(message, word) {
+			if strings.Contains(msgLower, word) {
 				tools = append(tools, "get_device_location")
 				score += 0.5
 				reasons = append(reasons, "self_location_query")
@@ -314,7 +342,7 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		"excel", "pdf", "ppt", "csv", "xlsx",
 	}
 	for _, indicator := range exportIndicators {
-		if strings.Contains(strings.ToLower(message), strings.ToLower(indicator)) {
+		if strings.Contains(msgLower, indicator) {
 			tools = append(tools, "export_data")
 			score += 0.7
 			reasons = append(reasons, "export_need")
@@ -342,7 +370,7 @@ func (r *ToolRouter) matchesAny(message string, patterns []*regexp.Regexp) bool 
 // log 记录日志
 func (r *ToolRouter) log(format string, args ...interface{}) {
 	if r.logFunc != nil {
-		r.logFunc(sprintf(format, args...))
+		r.logFunc(fmt.Sprintf(format, args...))
 	}
 }
 
@@ -357,8 +385,8 @@ func containsStr(slice []string, item string) bool {
 }
 
 func unique(slice []string) []string {
-	seen := make(map[string]bool)
-	var result []string
+	seen := make(map[string]bool, len(slice))
+	result := make([]string, 0, len(slice))
 	for _, s := range slice {
 		if !seen[s] {
 			seen[s] = true
@@ -368,70 +396,3 @@ func unique(slice []string) []string {
 	return result
 }
 
-func sprintf(format string, args ...interface{}) string {
-	if len(args) == 0 {
-		return format
-	}
-	// 简单的格式化实现
-	result := format
-	for _, arg := range args {
-		switch v := arg.(type) {
-		case string:
-			result = strings.Replace(result, "%s", v, 1)
-			result = strings.Replace(result, "%v", v, 1)
-		case bool:
-			if v {
-				result = strings.Replace(result, "%v", "true", 1)
-			} else {
-				result = strings.Replace(result, "%v", "false", 1)
-			}
-		case float64:
-			result = strings.Replace(result, "%.2f", formatFloat(v), 1)
-			result = strings.Replace(result, "%v", formatFloat(v), 1)
-		case []string:
-			result = strings.Replace(result, "%v", "["+strings.Join(v, ", ")+"]", 1)
-		default:
-			result = strings.Replace(result, "%v", "?", 1)
-		}
-	}
-	return result
-}
-
-func formatFloat(f float64) string {
-	// 使用整数运算来格式化浮点数
-	intPart := int(f)
-	fracPart := int((f - float64(intPart)) * 100)
-	if fracPart < 0 {
-		fracPart = -fracPart
-	}
-	if fracPart < 10 {
-		return itoa(intPart) + ".0" + itoa(fracPart)
-	}
-	return itoa(intPart) + "." + itoa(fracPart)
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	negative := i < 0
-	if negative {
-		i = -i
-	}
-	var digits []byte
-	for i > 0 {
-		digits = append([]byte{byte('0' + i%10)}, digits...)
-		i /= 10
-	}
-	if negative {
-		digits = append([]byte{'-'}, digits...)
-	}
-	return string(digits)
-}
-
-func minFloat(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}

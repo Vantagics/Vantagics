@@ -1,4 +1,5 @@
 import React from 'react';
+import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 
 interface ConfirmationModalProps {
@@ -24,9 +25,9 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
 
     if (!isOpen) return null;
 
-    return (
+    return ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] transform transition-all animate-in zoom-in-95 duration-200">
+            <div className="bg-white rounded-xl shadow-2xl p-6 w-[400px] transform transition-all animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 <h3 className="text-lg font-bold text-slate-900 mb-2">{title}</h3>
                 <p className="text-sm text-slate-500 mb-6">
                     {message}
@@ -46,7 +47,8 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

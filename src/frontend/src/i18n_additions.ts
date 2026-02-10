@@ -78,7 +78,7 @@ export const additionalTranslations = {
         // ChatSidebar 组件
         'create_session_failed': 'Failed to create session',
         'session_creation_error': 'An error occurred while creating the session',
-        'free_chat_session': 'Free Chat',
+        'free_chat_session': 'System Assistant',
         'data_analysis_session': 'Data Analysis',
         'switch_session_failed': 'Failed to switch session',
 
@@ -274,7 +274,7 @@ export const additionalTranslations = {
         // ChatSidebar 组件
         'create_session_failed': '创建会话失败',
         'session_creation_error': '创建会话时发生错误',
-        'free_chat_session': '随意聊',
+        'free_chat_session': '系统助手',
         'data_analysis_session': '数据分析',
         'switch_session_failed': '切换会话失败',
 

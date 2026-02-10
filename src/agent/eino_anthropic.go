@@ -13,6 +13,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"vantagedata/config"
 )
 
 // min returns the minimum of two integers
@@ -24,15 +25,17 @@ func min(a, b int) int {
 }
 
 type AnthropicChatModel struct {
-	config *AnthropicConfig
-	tools  []*schema.ToolInfo
+	config     *AnthropicConfig
+	tools      []*schema.ToolInfo
+	httpClient *http.Client
 }
 
 type AnthropicConfig struct {
-	APIKey    string
-	BaseURL   string
-	Model     string
-	MaxTokens int
+	APIKey      string
+	BaseURL     string
+	Model       string
+	MaxTokens   int
+	ProxyConfig *config.ProxyConfig
 }
 
 func NewAnthropicChatModel(ctx context.Context, config *AnthropicConfig) (*AnthropicChatModel, error) {
@@ -41,14 +44,16 @@ func NewAnthropicChatModel(ctx context.Context, config *AnthropicConfig) (*Anthr
 		return nil, fmt.Errorf("anthropic config is nil")
 	}
 	if config.Model == "" {
-		return nil, fmt.Errorf("anthropic model name is empty - please configure a valid model name")
+		// Default model - proxy servers may override this
+		config.Model = "claude-sonnet-4-20250514"
 	}
 	if config.APIKey == "" {
 		return nil, fmt.Errorf("anthropic API key is empty - please configure your API key")
 	}
 	
 	return &AnthropicChatModel{
-		config: config,
+		config:     config,
+		httpClient: NewProxyHTTPClient(300*time.Second, config.ProxyConfig),
 	}, nil
 }
 
@@ -58,11 +63,6 @@ func (m *AnthropicChatModel) BindTools(tools []*schema.ToolInfo) error {
 }
 
 func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error) {
-	// Validate model configuration
-	if m.config.Model == "" {
-		return nil, fmt.Errorf("model name is empty - please configure a valid model name in settings")
-	}
-	
 	// Prepare request body with intelligent token limits
 	maxTokens := getProviderMaxTokens(m.config.Model, m.config.MaxTokens)
 	
@@ -139,9 +139,19 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 		var tools []map[string]interface{}
 		for _, tool := range m.tools {
 			t := map[string]interface{}{
-				"name":         tool.Name,
-				"description":  tool.Desc,
-				"input_schema": tool.ParamsOneOf,
+				"name":        tool.Name,
+				"description": tool.Desc,
+			}
+			// Convert ParamsOneOf to JSON Schema — ParamsOneOf fields are unexported
+			// so json.Marshal produces "{}" unless we call ToJSONSchema() first
+			if tool.ParamsOneOf != nil {
+				if jsonSchema, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && jsonSchema != nil {
+					t["input_schema"] = jsonSchema
+				} else {
+					t["input_schema"] = map[string]interface{}{"type": "object"}
+				}
+			} else {
+				t["input_schema"] = map[string]interface{}{"type": "object"}
 			}
 			tools = append(tools, t)
 		}
@@ -169,8 +179,7 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 	req.Header.Set("x-api-key", m.config.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %v", err)
 	}

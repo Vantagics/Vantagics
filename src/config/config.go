@@ -74,6 +74,7 @@ type Config struct {
 	PythonPath        string         `json:"pythonPath"`
 	MaxPreviewRows    int            `json:"maxPreviewRows"`
 	MaxConcurrentAnalysis int        `json:"maxConcurrentAnalysis"` // Maximum concurrent analysis tasks (1-10, default 5)
+	MaxAnalysisSteps  int            `json:"maxAnalysisSteps"`      // Maximum agent graph steps per analysis (10-50, default 25)
 	DetailedLog       bool           `json:"detailedLog"`
 	SoundNotification bool           `json:"soundNotification"` // 分析完成声音提示（默认开启）
 	LogMaxSizeMB      int            `json:"logMaxSizeMB"`          // Maximum log file size in MB before compression (default 100)
@@ -110,4 +111,9 @@ type Config struct {
 	
 	// Extra license info from server (product-specific key-value pairs)
 	LicenseExtraInfo map[string]interface{} `json:"licenseExtraInfo,omitempty"`
+	
+	// Layout persistence
+	SidebarWidth    int     `json:"sidebarWidth,omitempty"`    // Sidebar panel width in pixels
+	PanelRightRatio float64 `json:"panelRightRatio,omitempty"` // Right panel width as ratio of available space (0-1)
+	PanelRightWidth int     `json:"panelRightWidth,omitempty"` // DEPRECATED: kept for migration only
 }

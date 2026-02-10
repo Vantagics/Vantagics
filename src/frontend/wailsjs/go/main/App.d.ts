@@ -31,6 +31,8 @@ export function CleanupLogs():Promise<void>;
 
 export function ClearHistory():Promise<void>;
 
+export function ClearThreadMessages(arg1:string):Promise<void>;
+
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
 
 export function CreateVantageDataEnvironment():Promise<string>;
@@ -258,6 +260,8 @@ export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
 export function SaveConfig(arg1:config.Config):Promise<void>;
 
 export function SaveLayout(arg1:database.LayoutConfiguration):Promise<void>;
+
+export function SaveLayoutConfig(arg1:number,arg2:number):Promise<void>;
 
 export function SaveMessageAnalysisResults(arg1:string,arg2:string,arg3:Array<main.AnalysisResultItem>):Promise<void>;
 

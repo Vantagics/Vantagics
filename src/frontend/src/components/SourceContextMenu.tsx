@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource, RefreshEcommerceDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw } from 'lucide-react';
+import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw, Database } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
@@ -19,9 +19,10 @@ interface SourceContextMenuProps {
     onOptimize?: () => void; // Optimize data source (indexes)
     onRename?: () => void; // Rename data source
     onSemanticOptimize?: () => void; // New: semantic optimization
+    onExploreData?: () => void; // Explore data browser
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize, onExploreData }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
@@ -117,6 +118,19 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 <Info className="w-4 h-4 text-slate-400" />
                 {t('properties')}
             </button>
+            
+            {onExploreData && (
+                <button 
+                    onClick={() => {
+                        onExploreData();
+                        onClose();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                >
+                    <Database className="w-4 h-4 text-slate-400" />
+                    {t('explore_data') || 'Explore Data'}
+                </button>
+            )}
             
             {onRename && (
                 <button 

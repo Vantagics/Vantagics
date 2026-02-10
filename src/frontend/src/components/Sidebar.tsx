@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource, RenameDataSource } from '../../wailsjs/go/main/App';
+import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, ExportSessionHTML, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread } from '../../wailsjs/go/main/App';
 import { EventsEmit, EventsOn } from '../../wailsjs/runtime/runtime';
+import { main } from '../../wailsjs/go/models';
 import AddDataSourceModal from './AddDataSourceModal';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ConfirmationModal from './ConfirmationModal';
@@ -13,8 +14,12 @@ import DataSourceOptimizeModal from './DataSourceOptimizeModal';
 import RenameDataSourceModal from './RenameDataSourceModal';
 import SemanticOptimizeModal from './SemanticOptimizeModal';
 import OnboardingWizard from './OnboardingWizard';
-import DataSourceModeSelector from './DataSourceModeSelector';
-import { Trash2, Plus } from 'lucide-react';
+import HistoricalSessionsSection from './HistoricalSessionsSection';
+import ChatThreadContextMenu from './ChatThreadContextMenu';
+import MemoryViewModal from './MemoryViewModal';
+import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History } from 'lucide-react';
+import { useLoadingState } from '../hooks/useLoadingState';
+import './LeftPanel.css';
 
 interface SidebarProps {
     onOpenSettings: () => void;
@@ -22,10 +27,13 @@ interface SidebarProps {
     width: number;
     isChatOpen: boolean; // 添加当前会话区状态
     isAnalysisLoading?: boolean; // 分析进行中状态
+    onSessionSelect: (sessionId: string) => void;
+    selectedSessionId: string | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading, onSessionSelect, selectedSessionId }) => {
     const { t } = useLanguage();
+    const { isLoading: isSessionAnalysisLoading } = useLoadingState();
     const [sources, setSources] = useState<any[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -41,9 +49,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
     const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
     const [showOnboardingWizard, setShowOnboardingWizard] = useState(false); // 新手向导
-    const [modeMenuPosition, setModeMenuPosition] = useState<{ x: number; y: number } | null>(null); // 模式菜单位置
     const [preSelectedDriverType, setPreSelectedDriverType] = useState<string | null>(null); // 预选的数据源类型
     const [hasShownOnboarding, setHasShownOnboarding] = useState(false); // 是否已显示过新手向导
+
+    // Historical sessions state
+    const [sessions, setSessions] = useState<main.ChatThread[]>([]);
+    const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+    const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
+    const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ id: string; title: string } | null>(null);
+    const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
+    const [autoIntentUnderstanding, setAutoIntentUnderstanding] = useState<boolean>(true);
+    const [freeChatThreadId, setFreeChatThreadId] = useState<string | null>(null);
 
     const fetchSources = async () => {
         try {
@@ -88,6 +104,144 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             if (unsubscribeColumnRenamed) unsubscribeColumnRenamed();
         };
     }, [selectedId, propertiesTarget]);
+
+    // Fetch historical sessions
+    const fetchSessions = async () => {
+        setIsLoadingSessions(true);
+        try {
+            const history = await GetChatHistory();
+            const allSessions = history || [];
+            
+            // Find or create the free chat thread (no data_source_id)
+            let freeChat = allSessions.find((s: main.ChatThread) => !s.data_source_id || s.data_source_id === '');
+            
+            if (!freeChat) {
+                // Create a free chat thread if none exists
+                try {
+                    freeChat = await CreateChatThread('', t('free_chat'));
+                    allSessions.unshift(freeChat);
+                    EventsEmit('chat-thread-created', freeChat.id);
+                } catch (e) {
+                    console.error('Failed to create free chat thread:', e);
+                }
+            }
+            
+            if (freeChat) {
+                setFreeChatThreadId(freeChat.id);
+            }
+            
+            const sortedSessions = allSessions.sort((a: main.ChatThread, b: main.ChatThread) => b.created_at - a.created_at);
+            setSessions(sortedSessions);
+        } catch (error) {
+            console.error('Failed to fetch sessions:', error);
+            setSessions([]);
+        } finally {
+            setIsLoadingSessions(false);
+        }
+    };
+
+    // Load sessions on mount
+    useEffect(() => {
+        fetchSessions();
+        // Load autoIntentUnderstanding setting
+        GetConfig().then(cfg => {
+            setAutoIntentUnderstanding(cfg.autoIntentUnderstanding !== false);
+        }).catch(() => {});
+    }, []);
+
+    // Listen for session events
+    useEffect(() => {
+        const unsubCreated = EventsOn('chat-thread-created', () => fetchSessions());
+        const unsubDeleted = EventsOn('chat-thread-deleted', () => fetchSessions());
+        const unsubUpdated = EventsOn('chat-thread-updated', () => fetchSessions());
+        return () => {
+            if (unsubCreated) unsubCreated();
+            if (unsubDeleted) unsubDeleted();
+            if (unsubUpdated) unsubUpdated();
+        };
+    }, []);
+
+    const handleSessionContextMenu = (e: React.MouseEvent, sessionId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setSessionContextMenu({ x: e.clientX, y: e.clientY, sessionId });
+    };
+
+    // Close session context menu on outside click
+    useEffect(() => {
+        const handleClick = () => { if (sessionContextMenu) setSessionContextMenu(null); };
+        if (sessionContextMenu) {
+            document.addEventListener('click', handleClick);
+            return () => document.removeEventListener('click', handleClick);
+        }
+    }, [sessionContextMenu]);
+
+    const handleDeleteSession = (id: string, title: string) => {
+        // Don't allow deleting the free chat thread
+        if (id === freeChatThreadId) return;
+        setDeleteSessionTarget({ id, title });
+    };
+
+    const confirmDeleteSession = async () => {
+        if (!deleteSessionTarget) return;
+        try {
+            await DeleteThread(deleteSessionTarget.id);
+            EventsEmit('chat-thread-deleted', deleteSessionTarget.id);
+            await fetchSessions();
+            
+            // If the deleted session was selected, switch to free chat
+            if (selectedSessionId === deleteSessionTarget.id && freeChatThreadId) {
+                onSessionSelect(freeChatThreadId);
+            }
+            
+            setDeleteSessionTarget(null);
+        } catch (err) {
+            console.error('Failed to delete session:', err);
+            setDeleteSessionTarget(null);
+        }
+    };
+
+    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages', threadId: string) => {
+        if (action === 'view_memory') {
+            setMemoryModalTarget(threadId);
+        } else if (action === 'export') {
+            try {
+                await ExportSessionHTML(threadId);
+            } catch (e) {
+                console.error('Export failed:', e);
+            }
+        } else if (action === 'view_results_directory') {
+            try {
+                await OpenSessionResultsDirectory(threadId);
+            } catch (e) {
+                console.error('Open results directory failed:', e);
+            }
+        } else if (action === 'toggle_intent_understanding') {
+            try {
+                const newValue = !autoIntentUnderstanding;
+                const config = await GetConfig();
+                config.autoIntentUnderstanding = newValue;
+                await SaveConfig(config);
+                setAutoIntentUnderstanding(newValue);
+            } catch (e) {
+                console.error('Toggle intent understanding failed:', e);
+            }
+        } else if (action === 'clear_messages') {
+            try {
+                await ClearThreadMessages(threadId);
+                EventsEmit('chat-thread-updated', threadId);
+                // If this is the active session, clear the chat display
+                if (selectedSessionId === threadId) {
+                    EventsEmit('clear-dashboard');
+                    // Re-select to refresh the chat view
+                    onSessionSelect(threadId);
+                }
+            } catch (e) {
+                console.error('Clear thread messages failed:', e);
+            }
+        }
+        setSessionContextMenu(null);
+    };
 
     const handleDelete = (source: any, e: React.MouseEvent) => {
         e.preventDefault();
@@ -160,7 +314,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
     const handleStartChatAnalysis = () => {
         if (!selectedId) {
-            // 显示确认对话框，让用户选择是否进入随意聊模式
+            // 显示确认对话框，让用户选择是否进入系统助手模式
             setShowNoDataSourcePrompt(true);
             return;
         }
@@ -168,8 +322,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     };
 
     const handleStartFreeChat = () => {
-        // 用户确认进入随意聊模式
+        // 用户确认进入系统助手模式 - 切换到已有的系统助手会话，而不是创建新的
         setShowNoDataSourcePrompt(false);
+        
+        // 直接选中已有的系统助手会话
+        if (freeChatThreadId) {
+            onSessionSelect(freeChatThreadId);
+        }
+        
         EventsEmit('start-free-chat', {
             sessionName: t('free_chat'),
             keepChatOpen: true
@@ -207,7 +367,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             <div
                 className="p-4 pt-8 border-b border-slate-200 bg-slate-50 flex items-center justify-between"
             >
-                <h2 className="text-lg font-semibold text-slate-700">{t('data_sources')}</h2>
+                <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2"><Database className="w-5 h-5 text-blue-500" />{t('data_sources')}</h2>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setIsDataSourceExpanded(!isDataSourceExpanded)}
@@ -217,9 +377,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         {isDataSourceExpanded ? '<<' : '>>'}
                     </button>
                     <button
-                        onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setModeMenuPosition({ x: rect.left, y: rect.bottom + 4 });
+                        onClick={() => {
+                            setShowOnboardingWizard(true);
                         }}
                         className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
                         title={t('add_source')}
@@ -230,7 +389,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             </div>
             {isDataSourceExpanded && (
                 <>
-                    <div className="flex-1 overflow-y-auto p-2">
+                    <div className="overflow-y-auto p-2" style={{ maxHeight: '30vh' }}>
                         {!sources || sources.length === 0 ? (
                             <div className="p-4 text-center text-xs text-slate-400 italic">
                                 {t('no_data_sources_yet')}
@@ -247,10 +406,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                                             className="flex items-center gap-2 overflow-hidden flex-1 cursor-pointer"
                                             onClick={() => handleSourceClick(source)}
                                         >
-                                            <span className={`flex-shrink-0 w-2 h-2 rounded-full ${source.type === 'excel' ? 'bg-green-500' :
-                                                    ['mysql', 'postgresql', 'doris'].includes(source.type) ? 'bg-blue-500' :
-                                                        'bg-gray-400'
-                                                }`}></span>
+                                            {source.type === 'excel' ? (
+                                                <FileSpreadsheet className="flex-shrink-0 w-4 h-4 text-green-500" />
+                                            ) : (
+                                                <Database className="flex-shrink-0 w-4 h-4 text-blue-500" />
+                                            )}
                                             <span className="truncate" title={source.name}>{source.name}</span>
                                         </div>
                                         <button
@@ -269,11 +429,51 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         <button
                             onClick={handleStartChatAnalysis}
                             aria-label={t('chat_analysis')}
-                            className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700"
+                            className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 ring-1 ring-blue-300 shadow-sm"
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
                     </div>
+
+                    {/* Historical Sessions - below Chat Analysis button */}
+                    {isLoadingSessions ? (
+                        <div className="historical-sessions-section" style={{ flex: 1, minHeight: 0 }}>
+                            <div className="section-header">
+                                <h3>{t('historical_sessions')}</h3>
+                            </div>
+                            <div className="loading">{t('loading_sessions')}</div>
+                        </div>
+                    ) : (
+                        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                            <HistoricalSessionsSection
+                                sessions={sessions.map(session => ({
+                                    id: session.id,
+                                    title: session.title,
+                                    data_source_id: session.data_source_id,
+                                    created_at: session.created_at,
+                                    dataSourceName: sources?.find(s => s.id === session.data_source_id)?.name,
+                                }))}
+                                selectedId={selectedSessionId}
+                                onSelect={onSessionSelect}
+                                onContextMenu={handleSessionContextMenu}
+                                onDelete={handleDeleteSession}
+                                freeChatThreadId={freeChatThreadId}
+                                isSessionLoading={isSessionAnalysisLoading}
+                            />
+                        </div>
+                    )}
+
+                    {/* Session Context Menu */}
+                    {sessionContextMenu && (
+                        <ChatThreadContextMenu
+                            position={{ x: sessionContextMenu.x, y: sessionContextMenu.y }}
+                            threadId={sessionContextMenu.sessionId}
+                            onClose={() => setSessionContextMenu(null)}
+                            onAction={handleSessionContextAction}
+                            autoIntentUnderstanding={autoIntentUnderstanding}
+                            isFreeChatThread={sessionContextMenu.sessionId === freeChatThreadId}
+                        />
+                    )}
                 </>
             )}
 
@@ -301,13 +501,24 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 onConfirm={confirmDelete}
             />
 
+            <DeleteConfirmationModal
+                isOpen={!!deleteSessionTarget}
+                sourceName={deleteSessionTarget?.title || ''}
+                onClose={() => setDeleteSessionTarget(null)}
+                onConfirm={confirmDeleteSession}
+                type="thread"
+            />
+
             <NewChatModal
                 isOpen={isNewChatModalOpen}
                 dataSourceId={selectedId || ''}
                 onClose={() => setIsNewChatModalOpen(false)}
                 onSubmit={handleNewChatSubmit}
                 onStartFreeChat={() => {
-                    // Emit event to start free chat mode with localized title
+                    // 切换到已有的系统助手会话
+                    if (freeChatThreadId) {
+                        onSessionSelect(freeChatThreadId);
+                    }
                     EventsEmit('start-free-chat', { 
                         sessionName: t('free_chat'),
                         openChat: true  // Signal to open chat panel
@@ -404,6 +615,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             setIsNewChatModalOpen(true);
                         }
                     }}
+                    onExploreData={() => {
+                        EventsEmit('open-data-browser', {
+                            sourceId: contextMenu.sourceId,
+                            sourceName: contextMenu.sourceName
+                        });
+                    }}
                 />
             )}
 
@@ -422,19 +639,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 }}
             />
 
-            <DataSourceModeSelector
-                isOpen={!!modeMenuPosition}
-                position={modeMenuPosition || { x: 0, y: 0 }}
-                onClose={() => setModeMenuPosition(null)}
-                onSelectBeginnerMode={() => {
-                    setModeMenuPosition(null);
-                    setShowOnboardingWizard(true);
-                }}
-                onSelectExpertMode={() => {
-                    setModeMenuPosition(null);
-                    setPreSelectedDriverType(null);
-                    setIsAddModalOpen(true);
-                }}
+
+            <MemoryViewModal
+                isOpen={!!memoryModalTarget}
+                threadId={memoryModalTarget || ''}
+                onClose={() => setMemoryModalTarget(null)}
             />
         </div>
     );

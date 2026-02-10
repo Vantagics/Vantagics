@@ -151,7 +151,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                 if (path) {
                     destination = path;
                     await ExportToCSV(sourceId, selectedTables, path);
-                    showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                    showToast('success', formatMsg('export_success', sourceName, destination), t('export_success_title'));
                     onClose();
                 } else {
                     setIsExporting(false); // Cancelled
@@ -163,7 +163,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                 if (path) {
                     destination = path;
                     await ExportToJSON(sourceId, selectedTables, path);
-                    showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                    showToast('success', formatMsg('export_success', sourceName, destination), t('export_success_title'));
                     onClose();
                 } else {
                     setIsExporting(false); // Cancelled
@@ -175,7 +175,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                 if (path) {
                     destination = path;
                     await ExportToSQL(sourceId, selectedTables, path);
-                    showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                    showToast('success', formatMsg('export_success', sourceName, destination), t('export_success_title'));
                     onClose();
                 } else {
                     setIsExporting(false); // Cancelled
@@ -187,7 +187,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                 if (path) {
                     destination = path;
                     await ExportToExcel(sourceId, selectedTables, path);
-                    showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                    showToast('success', formatMsg('export_success', sourceName, destination), t('export_success_title'));
                     onClose();
                 } else {
                     setIsExporting(false); // Cancelled
@@ -220,7 +220,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                     const normalize = (h: string) => (h === '127.0.0.1' || h === '::1') ? 'localhost' : h;
 
                     if (normalize(srcHost) === normalize(dstHost) && srcPort === dstPort && srcDb === dstDb) {
-                        showToast('error', t('err_same_source_target'), 'Export Error');
+                        showToast('error', t('err_same_source_target'), t('export_error_title'));
                         setIsExporting(false);
                         return;
                     }
@@ -236,13 +236,13 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                     // Don't fail the export if config save fails
                 }
 
-                showToast('success', formatMsg('export_success', sourceName, destination), 'Export Success');
+                showToast('success', formatMsg('export_success', sourceName, destination), t('export_success_title'));
                 onClose();
             }
         } catch (err: any) {
             console.error("Export error:", err);
             const errorMessage = err?.message || err?.toString() || "Unknown error occurred";
-            showToast('error', formatMsg('export_failed', sourceName, destination || 'unknown', errorMessage), 'Export Failed');
+            showToast('error', formatMsg('export_failed', sourceName, destination || 'unknown', errorMessage), t('export_failed_title'));
         } finally {
             setIsExporting(false);
         }
@@ -365,7 +365,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                         onClick={handleBackToConnection}
                                         className="text-xs text-blue-600 hover:text-blue-800"
                                     >
-                                        ← {t('back')}
+                                        �?{t('back')}
                                     </button>
                                 )}
                             </div>
@@ -388,7 +388,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-500 mb-1">Port</label>
+                                            <label className="block text-xs font-medium text-slate-500 mb-1">{t('port')}</label>
                                             <input
                                                 type="text"
                                                 value={mysqlConfig.port}
@@ -416,7 +416,7 @@ const ExportDataSourceModal: React.FC<ExportDataSourceModalProps> = ({ isOpen, s
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-xs font-medium text-slate-500 mb-1">Password</label>
+                                            <label className="block text-xs font-medium text-slate-500 mb-1">{t('password')}</label>
                                             <input
                                                 type="password"
                                                 value={mysqlConfig.password}

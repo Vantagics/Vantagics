@@ -54,6 +54,10 @@ export function ClearHistory() {
   return window['go']['main']['App']['ClearHistory']();
 }
 
+export function ClearThreadMessages(arg1) {
+  return window['go']['main']['App']['ClearThreadMessages'](arg1);
+}
+
 export function CreateChatThread(arg1, arg2) {
   return window['go']['main']['App']['CreateChatThread'](arg1, arg2);
 }
@@ -508,6 +512,10 @@ export function SaveConfig(arg1) {
 
 export function SaveLayout(arg1) {
   return window['go']['main']['App']['SaveLayout'](arg1);
+}
+
+export function SaveLayoutConfig(arg1, arg2) {
+  return window['go']['main']['App']['SaveLayoutConfig'](arg1, arg2);
 }
 
 export function SaveMessageAnalysisResults(arg1, arg2, arg3) {

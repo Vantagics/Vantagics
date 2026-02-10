@@ -1,4 +1,5 @@
 import React from 'react';
+import { useLanguage } from '../i18n';
 
 interface DataTableProps {
     data: any[];
@@ -6,6 +7,7 @@ interface DataTableProps {
 }
 
 const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
+    const { t } = useLanguage();
     if (!data || data.length === 0) return null;
 
     // Extract columns from first item
@@ -39,7 +41,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                             <tr key={idx} className="bg-white border-b border-slate-50 hover:bg-slate-50/50">
                                 {columns.map((col) => (
                                     <td key={`${idx}-${col}`} className="px-6 py-4 whitespace-nowrap">
-                                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : <span className="text-slate-300">NULL</span>}
+                                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : <span className="text-slate-300">{t('null_value')}</span>}
                                     </td>
                                 ))}
                             </tr>
@@ -49,8 +51,8 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
             </div>
             <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-right">
                 {isTruncated 
-                    ? `显示前 ${MAX_DISPLAY_ROWS} 行 / 共 ${data.length} 行`
-                    : `${data.length} rows`
+                    ? t('rows_stats', String(MAX_DISPLAY_ROWS), String(data.length), String(MAX_DISPLAY_ROWS))
+                    : t('rows_total', String(data.length))
                 }
             </div>
         </div>

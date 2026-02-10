@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import LayoutEngine, { LayoutItem, GridConfig, DEFAULT_GRID_CONFIG } from '../utils/LayoutEngine';
 import ComponentManager, { ComponentType, ComponentInstance } from '../utils/ComponentManager';
 import { database } from '../../wailsjs/go/models';
+import { useLanguage } from '../i18n';
 
 // ============================================================================
 // INTERFACES AND TYPES
@@ -99,6 +100,8 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
     isLoading: false,
     error: null,
   });
+
+  const { t } = useLanguage();
 
   // ========================================================================
   // MANAGERS AND ENGINES
@@ -755,15 +758,15 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
       {/* Empty State */}
       {state.layout.length === 0 && (
         <div className="dashboard-container__empty-state">
-          <h3>No components in dashboard</h3>
+          <h3>{t('no_components_in_dashboard')}</h3>
           <p>
             {state.isEditMode
-              ? 'Add components using the buttons above'
-              : 'Switch to edit mode to add components'}
+              ? t('edit_mode_help')
+              : t('unlock_layout')}
           </p>
           {!state.isEditMode && (
             <button onClick={enterEditMode} className="dashboard-container__edit-button">
-              Start Editing
+              {t('edit_layout')}
             </button>
           )}
         </div>

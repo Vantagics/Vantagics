@@ -18,8 +18,10 @@ import (
 
 // SearchAPITool provides unified search capabilities using various API services
 type SearchAPITool struct {
-	logger    func(string)
-	apiConfig *config.SearchAPIConfig
+	logger      func(string)
+	apiConfig   *config.SearchAPIConfig
+	proxyConfig *config.ProxyConfig
+	httpClient  *http.Client
 }
 
 // SearchAPIInput represents the input for API search
@@ -38,7 +40,7 @@ type SearchAPIResult struct {
 }
 
 // NewSearchAPITool creates a new search API tool
-func NewSearchAPITool(logger func(string), apiConfig *config.SearchAPIConfig) (*SearchAPITool, error) {
+func NewSearchAPITool(logger func(string), apiConfig *config.SearchAPIConfig, proxyConfig *config.ProxyConfig) (*SearchAPITool, error) {
 	if apiConfig == nil {
 		return nil, fmt.Errorf("API configuration is required")
 	}
@@ -47,10 +49,6 @@ func NewSearchAPITool(logger func(string), apiConfig *config.SearchAPIConfig) (*
 	switch apiConfig.ID {
 	case "uapi_pro":
 		// UAPI Pro API key is optional for now (placeholder implementation)
-		// When actual UAPI Pro integration is complete, uncomment the validation below:
-		// if apiConfig.APIKey == "" {
-		//     return nil, fmt.Errorf("UAPI Pro requires an API key")
-		// }
 	case "duckduckgo":
 		// No API key required
 	case "serper":
@@ -61,9 +59,19 @@ func NewSearchAPITool(logger func(string), apiConfig *config.SearchAPIConfig) (*
 		return nil, fmt.Errorf("unsupported search API: %s", apiConfig.ID)
 	}
 
+	// Create HTTP client with optional proxy support
+	httpClient := NewProxyHTTPClient(30*time.Second, proxyConfig)
+	if proxyConfig != nil && proxyConfig.Enabled && proxyConfig.Tested &&
+		proxyConfig.Host != "" && proxyConfig.Port > 0 && logger != nil {
+		logger(fmt.Sprintf("[SEARCH-API] Using proxy: %s://%s:%d",
+			proxyConfig.Protocol, proxyConfig.Host, proxyConfig.Port))
+	}
+
 	return &SearchAPITool{
-		logger:    logger,
-		apiConfig: apiConfig,
+		logger:      logger,
+		apiConfig:   apiConfig,
+		proxyConfig: proxyConfig,
+		httpClient:  httpClient,
 	}, nil
 }
 
@@ -178,7 +186,7 @@ func (t *SearchAPITool) searchDuckDuckGo(ctx context.Context, query string, maxR
 	apiURL := fmt.Sprintf("https://api.duckduckgo.com/?q=%s&format=json&no_html=1&skip_disambig=1",
 		url.QueryEscape(query))
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := t.httpClient
 	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -312,9 +320,7 @@ func (t *SearchAPITool) searchSerper(ctx context.Context, query string, maxResul
 		return nil, fmt.Errorf("failed to marshal payload: %v", err)
 	}
 
-	// Create HTTP request
 	apiURL := "https://google.serper.dev/search"
-	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -325,7 +331,7 @@ func (t *SearchAPITool) searchSerper(ctx context.Context, query string, maxResul
 	req.Header.Set("Content-Type", "application/json")
 
 	// Execute request
-	resp, err := client.Do(req)
+	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %v", err)
 	}

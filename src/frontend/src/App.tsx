@@ -10,8 +10,13 @@ import ContextMenu from './components/ContextMenu';
 import MessageModal from './components/MessageModal';
 import SkillsManagementPage from './components/SkillsManagementPage';
 import StartupModeModal from './components/StartupModeModal';
+import CenterPanel from './components/CenterPanel';
+import RightPanel from './components/RightPanel';
+import ResizeHandle from './components/ResizeHandle';
+import DataBrowser from './components/DataBrowser';
+import { PanelWidths, PANEL_CONSTRAINTS, calculatePanelWidths, getDefaultPanelWidths, handleResizeDrag } from './utils/PanelWidths';
 import { EventsOn, EventsEmit, Quit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -62,6 +67,15 @@ function AppContent() {
     // Task 6.1: Timeout tracking for request timeout handling (Requirement 2.4)
     const [requestTimeouts, setRequestTimeouts] = useState<Map<string, number>>(new Map());
 
+    // Task 8.1: Data source selection state (Requirements 2.3, 7.1)
+    const [selectedDataSourceId, setSelectedDataSourceId] = useState<string | null>(null);
+
+    // Task 8.1: Data browser state (Requirements 7.1)
+    const [dataBrowserOpen, setDataBrowserOpen] = useState(false);
+    const [dataBrowserSourceId, setDataBrowserSourceId] = useState<string | null>(null);
+    const [dataBrowserSourceName, setDataBrowserSourceName] = useState<string | null>(null);
+    const [dataBrowserWidth, setDataBrowserWidth] = useState(500);
+
     // Refs for AnalysisResultBridge to access current session/message IDs
     const activeSessionIdRef = useRef<string | null>(null);
     const selectedMessageIdRef = useRef<string | null>(null);
@@ -77,6 +91,87 @@ function AppContent() {
 
     // Sound notification setting ref
     const soundEnabledRef = useRef<boolean>(true);
+
+    // Keyboard shortcuts: Ctrl+1/2/3 (panel focus), Ctrl+B (data browser toggle), Escape (close data browser)
+    // Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const isModifier = e.ctrlKey || e.metaKey;
+
+            // Escape key: close data browser if open (no modifier needed)
+            // Requirement 11.5
+            if (e.key === 'Escape') {
+                setDataBrowserOpen((prev) => {
+                    if (prev) {
+                        e.preventDefault();
+                        return false;
+                    }
+                    return prev;
+                });
+                return;
+            }
+
+            if (!isModifier) return;
+
+            // Ctrl+B / Cmd+B: Toggle data browser
+            // Requirement 11.4
+            if (e.key === 'b' || e.key === 'B') {
+                e.preventDefault();
+                e.stopPropagation();
+                setDataBrowserOpen((prev) => {
+                    if (!prev) {
+                        // Opening: use selectedDataSourceId if available
+                        setDataBrowserSourceId((currentSourceId) => {
+                            return selectedDataSourceId || currentSourceId;
+                        });
+                    }
+                    return !prev;
+                });
+                return;
+            }
+
+            let panelTestId: string | null = null;
+            let isCenterPanel = false;
+
+            switch (e.key) {
+                case '1':
+                    panelTestId = 'left-panel';
+                    break;
+                case '2':
+                    panelTestId = 'center-panel';
+                    isCenterPanel = true;
+                    break;
+                case '3':
+                    panelTestId = 'right-panel';
+                    break;
+                default:
+                    return;
+            }
+
+            if (panelTestId) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const panelEl = document.querySelector<HTMLElement>(`[data-testid="${panelTestId}"]`);
+                if (panelEl) {
+                    // For CenterPanel (Ctrl+2), try to focus the message input first
+                    if (isCenterPanel) {
+                        const messageInput = panelEl.querySelector<HTMLInputElement>('[data-testid="message-input"]');
+                        if (messageInput && !messageInput.disabled) {
+                            messageInput.focus();
+                            return;
+                        }
+                    }
+                    panelEl.focus();
+                }
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [selectedDataSourceId]);
     useEffect(() => {
         GetConfig().then(cfg => {
             soundEnabledRef.current = cfg.soundNotification !== false;
@@ -163,10 +258,9 @@ function AppContent() {
             
             logger.info(`Emitting start-new-chat event with data: ${JSON.stringify(eventData)}`);
             
-            // 打开聊天区域
-            setIsChatOpen(true);
-            // 折叠数据浏览器
-            setIsContextPanelCollapsed(true);
+            // Task 8.4: In the new three-panel layout, CenterPanel is always visible.
+            // Close data browser if open to focus on chat.
+            setDataBrowserOpen(false);
             
             // 发送创建新会话事件
             EventsEmit('start-new-chat', eventData);
@@ -239,10 +333,9 @@ function AppContent() {
         if (activeSessionId) {
             logger.debug(`Sending analysis request in session ${activeSessionId} with requestId ${requestId}`);
             
-            // Ensure chat sidebar is open so user can see the message
-            if (!isChatOpen) {
-                setIsChatOpen(true);
-            }
+            // Task 8.4: CenterPanel is always visible in the new three-panel layout.
+            // Close data browser if open to focus on chat.
+            setDataBrowserOpen(false);
             
             EventsEmit('chat-send-message-in-session', {
                 text: insightText,
@@ -250,20 +343,32 @@ function AppContent() {
                 requestId: requestId
             });
         } else {
-            // No active session - open chat and send message
-            logger.debug('No active session, opening chat and sending message');
-            setIsChatOpen(true);
+            // No active session - send message directly (CenterPanel is always mounted in new layout)
+            logger.debug('No active session, sending message directly');
+            setDataBrowserOpen(false);
             
-            // Delay to ensure chat sidebar is mounted
-            setTimeout(() => {
-                EventsEmit('chat-send-message', insightText);
-            }, 150);
+            // Send directly - no delay needed since CenterPanel is always mounted
+            EventsEmit('chat-send-message', insightText);
         }
     };
 
+    // Task 8.4: In the new three-panel layout, CenterPanel (chat) is always visible.
+    // Notify the backend that chat is always open.
     useEffect(() => {
-        SetChatOpen(isChatOpen);
-    }, [isChatOpen]);
+        SetChatOpen(true);
+    }, []);
+
+    // Listen for open-data-browser event from Sidebar
+    useEffect(() => {
+        const unsub = EventsOn('open-data-browser', (data: any) => {
+            if (data && data.sourceId) {
+                setDataBrowserSourceId(data.sourceId);
+                setDataBrowserSourceName(data.sourceName || null);
+                setDataBrowserOpen(true);
+            }
+        });
+        return () => { if (unsub) unsub(); };
+    }, []);
 
     // Startup State
     const [isAppReady, setIsAppReady] = useState(false);
@@ -277,6 +382,106 @@ function AppContent() {
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [isResizingContextPanel, setIsResizingContextPanel] = useState(false);
     const [isContextPanelCollapsed, setIsContextPanelCollapsed] = useState(false); // 数据浏览器折叠状态
+
+    // Three-panel layout state (Requirements: 1.1, 1.2, 1.6, 9.1, 9.2, 9.3, 9.7, 10.1, 10.2)
+    // Default ratio: center:right = 1:2
+    const DEFAULT_RIGHT_RATIO = 2 / 3;
+    const [panelRightRatio, setPanelRightRatio] = useState(DEFAULT_RIGHT_RATIO);
+    const [panelWidths, setPanelWidths] = useState<PanelWidths>(() => {
+        const totalWidth = window.innerWidth - 256;
+        return getDefaultPanelWidths(totalWidth);
+    });
+
+    // Load saved layout widths from backend config on mount
+    useEffect(() => {
+        GetConfig().then(cfg => {
+            const savedSidebar = (cfg.sidebarWidth && cfg.sidebarWidth >= PANEL_CONSTRAINTS.left.min && cfg.sidebarWidth <= PANEL_CONSTRAINTS.left.max) ? cfg.sidebarWidth : 256;
+
+            if (savedSidebar !== 256) {
+                setSidebarWidth(savedSidebar);
+            }
+
+            const totalWidth = window.innerWidth - savedSidebar;
+
+            // Prefer new ratio field; fall back to computing ratio from deprecated pixel value
+            let ratio = DEFAULT_RIGHT_RATIO;
+            if (cfg.panelRightRatio && cfg.panelRightRatio > 0 && cfg.panelRightRatio < 1) {
+                ratio = cfg.panelRightRatio;
+            } else if (cfg.panelRightWidth && cfg.panelRightWidth > 0) {
+                // Migration: compute ratio from old absolute pixel value
+                const oldTotal = window.innerWidth - savedSidebar;
+                if (oldTotal > 0) {
+                    const computed = cfg.panelRightWidth / oldTotal;
+                    if (computed > 0.2 && computed < 0.9) {
+                        ratio = computed;
+                    }
+                }
+            }
+
+            setPanelRightRatio(ratio);
+            const rightWidth = Math.round(totalWidth * ratio);
+            const centerWidth = totalWidth - rightWidth;
+            setPanelWidths({
+                left: 0,
+                center: Math.max(PANEL_CONSTRAINTS.center.min, centerWidth),
+                right: Math.max(PANEL_CONSTRAINTS.right.min, rightWidth)
+            });
+        }).catch(() => {});
+    }, []);
+
+    // Ref to track latest panelWidths for use in event handlers (avoids stale closures)
+    const panelWidthsRef = useRef<PanelWidths>(panelWidths);
+    useEffect(() => {
+        panelWidthsRef.current = panelWidths;
+    }, [panelWidths]);
+
+    // Ref to track latest ratio for use in resize handler
+    const panelRightRatioRef = useRef(panelRightRatio);
+    useEffect(() => {
+        panelRightRatioRef.current = panelRightRatio;
+    }, [panelRightRatio]);
+
+    // Save panel right ratio to backend config (without triggering config-updated)
+    const savePanelRightWidth = (widths: PanelWidths) => {
+        const total = widths.center + widths.right;
+        if (total > 0) {
+            const ratio = widths.right / total;
+            setPanelRightRatio(ratio);
+            SaveLayoutConfig(sidebarWidth, ratio).catch(() => {});
+        }
+    };
+
+    // Window resize handler: recalculate panel widths using saved ratio (Requirements: 1.6, 9.7)
+    useEffect(() => {
+        let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const handleWindowResize = () => {
+            if (resizeTimer) {
+                clearTimeout(resizeTimer);
+            }
+            resizeTimer = setTimeout(() => {
+                const newTotalWidth = window.innerWidth - sidebarWidth;
+                if (newTotalWidth > 0) {
+                    const ratio = panelRightRatioRef.current;
+                    const newRight = Math.round(newTotalWidth * ratio);
+                    const newCenter = newTotalWidth - newRight;
+                    setPanelWidths({
+                        left: 0,
+                        center: Math.max(PANEL_CONSTRAINTS.center.min, newCenter),
+                        right: Math.max(PANEL_CONSTRAINTS.right.min, newRight)
+                    });
+                }
+            }, 100);
+        };
+
+        window.addEventListener('resize', handleWindowResize);
+        return () => {
+            window.removeEventListener('resize', handleWindowResize);
+            if (resizeTimer) {
+                clearTimeout(resizeTimer);
+            }
+        };
+    }, [sidebarWidth]);
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: HTMLElement } | null>(null);
@@ -480,7 +685,7 @@ function AppContent() {
             alert(`Analysis Warning: ${msg}`);
         });
 
-        // Listen for loading state from ChatSidebar
+        // Listen for loading state from CenterPanel (Task 8.4: updated from ChatSidebar reference)
         const unsubscribeLoading = EventsOn('chat-loading', (data: any) => {
             if (typeof data === 'boolean') {
                 // 向后兼容：如果是布尔值，应用到当前活动会话
@@ -662,7 +867,7 @@ function AppContent() {
                 setSessionFiles([]);
             }
 
-            // ChatSidebar 会自动加载第一个分析结果（通过 activeThreadId 的 useEffect）
+            // CenterPanel will automatically load the first analysis result (via activeThreadId useEffect)
         });
 
         const unsubscribeDashboardDataUpdate = EventsOn("dashboard-data-update", (data: main.DashboardData) => {
@@ -716,49 +921,44 @@ function AppContent() {
 
         const unsubscribeAnalyzeInsight = EventsOn("analyze-insight", (text: string) => {
             logger.debug(`analyze-insight event received: ${text.substring(0, 50)}`);
-            logger.debug(`Current isChatOpen state: ${isChatOpen}`);
 
-            // First, open the chat sidebar
-            setIsChatOpen(true);
-            logger.debug('Set isChatOpen to true');
+            // Task 8.4: In the new three-panel layout, CenterPanel is always visible and mounted.
+            // No need to open chat sidebar or wait for it to mount.
+            // Close data browser if open to focus on chat.
+            setDataBrowserOpen(false);
 
-            // Then, after a small delay to allow sidebar to mount, send the message
-            // Use setTimeout to ensure the sidebar component has mounted and initialized
-            setTimeout(() => {
-                logger.debug(`Sending chat-send-message event: ${text.substring(0, 50)}`);
-                EventsEmit('chat-send-message', text);
-            }, 150); // 150ms delay to ensure sidebar is fully mounted
+            // Send the message directly - CenterPanel is always mounted in the new layout
+            logger.debug(`Sending chat-send-message event: ${text.substring(0, 50)}`);
+            EventsEmit('chat-send-message', text);
         });
 
         const unsubscribeAnalyzeInsightInSession = EventsOn("analyze-insight-in-session", (data: any) => {
             logger.debug(`analyze-insight-in-session event received: ${JSON.stringify(data).substring(0, 100)}`);
-            logger.debug(`Current isChatOpen state: ${isChatOpen}`);
 
-            // First, open the chat sidebar
-            setIsChatOpen(true);
-            logger.debug('Set isChatOpen to true');
+            // Task 8.4: In the new three-panel layout, CenterPanel is always visible and mounted.
+            // No need to open chat sidebar or wait for it to mount.
+            // Close data browser if open to focus on chat.
+            setDataBrowserOpen(false);
 
-            // Then, after a small delay to allow sidebar to mount, send the message with session context
-            setTimeout(() => {
-                logger.debug(`Sending chat-send-message-in-session event`);
-                EventsEmit('chat-send-message-in-session', data);
-            }, 150); // 150ms delay to ensure sidebar is fully mounted
+            // Send the message directly - CenterPanel is always mounted in the new layout
+            logger.debug(`Sending chat-send-message-in-session event`);
+            EventsEmit('chat-send-message-in-session', data);
         });
 
         const unsubscribeStartNewChat = EventsOn("start-new-chat", (data: any) => {
-            setIsChatOpen(true);
-            // 启动分析会话时折叠数据浏览器区域
-            setIsContextPanelCollapsed(true);
-            // If keepChatOpen is true, don't auto-hide the chat area
+            // Task 8.4: In the new three-panel layout, CenterPanel (chat) is always visible,
+            // so no need to toggle isChatOpen. Close the data browser if open to focus on chat.
+            setDataBrowserOpen(false);
+            // If keepChatOpen is true, don't auto-hide the chat area (no-op in new layout since chat is always visible)
             if (data && data.keepChatOpen) {
-                logger.debug('start-new-chat with keepChatOpen=true, keeping chat area open');
-                // Additional logic could be added here if needed
+                logger.debug('start-new-chat with keepChatOpen=true, chat area is always visible in new layout');
             }
         });
 
         const unsubscribeEnsureChatOpen = EventsOn("ensure-chat-open", () => {
-            logger.debug('ensure-chat-open event received, ensuring chat is open');
-            setIsChatOpen(true);
+            // Task 8.4: In the new three-panel layout, CenterPanel (chat) is always visible.
+            // This event is kept for backward compatibility but is a no-op in the new layout.
+            logger.debug('ensure-chat-open event received - chat is always visible in new three-panel layout');
         });
 
         const unsubscribeOpenDevTools = EventsOn("open-dev-tools", () => {
@@ -1362,6 +1562,10 @@ function AppContent() {
         };
 
         const handleMouseUp = () => {
+            if (isResizingSidebar) {
+                // Save sidebar width to backend config (without triggering config-updated)
+                SaveLayoutConfig(sidebarWidth, panelWidthsRef.current.right).catch(() => {});
+            }
             setIsResizingSidebar(false);
             setIsResizingContextPanel(false);
             document.body.style.cursor = 'default';
@@ -1386,6 +1590,40 @@ function AppContent() {
     const startResizingContextPanel = () => {
         setIsResizingContextPanel(true);
         document.body.style.cursor = 'col-resize';
+    };
+
+    // Three-panel resize handlers (Requirements: 1.7, 1.8, 1.9)
+    const handleLeftResizeDragStart = () => {
+        // No-op for now, visual feedback handled by ResizeHandle component
+    };
+
+    const handleLeftResizeDrag = (deltaX: number) => {
+        const totalWidth = window.innerWidth - sidebarWidth;
+        setPanelWidths(prev => handleResizeDrag('left', deltaX, prev, totalWidth));
+    };
+
+    const handleLeftResizeDragEnd = () => {
+        savePanelRightWidth(panelWidthsRef.current);
+    };
+
+    const handleRightResizeDragStart = () => {
+        // No-op for now, visual feedback handled by ResizeHandle component
+    };
+
+    const handleRightResizeDrag = (deltaX: number) => {
+        const maxRight = window.innerWidth - sidebarWidth - 300; // leave at least 300px for chat
+        setPanelWidths(prev => {
+            // Directly adjust right panel width. Center panel uses flex:1 so it auto-adjusts.
+            const newRight = Math.max(
+                PANEL_CONSTRAINTS.right.min,
+                Math.min(maxRight, prev.right - deltaX)
+            );
+            return { ...prev, right: newRight };
+        });
+    };
+
+    const handleRightResizeDragEnd = () => {
+        savePanelRightWidth(panelWidthsRef.current);
     };
 
     if (!isAppReady) {
@@ -1453,6 +1691,12 @@ function AppContent() {
                     onToggleChat={() => setIsChatOpen(!isChatOpen)}
                     isChatOpen={isChatOpen}
                     isAnalysisLoading={isAnalysisLoading}
+                    onSessionSelect={(sessionId) => {
+                        logger.debug(`Session selected: ${sessionId}`);
+                        setDataBrowserOpen(false);
+                        EventsEmit('switch-to-session', { threadId: sessionId, openChat: true });
+                    }}
+                    selectedSessionId={activeSessionId}
                 />
 
                 {/* Sidebar Resizer */}
@@ -1461,77 +1705,63 @@ function AppContent() {
                     onMouseDown={startResizingSidebar}
                 />
 
-                {/* 数据浏览器区域 - 可折叠 */}
-                {!isContextPanelCollapsed ? (
-                    <>
-                        <ContextPanel
-                            width={contextPanelWidth}
-                            onContextPanelClick={() => {
-                                if (isChatOpen) {
-                                    setIsChatOpen(false);
-                                }
-                            }}
-                            onCollapse={() => setIsContextPanelCollapsed(true)}
-                        />
+                {/* Three-panel layout container (Requirements: 1.1, 1.2, 10.1, 10.2) */}
+                <div className="three-panel-layout" style={{ display: 'flex', flex: 1, minWidth: 0, height: '100%', position: 'relative' }}>
+                    {/* Center Panel - Chat Area */}
+                    <div style={{ flex: 1, minWidth: 0, height: '100%', position: 'relative', overflow: 'hidden' }}>
+                        <div style={{ position: 'relative', zIndex: 0, width: '100%', height: '100%' }}>
+                            <ChatSidebar
+                                isOpen={true}
+                                onClose={() => {}}
+                            />
+                        </div>
 
-                        {/* Context Panel Resizer */}
-                        <div
-                            className={`w-1 hover:bg-blue-400 cursor-col-resize z-50 transition-colors flex-shrink-0 ${isResizingContextPanel ? 'bg-blue-600' : 'bg-transparent'}`}
-                            onMouseDown={startResizingContextPanel}
+                        {/* Data Browser - slides over chat area */}
+                        <DataBrowser
+                            isOpen={dataBrowserOpen}
+                            sourceId={dataBrowserSourceId}
+                            sourceName={dataBrowserSourceName}
+                            onClose={() => setDataBrowserOpen(false)}
+                            width={dataBrowserWidth}
+                            onWidthChange={setDataBrowserWidth}
                         />
-                    </>
-                ) : (
-                    /* 折叠状态下显示展开按钮 */
-                    <div className="relative flex-shrink-0">
-                        <button
-                            onClick={() => setIsContextPanelCollapsed(false)}
-                            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-blue-500 hover:bg-blue-600 text-white px-1 py-3 rounded-r-md shadow-lg transition-colors"
-                            title="展开数据浏览器"
-                        >
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
                     </div>
-                )}
 
-                <div className="flex-1 flex flex-col min-w-0">
-                    <DraggableDashboard
-                        data={dashboardData}
+                    {/* Resize Handle between Center and Right panels (Requirements: 1.7, 1.8) */}
+                    <ResizeHandle
+                        onDragStart={handleRightResizeDragStart}
+                        onDrag={handleRightResizeDrag}
+                        onDragEnd={handleRightResizeDragEnd}
+                        orientation="vertical"
+                    />
+
+                    {/* Right Panel - Dashboard (replaces inline DraggableDashboard) */}
+                    <RightPanel
+                        width={panelWidths.right}
+                        onWidthChange={(w) => setPanelWidths(prev => ({ ...prev, right: w }))}
+                        dashboardData={dashboardData}
                         activeChart={activeChart}
-                        userRequestText={selectedUserRequest}
-                        isChatOpen={isChatOpen}
-                        activeThreadId={activeSessionId}
-                        isAnalysisLoading={isAnalysisLoading}
-                        loadingThreadId={loadingThreadId}
                         sessionFiles={sessionFiles}
                         selectedMessageId={selectedMessageId}
                         onInsightClick={handleInsightClick}
-                        onDashboardClick={() => {
-                            if (isChatOpen) {
-                                setIsChatOpen(false);
-                            }
-                        }}
+                        activeThreadId={activeSessionId}
+                        isChatOpen={isChatOpen}
+                        userRequestText={selectedUserRequest}
                     />
                 </div>
 
-                <ChatSidebar
-                    isOpen={isChatOpen}
-                    onClose={() => {
-                        logger.debug('ChatSidebar onClose called');
-                        setIsChatOpen(false);
-                    }}
-                />
-
+                {/* Modals - kept in place */}
                 <PreferenceModal
                     isOpen={isPreferenceOpen}
                     onClose={() => {
                         setIsPreferenceOpen(false);
                         setPreferenceInitialTab(undefined);
-                        setIsStartupSettingsMode(false);  // 重置启动模式标记
+                        setIsStartupSettingsMode(false);
                     }}
                     onOpenSkills={() => {
                         setIsPreferenceOpen(false);
                         setPreferenceInitialTab(undefined);
-                        setIsStartupSettingsMode(false);  // 重置启动模式标记
+                        setIsStartupSettingsMode(false);
                         setIsSkillsOpen(true);
                     }}
                     initialTab={preferenceInitialTab}
@@ -1568,16 +1798,6 @@ function AppContent() {
                         target={contextMenu.target}
                         onClose={() => setContextMenu(null)}
                     />
-                )}
-
-                {!isChatOpen && (
-                    <button
-                        onClick={() => setIsChatOpen(true)}
-                        className="fixed left-0 top-1/2 -translate-y-1/2 z-[40] bg-white border border-slate-200 border-l-0 rounded-r-xl p-2 shadow-lg hover:bg-slate-50 text-blue-600 transition-transform hover:translate-x-1 group"
-                        title="Open Chat"
-                    >
-                        <ChevronRight className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                    </button>
                 )}
             </div>
     );
