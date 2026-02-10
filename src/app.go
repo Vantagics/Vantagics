@@ -7072,10 +7072,9 @@ func (a *App) extractSuggestionInsights(analysisContent string) []Insight {
 			}
 		}
 
-		// Clean up markdown formatting
+		// Clean up markdown formatting - remove all ** markers (including incomplete ones in the middle)
 		if suggestionText != "" {
-			suggestionText = strings.TrimPrefix(suggestionText, "**")
-			suggestionText = strings.TrimSuffix(suggestionText, "**")
+			suggestionText = strings.ReplaceAll(suggestionText, "**", "")
 			suggestionText = strings.TrimSpace(suggestionText)
 		}
 

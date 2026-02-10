@@ -122,6 +122,10 @@ export function ExportAnalysisProcess(arg1) {
   return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
 }
 
+export function ExportComprehensiveReport(arg1, arg2) {
+  return window['go']['main']['App']['ExportComprehensiveReport'](arg1, arg2);
+}
+
 export function ExportDashboard(arg1) {
   return window['go']['main']['App']['ExportDashboard'](arg1);
 }
@@ -196,6 +200,10 @@ export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
 
 export function GenerateCSVThumbnail(arg1, arg2) {
   return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
+}
+
+export function GenerateComprehensiveReport(arg1) {
+  return window['go']['main']['App']['GenerateComprehensiveReport'](arg1);
 }
 
 export function GenerateFilePreview(arg1, arg2) {
@@ -452,6 +460,10 @@ export function OpenSessionResultsDirectory(arg1) {
 
 export function OpenShopifyOAuthInBrowser(arg1) {
   return window['go']['main']['App']['OpenShopifyOAuthInBrowser'](arg1);
+}
+
+export function PrepareComprehensiveReport(arg1) {
+  return window['go']['main']['App']['PrepareComprehensiveReport'](arg1);
 }
 
 export function PrepareImportAnalysis() {

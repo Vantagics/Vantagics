@@ -499,6 +499,29 @@ func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
 	return threads, nil
 }
 
+// LoadThread loads a single thread by ID with full data (including analysis results)
+func (s *ChatService) LoadThread(threadID string) (*ChatThread, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getThreadPath(threadID)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read thread: %v", err)
+	}
+
+	var t ChatThread
+	if err := json.Unmarshal(data, &t); err != nil {
+		return nil, fmt.Errorf("failed to parse thread: %v", err)
+	}
+
+	return &t, nil
+}
+
 // CreateThread creates a new chat thread with a unique title
 func (s *ChatService) CreateThread(dataSourceID, title string) (ChatThread, error) {
 	s.mu.Lock()
@@ -862,7 +885,7 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 		}
 	}
 
-	// Extract table blocks
+	// Extract table blocks (json:table format)
 	reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 	for idx, match := range reTable.FindAllStringSubmatchIndex(content, -1) {
 		if len(match) >= 4 {
@@ -926,6 +949,29 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 					Source: "restored",
 				})
 			}
+		}
+	}
+
+	// Extract standard Markdown tables (| col1 | col2 | format)
+	mdTables := extractMarkdownTablesFromContent(content)
+	for mdIdx, mdTable := range mdTables {
+		if len(mdTable.Rows) > 0 {
+			tableDataWithTitle := map[string]interface{}{
+				"title": mdTable.Title,
+				"rows":  mdTable.Rows,
+			}
+			seq++
+			items = append(items, AnalysisResultItem{
+				ID:   fmt.Sprintf("restored_mdtable_%s_%d_%d", messageID, mdIdx, seq),
+				Type: "table",
+				Data: tableDataWithTitle,
+				Metadata: map[string]interface{}{
+					"sessionId": threadID,
+					"messageId": messageID,
+					"timestamp": now,
+				},
+				Source: "restored",
+			})
 		}
 	}
 
@@ -1018,10 +1064,9 @@ func extractSuggestionInsightsFromContent(content string) []Insight {
 			}
 		}
 
-		// Clean up markdown formatting
+		// Clean up markdown formatting - remove all ** markers (including incomplete ones in the middle)
 		if suggestionText != "" {
-			suggestionText = strings.TrimPrefix(suggestionText, "**")
-			suggestionText = strings.TrimSuffix(suggestionText, "**")
+			suggestionText = strings.ReplaceAll(suggestionText, "**", "")
 			suggestionText = strings.TrimSpace(suggestionText)
 		}
 
@@ -1123,5 +1168,181 @@ func cleanEChartsJSONSimple(jsonStr string) string {
 	reTrailingComma := regexp.MustCompile(`,(\s*[}\]])`)
 	result = reTrailingComma.ReplaceAllString(result, "$1")
 
+	return result
+}
+
+
+// MarkdownTableDataCS represents a parsed markdown table (ChatService local copy)
+type MarkdownTableDataCS struct {
+	Title string                   `json:"title"`
+	Rows  []map[string]interface{} `json:"rows"`
+}
+
+// extractMarkdownTablesFromContent extracts standard markdown tables from content
+// This is used for restoring historical analysis results that contain markdown tables
+func extractMarkdownTablesFromContent(text string) []MarkdownTableDataCS {
+	var tables []MarkdownTableDataCS
+
+	lines := strings.Split(text, "\n")
+	i := 0
+
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+
+		// Check if this line looks like a markdown table header (starts and ends with |)
+		if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") {
+			// Check if next line is a separator (|---|---|)
+			if i+1 < len(lines) {
+				sepLine := strings.TrimSpace(lines[i+1])
+				if isMarkdownTableSeparatorCS(sepLine) {
+					// Look for table title in preceding lines
+					title := extractTableTitleCS(lines, i)
+
+					// Found a table, parse it
+					table := parseMarkdownTableFromLinesCS(lines, i)
+					table.Title = title
+					if len(table.Rows) > 0 {
+						tables = append(tables, table)
+					}
+					// Skip past the table
+					for i < len(lines) {
+						l := strings.TrimSpace(lines[i])
+						if !strings.HasPrefix(l, "|") || !strings.HasSuffix(l, "|") {
+							break
+						}
+						i++
+					}
+					continue
+				}
+			}
+		}
+		i++
+	}
+
+	return tables
+}
+
+// extractTableTitleCS looks for a table title in the lines preceding the table
+func extractTableTitleCS(lines []string, tableStartIdx int) string {
+	// Search up to 3 lines before the table for a title
+	for j := tableStartIdx - 1; j >= 0 && j >= tableStartIdx-3; j-- {
+		line := strings.TrimSpace(lines[j])
+		if line == "" {
+			continue
+		}
+
+		// Skip if it's a table line
+		if strings.HasPrefix(line, "|") {
+			continue
+		}
+
+		// Check for markdown headers: ### Title, ## Title, # Title
+		if strings.HasPrefix(line, "#") {
+			title := strings.TrimLeft(line, "#")
+			title = strings.TrimSpace(title)
+			if title != "" {
+				return title
+			}
+		}
+
+		// Check for bold text: **Title** or **Title**：description
+		if strings.HasPrefix(line, "**") {
+			endIdx := strings.Index(line[2:], "**")
+			if endIdx > 0 {
+				title := line[2 : 2+endIdx]
+				title = strings.TrimSpace(title)
+				if title != "" {
+					return title
+				}
+			}
+		}
+
+		// Check for numbered list with bold: 1. **Title**
+		boldPattern := regexp.MustCompile(`^\d*[.、)]\s*\*\*(.+?)\*\*`)
+		if matches := boldPattern.FindStringSubmatch(line); len(matches) > 1 {
+			return strings.TrimSpace(matches[1])
+		}
+
+		// Stop searching if we found a non-title line
+		break
+	}
+
+	return ""
+}
+
+// isMarkdownTableSeparatorCS checks if a line is a markdown table separator
+func isMarkdownTableSeparatorCS(line string) bool {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return false
+	}
+	inner := strings.Trim(line, "|")
+	parts := strings.Split(inner, "|")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		cleaned := strings.Trim(part, ":-")
+		if cleaned != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// parseMarkdownTableFromLinesCS parses a markdown table starting at the given line index
+func parseMarkdownTableFromLinesCS(lines []string, startIdx int) MarkdownTableDataCS {
+	table := MarkdownTableDataCS{
+		Title: "",
+		Rows:  []map[string]interface{}{},
+	}
+
+	if startIdx >= len(lines) {
+		return table
+	}
+
+	// Parse header row
+	headerLine := strings.TrimSpace(lines[startIdx])
+	headers := parseMarkdownTableRowCellsCS(headerLine)
+	if len(headers) == 0 {
+		return table
+	}
+
+	// Skip separator line
+	dataStartIdx := startIdx + 2
+
+	// Parse data rows
+	for i := dataStartIdx; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+			break
+		}
+		// Skip if it's another separator line
+		if isMarkdownTableSeparatorCS(line) {
+			continue
+		}
+
+		cells := parseMarkdownTableRowCellsCS(line)
+		row := make(map[string]interface{})
+		for j, header := range headers {
+			if j < len(cells) {
+				row[header] = cells[j]
+			} else {
+				row[header] = ""
+			}
+		}
+		table.Rows = append(table.Rows, row)
+	}
+
+	return table
+}
+
+// parseMarkdownTableRowCellsCS splits a markdown table row into cells
+func parseMarkdownTableRowCellsCS(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.Trim(line, "|")
+	parts := strings.Split(line, "|")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		result = append(result, strings.TrimSpace(p))
+	}
 	return result
 }

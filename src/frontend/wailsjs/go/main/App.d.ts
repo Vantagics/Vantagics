@@ -65,6 +65,8 @@ export function ExecuteImportAnalysis(arg1:main.AnalysisExport,arg2:string):Prom
 
 export function ExportAnalysisProcess(arg1:string):Promise<void>;
 
+export function ExportComprehensiveReport(arg1:string,arg2:string):Promise<void>;
+
 export function ExportDashboard(arg1:database.ExportRequest):Promise<database.ExportResult>;
 
 export function ExportDashboardToExcel(arg1:main.DashboardExportData):Promise<void>;
@@ -102,6 +104,8 @@ export function ExtractSuggestionsAsItems(arg1:string,arg2:string,arg3:string):P
 export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function GenerateCSVThumbnail(arg1:string,arg2:string):Promise<string>;
+
+export function GenerateComprehensiveReport(arg1:main.ComprehensiveReportRequest):Promise<void>;
 
 export function GenerateFilePreview(arg1:string,arg2:string):Promise<string>;
 
@@ -230,6 +234,8 @@ export function OpenSessionFile(arg1:string,arg2:string):Promise<void>;
 export function OpenSessionResultsDirectory(arg1:string):Promise<void>;
 
 export function OpenShopifyOAuthInBrowser(arg1:string):Promise<void>;
+
+export function PrepareComprehensiveReport(arg1:main.ComprehensiveReportRequest):Promise<main.ComprehensiveReportResult>;
 
 export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 

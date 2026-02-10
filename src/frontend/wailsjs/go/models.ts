@@ -1669,6 +1669,36 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class ComprehensiveReportRequest {
+	    threadId: string;
+	    dataSourceName: string;
+	    sessionName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ComprehensiveReportRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.threadId = source["threadId"];
+	        this.dataSourceName = source["dataSourceName"];
+	        this.sessionName = source["sessionName"];
+	    }
+	}
+	export class ComprehensiveReportResult {
+	    reportId: string;
+	    cached: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ComprehensiveReportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reportId = source["reportId"];
+	        this.cached = source["cached"];
+	    }
+	}
 	export class ConnectionResult {
 	    success: boolean;
 	    message: string;

@@ -332,4 +332,16 @@ var englishTranslations = map[string]string{
 	"report.footer_text":                "Page %d",
 
 	// Report Errors (duplicate removed - already defined above)
+
+	// Comprehensive Report
+	"comprehensive_report.filename_prefix":    "Comprehensive_Report",
+	"comprehensive_report.save_dialog_title":  "Save Comprehensive Report",
+	"comprehensive_report.no_valid_analysis":  "No valid analysis results to generate report",
+	"comprehensive_report.data_source":        "Data Source: ",
+	"comprehensive_report.session_name":       "Session Name: ",
+	"comprehensive_report.all_analysis_results": "All Analysis Results: ",
+	"comprehensive_report.analysis_request":   "Analysis Request",
+	"comprehensive_report.analysis_result":    "Analysis Result",
+	"comprehensive_report.insight":            "Insight",
+	"comprehensive_report.table":              "Data Table",
 }

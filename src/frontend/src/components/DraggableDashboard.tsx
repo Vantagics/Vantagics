@@ -26,6 +26,38 @@ import { GlobalAnalysisStatus } from './GlobalAnalysisStatus';
 
 const logger = createLogger('DraggableDashboard');
 
+/**
+ * 简单的内联 markdown 渲染函数
+ * 处理标题中的加粗文本 (**text** 或 __text__)
+ */
+const renderInlineMarkdown = (text: string): React.ReactNode => {
+    if (!text) return text;
+    
+    // 匹配 **text** 或 __text__ 格式的加粗文本
+    const boldPattern = /(\*\*|__)(.+?)\1/g;
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match;
+    let keyIndex = 0;
+    
+    while ((match = boldPattern.exec(text)) !== null) {
+        // 添加匹配前的普通文本
+        if (match.index > lastIndex) {
+            parts.push(text.slice(lastIndex, match.index));
+        }
+        // 添加加粗文本
+        parts.push(<strong key={keyIndex++}>{match[2]}</strong>);
+        lastIndex = match.index + match[0].length;
+    }
+    
+    // 添加剩余的普通文本
+    if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : text;
+};
+
 interface DraggableDashboardProps {
     data: main.DashboardData | null;  // 保留接口兼容性，但不再使用
     activeChart?: { type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: main.ChartData } | null;  // 保留接口兼容性，但不再使用
@@ -1450,7 +1482,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 {/* 表格标题栏 */}
                                 {showTitleBar && (
                                     <div className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-                                        <span className="flex-1">{tableTitle}</span>
+                                        <span className="flex-1">{renderInlineMarkdown(tableTitle)}</span>
                                         <span className="text-xs text-slate-400">{tableData.rows.length} {t('rows') || '行'}</span>
                                     </div>
                                 )}

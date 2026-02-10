@@ -332,4 +332,16 @@ var chineseTranslations = map[string]string{
 	"report.footer_text":                "第 %d 页",
 
 	// 报告错误（已删除重复项 - 在上面已定义）
+
+	// 综合报告
+	"comprehensive_report.filename_prefix":    "综合报告",
+	"comprehensive_report.save_dialog_title":  "保存综合报告",
+	"comprehensive_report.no_valid_analysis":  "没有有效的分析结果可生成报告",
+	"comprehensive_report.data_source":        "数据源：",
+	"comprehensive_report.session_name":       "会话名称：",
+	"comprehensive_report.all_analysis_results": "所有分析结果：",
+	"comprehensive_report.analysis_request":   "分析请求",
+	"comprehensive_report.analysis_result":    "分析结果",
+	"comprehensive_report.insight":            "洞察",
+	"comprehensive_report.table":              "数据表",
 }

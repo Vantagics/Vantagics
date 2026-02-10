@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData } from '../../wailsjs/go/main/App';
+import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn } from 'lucide-react';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import MessageBubble from './MessageBubble';
@@ -78,6 +78,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [historyWidth, setHistoryWidth] = useState(208);
     const [isResizingSidebar, setIsResizingSidebar] = useState(false);
     const [isResizingHistory, setIsResizingHistory] = useState(false);
+
+    // Comprehensive Report State
+    const [isGeneratingComprehensiveReport, setIsGeneratingComprehensiveReport] = useState(false);
+    const [preparedComprehensiveReportId, setPreparedComprehensiveReportId] = useState<string | null>(null);
+    const [comprehensiveReportExportDropdownOpen, setComprehensiveReportExportDropdownOpen] = useState(false);
+    const [comprehensiveReportCached, setComprehensiveReportCached] = useState(false);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const blankMenuRef = useRef<HTMLDivElement>(null);
@@ -1091,7 +1097,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setBlankAreaContextMenu(null);
     };
 
-    const handleContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'start_free_chat', threadId: string) => {
+    const handleContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'start_free_chat' | 'comprehensive_report', threadId: string) => {
         console.log(`Action ${action} on thread ${threadId}`);
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
@@ -1135,6 +1141,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     message: String(e)
                 });
             }
+        } else if (action === 'comprehensive_report') {
+            // Generate comprehensive report for the session
+            await handleGenerateComprehensiveReport(threadId);
         } else if (action === 'start_free_chat') {
             try {
                 // Create a new thread without data source for free chat
@@ -1200,6 +1209,104 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 发送分析建议请求
         handleSendMessage(prompt, activeThreadId, activeThread);
     };
+
+    // 处理"生成综合报告"按钮点击
+    const handleGenerateComprehensiveReport = async (threadId?: string) => {
+        const targetThreadId = threadId || activeThreadId;
+        if (!targetThreadId) {
+            setToast({
+                message: t('comprehensive_report_no_analysis'),
+                type: 'error'
+            });
+            return;
+        }
+
+        // Find the thread
+        const targetThread = threads?.find(t => t.id === targetThreadId);
+        if (!targetThread) {
+            setToast({
+                message: t('comprehensive_report_no_analysis'),
+                type: 'error'
+            });
+            return;
+        }
+
+        // Find the data source name
+        const dataSource = dataSources?.find(ds => ds.id === targetThread.data_source_id);
+        const dataSourceName = dataSource?.name || 'Unknown';
+        const sessionName = targetThread.title || 'Session';
+
+        // Show progress dialog
+        setIsGeneratingComprehensiveReport(true);
+        setPreparedComprehensiveReportId(null);
+        setComprehensiveReportCached(false);
+
+        try {
+            const result = await PrepareComprehensiveReport({
+                threadId: targetThreadId,
+                dataSourceName: dataSourceName,
+                sessionName: sessionName
+            });
+            
+            setIsGeneratingComprehensiveReport(false);
+            setPreparedComprehensiveReportId(result.reportId);
+            setComprehensiveReportCached(result.cached);
+            setComprehensiveReportExportDropdownOpen(true);
+            
+            if (result.cached) {
+                setToast({
+                    message: t('comprehensive_report_cached') || '报告已缓存，可直接导出',
+                    type: 'success'
+                });
+            } else {
+                setToast({
+                    message: t('comprehensive_report_ready') || '报告已生成，请选择导出格式',
+                    type: 'success'
+                });
+            }
+        } catch (e) {
+            setIsGeneratingComprehensiveReport(false);
+            console.error("Prepare comprehensive report failed:", e);
+            setToast({
+                message: (t('comprehensive_report_failed') || '综合报告生成失败：') + String(e),
+                type: 'error'
+            });
+        }
+    };
+
+    // Export comprehensive report in specified format
+    const exportComprehensiveReportAs = async (format: 'word' | 'pdf') => {
+        if (!preparedComprehensiveReportId) return;
+        try {
+            await ExportComprehensiveReport(preparedComprehensiveReportId, format);
+            setToast({
+                message: t('comprehensive_report_success') || '综合报告导出成功！',
+                type: 'success'
+            });
+        } catch (e) {
+            console.error("Export comprehensive report failed:", e);
+            setToast({
+                message: (t('comprehensive_report_export_failed') || '综合报告导出失败：') + String(e),
+                type: 'error'
+            });
+        }
+    };
+
+    // Close comprehensive report dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (comprehensiveReportExportDropdownOpen) {
+                const target = event.target as HTMLElement;
+                if (!target.closest('.comprehensive-report-dropdown-container')) {
+                    setComprehensiveReportExportDropdownOpen(false);
+                }
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [comprehensiveReportExportDropdownOpen]);
 
     /**
      * 格式化意图建议为 Markdown 显示
@@ -2646,6 +2753,71 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                             {t('ds_tables_count').replace('{0}', String(activeDataSource.analysis.schema.length))}
                                         </span>
                                     )}
+                                    {/* Comprehensive Report Button with Dropdown */}
+                                    <div className="relative comprehensive-report-dropdown-container ml-auto">
+                                        <button
+                                            onClick={() => {
+                                                if (preparedComprehensiveReportId) {
+                                                    setComprehensiveReportExportDropdownOpen(!comprehensiveReportExportDropdownOpen);
+                                                } else {
+                                                    handleGenerateComprehensiveReport();
+                                                }
+                                            }}
+                                            className={`text-[9px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1 transition-colors ${
+                                                preparedComprehensiveReportId
+                                                    ? 'bg-green-500 text-white hover:bg-green-600'
+                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
+                                            }`}
+                                            title={preparedComprehensiveReportId 
+                                                ? (t('comprehensive_report_ready_title') || '报告已就绪，选择导出格式')
+                                                : t('comprehensive_report_button_title')}
+                                        >
+                                            <FileText className="w-2.5 h-2.5" />
+                                            {preparedComprehensiveReportId 
+                                                ? (t('export_comprehensive_report') || '导出报告')
+                                                : t('comprehensive_report')}
+                                        </button>
+                                        
+                                        {/* Export Format Dropdown */}
+                                        {comprehensiveReportExportDropdownOpen && preparedComprehensiveReportId && (
+                                            <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50">
+                                                <div className="px-3 py-1 text-[9px] font-medium text-slate-400 uppercase tracking-wider">
+                                                    {t('select_export_format') || '选择导出格式'}
+                                                </div>
+                                                {comprehensiveReportCached && (
+                                                    <div className="px-3 py-1 text-[9px] text-green-600 bg-green-50 border-b border-slate-100">
+                                                        {t('comprehensive_report_using_cache') || '使用缓存报告'}
+                                                    </div>
+                                                )}
+                                                <button
+                                                    onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('word'); }}
+                                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50 transition-colors"
+                                                >
+                                                    <FileChartColumn size={12} className="flex-shrink-0 text-indigo-500" />
+                                                    <span>{t('export_as_word') || '导出为 Word'}</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('pdf'); }}
+                                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50 transition-colors"
+                                                >
+                                                    <FileChartColumn size={12} className="flex-shrink-0 text-rose-500" />
+                                                    <span>{t('export_as_pdf') || '导出为 PDF'}</span>
+                                                </button>
+                                                <div className="border-t border-slate-100 mt-1 pt-1">
+                                                    <button
+                                                        onClick={() => { 
+                                                            setPreparedComprehensiveReportId(null); 
+                                                            setComprehensiveReportExportDropdownOpen(false); 
+                                                            handleGenerateComprehensiveReport(); 
+                                                        }}
+                                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-400 hover:bg-slate-50 transition-colors"
+                                                    >
+                                                        <span>{t('regenerate_comprehensive_report') || '重新生成报告'}</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                                 {activeDataSource.analysis?.summary && (
                                     <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
@@ -3106,6 +3278,33 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         <Upload className="w-4 h-4 text-slate-400" />
                         Import
                     </button>
+                </div>
+            )}
+
+            {/* Comprehensive Report Progress Dialog */}
+            {isGeneratingComprehensiveReport && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-5 min-w-[320px]">
+                        {/* Spinning Animation */}
+                        <div className="relative w-16 h-16">
+                            <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+                            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin"></div>
+                            <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-purple-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+                        </div>
+                        {/* Progress Bar */}
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-full animate-pulse" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
+                        </div>
+                        <p className="text-sm font-medium text-slate-700">{t('comprehensive_report_generating') || '正在生成综合报告，请稍候...'}</p>
+                        <p className="text-xs text-slate-400">{t('comprehensive_report_llm_hint') || 'AI 正在分析所有会话内容并撰写报告'}</p>
+                        <style>{`
+                            @keyframes comprehensiveReportProgress {
+                                0% { transform: translateX(-100%); }
+                                50% { transform: translateX(0%); }
+                                100% { transform: translateX(100%); }
+                            }
+                        `}</style>
+                    </div>
                 </div>
             )}
 

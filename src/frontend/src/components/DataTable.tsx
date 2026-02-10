@@ -6,6 +6,35 @@ interface DataTableProps {
     title?: string;
 }
 
+// Render cell content with basic markdown support (bold text)
+const renderCellContent = (value: any): React.ReactNode => {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    
+    const str = String(value);
+    
+    // Check if the string contains markdown bold markers
+    if (str.includes('**')) {
+        // Split by ** and render bold parts
+        const parts = str.split(/(\*\*[^*]+\*\*)/g);
+        return (
+            <>
+                {parts.map((part, idx) => {
+                    if (part.startsWith('**') && part.endsWith('**')) {
+                        // Remove ** markers and render as bold
+                        const boldText = part.slice(2, -2);
+                        return <strong key={idx} className="font-semibold">{boldText}</strong>;
+                    }
+                    return <span key={idx}>{part}</span>;
+                })}
+            </>
+        );
+    }
+    
+    return str;
+};
+
 const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
     const { t } = useLanguage();
     if (!data || data.length === 0) return null;
@@ -31,7 +60,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                         <tr>
                             {columns.map((col) => (
                                 <th key={col} className="px-6 py-3 font-medium whitespace-nowrap">
-                                    {col}
+                                    {renderCellContent(col)}
                                 </th>
                             ))}
                         </tr>
@@ -41,7 +70,9 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                             <tr key={idx} className="bg-white border-b border-slate-50 hover:bg-slate-50/50">
                                 {columns.map((col) => (
                                     <td key={`${idx}-${col}`} className="px-6 py-4 whitespace-nowrap">
-                                        {row[col] !== null && row[col] !== undefined ? String(row[col]) : <span className="text-slate-300">{t('null_value')}</span>}
+                                        {row[col] !== null && row[col] !== undefined 
+                                            ? renderCellContent(row[col]) 
+                                            : <span className="text-slate-300">{t('null_value')}</span>}
                                     </td>
                                 ))}
                             </tr>

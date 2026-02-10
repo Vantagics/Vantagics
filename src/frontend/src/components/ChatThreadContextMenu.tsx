@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { Download, Briefcase, Brain, FolderOpen, Check, Eraser } from 'lucide-react';
+import { Download, Briefcase, Brain, FolderOpen, Check, Eraser, FileText } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface ChatThreadContextMenuProps {
     position: { x: number; y: number };
     threadId: string;
     onClose: () => void;
-    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages', threadId: string) => void;
+    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report', threadId: string) => void;
     autoIntentUnderstanding?: boolean;
     isFreeChatThread?: boolean;
 }
@@ -25,7 +25,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [onClose]);
 
-    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages') => {
+    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report') => {
         onAction(action, threadId);
         // Don't close menu for toggle action so user can see the state change
         if (action !== 'toggle_intent_understanding') {
@@ -75,6 +75,16 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                 <Download className="w-4 h-4 text-slate-400" />
                 Export
             </button>
+            {!isFreeChatThread && (
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleAction('comprehensive_report'); }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    title={t('comprehensive_report_button_title')}
+                >
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    {t('comprehensive_report')}
+                </button>
+            )}
             {isFreeChatThread && (
                 <>
                     <div className="h-px bg-slate-100 my-1" />

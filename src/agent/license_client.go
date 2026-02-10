@@ -29,9 +29,10 @@ type LicenseClient struct {
 	analysisDate   string    // Date of analysis count (YYYY-MM-DD)
 	dataDir        string    // Directory to store encrypted data
 	lastRefreshAt  time.Time     // Last time we refreshed from server
-	lastReportAt   time.Time     // Last time we reported usage to server
-	reportTicker   *time.Ticker  // Periodic usage reporting ticker
-	reportStopCh   chan struct{} // Stop channel for usage reporting goroutine
+	lastReportAt       time.Time     // Last time we reported usage to server
+	lastReportedCredits float64      // UsedCredits value at last successful report
+	reportTicker       *time.Ticker  // Periodic usage reporting ticker
+	reportStopCh       chan struct{} // Stop channel for usage reporting goroutine
 }
 
 const (
@@ -305,6 +306,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		AnalysisDate  string          `json:"analysis_date"`   // Date of analysis count
 		UsedCredits   float64         `json:"used_credits"`    // Used credits
 		LastReportAt  string          `json:"last_report_at"`  // Last time we reported usage
+		LastReportedCredits float64   `json:"last_reported_credits"` // UsedCredits at last report
 	}{
 		SN:            c.sn,
 		Data:          c.data,
@@ -315,6 +317,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		AnalysisDate:  c.analysisDate,
 		UsedCredits:   c.data.UsedCredits,
 		LastReportAt:  c.lastReportAt.Format(time.RFC3339),
+		LastReportedCredits: c.lastReportedCredits,
 	}
 
 	jsonData, err := json.Marshal(saveData)
@@ -374,6 +377,7 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 		AnalysisDate  string          `json:"analysis_date"`
 		UsedCredits   float64         `json:"used_credits"`
 		LastReportAt  string          `json:"last_report_at"`
+		LastReportedCredits float64   `json:"last_reported_credits"`
 	}
 	if err := json.Unmarshal(decrypted, &saveData); err != nil {
 		return fmt.Errorf("failed to parse data: %v", err)
@@ -416,6 +420,9 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 			c.lastReportAt = t
 		}
 	}
+
+	// Restore last reported credits value
+	c.lastReportedCredits = saveData.LastReportedCredits
 
 	// Restore analysis count (only if same day)
 	today := time.Now().Format("2006-01-02")
@@ -891,9 +898,10 @@ func (c *LicenseClient) ReportUsage() error {
 		return fmt.Errorf("report usage failed: %s", result.Code)
 	}
 
-	// Success: update lastReportAt and persist
+	// Success: update lastReportAt, lastReportedCredits and persist
 	c.mu.Lock()
 	c.lastReportAt = time.Now()
+	c.lastReportedCredits = usedCredits
 	c.mu.Unlock()
 
 	if err := c.SaveActivationData(); err != nil {
@@ -909,11 +917,27 @@ func (c *LicenseClient) ReportUsage() error {
 	return nil
 }
 
-// ShouldReportOnStartup checks if enough time has passed since last report to warrant a startup report
+// ShouldReportOnStartup checks if a usage report is needed at startup.
+// Returns true if:
+// 1. Never reported before (lastReportAt is zero) AND used_credits > 0 (has consumption)
+// 2. Last report was >= 1 hour ago AND used_credits has changed since last report
 func (c *LicenseClient) ShouldReportOnStartup() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return !c.lastReportAt.IsZero() && time.Since(c.lastReportAt) >= time.Hour
+
+	if c.data == nil {
+		return false
+	}
+
+	usedCredits := c.data.UsedCredits
+
+	// Case 1: Never reported, but has credits consumption
+	if c.lastReportAt.IsZero() {
+		return usedCredits > 0
+	}
+
+	// Case 2: Over 1 hour since last report AND credits have changed
+	return time.Since(c.lastReportAt) >= time.Hour && usedCredits != c.lastReportedCredits
 }
 
 // StartUsageReporting starts a background goroutine that reports usage every hour
@@ -934,11 +958,16 @@ func (c *LicenseClient) StartUsageReporting() {
 		for {
 			select {
 			case <-ticker.C:
-				// Only report if in credits mode and trial (low trust)
+				// Only report if in credits mode, trial (low trust), and credits have changed
 				if c.IsCreditsMode() && c.GetTrustLevel() == "low" {
-					if err := c.ReportUsage(); err != nil {
-						if c.log != nil {
-							c.log(fmt.Sprintf("[LICENSE] Periodic usage report failed: %v", err))
+					c.mu.RLock()
+					hasChange := c.data != nil && c.data.UsedCredits != c.lastReportedCredits
+					c.mu.RUnlock()
+					if hasChange {
+						if err := c.ReportUsage(); err != nil {
+							if c.log != nil {
+								c.log(fmt.Sprintf("[LICENSE] Periodic usage report failed: %v", err))
+							}
 						}
 					}
 				}

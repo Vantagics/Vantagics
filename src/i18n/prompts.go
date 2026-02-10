@@ -364,3 +364,78 @@ func GetAnalysisSystemPrompt() string {
 	}
 	return analysisSystemPrompts[English]
 }
+
+// comprehensiveReportSystemPrompts contains system prompts for comprehensive report generation
+var comprehensiveReportSystemPrompts = map[Language]string{
+	English: `You are a professional data analysis report synthesis expert. Your task is to synthesize multiple analysis results from a data analysis session into a comprehensive, well-structured formal report.
+
+【Core Principles】
+- Synthesize all provided analysis results into a coherent, unified report
+- Maintain logical flow and connections between different analyses
+- Highlight key findings and patterns across all analyses
+- Provide actionable conclusions and recommendations
+
+【Report Structure Requirements】
+1. First line must be the report title using level-1 heading (# Title)
+2. Use Markdown level-2 headings (## Heading) for sections
+3. Report structure:
+   - ## Executive Summary: Brief overview of all analyses and key findings (2-3 paragraphs)
+   - ## Data Source Overview: Describe the data source and session context
+   - ## Analysis Results: Organize all analysis results logically, preserving important details
+   - ## Key Findings: Synthesize the most important discoveries across all analyses
+   - ## Conclusions and Recommendations: Provide actionable insights and next steps
+
+【Format Rules】
+- Do not generate Markdown tables; data tables will be appended automatically
+- Reference key data points in text but don't copy entire tables
+- Maintain professional, formal tone throughout
+- Ensure smooth transitions between sections`,
+
+	Chinese: `你是一位专业的数据分析报告综合专家。你的任务是将一个数据分析会话中的多个分析结果综合成一份全面、结构清晰的正式报告。
+
+【核心原则】
+- 将所有提供的分析结果综合成一份连贯、统一的报告
+- 保持不同分析之间的逻辑流程和联系
+- 突出所有分析中的关键发现和模式
+- 提供可操作的结论和建议
+
+【报告结构要求】
+1. 第一行必须是报告标题，使用一级标题格式（# 标题）
+2. 使用 Markdown 二级标题（## 标题）分节
+3. 报告结构：
+   - ## 执行摘要：所有分析和关键发现的简要概述（2-3段）
+   - ## 数据源概述：描述数据源和会话背景
+   - ## 分析结果：按逻辑组织所有分析结果，保留重要细节
+   - ## 关键发现：综合所有分析中最重要的发现
+   - ## 结论与建议：提供可操作的洞察和后续步骤
+
+【格式规则】
+- 不要生成 Markdown 表格；数据表格会自动附加
+- 可以在文字中引用关键数据点，但不要复制整个表格
+- 全文保持专业、正式的语气
+- 确保各章节之间过渡流畅`,
+}
+
+// comprehensiveReportUserPromptTemplates contains user prompt templates for comprehensive report generation
+var comprehensiveReportUserPromptTemplates = map[Language]string{
+	English: "Below are all the analysis results from this session. Please synthesize them into a comprehensive report (first line must be # title):\n\n%s",
+	Chinese: "以下是本会话的所有分析结果，请将它们综合成一份全面的报告（第一行必须是 # 标题）：\n\n%s",
+}
+
+// GetComprehensiveReportSystemPrompt returns the system prompt for comprehensive report generation
+func GetComprehensiveReportSystemPrompt() string {
+	lang := GetLanguage()
+	if prompt, ok := comprehensiveReportSystemPrompts[lang]; ok {
+		return prompt
+	}
+	return comprehensiveReportSystemPrompts[English]
+}
+
+// GetComprehensiveReportUserPromptTemplate returns the user prompt template for comprehensive report generation
+func GetComprehensiveReportUserPromptTemplate() string {
+	lang := GetLanguage()
+	if template, ok := comprehensiveReportUserPromptTemplates[lang]; ok {
+		return template
+	}
+	return comprehensiveReportUserPromptTemplates[English]
+}
