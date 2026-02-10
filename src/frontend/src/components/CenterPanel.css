@@ -276,3 +276,105 @@
         opacity: 0.5;
     }
 }
+
+/* ========== Dark Mode Styles ========== */
+
+.dark .center-panel {
+    background-color: #1e1e1e;
+    border-left-color: #3c3c3c;
+    border-right-color: #3c3c3c;
+}
+
+.dark .center-panel-header {
+    background-color: rgba(30, 30, 30, 0.8);
+    border-bottom-color: #2d2d30;
+}
+
+.dark .center-panel-header-title {
+    color: #d4d4d4;
+}
+
+.dark .center-panel-status-text {
+    color: #808080;
+}
+
+.dark .center-panel-messages {
+    background-color: rgba(30, 30, 30, 0.5);
+}
+
+.dark .center-panel-messages::-webkit-scrollbar-thumb {
+    background-color: #424242;
+}
+
+.dark .center-panel-welcome-icon {
+    background: linear-gradient(to bottom right, #1a2332, #1e1e2e);
+    border-color: #3c3c3c;
+}
+
+.dark .center-panel-welcome-title {
+    color: #d4d4d4;
+}
+
+.dark .center-panel-welcome-text {
+    color: #808080;
+}
+
+.dark .center-panel-empty-icon {
+    background: linear-gradient(to bottom right, #1a2332, #1e1e2e);
+    border-color: #3c3c3c;
+}
+
+.dark .center-panel-empty-text {
+    color: #808080;
+}
+
+.dark .center-panel-overlay {
+    background-color: rgba(30, 30, 30, 0.95);
+}
+
+.dark .center-panel-input-area {
+    background-color: #1e1e1e;
+    border-top-color: #2d2d30;
+}
+
+.dark .center-panel-input {
+    background-color: #3c3c3c;
+    border-color: #4d4d4d;
+    color: #d4d4d4;
+}
+
+.dark .center-panel-input:focus {
+    background-color: #3c3c3c;
+    border-color: #007acc;
+    box-shadow: 0 0 0 4px rgba(0, 122, 204, 0.2);
+}
+
+.dark .center-panel-input:hover:not(:disabled) {
+    border-color: #5a5a5a;
+}
+
+.dark .center-panel-input:disabled {
+    background-color: #2d2d30;
+    color: #808080;
+}
+
+.dark .center-panel-input::placeholder {
+    color: #808080;
+}
+
+.dark .center-panel-send-button {
+    background-color: #007acc;
+}
+
+.dark .center-panel-send-button:hover:not(:disabled) {
+    background-color: #005a9e;
+}
+
+.dark .center-panel-send-button:disabled {
+    background-color: #3c3c3c;
+    color: #808080;
+}
+
+.dark .center-panel-loading-simple {
+    color: #808080;
+}

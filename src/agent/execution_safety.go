@@ -80,19 +80,22 @@ func (s *ExecutionSafety) ValidateAndExecute(
 	execCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	// Channel for execution result
-	resultChan := make(chan struct {
+	// Channel for execution result - buffered to prevent goroutine leak on timeout
+	type execResult struct {
 		output string
 		err    error
-	}, 1)
+	}
+	resultChan := make(chan execResult, 1)
 
 	// Execute in goroutine
 	go func() {
 		output, err := executor(code)
-		resultChan <- struct {
-			output string
-			err    error
-		}{output, err}
+		// Use select to avoid blocking if context is cancelled
+		select {
+		case resultChan <- execResult{output, err}:
+		default:
+			// Channel full or closed, result discarded (timeout case)
+		}
 	}()
 
 	// Wait for result or timeout
@@ -114,6 +117,8 @@ func (s *ExecutionSafety) ValidateAndExecute(
 		result.Duration = time.Since(startTime)
 		result.Error = fmt.Sprintf("Execution timed out after %v", s.timeout)
 		s.log(fmt.Sprintf("[SAFETY] Execution timed out after %v", s.timeout))
+		// Note: The goroutine may still be running, but it will exit when executor returns
+		// and the result will be discarded via the select default case
 	}
 
 	return result

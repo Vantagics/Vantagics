@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import MetricCard from './MetricCard';
 import Chart from './Chart';
 import DataTable from './DataTable';
@@ -705,6 +706,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         onContextMenu={handleContextMenu}
                     >
                         <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
                             components={{
                                 img(props) {
                                     return <MessageImage {...props} threadId={threadId} />;

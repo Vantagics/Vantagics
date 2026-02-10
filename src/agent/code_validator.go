@@ -44,6 +44,8 @@ func NewCodeValidator() *CodeValidator {
 			`shutil\.rmtree\s*\(`,
 			`shutil\.remove\s*\(`,
 			`pathlib\.Path.*\.unlink`,
+			// File write (prevent arbitrary file writes)
+			`open\s*\([^)]*['"][wa]`,
 			// Network operations (except allowed)
 			`requests\.`,
 			`urllib\.request`,
@@ -52,15 +54,26 @@ func NewCodeValidator() *CodeValidator {
 			`socket\.`,
 			`ftplib\.`,
 			`smtplib\.`,
+			`telnetlib\.`,
 			// Code execution
 			`exec\s*\(`,
 			`eval\s*\(`,
 			`compile\s*\(`,
 			`__import__\s*\(`,
+			`importlib\.`,
 			// Dangerous operations
 			`pickle\.loads`,
 			`marshal\.loads`,
 			`yaml\.load\s*\([^,]+\)`, // yaml.load without Loader
+			// Environment variable access (prevent credential leaks)
+			`os\.environ`,
+			`os\.getenv\s*\(`,
+			// Process manipulation
+			`os\.kill\s*\(`,
+			`signal\.`,
+			`os\.fork\s*\(`,
+			`multiprocessing\.`,
+			`threading\.Thread`,
 		},
 		maxCodeLength: 50000, // 50KB max
 	}

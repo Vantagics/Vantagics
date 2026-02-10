@@ -48,6 +48,7 @@ type SchemaContextCache struct {
 	mu       sync.RWMutex
 	cache    map[string]*schemaCacheEntry
 	ttl      time.Duration
+	maxSize  int // Maximum number of entries in cache
 }
 
 type schemaCacheEntry struct {
@@ -55,11 +56,15 @@ type schemaCacheEntry struct {
 	cachedAt  time.Time
 }
 
+// Default cache size limit
+const defaultSchemaCacheMaxSize = 50
+
 // NewSchemaContextCache creates a new schema context cache
 func NewSchemaContextCache(ttl time.Duration) *SchemaContextCache {
 	return &SchemaContextCache{
-		cache: make(map[string]*schemaCacheEntry),
-		ttl:   ttl,
+		cache:   make(map[string]*schemaCacheEntry),
+		ttl:     ttl,
+		maxSize: defaultSchemaCacheMaxSize,
 	}
 }
 
@@ -85,9 +90,34 @@ func (c *SchemaContextCache) Set(dataSourceID string, ctx *UnifiedSchemaContext)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Evict expired entries first
+	now := time.Now()
+	for id, entry := range c.cache {
+		if now.Sub(entry.cachedAt) > c.ttl {
+			delete(c.cache, id)
+		}
+	}
+
+	// If still at capacity, evict oldest entry
+	if len(c.cache) >= c.maxSize {
+		var oldestID string
+		var oldestTime time.Time
+		first := true
+		for id, entry := range c.cache {
+			if first || entry.cachedAt.Before(oldestTime) {
+				oldestID = id
+				oldestTime = entry.cachedAt
+				first = false
+			}
+		}
+		if oldestID != "" {
+			delete(c.cache, oldestID)
+		}
+	}
+
 	c.cache[dataSourceID] = &schemaCacheEntry{
 		context:  ctx,
-		cachedAt: time.Now(),
+		cachedAt: now,
 	}
 }
 

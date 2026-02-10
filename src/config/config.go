@@ -117,3 +117,70 @@ type Config struct {
 	PanelRightRatio float64 `json:"panelRightRatio,omitempty"` // Right panel width as ratio of available space (0-1)
 	PanelRightWidth int     `json:"panelRightWidth,omitempty"` // DEPRECATED: kept for migration only
 }
+
+// Validate checks and corrects Config field values, applying safe defaults where needed.
+// Call this after loading config from file/JSON to ensure all values are within valid ranges.
+func (c *Config) Validate() {
+	// MaxTokens: must be positive, default 4096
+	if c.MaxTokens <= 0 {
+		c.MaxTokens = 4096
+	}
+
+	// MaxPreviewRows: must be positive, default 100
+	if c.MaxPreviewRows <= 0 {
+		c.MaxPreviewRows = 100
+	} else if c.MaxPreviewRows > 10000 {
+		c.MaxPreviewRows = 10000
+	}
+
+	// MaxConcurrentAnalysis: 1-10, default 5
+	if c.MaxConcurrentAnalysis < 1 {
+		c.MaxConcurrentAnalysis = 5
+	} else if c.MaxConcurrentAnalysis > 10 {
+		c.MaxConcurrentAnalysis = 10
+	}
+
+	// MaxAnalysisSteps: 10-50, default 25
+	if c.MaxAnalysisSteps < 10 {
+		c.MaxAnalysisSteps = 25
+	} else if c.MaxAnalysisSteps > 50 {
+		c.MaxAnalysisSteps = 50
+	}
+
+	// LogMaxSizeMB: at least 1, default 100
+	if c.LogMaxSizeMB < 1 {
+		c.LogMaxSizeMB = 100
+	}
+
+	// Language: default to "zh-CN" if empty
+	if c.Language == "" {
+		c.Language = "zh-CN"
+	}
+
+	// LLMProvider: default to "OpenAI" if empty
+	if c.LLMProvider == "" {
+		c.LLMProvider = "OpenAI"
+	}
+
+	// ProxyConfig port validation
+	if c.ProxyConfig != nil && c.ProxyConfig.Enabled {
+		if c.ProxyConfig.Port <= 0 || c.ProxyConfig.Port > 65535 {
+			c.ProxyConfig.Enabled = false
+		}
+		if c.ProxyConfig.Host == "" {
+			c.ProxyConfig.Enabled = false
+		}
+	}
+
+	// IntentEnhancement: validate sub-config if present
+	if c.IntentEnhancement != nil {
+		c.IntentEnhancement.Validate()
+	}
+
+	// PanelRightRatio: 0-1 range
+	if c.PanelRightRatio < 0 {
+		c.PanelRightRatio = 0
+	} else if c.PanelRightRatio > 1 {
+		c.PanelRightRatio = 1
+	}
+}

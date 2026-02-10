@@ -267,10 +267,12 @@ type EventAggregator struct {
 	ctx          context.Context
 	pendingItems map[string]*pendingBatch    // sessionId -> pending batch
 	flushedItems map[string][]AnalysisResultItem // sessionId -> all items flushed so far (for persistence)
+	flushedTimes map[string]time.Time        // sessionId -> last flush time (for cleanup)
 	mutex        sync.Mutex
 	flushTimers  map[string]*time.Timer   // sessionId -> flush timer
 	flushDelay   time.Duration            // delay before flushing (default 50ms)
 	logger       func(string)             // optional logger function for debug logging
+	maxFlushedAge time.Duration           // max age for flushed items before cleanup (default 30 minutes)
 }
 
 // pendingBatch holds items waiting to be flushed
@@ -283,13 +285,56 @@ type pendingBatch struct {
 
 // NewEventAggregator creates a new EventAggregator
 func NewEventAggregator(ctx context.Context) *EventAggregator {
-	return &EventAggregator{
-		ctx:          ctx,
-		pendingItems: make(map[string]*pendingBatch),
-		flushedItems: make(map[string][]AnalysisResultItem),
-		flushTimers:  make(map[string]*time.Timer),
-		flushDelay:   50 * time.Millisecond,
-		logger:       nil,
+	ea := &EventAggregator{
+		ctx:           ctx,
+		pendingItems:  make(map[string]*pendingBatch),
+		flushedItems:  make(map[string][]AnalysisResultItem),
+		flushedTimes:  make(map[string]time.Time),
+		flushTimers:   make(map[string]*time.Timer),
+		flushDelay:    50 * time.Millisecond,
+		logger:        nil,
+		maxFlushedAge: 30 * time.Minute,
+	}
+	
+	// Start background cleanup goroutine
+	go ea.cleanupLoop(ctx)
+	
+	return ea
+}
+
+// cleanupLoop periodically cleans up old flushed items to prevent memory leaks
+func (ea *EventAggregator) cleanupLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			ea.cleanupOldFlushedItems()
+		}
+	}
+}
+
+// cleanupOldFlushedItems removes flushed items older than maxFlushedAge
+func (ea *EventAggregator) cleanupOldFlushedItems() {
+	ea.mutex.Lock()
+	defer ea.mutex.Unlock()
+	
+	now := time.Now()
+	cleanedCount := 0
+	
+	for sessionID, lastFlush := range ea.flushedTimes {
+		if now.Sub(lastFlush) > ea.maxFlushedAge {
+			delete(ea.flushedItems, sessionID)
+			delete(ea.flushedTimes, sessionID)
+			cleanedCount++
+		}
+	}
+	
+	if cleanedCount > 0 && ea.logger != nil {
+		ea.logger(fmt.Sprintf("[EVENT-AGG] Cleaned up %d old flushed sessions", cleanedCount))
 	}
 }
 
@@ -575,6 +620,7 @@ func (ea *EventAggregator) ClearFlushedItems(sessionID string) {
 	defer ea.mutex.Unlock()
 	
 	delete(ea.flushedItems, sessionID)
+	delete(ea.flushedTimes, sessionID)
 	ea.logf("[EVENT-AGG] ClearFlushedItems: cleared flushed items for sessionID=%s", sessionID)
 }
 
@@ -595,6 +641,7 @@ func (ea *EventAggregator) flushAndReturn(sessionID string, isComplete bool) []A
 	
 	// Track all flushed items for this session (used by GetAllFlushedItems for persistence)
 	ea.flushedItems[sessionID] = append(ea.flushedItems[sessionID], items...)
+	ea.flushedTimes[sessionID] = time.Now() // Update last flush time for cleanup tracking
 	
 	// Log the flush operation with item count
 	ea.logf("[EVENT-AGG] Flushing %d items for sessionID=%s, messageID=%s, requestID=%s, isComplete=%v (total flushed: %d)", 
@@ -640,6 +687,7 @@ func (ea *EventAggregator) Clear(sessionID string) {
 	}
 	delete(ea.pendingItems, sessionID)
 	delete(ea.flushedItems, sessionID)
+	delete(ea.flushedTimes, sessionID)
 	
 	// Emit clear event
 	runtime.EventsEmit(ea.ctx, "analysis-result-clear", map[string]interface{}{

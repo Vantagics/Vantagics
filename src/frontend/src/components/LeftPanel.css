@@ -232,42 +232,62 @@
     background: var(--scrollbar-thumb-hover, #999);
 }
 
-/* Dark Theme Support */
-@media (prefers-color-scheme: dark) {
-    .left-panel {
-        background-color: var(--bg-secondary-dark, #1e1e1e);
-        border-right-color: var(--border-color-dark, #333);
-    }
+/* Dark Theme Support - Using .dark class selector */
+.dark .left-panel {
+    background-color: #1e1e1e;
+    border-right-color: #3c3c3c;
+}
 
-    .section-header h3,
-    .source-name,
-    .session-title {
-        color: var(--text-primary-dark, #e0e0e0);
-    }
+.dark .section-header {
+    border-bottom-color: #3c3c3c;
+}
 
-    .session-metadata,
-    .loading,
-    .empty-state {
-        color: var(--text-secondary-dark, #999);
-    }
+.dark .section-header h3,
+.dark .source-name,
+.dark .session-title {
+    color: #d4d4d4;
+}
 
-    .data-source-item:hover,
-    .session-item:hover,
-    .context-menu-item:hover {
-        background-color: var(--hover-bg-dark, #2a2a2a);
-    }
+.dark .session-metadata,
+.dark .loading,
+.dark .empty-state {
+    color: #808080;
+}
 
-    .data-source-item.selected,
-    .session-item.selected {
-        background-color: var(--selected-bg-dark, #1a4d7a);
-    }
+.dark .data-source-item:hover,
+.dark .session-item:hover,
+.dark .context-menu-item:hover {
+    background-color: #2d2d30;
+}
 
-    .context-menu {
-        background-color: var(--bg-primary-dark, #252525);
-        border-color: var(--border-color-dark, #333);
-    }
+.dark .data-source-item.selected,
+.dark .session-item.selected {
+    background-color: #264f78;
+}
 
-    .context-menu-item {
-        color: var(--text-primary-dark, #e0e0e0);
-    }
+.dark .context-menu {
+    background-color: #252526;
+    border-color: #3c3c3c;
+}
+
+.dark .context-menu-item {
+    color: #d4d4d4;
+}
+
+.dark .session-delete-btn {
+    color: #808080;
+}
+
+.dark .session-delete-btn:hover {
+    color: #f14c4c;
+}
+
+.dark .data-sources-list::-webkit-scrollbar-thumb,
+.dark .sessions-list::-webkit-scrollbar-thumb {
+    background: #424242;
+}
+
+.dark .data-sources-list::-webkit-scrollbar-thumb:hover,
+.dark .sessions-list::-webkit-scrollbar-thumb:hover {
+    background: #4f4f4f;
 }

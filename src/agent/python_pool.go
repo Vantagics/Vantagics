@@ -274,22 +274,26 @@ func (w *PythonWorker) execute(code string, workDir string) (string, error) {
 	}
 
 	// Read response with timeout
-	responseChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
+	type readResult struct {
+		line string
+		err  error
+	}
+	resultChan := make(chan readResult, 1)
 
 	go func() {
 		line, err := w.stdout.ReadString('\n')
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		responseChan <- line
+		resultChan <- readResult{line: line, err: err}
 	}()
 
 	select {
-	case line := <-responseChan:
+	case result := <-resultChan:
+		if result.err != nil {
+			w.ready = false
+			return "", fmt.Errorf("failed to read response: %v", result.err)
+		}
+
 		var response WorkerResponse
-		if err := json.Unmarshal([]byte(line), &response); err != nil {
+		if err := json.Unmarshal([]byte(result.line), &response); err != nil {
 			return "", fmt.Errorf("failed to parse response: %v", err)
 		}
 
@@ -299,17 +303,20 @@ func (w *PythonWorker) execute(code string, workDir string) (string, error) {
 
 		return response.Output, nil
 
-	case err := <-errorChan:
-		w.ready = false
-		return "", fmt.Errorf("failed to read response: %v", err)
-
 	case <-time.After(120 * time.Second):
-		// Kill the hung process
+		// Kill the hung process — this also unblocks the goroutine reading from stdout
 		w.ready = false
 		if w.cmd.Process != nil {
 			w.cmd.Process.Kill()
 		}
-		return "", fmt.Errorf("execution timeout")
+		// Wait briefly for the goroutine to finish after process kill
+		go func() {
+			select {
+			case <-resultChan:
+			case <-time.After(5 * time.Second):
+			}
+		}()
+		return "", fmt.Errorf("execution timeout (120s)")
 	}
 }
 

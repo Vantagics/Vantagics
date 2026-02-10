@@ -33,18 +33,43 @@ import (
 	"license_server/templates"
 )
 
+// Default fallback values (used only when environment variables are not set)
 const (
-	// DBPassword is the encryption password for the SQLite database.
-	// SECURITY WARNING: In production, this should be loaded from environment
-	// variables or a secure configuration file, not hardcoded.
-	// Example: DBPassword = os.Getenv("LICENSE_DB_PASSWORD")
-	DBPassword    = "sunion123!"
-	
-	// DefaultAdminPassword is the initial admin password.
-	// SECURITY WARNING: Users should be prompted to change this on first login.
-	// This default is only for initial setup convenience.
-	DefaultAdminPassword = "sunion123"
+	defaultDBPassword       = "sunion123!"
+	defaultAdminPassword    = "sunion123"
 )
+
+// getDBPassword returns the database encryption password.
+// Priority: environment variable LICENSE_DB_PASSWORD > default fallback.
+func getDBPassword() string {
+	if pw := os.Getenv("LICENSE_DB_PASSWORD"); pw != "" {
+		return pw
+	}
+	log.Println("[WARN] LICENSE_DB_PASSWORD not set, using default. Set this env var in production!")
+	return defaultDBPassword
+}
+
+// getDefaultAdminPassword returns the initial admin password.
+// Priority: environment variable LICENSE_ADMIN_PASSWORD > default fallback.
+func getDefaultAdminPassword() string {
+	if pw := os.Getenv("LICENSE_ADMIN_PASSWORD"); pw != "" {
+		return pw
+	}
+	log.Println("[WARN] LICENSE_ADMIN_PASSWORD not set, using default. Change admin password after first login!")
+	return defaultAdminPassword
+}
+
+// DBPassword and DefaultAdminPassword are kept as variables for backward compatibility.
+// They are initialized in init() from environment variables or defaults.
+var (
+	DBPassword           string
+	DefaultAdminPassword string
+)
+
+func init() {
+	DBPassword = getDBPassword()
+	DefaultAdminPassword = getDefaultAdminPassword()
+}
 
 // Error codes for API responses (for client-side localization)
 const (
@@ -62,6 +87,7 @@ const (
 	CodeRateLimitExceeded = "RATE_LIMIT_EXCEEDED"
 	CodeEmailLimitExceeded = "EMAIL_LIMIT_EXCEEDED"
 	CodeInternalError     = "INTERNAL_ERROR"
+	CodeInvalidValue      = "INVALID_VALUE"
 )
 
 
@@ -196,6 +222,7 @@ type ActivationData struct {
 	TrustLevel      string                 `json:"trust_level"`      // "high" or "low"
 	RefreshInterval int                    `json:"refresh_interval"` // SN refresh interval in days (1=daily, 30=monthly)
 	ExtraInfo       map[string]interface{} `json:"extra_info,omitempty"` // Product-specific extra info
+	UsedCredits     float64                `json:"used_credits"`         // Server-tracked used credits
 }
 
 // RequestSNResponse is sent to client for SN request
@@ -412,6 +439,16 @@ func initDB() {
 		value TEXT,
 		value_type TEXT DEFAULT 'string',
 		UNIQUE(product_id, key)
+	)`)
+	// Migration: Add used_credits to licenses for tracking credits usage
+	db.Exec("ALTER TABLE licenses ADD COLUMN used_credits FLOAT DEFAULT 0")
+	// Migration: Create credits_usage_log table for tracking credits usage reports
+	db.Exec(`CREATE TABLE IF NOT EXISTS credits_usage_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		sn TEXT NOT NULL,
+		used_credits FLOAT NOT NULL,
+		reported_at DATETIME NOT NULL,
+		client_ip TEXT
 	)`)
 	// Migration: Move whitelist entries with groups to conditions table
 	db.Exec(`INSERT OR IGNORE INTO email_conditions (pattern, created_at, llm_group_id, search_group_id)
@@ -775,6 +812,20 @@ func setSetting(key, value string) {
 	db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, value)
 }
 
+// isValidIdentifier checks if a string is safe to use as a SQL identifier.
+// Only allows alphanumeric characters, underscores, and common table/column name patterns.
+func isValidIdentifier(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	for _, r := range name {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func generateSN() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 16)
@@ -894,6 +945,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/email-records/manual-request", authMiddleware(handleManualRequest))
 	mux.HandleFunc("/api/email-records/manual-bind", authMiddleware(handleManualBind))
 	mux.HandleFunc("/api/email-records/clear-by-email", authMiddleware(handleClearEmailRecords))
+	mux.HandleFunc("/api/settings/clear-ip-records", authMiddleware(handleClearIPRecords))
 	mux.HandleFunc("/api/api-keys", authMiddleware(handleAPIKeys))
 	mux.HandleFunc("/api/api-keys/toggle", authMiddleware(handleToggleAPIKey))
 	mux.HandleFunc("/api/api-keys/bindings", authMiddleware(handleAPIKeyBindings))
@@ -906,6 +958,7 @@ func startManageServer() {
 	mux.HandleFunc("/api/backup/create", authMiddleware(handleBackupCreate))
 	mux.HandleFunc("/api/backup/restore", authMiddleware(handleBackupRestore))
 	mux.HandleFunc("/api/backup/history", authMiddleware(handleBackupHistory))
+	mux.HandleFunc("/api/credits-usage-log", authMiddleware(handleCreditsUsageLog))
 
 	addr := fmt.Sprintf(":%d", managePort)
 	if useSSL && sslCert != "" && sslKey != "" {
@@ -2859,6 +2912,57 @@ func handleClearEmailRecords(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleClearIPRecords clears all SN request rate limit records for a given IP address
+func handleClearIPRecords(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+
+	ip := strings.TrimSpace(req.IP)
+	if ip == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "请输入有效的IP地址"})
+		return
+	}
+
+	// Count records first
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM request_limits WHERE ip=?", ip).Scan(&count)
+	if count == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("未找到IP %s 的请求记录", ip)})
+		return
+	}
+
+	// Delete all request limit records for this IP
+	result, err := db.Exec("DELETE FROM request_limits WHERE ip=?", ip)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+
+	deleted, _ := result.RowsAffected()
+	log.Printf("[CLEAR-IP] Cleared %d request limit records for IP %s", deleted, ip)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("已清除IP %s 的 %d 条请求记录", ip, deleted),
+		"deleted": deleted,
+	})
+}
+
 // handleUpdateEmailRecord handles updating the license associated with an email record
 func handleUpdateEmailRecord(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -3998,6 +4102,7 @@ func startAuthServer() {
 	mux.HandleFunc("/request-sn", handleRequestSN)
 	mux.HandleFunc("/api/bind-license", handleBindLicenseAPI)
 	mux.HandleFunc("/health", handleHealth)
+	mux.HandleFunc("/report-usage", handleReportUsage)
 
 	addr := fmt.Sprintf(":%d", authPort)
 	if useSSL && sslCert != "" && sslKey != "" {
@@ -4017,6 +4122,72 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
+
+func handleReportUsage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SN          string  `json:"sn"`
+		UsedCredits float64 `json:"used_credits"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInvalidRequest})
+		return
+	}
+
+	// Validate SN exists in licenses table
+	sn := strings.ToUpper(strings.ReplaceAll(req.SN, " ", ""))
+	var exists int
+	err := db.QueryRow("SELECT COUNT(*) FROM licenses WHERE sn=?", sn).Scan(&exists)
+	if err != nil || exists == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInvalidSN})
+		return
+	}
+
+	// Validate used_credits >= 0
+	if req.UsedCredits < 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInvalidValue})
+		return
+	}
+
+	// Insert into credits_usage_log
+	clientIP := getClientIP(r)
+	_, err = db.Exec("INSERT INTO credits_usage_log (sn, used_credits, reported_at, client_ip) VALUES (?, ?, datetime('now'), ?)",
+		sn, req.UsedCredits, clientIP)
+	if err != nil {
+		log.Printf("Failed to insert credits usage log: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInternalError})
+		return
+	}
+
+	// Update licenses: used_credits = MAX(used_credits, reported_value)
+	_, err = db.Exec("UPDATE licenses SET used_credits = MAX(used_credits, ?) WHERE sn = ?",
+		req.UsedCredits, sn)
+	if err != nil {
+		log.Printf("Failed to update license used_credits: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInternalError})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
 
 func handleActivate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -4042,8 +4213,9 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	
 	var license License
 	var lastUsed sql.NullTime
-	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0) FROM licenses WHERE sn=?", sn).
-		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID, &license.ProductID, &license.TotalCredits, &license.CreditsMode)
+	var usedCredits float64
+	err := db.QueryRow("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0), COALESCE(used_credits, 0) FROM licenses WHERE sn=?", sn).
+		Scan(&license.SN, &license.CreatedAt, &license.ExpiresAt, &license.Description, &license.IsActive, &license.UsageCount, &lastUsed, &license.DailyAnalysis, &license.LicenseGroupID, &license.LLMGroupID, &license.SearchGroupID, &license.ProductID, &license.TotalCredits, &license.CreditsMode, &usedCredits)
 	
 	if err == sql.ErrNoRows {
 		w.Header().Set("Content-Type", "application/json")
@@ -4145,6 +4317,7 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 		ExtraInfo:       extraInfo,
 		TotalCredits:    license.TotalCredits,
 		CreditsMode:     license.CreditsMode,
+		UsedCredits:     usedCredits,
 	}
 	if bestLLM != nil {
 		activationData.LLMType = bestLLM.Type
@@ -4673,13 +4846,19 @@ func backupAllSettings() map[string]string {
 }
 
 func backupTable(tableName, condition string, conditionArg interface{}) []map[string]interface{} {
+	// Validate table name to prevent SQL injection (allow only alphanumeric and underscore)
+	if !isValidIdentifier(tableName) {
+		log.Printf("[BACKUP] Invalid table name: %s", tableName)
+		return nil
+	}
+	
 	var rows *sql.Rows
 	var err error
 	
 	if condition != "" && conditionArg != nil {
-		rows, err = db.Query(fmt.Sprintf("SELECT * FROM %s WHERE %s", tableName, condition), conditionArg)
+		rows, err = db.Query(fmt.Sprintf("SELECT * FROM \"%s\" WHERE %s", tableName, condition), conditionArg)
 	} else {
-		rows, err = db.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
+		rows, err = db.Query(fmt.Sprintf("SELECT * FROM \"%s\"", tableName))
 	}
 	
 	if err != nil {
@@ -4839,6 +5018,12 @@ func restoreTable(tx *sql.Tx, tableName string, data []map[string]interface{}, m
 		return 0
 	}
 	
+	// Validate table name to prevent SQL injection
+	if !isValidIdentifier(tableName) {
+		log.Printf("[RESTORE] Invalid table name: %s", tableName)
+		return 0
+	}
+	
 	count := 0
 	for _, row := range data {
 		columns := make([]string, 0, len(row))
@@ -4846,19 +5031,26 @@ func restoreTable(tx *sql.Tx, tableName string, data []map[string]interface{}, m
 		values := make([]interface{}, 0, len(row))
 		
 		for col, val := range row {
-			columns = append(columns, col)
+			// Validate column name
+			if !isValidIdentifier(col) {
+				log.Printf("[RESTORE] Skipping invalid column name: %s", col)
+				continue
+			}
+			columns = append(columns, fmt.Sprintf("\"%s\"", col))
 			placeholders = append(placeholders, "?")
 			values = append(values, val)
 		}
 		
+		if len(columns) == 0 {
+			continue
+		}
+		
 		var query string
 		if merge {
-			// For incremental restore, use INSERT OR REPLACE
-			query = fmt.Sprintf("INSERT OR REPLACE INTO %s (%s) VALUES (%s)",
+			query = fmt.Sprintf("INSERT OR REPLACE INTO \"%s\" (%s) VALUES (%s)",
 				tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 		} else {
-			// For full restore, just INSERT (table was already cleared)
-			query = fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
+			query = fmt.Sprintf("INSERT INTO \"%s\" (%s) VALUES (%s)",
 				tableName, strings.Join(columns, ", "), strings.Join(placeholders, ", "))
 		}
 		
@@ -4915,4 +5107,51 @@ func saveBackupHistory(record BackupHistory) {
 	
 	newHistoryJSON, _ := json.Marshal(history)
 	setSetting("backup_history", string(newHistoryJSON))
+}
+
+// handleCreditsUsageLog returns the credits usage log for a given SN
+func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sn := r.URL.Query().Get("sn")
+	if sn == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	rows, err := db.Query("SELECT sn, used_credits, reported_at, COALESCE(client_ip, '') FROM credits_usage_log WHERE sn=? ORDER BY reported_at DESC", sn)
+	if err != nil {
+		log.Printf("Failed to query credits usage log: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+	defer rows.Close()
+
+	type UsageLogEntry struct {
+		SN          string  `json:"sn"`
+		UsedCredits float64 `json:"used_credits"`
+		ReportedAt  string  `json:"reported_at"`
+		ClientIP    string  `json:"client_ip"`
+	}
+
+	var logs []UsageLogEntry
+	for rows.Next() {
+		var entry UsageLogEntry
+		if err := rows.Scan(&entry.SN, &entry.UsedCredits, &entry.ReportedAt, &entry.ClientIP); err != nil {
+			continue
+		}
+		logs = append(logs, entry)
+	}
+
+	if logs == nil {
+		logs = []UsageLogEntry{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logs)
 }

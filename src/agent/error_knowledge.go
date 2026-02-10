@@ -105,9 +105,16 @@ func (ek *ErrorKnowledge) load() {
 func (ek *ErrorKnowledge) save() {
 	data, err := json.MarshalIndent(ek.records, "", "  ")
 	if err != nil {
+		if ek.logger != nil {
+			ek.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Failed to marshal records: %v", err))
+		}
 		return
 	}
-	os.WriteFile(ek.storagePath, data, 0644)
+	if err := os.WriteFile(ek.storagePath, data, 0644); err != nil {
+		if ek.logger != nil {
+			ek.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Failed to write file: %v", err))
+		}
+	}
 }
 
 // RecordError adds a new error and solution to the knowledge base

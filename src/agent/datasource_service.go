@@ -401,10 +401,16 @@ func (s *DataSourceService) ImportRemoteDataSource(name string, driverType strin
 
 // copyTable copies a single table from remote MySQL to local SQLite
 func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableName string) error {
+	// Validate table name before using in query to prevent SQL injection
+	safeRemoteTableName := s.sanitizeName(tableName)
+	if safeRemoteTableName == "" || safeRemoteTableName == "unknown" {
+		return fmt.Errorf("invalid table name: %s", tableName)
+	}
+	
 	// Get data
-	rows, err := remoteDB.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+	rows, err := remoteDB.Query(fmt.Sprintf("SELECT * FROM `%s`", safeRemoteTableName))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query remote table %s: %w", safeRemoteTableName, err)
 	}
 	defer rows.Close()
 

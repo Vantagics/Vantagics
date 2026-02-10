@@ -248,6 +248,10 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 
 // shutdown is called when the application is closing to clean up resources
 func (a *App) shutdown(ctx context.Context) {
+	// Stop credits usage reporting
+	if a.licenseClient != nil {
+		a.licenseClient.StopUsageReporting()
+	}
 	// Close database connection
 	if a.db != nil {
 		a.db.Close()
@@ -525,6 +529,15 @@ func (a *App) startup(ctx context.Context) {
 				// Don't continue with LLM initialization
 				return
 			}
+
+			// Start credits usage reporting if applicable
+			if a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" {
+				if a.licenseClient.ShouldReportOnStartup() {
+					a.Log("[STARTUP] Reporting credits usage on startup (overdue)")
+					go a.licenseClient.ReportUsage()
+				}
+			}
+			a.licenseClient.StartUsageReporting()
 			
 			// Update config with activated LLM settings
 			if activationData := a.licenseClient.GetData(); activationData != nil && activationData.LLMAPIKey != "" {
@@ -3439,6 +3452,39 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			}
 			if len(allCSVMatches) > 0 {
 				a.Log(fmt.Sprintf("[CHART] Total CSV links found: %d", len(allCSVMatches)))
+			}
+
+			// 7. Extract standard Markdown tables (| col1 | col2 | format) from the response text
+			// These tables appear in the LLM's analysis text but are not wrapped in json:table code blocks
+			mdTables := extractMarkdownTablesFromText(resp)
+			if len(mdTables) > 0 {
+				a.Log(fmt.Sprintf("[CHART] Found %d markdown tables in response text", len(mdTables)))
+				for mdIdx, mdTable := range mdTables {
+					tableDataWithTitle := map[string]interface{}{
+						"title": mdTable.Title,
+						"rows":  mdTable.Rows,
+					}
+
+					tableDataJSON, _ := json.Marshal(mdTable.Rows)
+					tableDataStr := string(tableDataJSON)
+
+					fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
+					var finalTableData string
+					if saveErr != nil {
+						finalTableData = tableDataStr
+					} else if fileRef != "" {
+						finalTableData = fileRef
+					} else {
+						finalTableData = tableDataStr
+					}
+
+					chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
+					a.Log(fmt.Sprintf("[CHART] Markdown table #%d: title='%s', %d rows", mdIdx+1, mdTable.Title, len(mdTable.Rows)))
+
+					if a.eventAggregator != nil {
+						a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableDataWithTitle)
+					}
+				}
 			}
 
 			// Create chartData with ALL collected items (ECharts, Images, Tables, CSV)
@@ -8165,4 +8211,190 @@ func (a *App) RefreshLicense() (*ActivationResult, error) {
 // IsLicenseActivated returns true if license is activated
 func (a *App) IsLicenseActivated() bool {
 	return a.licenseClient != nil && a.licenseClient.IsActivated()
+}
+
+// MarkdownTableData represents a parsed markdown table
+type MarkdownTableData struct {
+	Title string                   `json:"title"`
+	Rows  []map[string]interface{} `json:"rows"`
+}
+
+// extractMarkdownTablesFromText extracts standard markdown tables from text
+// Markdown tables have the format:
+// | Header1 | Header2 |
+// |---------|---------|
+// | Value1  | Value2  |
+// It also extracts table titles from preceding lines (headers or bold text)
+func extractMarkdownTablesFromText(text string) []MarkdownTableData {
+	var tables []MarkdownTableData
+
+	lines := strings.Split(text, "\n")
+	i := 0
+
+	for i < len(lines) {
+		line := strings.TrimSpace(lines[i])
+
+		// Check if this line looks like a markdown table header (starts and ends with |)
+		if strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|") {
+			// Check if next line is a separator (|---|---|)
+			if i+1 < len(lines) {
+				sepLine := strings.TrimSpace(lines[i+1])
+				if isMarkdownTableSeparator(sepLine) {
+					// Look for table title in preceding lines
+					title := extractTableTitle(lines, i)
+					
+					// Found a table, parse it
+					table := parseMarkdownTableFromLines(lines, i)
+					table.Title = title
+					if len(table.Rows) > 0 {
+						tables = append(tables, table)
+					}
+					// Skip past the table
+					for i < len(lines) {
+						l := strings.TrimSpace(lines[i])
+						if !strings.HasPrefix(l, "|") || !strings.HasSuffix(l, "|") {
+							break
+						}
+						i++
+					}
+					continue
+				}
+			}
+		}
+		i++
+	}
+
+	return tables
+}
+
+// extractTableTitle looks for a table title in the lines preceding the table
+// It searches for markdown headers (###, ##, #) or bold text (**title**)
+func extractTableTitle(lines []string, tableStartIdx int) string {
+	// Search up to 3 lines before the table for a title
+	for j := tableStartIdx - 1; j >= 0 && j >= tableStartIdx-3; j-- {
+		line := strings.TrimSpace(lines[j])
+		if line == "" {
+			continue
+		}
+		
+		// Skip if it's a table line (shouldn't happen, but safety check)
+		if strings.HasPrefix(line, "|") {
+			continue
+		}
+		
+		// Check for markdown headers: ### Title, ## Title, # Title
+		if strings.HasPrefix(line, "#") {
+			// Remove leading # and spaces
+			title := strings.TrimLeft(line, "#")
+			title = strings.TrimSpace(title)
+			if title != "" {
+				return title
+			}
+		}
+		
+		// Check for bold text: **Title** or **Title**：description
+		if strings.HasPrefix(line, "**") {
+			// Extract text between ** markers
+			endIdx := strings.Index(line[2:], "**")
+			if endIdx > 0 {
+				title := line[2 : 2+endIdx]
+				title = strings.TrimSpace(title)
+				if title != "" {
+					return title
+				}
+			}
+		}
+		
+		// Check for numbered list with bold: 1. **Title** or **1.** Title
+		boldPattern := regexp.MustCompile(`^\d*[.、)]\s*\*\*(.+?)\*\*`)
+		if matches := boldPattern.FindStringSubmatch(line); len(matches) > 1 {
+			return strings.TrimSpace(matches[1])
+		}
+		
+		// If we found a non-empty, non-table line that's not a recognized title format, stop searching
+		// This prevents picking up unrelated text as titles
+		break
+	}
+	
+	return ""
+}
+
+// isMarkdownTableSeparator checks if a line is a markdown table separator (|---|---|)
+func isMarkdownTableSeparator(line string) bool {
+	// Trim spaces first to handle trailing spaces
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+		return false
+	}
+	// Remove pipes and check if remaining content is dashes, colons, and spaces
+	inner := strings.Trim(line, "|")
+	parts := strings.Split(inner, "|")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		// Each part should be like "---", ":---", "---:", or ":---:"
+		cleaned := strings.Trim(part, ":-")
+		if cleaned != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// parseMarkdownTableFromLines parses a markdown table starting at the given line index
+func parseMarkdownTableFromLines(lines []string, startIdx int) MarkdownTableData {
+	table := MarkdownTableData{
+		Title: "",
+		Rows:  []map[string]interface{}{},
+	}
+
+	if startIdx >= len(lines) {
+		return table
+	}
+
+	// Parse header row
+	headerLine := strings.TrimSpace(lines[startIdx])
+	headers := parseMarkdownTableRowCells(headerLine)
+	if len(headers) == 0 {
+		return table
+	}
+
+	// Skip separator line
+	dataStartIdx := startIdx + 2
+
+	// Parse data rows
+	for i := dataStartIdx; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, "|") || !strings.HasSuffix(line, "|") {
+			break
+		}
+		// Skip if it's another separator line
+		if isMarkdownTableSeparator(line) {
+			continue
+		}
+
+		cells := parseMarkdownTableRowCells(line)
+		row := make(map[string]interface{})
+		for j, header := range headers {
+			if j < len(cells) {
+				row[header] = cells[j]
+			} else {
+				row[header] = ""
+			}
+		}
+		table.Rows = append(table.Rows, row)
+	}
+
+	return table
+}
+
+// parseMarkdownTableRowCells splits a markdown table row into cells
+func parseMarkdownTableRowCells(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.Trim(line, "|")
+	parts := strings.Split(line, "|")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		result = append(result, strings.TrimSpace(p))
+	}
+	return result
 }

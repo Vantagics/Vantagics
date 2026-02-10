@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,7 +28,10 @@ type LicenseClient struct {
 	analysisCount  int       // Today's analysis count
 	analysisDate   string    // Date of analysis count (YYYY-MM-DD)
 	dataDir        string    // Directory to store encrypted data
-	lastRefreshAt  time.Time // Last time we refreshed from server
+	lastRefreshAt  time.Time     // Last time we refreshed from server
+	lastReportAt   time.Time     // Last time we reported usage to server
+	reportTicker   *time.Ticker  // Periodic usage reporting ticker
+	reportStopCh   chan struct{} // Stop channel for usage reporting goroutine
 }
 
 const (
@@ -129,7 +133,14 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	c.sn = sn
 
 	// Build request
-	reqBody, _ := json.Marshal(map[string]string{"sn": sn})
+	reqBody, err := json.Marshal(map[string]string{"sn": sn})
+	if err != nil {
+		return &ActivateResult{
+			Success: false,
+			Code:    "INTERNAL_ERROR",
+			Message: fmt.Sprintf("构建请求失败: %v", err),
+		}, nil
+	}
 	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(serverURL+"/activate", "application/json", bytes.NewBuffer(reqBody))
@@ -142,7 +153,14 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &ActivateResult{
+			Success: false,
+			Code:    "READ_ERROR",
+			Message: fmt.Sprintf("读取响应失败: %v", err),
+		}, nil
+	}
 	
 	var result ActivationResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -178,6 +196,11 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 			Code:    "PARSE_ERROR",
 			Message: fmt.Sprintf("解析配置失败: %v", err),
 		}, nil
+	}
+
+	// Merge: take max of server and local used_credits
+	if c.data != nil {
+		data.UsedCredits = math.Max(data.UsedCredits, c.data.UsedCredits)
 	}
 
 	c.data = &data
@@ -281,6 +304,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		AnalysisCount int             `json:"analysis_count"`  // Today's analysis count
 		AnalysisDate  string          `json:"analysis_date"`   // Date of analysis count
 		UsedCredits   float64         `json:"used_credits"`    // Used credits
+		LastReportAt  string          `json:"last_report_at"`  // Last time we reported usage
 	}{
 		SN:            c.sn,
 		Data:          c.data,
@@ -290,6 +314,7 @@ func (c *LicenseClient) SaveActivationData() error {
 		AnalysisCount: c.analysisCount,
 		AnalysisDate:  c.analysisDate,
 		UsedCredits:   c.data.UsedCredits,
+		LastReportAt:  c.lastReportAt.Format(time.RFC3339),
 	}
 
 	jsonData, err := json.Marshal(saveData)
@@ -348,6 +373,7 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 		AnalysisCount int             `json:"analysis_count"`
 		AnalysisDate  string          `json:"analysis_date"`
 		UsedCredits   float64         `json:"used_credits"`
+		LastReportAt  string          `json:"last_report_at"`
 	}
 	if err := json.Unmarshal(decrypted, &saveData); err != nil {
 		return fmt.Errorf("failed to parse data: %v", err)
@@ -381,6 +407,13 @@ func (c *LicenseClient) LoadActivationData(sn string) error {
 	if saveData.LastRefreshAt != "" {
 		if t, err := time.Parse(time.RFC3339, saveData.LastRefreshAt); err == nil {
 			c.lastRefreshAt = t
+		}
+	}
+
+	// Parse last report time
+	if saveData.LastReportAt != "" {
+		if t, err := time.Parse(time.RFC3339, saveData.LastReportAt); err == nil {
+			c.lastReportAt = t
 		}
 	}
 
@@ -455,10 +488,13 @@ type RequestSNResponse struct {
 // RequestSN requests a serial number from the license server
 func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, error) {
 	// VantageData product_id is 0
-	reqBody, _ := json.Marshal(map[string]interface{}{
+	reqBody, err := json.Marshal(map[string]interface{}{
 		"email":      email,
 		"product_id": 0,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("构建请求失败: %v", err)
+	}
 	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(serverURL+"/request-sn", "application/json", bytes.NewBuffer(reqBody))
@@ -467,7 +503,10 @@ func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, 
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %v", err)
+	}
 	
 	var result RequestSNResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -790,3 +829,153 @@ func (c *LicenseClient) GetLicenseStatus() map[string]interface{} {
 
 	return status
 }
+
+// ReportUsage sends the current used_credits to the license server
+func (c *LicenseClient) ReportUsage() error {
+	c.mu.RLock()
+	serverURL := c.serverURL
+	sn := c.sn
+	var usedCredits float64
+	if c.data != nil {
+		usedCredits = c.data.UsedCredits
+	}
+	c.mu.RUnlock()
+
+	if serverURL == "" || sn == "" {
+		return fmt.Errorf("not activated, cannot report usage")
+	}
+
+	// Build request body
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"sn":           sn,
+		"used_credits": usedCredits,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal report request: %v", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(serverURL+"/report-usage", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Failed to report usage: %v", err))
+		}
+		return fmt.Errorf("failed to report usage: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Failed to read report response: %v", err))
+		}
+		return fmt.Errorf("failed to read report response: %v", err)
+	}
+
+	var result struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code,omitempty"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Failed to parse report response: %v", err))
+		}
+		return fmt.Errorf("failed to parse report response: %v", err)
+	}
+
+	if !result.Success {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Report usage failed: code=%s, message=%s", result.Code, result.Message))
+		}
+		return fmt.Errorf("report usage failed: %s", result.Code)
+	}
+
+	// Success: update lastReportAt and persist
+	c.mu.Lock()
+	c.lastReportAt = time.Now()
+	c.mu.Unlock()
+
+	if err := c.SaveActivationData(); err != nil {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] Failed to save after report: %v", err))
+		}
+	}
+
+	if c.log != nil {
+		c.log(fmt.Sprintf("[LICENSE] Usage reported successfully: %.1f credits", usedCredits))
+	}
+
+	return nil
+}
+
+// ShouldReportOnStartup checks if enough time has passed since last report to warrant a startup report
+func (c *LicenseClient) ShouldReportOnStartup() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return !c.lastReportAt.IsZero() && time.Since(c.lastReportAt) >= time.Hour
+}
+
+// StartUsageReporting starts a background goroutine that reports usage every hour
+func (c *LicenseClient) StartUsageReporting() {
+	c.mu.Lock()
+	// Don't start if already running
+	if c.reportTicker != nil {
+		c.mu.Unlock()
+		return
+	}
+	c.reportTicker = time.NewTicker(1 * time.Hour)
+	c.reportStopCh = make(chan struct{})
+	ticker := c.reportTicker
+	stopCh := c.reportStopCh
+	c.mu.Unlock()
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				// Only report if in credits mode and trial (low trust)
+				if c.IsCreditsMode() && c.GetTrustLevel() == "low" {
+					if err := c.ReportUsage(); err != nil {
+						if c.log != nil {
+							c.log(fmt.Sprintf("[LICENSE] Periodic usage report failed: %v", err))
+						}
+					}
+				}
+			case <-stopCh:
+				return
+			}
+		}
+	}()
+
+	if c.log != nil {
+		c.log("[LICENSE] Started periodic usage reporting (1 hour interval)")
+	}
+}
+
+// StopUsageReporting stops the background usage reporting goroutine
+func (c *LicenseClient) StopUsageReporting() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.reportTicker != nil {
+		c.reportTicker.Stop()
+		c.reportTicker = nil
+	}
+	if c.reportStopCh != nil {
+		close(c.reportStopCh)
+		c.reportStopCh = nil
+	}
+
+	if c.log != nil {
+		c.log("[LICENSE] Stopped periodic usage reporting")
+	}
+}
+
+// GetLastReportAt returns the last report time
+func (c *LicenseClient) GetLastReportAt() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastReportAt
+}
+

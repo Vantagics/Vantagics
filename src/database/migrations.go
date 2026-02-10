@@ -71,6 +71,16 @@ func InitDB(dataDir string) (*sql.DB, error) {
 		fmt.Printf("Warning: Failed to enable WAL mode: %v\n", err)
 	}
 
+	// Configure connection pool for SQLite
+	db.SetMaxOpenConns(1) // SQLite only supports one writer at a time
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0) // Connections don't expire
+
+	// Enable foreign keys
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		fmt.Printf("Warning: Failed to enable foreign keys: %v\n", err)
+	}
+
 	// Create migrations table if it doesn't exist
 	if err := createMigrationsTable(db); err != nil {
 		db.Close()

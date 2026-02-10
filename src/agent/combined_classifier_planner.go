@@ -12,6 +12,12 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// Cache configuration constants
+const (
+	combinedCacheTTL     = 5 * time.Minute // Cache entries expire after 5 minutes
+	combinedCacheMaxSize = 100             // Maximum number of cached entries
+)
+
 // CombinedClassifierPlanner merges request classification and analysis planning
 // into a single LLM call, eliminating the overhead of two sequential calls.
 type CombinedClassifierPlanner struct {
@@ -134,17 +140,12 @@ func (c *CombinedClassifierPlanner) ClassifyAndPlan(ctx context.Context, userQue
 		return c.quickResult("calculation", "trivial"), nil
 	}
 
-	// 1. Check cache (valid for 5 minutes)
+	// 1. Check cache using the new TTL-aware method
 	cacheKey := fmt.Sprintf("%s|%s", userQuery, dataSourceInfo)
-	c.cacheMu.RLock()
-	if cached, ok := c.cache[cacheKey]; ok {
-		if time.Since(cached.CachedAt) < 5*time.Minute {
-			c.cacheMu.RUnlock()
-			c.log("[COMBINED] Using cached classify+plan result")
-			return cached, nil
-		}
+	if cached, ok := c.getCachedResult(cacheKey); ok {
+		c.log("[COMBINED] Using cached classify+plan result")
+		return cached, nil
 	}
-	c.cacheMu.RUnlock()
 
 	// 2. Try quick path detection without LLM
 	queryLower := strings.ToLower(userQuery)
@@ -248,8 +249,57 @@ Output only JSON.`, userQuery, dataSourceInfo)
 
 func (c *CombinedClassifierPlanner) cacheResult(key string, result *CombinedResult) {
 	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	// Set cache timestamp
+	result.CachedAt = time.Now()
+
+	// Evict expired entries and enforce size limit
+	if len(c.cache) >= combinedCacheMaxSize {
+		// Remove expired entries first
+		now := time.Now()
+		for k, v := range c.cache {
+			if now.Sub(v.CachedAt) > combinedCacheTTL {
+				delete(c.cache, k)
+			}
+		}
+		// If still over limit, remove oldest entries
+		for len(c.cache) >= combinedCacheMaxSize {
+			var oldestKey string
+			var oldestTime time.Time
+			for k, v := range c.cache {
+				if oldestKey == "" || v.CachedAt.Before(oldestTime) {
+					oldestKey = k
+					oldestTime = v.CachedAt
+				}
+			}
+			if oldestKey != "" {
+				delete(c.cache, oldestKey)
+			} else {
+				break
+			}
+		}
+	}
+
 	c.cache[key] = result
-	c.cacheMu.Unlock()
+}
+
+// getCachedResult retrieves a cached result if it exists and is not expired
+func (c *CombinedClassifierPlanner) getCachedResult(key string) (*CombinedResult, bool) {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+
+	result, exists := c.cache[key]
+	if !exists {
+		return nil, false
+	}
+
+	// Check TTL
+	if time.Since(result.CachedAt) > combinedCacheTTL {
+		return nil, false
+	}
+
+	return result, true
 }
 
 func (c *CombinedClassifierPlanner) detectQuickPath(queryLower string) *CombinedResult {

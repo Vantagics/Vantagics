@@ -41,10 +41,16 @@
     background: var(--scrollbar-thumb-hover, #999);
 }
 
-/* Dark Theme Support */
-@media (prefers-color-scheme: dark) {
-    .right-panel {
-        background-color: var(--bg-primary-dark, #1a1a1a);
-        border-left-color: var(--border-color-dark, #333);
-    }
+/* Dark Theme Support - Using .dark class selector */
+.dark .right-panel {
+    background-color: #1e1e1e;
+    border-left-color: #3c3c3c;
+}
+
+.dark .right-panel-content::-webkit-scrollbar-thumb {
+    background: #424242;
+}
+
+.dark .right-panel-content::-webkit-scrollbar-thumb:hover {
+    background: #4f4f4f;
 }

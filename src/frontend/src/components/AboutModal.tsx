@@ -290,10 +290,10 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-1.5">
                                     <BarChart3 className="w-3.5 h-3.5 text-blue-600" />
-                                    <span className="text-xs font-medium text-slate-700">{t('credits_usage') || 'Credits 用量'}</span>
+                                    <span className="text-xs font-medium text-slate-700">{t('credits_usage')}</span>
                                 </div>
                                 <span className="text-xs text-slate-600">
-                                    {activationStatus.total_credits === 0 ? '无限制' : `${activationStatus.used_credits || 0} / ${activationStatus.total_credits}`}
+                                    {activationStatus.total_credits === 0 ? t('unlimited') : `${activationStatus.used_credits || 0} / ${activationStatus.total_credits}`}
                                 </span>
                             </div>
                             {activationStatus.total_credits !== undefined && activationStatus.total_credits > 0 && (
@@ -315,7 +315,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-1.5">
                                     <BarChart3 className="w-3.5 h-3.5 text-blue-600" />
-                                    <span className="text-xs font-medium text-slate-700">{t('daily_analysis_usage') || '今日分析'}</span>
+                                    <span className="text-xs font-medium text-slate-700">{t('daily_analysis_usage')}</span>
                                 </div>
                                 <span className="text-xs text-slate-600">
                                     {activationStatus.daily_analysis_count || 0} / {activationStatus.daily_analysis_limit}

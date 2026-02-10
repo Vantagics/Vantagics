@@ -433,6 +433,21 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
+                        {/* System Assistant entry - always visible below Chat Analysis */}
+                        {freeChatThreadId && (
+                            <div
+                                className={`group p-2 rounded-md text-sm flex items-center gap-2 cursor-pointer transition-colors ${selectedSessionId === freeChatThreadId ? 'bg-blue-200 text-blue-800' : 'hover:bg-blue-100 text-slate-600'}`}
+                                onClick={() => {
+                                    onSessionSelect(freeChatThreadId);
+                                    if (!isChatOpen) {
+                                        onToggleChat();
+                                    }
+                                }}
+                            >
+                                <MessageCircle className="flex-shrink-0 w-4 h-4 text-slate-400" />
+                                <span className="truncate">{t('free_chat')}</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Historical Sessions - below Chat Analysis button */}

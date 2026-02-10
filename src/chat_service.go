@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -281,15 +282,28 @@ type ChatService struct {
 
 // NewChatService creates a new instance of ChatService
 func NewChatService(sessionsDir string) *ChatService {
-	_ = os.MkdirAll(sessionsDir, 0755)
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		fmt.Printf("Warning: failed to create sessions directory %s: %v\n", sessionsDir, err)
+	}
 	return &ChatService{
 		sessionsDir: sessionsDir,
 	}
 }
 
 // getThreadPath returns the path to the history file for a given thread
+// Validates threadID to prevent path traversal attacks
 func (s *ChatService) getThreadPath(threadID string) string {
-	return filepath.Join(s.sessionsDir, threadID, "history.json")
+	// Sanitize threadID: only allow alphanumeric, hyphens, and underscores
+	safe := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			return r
+		}
+		return -1
+	}, threadID)
+	if safe == "" {
+		safe = "invalid"
+	}
+	return filepath.Join(s.sessionsDir, safe, "history.json")
 }
 
 // LoadThreads loads all chat threads from storage
@@ -330,13 +344,9 @@ func (s *ChatService) LoadThreads() ([]ChatThread, error) {
 	}
 
 	// Sort by CreatedAt descending (newest first)
-	for i := 0; i < len(threads); i++ {
-		for j := i + 1; j < len(threads); j++ {
-			if threads[i].CreatedAt < threads[j].CreatedAt {
-				threads[i], threads[j] = threads[j], threads[i]
-			}
-		}
-	}
+	sort.Slice(threads, func(i, j int) bool {
+		return threads[i].CreatedAt > threads[j].CreatedAt
+	})
 
 	return threads, nil
 }

@@ -128,6 +128,10 @@ const SettingsHTML = `
             <h2 class="text-lg font-bold text-red-600 mb-4">⚠️ 危险操作</h2>
             <div class="space-y-3">
                 <div class="flex items-center gap-3">
+                    <button onclick="showClearIPRecords()" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">🌐 清除IP请求记录</button>
+                    <p class="text-xs text-slate-500">清除指定IP的所有SN请求次数记录，清除后该IP可重新申请序列号（方便测试）</p>
+                </div>
+                <div class="flex items-center gap-3">
                     <button onclick="showClearEmailRecords()" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">📧 清除邮箱记录</button>
                     <p class="text-xs text-slate-500">清除指定邮箱的所有申请绑定记录，清除后该邮箱可重新申请序列号</p>
                 </div>
@@ -306,6 +310,34 @@ function showClearEmailRecords() {
         '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
         '<button onclick="doClearEmailRecords()" class="flex-1 py-2 bg-orange-600 text-white rounded-lg">确认清除</button></div>' +
         '</div></div>');
+}
+
+function showClearIPRecords() {
+    showModal('<div class="p-6"><h3 class="text-lg font-bold text-yellow-600 mb-4">🌐 清除IP请求记录</h3><div class="space-y-3">' +
+        '<div><label class="text-sm text-slate-600">输入要清除记录的IP地址</label>' +
+        '<input type="text" id="clear-ip-input" placeholder="192.168.1.1" class="w-full px-3 py-2 border rounded-lg"></div>' +
+        '<p class="text-xs text-yellow-600">清除后，该IP的每日请求次数计数将被重置，可重新申请序列号。适用于测试场景。</p>' +
+        '<div class="flex gap-2"><button onclick="hideModal()" class="flex-1 py-2 bg-slate-200 rounded-lg">取消</button>' +
+        '<button onclick="doClearIPRecords()" class="flex-1 py-2 bg-yellow-600 text-white rounded-lg">确认清除</button></div>' +
+        '</div></div>');
+}
+
+function doClearIPRecords() {
+    var ip = document.getElementById('clear-ip-input').value.trim();
+    if (!ip) { alert('请输入有效的IP地址'); return; }
+    if (!confirm('确定要清除IP ' + ip + ' 的所有请求记录吗？\\n\\n清除后该IP可重新申请序列号。')) return;
+
+    fetch('/api/settings/clear-ip-records', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ip: ip})})
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) {
+            hideModal();
+            if (result.success) {
+                alert(result.message);
+            } else {
+                alert('清除失败: ' + result.error);
+            }
+        })
+        .catch(function(err) { hideModal(); alert('请求失败: ' + err); });
 }
 
 function doClearEmailRecords() {

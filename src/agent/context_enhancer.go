@@ -177,31 +177,22 @@ func (s *AnalysisHistoryStore) AddRecord(record AnalysisRecord) error {
 // Returns records sorted by timestamp in descending order (newest first)
 // Validates: Requirements 1.2, 1.4
 func (s *AnalysisHistoryStore) GetRecordsByDataSource(dataSourceID string, maxRecords int) ([]AnalysisRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Ensure records are loaded (need write lock for this)
+	// Use write lock to safely handle lazy loading
+	s.mu.Lock()
 	if !s.loaded {
-		s.mu.RUnlock()
-		s.mu.Lock()
-		if !s.loaded {
-			if err := s.loadUnsafe(); err != nil {
-				s.mu.Unlock()
-				return nil, fmt.Errorf("failed to load records: %w", err)
-			}
+		if err := s.loadUnsafe(); err != nil {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("failed to load records: %w", err)
 		}
-		s.mu.Unlock()
-		s.mu.RLock()
 	}
-
-	// Filter records by data source ID
-	// Initialize with empty slice to ensure we never return nil
+	// Downgrade to read-only access by copying what we need under the lock
 	filtered := make([]AnalysisRecord, 0)
 	for _, record := range s.records {
 		if record.DataSourceID == dataSourceID {
 			filtered = append(filtered, record)
 		}
 	}
+	s.mu.Unlock()
 
 	// Sort by timestamp descending (newest first)
 	// Validates: Requirements 1.4
@@ -221,26 +212,18 @@ func (s *AnalysisHistoryStore) GetRecordsByDataSource(dataSourceID string, maxRe
 // GetAllRecords retrieves all analysis records
 // Thread-safe operation that returns all records sorted by timestamp (newest first)
 func (s *AnalysisHistoryStore) GetAllRecords() ([]AnalysisRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Ensure records are loaded
+	// Use write lock to safely handle lazy loading
+	s.mu.Lock()
 	if !s.loaded {
-		s.mu.RUnlock()
-		s.mu.Lock()
-		if !s.loaded {
-			if err := s.loadUnsafe(); err != nil {
-				s.mu.Unlock()
-				return nil, fmt.Errorf("failed to load records: %w", err)
-			}
+		if err := s.loadUnsafe(); err != nil {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("failed to load records: %w", err)
 		}
-		s.mu.Unlock()
-		s.mu.RLock()
 	}
-
-	// Return a copy to prevent external modification
+	// Copy records under the lock
 	result := make([]AnalysisRecord, len(s.records))
 	copy(result, s.records)
+	s.mu.Unlock()
 
 	// Sort by timestamp descending (newest first)
 	sort.Slice(result, func(i, j int) bool {

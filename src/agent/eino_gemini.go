@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -20,6 +21,7 @@ type GeminiChatModel struct {
 	config           *GeminiConfig
 	tools            []*schema.ToolInfo
 	thoughtSignature string // Store the thought signature from model responses
+	thoughtMu        sync.RWMutex // Protects thoughtSignature for concurrent access
 	httpClient       *http.Client
 }
 
@@ -111,6 +113,11 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 	var contents []map[string]interface{}
 	var systemInstruction string
 
+	// Read thoughtSignature with lock
+	m.thoughtMu.RLock()
+	currentThoughtSignature := m.thoughtSignature
+	m.thoughtMu.RUnlock()
+
 	for _, msg := range input {
 		if msg.Role == schema.System {
 			systemInstruction += msg.Content + "\n"
@@ -131,8 +138,8 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 				},
 			}
 			// Add thought signature if available (required for Gemini 2.0 thinking models)
-			if m.thoughtSignature != "" {
-				functionResponsePart["thoughtSignature"] = m.thoughtSignature
+			if currentThoughtSignature != "" {
+				functionResponsePart["thoughtSignature"] = currentThoughtSignature
 			}
 			contents = append(contents, map[string]interface{}{
 				"role":  "user",
@@ -162,8 +169,8 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 					},
 				}
 				// Add thought signature if available
-				if m.thoughtSignature != "" {
-					functionCallPart["thoughtSignature"] = m.thoughtSignature
+				if currentThoughtSignature != "" {
+					functionCallPart["thoughtSignature"] = currentThoughtSignature
 				}
 				parts = append(parts, functionCallPart)
 			}
@@ -267,7 +274,9 @@ func (m *GeminiChatModel) parseResponse(respBody []byte) (*schema.Message, error
 	for _, part := range candidate.Content.Parts {
 		// Capture thought signature for use in subsequent function responses
 		if part.ThoughtSignature != "" {
+			m.thoughtMu.Lock()
 			m.thoughtSignature = part.ThoughtSignature
+			m.thoughtMu.Unlock()
 		}
 		if part.Text != "" {
 			responseMsg.Content += part.Text

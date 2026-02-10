@@ -148,6 +148,14 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 		return nil, fmt.Errorf("model name is required but not configured")
 	}
 	
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("API key is required but not configured for provider %s", cfg.LLMProvider)
+	}
+	
+	if dsService == nil {
+		return nil, fmt.Errorf("DataSourceService is required but nil")
+	}
+	
 	if logger != nil {
 		logger(fmt.Sprintf("[EINO-INIT] Creating EinoService with provider: %s, model: %s", cfg.LLMProvider, cfg.ModelName))
 		if cfg.ProxyConfig != nil {
@@ -557,7 +565,64 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 	}
 
-	emitProgress(StageInitializing, 5, "progress.initializing_tools", 0, 0)
+	// Heartbeat mechanism to keep frontend progress bar alive during long operations
+	// This prevents the frontend from timing out and clearing the progress bar
+	// while the backend is still processing (e.g., during Python execution or LLM calls)
+	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
+	heartbeatDone := make(chan struct{})
+	var lastStage string = StageInitializing
+	var lastProgress int = 5
+	var lastMessage string = "progress.initializing_tools"
+	var heartbeatMu sync.Mutex
+
+	// Helper to update heartbeat state
+	updateHeartbeatState := func(stage string, progress int, message string) {
+		heartbeatMu.Lock()
+		lastStage = stage
+		lastProgress = progress
+		lastMessage = message
+		heartbeatMu.Unlock()
+	}
+
+	// Start heartbeat goroutine - sends progress updates every 30 seconds
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-heartbeatCtx.Done():
+				return
+			case <-ticker.C:
+				heartbeatMu.Lock()
+				stage := lastStage
+				progress := lastProgress
+				message := lastMessage
+				heartbeatMu.Unlock()
+				// Send heartbeat progress update to keep frontend alive
+				if onProgress != nil && stage != StageComplete {
+					onProgress(NewProgressUpdate(stage, progress, message, 0, 0))
+					if s.Logger != nil {
+						s.Logger(fmt.Sprintf("[HEARTBEAT] Sent progress heartbeat: stage=%s, progress=%d", stage, progress))
+					}
+				}
+			}
+		}
+	}()
+
+	// Ensure heartbeat is stopped when function returns
+	defer func() {
+		cancelHeartbeat()
+		<-heartbeatDone
+	}()
+
+	// Wrapper for emitProgress that also updates heartbeat state
+	emitProgressWithHeartbeat := func(stage string, progress int, message string, step, total int) {
+		updateHeartbeatState(stage, progress, message)
+		emitProgress(stage, progress, message, step, total)
+	}
+
+	emitProgressWithHeartbeat(StageInitializing, 5, "progress.initializing_tools", 0, 0)
 
 	// Check for template match first (faster path)
 	if len(history) > 0 {
@@ -599,12 +664,12 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 				// Template progress callback
 				templateProgress := func(stage string, progress int, message string, step, total int) {
-					emitProgress(stage, progress, message, step, total)
+					emitProgressWithHeartbeat(stage, progress, message, step, total)
 				}
 
 				result, err := template.Execute(ctx, executor, dataSourceID, templateProgress)
 				if err == nil && result.Success {
-					emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+					emitProgressWithHeartbeat(StageComplete, 100, "progress.analysis_complete", 0, 0)
 					if s.Logger != nil {
 						s.Logger(fmt.Sprintf("[TIMING] Template execution took: %v", time.Since(startTotal)))
 					}
@@ -683,7 +748,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						result, execErr = ps.ExecuteScript(s.cfg.PythonPath, combinedResult.QuickPathCode)
 					}
 					if execErr == nil {
-						emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+						emitProgressWithHeartbeat(StageComplete, 100, "progress.analysis_complete", 0, 0)
 						trajectory.Success = true
 						trajectory.FinalResponse = result
 						trajectory.IterationCount = 1
@@ -712,7 +777,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						generator.SetClassificationHints(classificationResult)
 					}
 
-					emitProgress(StageAnalysis, 30, "progress.generating_code", 0, 0)
+					emitProgressWithHeartbeat(StageAnalysis, 30, "progress.generating_code", 0, 0)
 					generatedCode, err := generator.GenerateAnalysisCode(ctx, userQuery, dataSourceID, dbPath, sessionDir)
 
 					if err == nil && generatedCode != nil && generatedCode.Code != "" {
@@ -731,7 +796,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 								}
 							}
 
-							emitProgress(StageAnalysis, 60, "progress.running_python", 0, 0)
+							emitProgressWithHeartbeat(StageAnalysis, 60, "progress.running_python", 0, 0)
 							execStart := time.Now()
 							safeResult := safety.ValidateAndExecute(ctx, generatedCode.Code, func(code string) (string, error) {
 								if s.pythonPool != nil {
@@ -754,7 +819,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 									}
 								}
 								metrics.LogSummary()
-								emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+								emitProgressWithHeartbeat(StageComplete, 100, "progress.analysis_complete", 0, 0)
 								trajectory.Success = true
 								trajectory.FinalResponse = safeResult.Output
 								trajectory.IterationCount = 1
@@ -1017,7 +1082,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Binding Tools took: %v", time.Since(startBind)))
 	}
 
-	emitProgress(StageInitializing, 10, "progress.tools_ready", 0, 0)
+	emitProgressWithHeartbeat(StageInitializing, 10, "progress.tools_ready", 0, 0)
 
 	// 4. Build Graph using Lambda nodes to manage state ([]*schema.Message)
 	startGraph := time.Now()
@@ -1150,7 +1215,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 		// Emit progress based on iteration
 		progress := 20 + min(iterationCount*10, 60) // 20-80%
-		emitProgress(StageAnalysis, progress, "progress.ai_processing", iterationCount, 0)
+		emitProgressWithHeartbeat(StageAnalysis, progress, "progress.ai_processing", iterationCount, 0)
 
 		// HARD LIMIT: Force termination if iterations exceed safe threshold
 		// This prevents runaway resource consumption even if warnings are ignored
@@ -1246,12 +1311,12 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			
 			// Use centralized tool-to-progress mapping
 			if mapping, ok := ToolProgressMapping[toolName]; ok {
-				emitProgress(mapping.Stage, mapping.Progress, mapping.Message, 0, 0)
+				emitProgressWithHeartbeat(mapping.Stage, mapping.Progress, mapping.Message, 0, 0)
 				if s.Logger != nil {
 					s.Logger(fmt.Sprintf("[PROGRESS] %s → %s (%s)", toolName, mapping.Stage, mapping.Message))
 				}
 			} else {
-				emitProgress(StageAnalysis, 50, "progress.ai_processing", 0, 0)
+				emitProgressWithHeartbeat(StageAnalysis, 50, "progress.ai_processing", 0, 0)
 				if s.Logger != nil {
 					s.Logger(fmt.Sprintf("[PROGRESS] Running %s", toolName))
 				}
@@ -1298,9 +1363,9 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			if len(lastMsg.ToolCalls) > 0 {
 				toolName := lastMsg.ToolCalls[0].Function.Name
 				if toolName == "execute_sql" {
-					emitProgress(StageQuery, 35, "progress.correcting_sql", 0, 0)
+					emitProgressWithHeartbeat(StageQuery, 35, "progress.correcting_sql", 0, 0)
 				} else {
-					emitProgress(StageAnalysis, 45, "progress.ai_processing", 0, 0)
+					emitProgressWithHeartbeat(StageAnalysis, 45, "progress.ai_processing", 0, 0)
 				}
 			}
 			
@@ -1350,7 +1415,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		}
 
 		// Emit progress for result processing
-		emitProgress(StageAnalysis, 65, "progress.processing_results", 0, 0)
+		emitProgressWithHeartbeat(StageAnalysis, 65, "progress.processing_results", 0, 0)
 
 		// CRITICAL: Truncate tool output to prevent context overflow
 		// Tool outputs (especially SQL results) can be huge
@@ -1443,7 +1508,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Graph Construction & Compilation took: %v", time.Since(startGraph)))
 	}
 
-	emitProgress(StageInitializing, 15, "progress.tools_ready", 0, 0)
+	emitProgressWithHeartbeat(StageInitializing, 15, "progress.tools_ready", 0, 0)
 
 	// 6. Build Context Prompt (include table names and column names for data background)
 	startContext := time.Now()
@@ -1590,13 +1655,13 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 	input := append([]*schema.Message{sysMsg}, managedHistory...)
 
-	emitProgress(StageAnalysis, 20, "progress.ai_processing", 0, 0)
+	emitProgressWithHeartbeat(StageAnalysis, 20, "progress.ai_processing", 0, 0)
 
 	startInvoke := time.Now()
 	finalHistory, err := runnable.Invoke(ctx, input)
 	if err != nil {
 		// ALWAYS emit completion progress so frontend progress bar clears properly
-		emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+		emitProgressWithHeartbeat(StageComplete, 100, "progress.analysis_complete", 0, 0)
 
 		// Mark trajectory as failed
 		trajectory.Success = false
@@ -1608,7 +1673,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		s.Logger(fmt.Sprintf("[TIMING] Total RunAnalysis took: %v", time.Since(startTotal)))
 	}
 
-	emitProgress(StageComplete, 100, "progress.analysis_complete", 0, 0)
+	emitProgressWithHeartbeat(StageComplete, 100, "progress.analysis_complete", 0, 0)
 
 	// Return the last message and mark trajectory as successful with escaped content
 	if len(finalHistory) > 0 {

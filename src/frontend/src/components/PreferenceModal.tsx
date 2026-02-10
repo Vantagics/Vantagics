@@ -58,6 +58,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
         search_type?: string;
         expires_at?: string;
         sn?: string;
+        daily_analysis_limit?: number;
+        daily_analysis_count?: number;
+        total_credits?: number;
+        used_credits?: number;
+        credits_mode?: boolean;
     } | null>(null);
     const [config, setConfig] = useState<configModel.Config>(configModel.Config.createFrom({
         llmProvider: 'OpenAI',
@@ -113,6 +118,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                             search_type: status.search_type,
                             expires_at: status.expires_at,
                             sn: status.sn,
+                            daily_analysis_limit: status.daily_analysis_limit || 0,
+                            daily_analysis_count: status.daily_analysis_count || 0,
+                            total_credits: status.total_credits || 0,
+                            used_credits: status.used_credits || 0,
+                            credits_mode: status.credits_mode || false,
                         });
                     }).catch(console.error);
                 }
@@ -176,6 +186,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     search_type: status.search_type,
                     expires_at: status.expires_at,
                     sn: status.sn,
+                    daily_analysis_limit: status.daily_analysis_limit || 0,
+                    daily_analysis_count: status.daily_analysis_count || 0,
+                    total_credits: status.total_credits || 0,
+                    used_credits: status.used_credits || 0,
+                    credits_mode: status.credits_mode || false,
                 });
             } else {
                 // Check if switched to open source mode
@@ -328,24 +343,64 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
                     
                     {/* Commercial Mode Indicator */}
-                    {isCommercialMode && (
+                    {isCommercialMode && activationInfo && (
                         <div className="mb-4 px-2">
-                            <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
-                                <Shield className="w-4 h-4 text-green-600 flex-shrink-0" />
-                                <div className="text-xs flex-1 min-w-0">
-                                    <div className="font-medium text-green-700">{t('commercial_mode_active') || '商业版已激活'}</div>
-                                    {activationInfo?.expires_at && (
-                                        <div className="text-green-600">{t('expires') || '到期'}: {activationInfo.expires_at}</div>
-                                    )}
+                            <div className="p-2.5 bg-green-50 border border-green-200 rounded-lg space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5">
+                                        <Shield className="w-4 h-4 text-green-600 flex-shrink-0" />
+                                        <span className="text-xs font-medium text-green-700">{t('commercial_mode_active')}</span>
+                                    </div>
+                                    <button
+                                        onClick={handleRefreshLicense}
+                                        disabled={isRefreshingLicense}
+                                        className="p-1 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors disabled:opacity-50"
+                                        title={t('refresh_license')}
+                                    >
+                                        <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingLicense ? 'animate-spin' : ''}`} />
+                                    </button>
                                 </div>
-                                <button
-                                    onClick={handleRefreshLicense}
-                                    disabled={isRefreshingLicense}
-                                    className="p-1 text-green-600 hover:text-green-800 hover:bg-green-100 rounded transition-colors disabled:opacity-50"
-                                    title={t('refresh_license') || '刷新授权'}
-                                >
-                                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingLicense ? 'animate-spin' : ''}`} />
-                                </button>
+                                {/* License type: trial or official */}
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">{t('license_type')}</span>
+                                    <span className={`font-medium ${
+                                        (activationInfo.credits_mode && activationInfo.total_credits && activationInfo.total_credits > 0) ||
+                                        (!activationInfo.credits_mode && activationInfo.daily_analysis_limit && activationInfo.daily_analysis_limit > 0)
+                                            ? 'text-orange-600' : 'text-green-700'
+                                    }`}>
+                                        {(activationInfo.credits_mode && activationInfo.total_credits && activationInfo.total_credits > 0) ||
+                                         (!activationInfo.credits_mode && activationInfo.daily_analysis_limit && activationInfo.daily_analysis_limit > 0)
+                                            ? t('trial_license') : t('official_license')}
+                                    </span>
+                                </div>
+                                {/* Expiration */}
+                                {activationInfo.expires_at && (
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-slate-500">{t('expires')}</span>
+                                        <span className="text-green-600">{activationInfo.expires_at}</span>
+                                    </div>
+                                )}
+                                {/* Billing mode & usage */}
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">{t('billing_mode')}</span>
+                                    <span className="text-slate-700">
+                                        {activationInfo.credits_mode ? t('billing_mode_credits') : t('billing_mode_daily')}
+                                    </span>
+                                </div>
+                                {/* Current usage */}
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-slate-500">{t('current_usage')}</span>
+                                    <span className="text-slate-700 font-mono">
+                                        {activationInfo.credits_mode
+                                            ? (activationInfo.total_credits === 0
+                                                ? t('unlimited')
+                                                : `${activationInfo.used_credits || 0} / ${activationInfo.total_credits}`)
+                                            : (activationInfo.daily_analysis_limit === 0
+                                                ? t('unlimited')
+                                                : `${activationInfo.daily_analysis_count || 0} / ${activationInfo.daily_analysis_limit}`)
+                                        }
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, MessageCircle, BarChart3, History, Loader2 } from 'lucide-react';
+import { Trash2, BarChart3, History, Loader2 } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 /**
@@ -68,17 +68,12 @@ const HistoricalSessionsSection: React.FC<HistoricalSessionsSectionProps> = ({
 }) => {
     const { t } = useLanguage();
 
-    // Sort sessions: free chat always first, then reverse chronological
+    // Sort sessions in reverse chronological order, excluding free chat thread
     const sortedSessions = React.useMemo(() => {
-        const sorted = sortSessionsReverseChronological(sessions);
-        if (freeChatThreadId) {
-            const freeChatIdx = sorted.findIndex(s => s.id === freeChatThreadId);
-            if (freeChatIdx > 0) {
-                const [freeChat] = sorted.splice(freeChatIdx, 1);
-                sorted.unshift(freeChat);
-            }
-        }
-        return sorted;
+        const filtered = freeChatThreadId
+            ? sessions.filter(s => s.id !== freeChatThreadId)
+            : sessions;
+        return sortSessionsReverseChronological(filtered);
     }, [sessions, freeChatThreadId]);
 
     return (
@@ -115,13 +110,11 @@ const HistoricalSessionsSection: React.FC<HistoricalSessionsSectionProps> = ({
                                 <div className="session-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     {isSessionLoading?.(session.id) ? (
                                         <Loader2 className="flex-shrink-0 w-3.5 h-3.5 text-blue-500 animate-spin" />
-                                    ) : session.id === freeChatThreadId ? (
-                                        <MessageCircle className="flex-shrink-0 w-3.5 h-3.5 text-slate-400" />
                                     ) : (
                                         <BarChart3 className="flex-shrink-0 w-3.5 h-3.5 text-blue-400" />
                                     )}
                                     <span className="truncate">
-                                        {session.id === freeChatThreadId ? t('free_chat') : session.title}
+                                        {session.title}
                                         {session.dataSourceName && ` (${session.dataSourceName})`}
                                     </span>
                                 </div>
@@ -135,7 +128,7 @@ const HistoricalSessionsSection: React.FC<HistoricalSessionsSectionProps> = ({
                                     )}
                                 </div>
                             </div>
-                            {onDelete && session.id !== freeChatThreadId && (
+                            {onDelete && (
                                 <button
                                     onClick={(e) => {
                                         e.preventDefault();

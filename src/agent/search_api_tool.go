@@ -433,30 +433,17 @@ func (t *SearchAPITool) searchUAPIPro(ctx context.Context, query string, maxResu
 
 	// Create UAPI client
 	baseURL := "https://api.uapi.nl"
+	if t.apiConfig.CustomID != "" {
+		baseURL = t.apiConfig.CustomID
+	}
 	client := uapi.New(baseURL, t.apiConfig.APIKey)
 
-	// Use UAPI's search functionality
-	// Note: This is a placeholder - actual implementation depends on UAPI SDK's search methods
-	// For now, we'll return a structured response indicating the service is available
-	
-	results := []SearchAPIResult{
-		{
-			Title:   fmt.Sprintf("UAPI Pro Search: %s", query),
-			URL:     "https://docs.uapi.nl/",
-			Snippet: fmt.Sprintf("UAPI Pro search for '%s' - Implementation pending SDK documentation", query),
-			Source:  "uapi_pro",
-		},
+	if t.apiConfig.APIKey == "" {
+		return nil, fmt.Errorf("UAPI Pro API key is not configured. Please set it in Search API settings")
 	}
 
-	// TODO: Implement actual UAPI Pro search when SDK documentation is available
-	// Example structure (to be updated):
-	// resp, err := client.Search().Query(ctx, query, maxResults)
-	// if err != nil {
-	//     return nil, err
-	// }
-	// Parse resp and populate results
-
-	_ = client // Use client to avoid unused variable error
-
-	return results, nil
+	// UAPI Pro search is not yet fully implemented.
+	// Return an informative error so the caller can fall back to another search provider.
+	_ = client
+	return nil, fmt.Errorf("UAPI Pro search integration is not yet available. Please use DuckDuckGo or Serper as your search provider")
 }

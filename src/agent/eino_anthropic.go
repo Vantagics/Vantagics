@@ -166,8 +166,15 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 	// Prepare URL
 	fullURL := "https://api.anthropic.com/v1/messages"
 	if m.config.BaseURL != "" {
-		// Simple URL handling, assuming standard Anthropic compatible endpoint
-		fullURL = strings.TrimSuffix(m.config.BaseURL, "/") + "/v1/messages"
+		baseURL := strings.TrimSuffix(m.config.BaseURL, "/")
+		// Check if the URL already contains the path
+		if strings.HasSuffix(baseURL, "/v1/messages") {
+			fullURL = baseURL
+		} else if strings.HasSuffix(baseURL, "/v1") {
+			fullURL = baseURL + "/messages"
+		} else {
+			fullURL = baseURL + "/v1/messages"
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, bytes.NewBuffer(jsonBody))

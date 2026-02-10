@@ -32,6 +32,12 @@ input, textarea {
   background-color: #252526 !important;
 }
 
+/* 消息气泡特定深色样式 - 确保覆盖内联样式 */
+.dark [class*="bg-white"][class*="border"][class*="rounded"] {
+  background-color: #252526 !important;
+  border-color: #3c3c3c !important;
+}
+
 .dark .bg-slate-50 {
   background-color: #1e1e1e !important;
 }
@@ -362,4 +368,72 @@ input, textarea {
 .dark .text-gray-500,
 .dark .text-gray-400 {
   color: #808080 !important;
+}
+
+/* ========== 消息气泡深色模式样式 ========== */
+
+/* AI 消息气泡 - 深色背景 */
+.dark .ring-slate-50 {
+  --tw-ring-color: #3c3c3c !important;
+}
+
+/* 消息气泡内的 prose 样式 */
+.dark .prose {
+  color: #d4d4d4 !important;
+}
+
+.dark .prose-sm {
+  color: #d4d4d4 !important;
+}
+
+/* 消息气泡内的表格深色样式 */
+.dark .prose table {
+  border-color: #3c3c3c !important;
+}
+
+.dark .prose th {
+  background-color: #2d2d30 !important;
+  border-color: #3c3c3c !important;
+  color: #d4d4d4 !important;
+}
+
+.dark .prose td {
+  border-color: #3c3c3c !important;
+  color: #d4d4d4 !important;
+}
+
+.dark .prose tr:nth-child(even) {
+  background-color: #252526 !important;
+}
+
+.dark .prose tr:nth-child(odd) {
+  background-color: #1e1e1e !important;
+}
+
+/* MessageBubble 内表格深色样式 */
+.dark table.min-w-full {
+  border-color: #3c3c3c !important;
+}
+
+.dark table.min-w-full thead tr {
+  background-color: #1a2332 !important;
+}
+
+.dark table.min-w-full th {
+  background-color: #1a2332 !important;
+  border-color: #3c3c3c !important;
+  color: #d4d4d4 !important;
+}
+
+.dark table.min-w-full td {
+  border-color: #3c3c3c !important;
+  color: #d4d4d4 !important;
+}
+
+.dark table.min-w-full tbody tr:nth-child(even) {
+  background-color: #252526 !important;
+}
+
+.dark table.min-w-full tbody tr:nth-child(odd) {
+  background-color: #1e1e1e !important;
 }

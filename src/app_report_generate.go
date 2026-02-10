@@ -41,7 +41,7 @@ var (
 // Returns a report ID that can be used with ExportReport.
 func (a *App) PrepareReport(req ReportGenerateRequest) (string, error) {
 	if a.einoService == nil {
-		return "", fmt.Errorf(i18n.T("report.llm_not_initialized"))
+		return "", fmt.Errorf("%s", i18n.T("report.llm_not_initialized"))
 	}
 
 	a.Log("[REPORT] Starting report generation...")
@@ -53,7 +53,7 @@ func (a *App) PrepareReport(req ReportGenerateRequest) (string, error) {
 	reportText, err := a.callLLMForReport(dataSummary, req.UserRequest)
 	if err != nil {
 		a.Log(fmt.Sprintf("[REPORT] LLM report generation failed: %v", err))
-		return "", fmt.Errorf(i18n.T("report.generation_failed"), err)
+		return "", fmt.Errorf("%s: %v", i18n.T("report.generation_failed"), err)
 	}
 
 	a.Log(fmt.Sprintf("[REPORT] LLM generated report text: %d chars", len(reportText)))
@@ -100,7 +100,7 @@ func (a *App) ExportReport(reportID string, format string) error {
 	reportCacheMu.Unlock()
 
 	if !ok {
-		return fmt.Errorf(i18n.T("report.data_expired"))
+		return fmt.Errorf("%s", i18n.T("report.data_expired"))
 	}
 
 	timestamp := time.Now().Format("20060102_150405")

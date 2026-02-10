@@ -143,7 +143,7 @@ function loadEmailRecords(page, search) {
                 html += '<p class="text-xs text-slate-400">申请时间: ' + new Date(r.created_at).toLocaleString() + ' | IP: ' + r.ip + '</p>';
                 html += '<p class="text-xs text-slate-400">';
                 if (expiresAt) html += '过期: <span class="' + (isExpired ? 'text-red-600' : '') + '">' + expiresAt.toLocaleDateString() + '</span> | ';
-                html += (license.credits_mode ? 'Credits: ' + (license.total_credits > 0 ? license.total_credits : '无限制') : '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次')) + ' | ';
+                html += (license.credits_mode ? 'Credits: ' + (license.total_credits > 0 ? '<span class="text-teal-600">已用 ' + (license.used_credits || 0) + ' / ' + license.total_credits + '</span>' : '无限制') : '每日分析: ' + (dailyAnalysis === 0 ? '无限' : dailyAnalysis + '次')) + ' | ';
                 html += '序列号分组: <span class="text-purple-600">' + (licenseGroupName || '默认') + '</span> | ';
                 html += 'LLM分组: <span class="text-blue-600">' + (llmGroupName || '默认') + '</span> | ';
                 html += '搜索分组: <span class="text-green-600">' + (searchGroupName || '默认') + '</span>';
@@ -155,6 +155,7 @@ function loadEmailRecords(page, search) {
                 html += '<button data-action="extend" data-key="' + dataKey + '" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs hover:bg-blue-200">展期</button>';
                 if (license.credits_mode) {
                     html += '<button data-action="credits" data-key="' + dataKey + '" class="px-2 py-1 bg-teal-100 text-teal-700 rounded text-xs hover:bg-teal-200">Credits</button>';
+                    html += '<button data-action="usage-log" data-key="' + dataKey + '" class="px-2 py-1 bg-cyan-100 text-cyan-700 rounded text-xs hover:bg-cyan-200">使用记录</button>';
                 } else {
                     html += '<button data-action="analysis" data-key="' + dataKey + '" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs hover:bg-purple-200">分析次数</button>';
                 }
@@ -211,6 +212,9 @@ document.getElementById('email-records-list').addEventListener('click', function
             break;
         case 'switchmode':
             switchLicenseMode(data.sn, data.creditsMode, data.dailyAnalysis, data.totalCredits);
+            break;
+        case 'usage-log':
+            showUsageLog(data.sn);
             break;
         case 'toggle':
             toggleLicenseFromEmail(data.sn);
@@ -425,5 +429,36 @@ function doManualRequest() {
         hideModal();
         alert('请求失败: ' + err);
     });
+}
+
+function showUsageLog(sn) {
+    fetch('/api/credits-usage-log?sn=' + encodeURIComponent(sn))
+        .then(function(resp) { return resp.json(); })
+        .then(function(logs) {
+            var html = '<div class="p-6"><h3 class="text-lg font-bold mb-4">📊 Credits 使用记录</h3>';
+            html += '<p class="text-sm text-slate-600 mb-3">序列号: <code class="font-mono text-blue-600">' + escapeHtml(sn) + '</code></p>';
+            if (!logs || logs.length === 0) {
+                html += '<p class="text-slate-500 text-center py-4">暂无使用记录</p>';
+            } else {
+                html += '<div class="max-h-96 overflow-y-auto"><table class="w-full text-sm">';
+                html += '<thead class="bg-slate-100 sticky top-0"><tr><th class="px-3 py-2 text-left">上报时间</th><th class="px-3 py-2 text-right">已用量</th><th class="px-3 py-2 text-left">客户端 IP</th></tr></thead>';
+                html += '<tbody>';
+                logs.forEach(function(log) {
+                    html += '<tr class="border-b border-slate-100">';
+                    html += '<td class="px-3 py-2 text-slate-600">' + new Date(log.reported_at).toLocaleString() + '</td>';
+                    html += '<td class="px-3 py-2 text-right font-mono text-teal-600">' + log.used_credits + '</td>';
+                    html += '<td class="px-3 py-2 text-slate-500">' + (log.client_ip || '-') + '</td>';
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                html += '<p class="text-xs text-slate-400 mt-2">共 ' + logs.length + ' 条记录</p>';
+            }
+            html += '<div class="mt-4"><button onclick="hideModal()" class="w-full py-2 bg-slate-200 rounded-lg">关闭</button></div>';
+            html += '</div>';
+            showModal(html);
+        })
+        .catch(function(err) {
+            alert('查询失败: ' + err);
+        });
 }
 `

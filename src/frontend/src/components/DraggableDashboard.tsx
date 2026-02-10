@@ -1429,11 +1429,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         
                         // 使用后端提供的 title，如果没有则生成默认标题
                         let tableTitle: string;
-                        if (tableData.title && tableData.title.trim()) {
+                        const hasBackendTitle = tableData.title && tableData.title.trim();
+                        if (hasBackendTitle) {
                             // 使用后端提供的标题
                             tableTitle = totalTables > 1 
                                 ? `${index + 1}. ${tableData.title}`
-                                : tableData.title;
+                                : tableData.title!;
                         } else {
                             // 生成默认标题
                             tableTitle = totalTables > 1
@@ -1441,10 +1442,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 : `${t('area_table')}${titleHint ? ` — ${titleHint}` : ''}`;
                         }
                         
+                        // 显示标题栏的条件：多表格时总是显示，单表格时如果有后端提供的标题也显示
+                        const showTitleBar = totalTables > 1 || hasBackendTitle;
+                        
                         return (
                             <div key={index} className="border border-slate-200 rounded-lg overflow-hidden">
-                                {/* 表格标题栏 - 多表格时显示每个表格的名称 */}
-                                {totalTables > 1 && (
+                                {/* 表格标题栏 */}
+                                {showTitleBar && (
                                     <div className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
                                         <span className="flex-1">{tableTitle}</span>
                                         <span className="text-xs text-slate-400">{tableData.rows.length} {t('rows') || '行'}</span>
