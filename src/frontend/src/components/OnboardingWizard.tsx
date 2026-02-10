@@ -40,22 +40,22 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[480px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
+            <div className="bg-white dark:bg-[#252526] w-[480px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
                 {/* Header */}
-                <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <div className="px-5 py-4 border-b border-slate-200 dark:border-[#3c3c3c] flex items-center justify-between">
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">
+                        <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">
                             {t('onboarding_welcome') || '👋 欢迎使用 VantageData'}
                         </h2>
-                        <p className="text-xs text-slate-500 mt-0.5">
+                        <p className="text-xs text-slate-500 dark:text-[#808080] mt-0.5">
                             {t('onboarding_subtitle') || '让我们开始导入您的数据'}
                         </p>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-1.5 hover:bg-slate-100 rounded-full transition-colors"
+                        className="p-1.5 hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-full transition-colors"
                     >
-                        <X className="w-4 h-4 text-slate-400" />
+                        <X className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                     </button>
                 </div>
 
@@ -65,10 +65,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     <div>
                         <div className="flex items-center gap-1.5 mb-2">
                             <Store className="w-4 h-4 text-blue-500" />
-                            <h3 className="text-xs font-semibold text-slate-700">
+                            <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
                                 {t('onboarding_ecommerce_title') || '电商平台'}
                             </h3>
-                            <span className="text-xs text-slate-400">- {t('onboarding_ecommerce_desc') || '导入店铺数据'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_ecommerce_desc') || '导入店铺数据'}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {ecommercePlatforms.map((platform) => (
@@ -90,10 +90,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     <div>
                         <div className="flex items-center gap-1.5 mb-2">
                             <Briefcase className="w-4 h-4 text-indigo-500" />
-                            <h3 className="text-xs font-semibold text-slate-700">
+                            <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
                                 {t('onboarding_project_title') || '项目管理'}
                             </h3>
-                            <span className="text-xs text-slate-400">- {t('onboarding_project_desc') || '导入项目数据'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_project_desc') || '导入项目数据'}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {projectTools.map((platform) => (
@@ -115,10 +115,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     <div>
                         <div className="flex items-center gap-1.5 mb-2">
                             <Database className="w-4 h-4 text-cyan-500" />
-                            <h3 className="text-xs font-semibold text-slate-700">
+                            <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
                                 {t('onboarding_warehouse_title') || '数据仓库'}
                             </h3>
-                            <span className="text-xs text-slate-400">- {t('onboarding_warehouse_desc') || '连接云数据仓库'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_warehouse_desc') || '连接云数据仓库'}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {dataWarehouses.map((platform) => (
@@ -138,29 +138,29 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
 
                     {/* Divider */}
                     <div className="flex items-center gap-3">
-                        <div className="flex-1 h-px bg-slate-200"></div>
-                        <span className="text-xs text-slate-400">{t('onboarding_or') || '或者'}</span>
-                        <div className="flex-1 h-px bg-slate-200"></div>
+                        <div className="flex-1 h-px bg-slate-200 dark:bg-[#3c3c3c]"></div>
+                        <span className="text-xs text-slate-400 dark:text-[#808080]">{t('onboarding_or') || '或者'}</span>
+                        <div className="flex-1 h-px bg-slate-200 dark:bg-[#3c3c3c]"></div>
                     </div>
 
                     {/* Self Import Option */}
                     <button
                         onClick={onSelectSelfImport}
-                        className="w-full p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all hover:shadow-sm flex items-center justify-center gap-2"
+                        className="w-full p-3 rounded-lg border border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30] hover:bg-slate-100 dark:hover:bg-[#3c3c3c] transition-all hover:shadow-sm flex items-center justify-center gap-2"
                     >
-                        <Upload className="w-4 h-4 text-slate-600" />
-                        <span className="font-medium text-sm text-slate-700">
+                        <Upload className="w-4 h-4 text-slate-600 dark:text-[#d4d4d4]" />
+                        <span className="font-medium text-sm text-slate-700 dark:text-[#d4d4d4]">
                             {t('onboarding_self_import') || '自主导入数据'}
                         </span>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-400 dark:text-[#808080]">
                             ({t('onboarding_self_import_desc') || 'Excel、CSV、JSON、MySQL、PostgreSQL'})
                         </span>
                     </button>
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
-                    <p className="text-xs text-slate-400 text-center">
+                <div className="px-5 py-3 border-t border-slate-100 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30]">
+                    <p className="text-xs text-slate-400 dark:text-[#808080] text-center">
                         {t('onboarding_skip_hint') || '您可以随时通过侧边栏添加更多数据源'}
                     </p>
                 </div>

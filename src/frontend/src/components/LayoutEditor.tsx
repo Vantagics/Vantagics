@@ -25,7 +25,7 @@ export const LayoutEditor: React.FC<LayoutEditorProps> = ({
 
   return (
     <div 
-      className={`layout-editor bg-white border-b border-gray-200 shadow-sm ${className}`}
+      className={`layout-editor bg-white dark:bg-[#252526] border-b border-gray-200 dark:border-[#3c3c3c] shadow-sm ${className}`}
       data-testid="layout-editor"
     >
       <div className="flex items-center justify-between px-4 py-4">

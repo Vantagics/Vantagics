@@ -254,9 +254,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             )}
 
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                <div className="bg-white w-[500px] max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
-                    <div className="p-6 border-b border-slate-200">
-                        <h2 className="text-xl font-bold text-slate-800">{t('add_data_source')}</h2>
+                <div className="bg-white dark:bg-[#252526] w-[500px] max-h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
+                    <div className="p-6 border-b border-slate-200 dark:border-[#3c3c3c]">
+                        <h2 className="text-xl font-bold text-slate-800 dark:text-[#d4d4d4]">{t('add_data_source')}</h2>
                     </div>
 
                     <div className="p-6 space-y-3 overflow-y-auto max-h-[calc(90vh-180px)]">

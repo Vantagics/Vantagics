@@ -289,7 +289,7 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
                 </div>
                 <div className="center-panel-header-info">
                     <h3 className="center-panel-header-title">
-                        {t('ai_assistant') || 'AI Assistant'}
+                        {sessionId && !dataSourceId ? (t('free_chat') || 'System Assistant') : (t('ai_assistant') || 'AI Assistant')}
                     </h3>
                     <div className="center-panel-header-status">
                         <span className="center-panel-status-dot" />

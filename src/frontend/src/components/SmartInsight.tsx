@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { TrendingUp, UserCheck, AlertCircle, Star, Info } from 'lucide-react';
+import { TrendingUp, UserCheck, AlertCircle, Star, Info, Lightbulb, BarChart3, Search, Zap, Target, Layers, PieChart, ArrowUpRight } from 'lucide-react';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 
 interface SmartInsightProps {
@@ -12,11 +12,19 @@ interface SmartInsightProps {
 }
 
 const iconMap: Record<string, React.ReactNode> = {
-    'trending-up': <TrendingUp className="w-5 h-5 text-blue-500" />,
-    'user-check': <UserCheck className="w-5 h-5 text-green-500" />,
-    'alert-circle': <AlertCircle className="w-5 h-5 text-amber-500" />,
-    'star': <Star className="w-5 h-5 text-purple-500" />,
-    'info': <Info className="w-5 h-5 text-slate-500" />,
+    'trending-up': <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />,
+    'user-check': <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
+    'alert-circle': <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />,
+    'star': <Star className="w-4 h-4 text-purple-600 dark:text-purple-400" />,
+    'info': <Info className="w-4 h-4 text-blue-600 dark:text-blue-400" />,
+    'lightbulb': <Lightbulb className="w-4 h-4 text-amber-500 dark:text-amber-400" />,
+    'bar-chart': <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />,
+    'search': <Search className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'zap': <Zap className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />,
+    'target': <Target className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
+    'layers': <Layers className="w-4 h-4 text-teal-600 dark:text-teal-400" />,
+    'pie-chart': <PieChart className="w-4 h-4 text-violet-600 dark:text-violet-400" />,
+    'arrow-up-right': <ArrowUpRight className="w-4 h-4 text-green-600 dark:text-green-400" />,
 };
 
 // 解析 JSON 表格数据
@@ -43,11 +51,11 @@ const JsonTableRenderer: React.FC<{ data: string[][] }> = ({ data }) => {
         <div className="overflow-x-auto my-3">
             <table className="min-w-full border-collapse text-sm">
                 <thead>
-                    <tr className="bg-blue-50">
+                    <tr className="bg-blue-50 dark:bg-[#1a2332]">
                         {headers.map((header, idx) => (
                             <th 
                                 key={idx} 
-                                className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                className="border border-slate-200 dark:border-[#3c3c3c] px-3 py-2 text-left font-semibold text-slate-700 dark:text-[#d4d4d4]"
                             >
                                 {header}
                             </th>
@@ -56,11 +64,11 @@ const JsonTableRenderer: React.FC<{ data: string[][] }> = ({ data }) => {
                 </thead>
                 <tbody>
                     {rows.map((row, rowIdx) => (
-                        <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                        <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-slate-50 dark:bg-[#252526]'}>
                             {row.map((cell, cellIdx) => (
                                 <td 
                                     key={cellIdx} 
-                                    className="border border-slate-200 px-3 py-2 text-slate-600"
+                                    className="border border-slate-200 dark:border-[#3c3c3c] px-3 py-2 text-slate-600 dark:text-[#d4d4d4]"
                                 >
                                     {cell}
                                 </td>
@@ -187,18 +195,18 @@ const InsightImage: React.FC<{ src?: string; alt?: string; threadId?: string }> 
 
     if (loading) {
         return (
-            <div className="bg-slate-100 rounded p-4 my-2 flex items-center justify-center">
-                <div className="animate-pulse text-slate-400 text-sm">加载图片中...</div>
+            <div className="bg-slate-100 dark:bg-[#252526] rounded p-4 my-2 flex items-center justify-center">
+                <div className="animate-pulse text-slate-400 dark:text-[#808080] text-sm">加载图片中...</div>
             </div>
         );
     }
 
     if (error || !imageSrc) {
         return (
-            <div className="bg-slate-100 border border-slate-200 rounded p-4 my-2 text-center text-slate-500 text-sm">
-                <Info className="w-6 h-6 mx-auto mb-2 text-slate-400" />
+            <div className="bg-slate-100 dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded p-4 my-2 text-center text-slate-500 dark:text-[#808080] text-sm">
+                <Info className="w-6 h-6 mx-auto mb-2 text-slate-400 dark:text-[#808080]" />
                 <p>图表: {alt || '分析图表'}</p>
-                <p className="text-xs text-slate-400 mt-1">无法加载图片</p>
+                <p className="text-xs text-slate-400 dark:text-[#808080] mt-1">无法加载图片</p>
             </div>
         );
     }
@@ -226,26 +234,26 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
     return (
         <div 
             onClick={handleClick}
-            className={`bg-white rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
+            className={`bg-white dark:bg-[#252526] rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 dark:border-[#007acc] hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 dark:hover:bg-[#2d2d30] ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
         >
-            <div className="insight-icon bg-gradient-to-br from-slate-50 to-slate-100 p-2 rounded-lg shrink-0 shadow-inner">
+            <div className="insight-icon bg-blue-50 dark:bg-[#1a2332] p-2 rounded-md shrink-0 border border-blue-100 dark:border-[#2a3a4a]">
                 {IconComponent}
             </div>
-            <div className="text-slate-700 text-sm leading-relaxed pt-1 prose prose-sm max-w-none">
+            <div className="text-slate-700 dark:text-[#d4d4d4] text-sm leading-relaxed pt-1 prose prose-sm max-w-none">
                 <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                         // 自定义markdown组件样式
                         p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        strong: ({ children }) => <strong className="font-semibold text-slate-800">{children}</strong>,
+                        strong: ({ children }) => <strong className="font-semibold text-slate-800 dark:text-[#e0e0e0]">{children}</strong>,
                         em: ({ children }) => <em className="italic">{children}</em>,
                         ul: ({ children }) => <ul className="list-disc list-inside mb-2">{children}</ul>,
                         ol: ({ children }) => <ol className="list-decimal list-inside mb-2">{children}</ol>,
                         li: ({ children }) => <li className="mb-1">{children}</li>,
-                        h1: ({ children }) => <h1 className="text-lg font-bold text-slate-800 mb-2">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-base font-bold text-slate-800 mb-2">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-sm font-bold text-slate-800 mb-2">{children}</h3>,
-                        h4: ({ children }) => <h4 className="text-sm font-semibold text-slate-700 mb-1">{children}</h4>,
+                        h1: ({ children }) => <h1 className="text-lg font-bold text-slate-800 dark:text-[#e0e0e0] mb-2">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-base font-bold text-slate-800 dark:text-[#e0e0e0] mb-2">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-bold text-slate-800 dark:text-[#e0e0e0] mb-2">{children}</h3>,
+                        h4: ({ children }) => <h4 className="text-sm font-semibold text-slate-700 dark:text-[#d4d4d4] mb-1">{children}</h4>,
                         // 处理代码块，特别是 json:table
                         code: ({ className, children, ...props }) => {
                             const match = /language-(\w+)/.exec(className || '');
@@ -262,7 +270,7 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
                             
                             // 普通代码块
                             return (
-                                <code className="bg-slate-100 px-1 py-0.5 rounded text-xs font-mono" {...props}>
+                                <code className="bg-slate-100 dark:bg-[#1e1e1e] px-1 py-0.5 rounded text-xs font-mono" {...props}>
                                     {children}
                                 </code>
                             );
@@ -282,7 +290,7 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
                                     }
                                 }
                             }
-                            return <pre className="bg-slate-100 p-2 rounded text-xs overflow-x-auto my-2" {...props}>{children}</pre>;
+                            return <pre className="bg-slate-100 dark:bg-[#1e1e1e] p-2 rounded text-xs overflow-x-auto my-2" {...props}>{children}</pre>;
                         },
                         // 渲染标准 Markdown 表格为真正的表格
                         table: ({ children }) => (
@@ -298,16 +306,16 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
                             const isBody = node?.children?.some((c: any) => c.tagName === 'td');
                             const rowIndex = node?.position?.start?.line || 0;
                             return (
-                                <tr className={isBody ? (rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50') : 'bg-blue-50'}>
+                                <tr className={isBody ? (rowIndex % 2 === 0 ? 'bg-white dark:bg-[#1e1e1e]' : 'bg-slate-50 dark:bg-[#252526]') : 'bg-blue-50 dark:bg-[#1a2332]'}>
                                     {children}
                                 </tr>
                             );
                         },
                         th: ({ children }) => (
-                            <th className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700">{children}</th>
+                            <th className="border border-slate-200 dark:border-[#3c3c3c] px-3 py-2 text-left font-semibold text-slate-700 dark:text-[#d4d4d4]">{children}</th>
                         ),
                         td: ({ children }) => (
-                            <td className="border border-slate-200 px-3 py-2 text-slate-600">{children}</td>
+                            <td className="border border-slate-200 dark:border-[#3c3c3c] px-3 py-2 text-slate-600 dark:text-[#d4d4d4]">{children}</td>
                         ),
                         // 处理图片
                         img: ({ src, alt }) => {

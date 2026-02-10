@@ -177,7 +177,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+            <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl w-full max-w-sm">
                 {/* Header with Logo */}
                 <div className="p-5 bg-gradient-to-br from-blue-500 to-purple-600 rounded-t-xl text-white text-center relative">
                     <button
@@ -215,7 +215,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     {/* License Info */}
-                    <div className="p-3 bg-slate-50 rounded-lg space-y-2">
+                    <div className="p-3 bg-slate-50 dark:bg-[#2d2d30] rounded-lg space-y-2">
                         <div className="flex justify-between items-center">
                             <span className="text-slate-500 text-xs">{t('working_mode')}</span>
                             <div className="flex items-center gap-2">
@@ -351,8 +351,8 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             {/* Confirmation Dialog */}
             {showConfirmDialog && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-                    <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-4">
-                        <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                    <div className="bg-white dark:bg-[#252526] rounded-lg shadow-xl w-full max-w-sm p-4">
+                        <h3 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4] mb-2">
                             {confirmAction === 'toCommercial' 
                                 ? t('confirm_switch_to_commercial') 
                                 : t('confirm_switch_to_opensource')}

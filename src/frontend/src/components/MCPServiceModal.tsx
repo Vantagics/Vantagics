@@ -149,14 +149,14 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl">
+            <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl w-full max-w-2xl">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-slate-200">
+                <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-[#3c3c3c]">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                            <Server className="w-5 h-5 text-blue-600" />
+                        <div className="p-2 bg-blue-100 dark:bg-[#1e3a5f] rounded-lg">
+                            <Server className="w-5 h-5 text-blue-600 dark:text-[#569cd6]" />
                         </div>
-                        <h2 className="text-xl font-semibold text-slate-800">
+                        <h2 className="text-xl font-semibold text-slate-800 dark:text-[#d4d4d4]">
                             {service ? t('edit_mcp_service') : t('add_mcp_service')}
                         </h2>
                     </div>
@@ -283,7 +283,7 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e]">
                     <button
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"

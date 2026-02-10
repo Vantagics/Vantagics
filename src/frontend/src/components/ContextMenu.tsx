@@ -86,7 +86,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ position, onClose, target }) 
         <div 
             ref={menuRef}
             role="menu"
-            className="fixed bg-white border border-slate-200 rounded-lg shadow-xl z-[9999] w-48 py-1 overflow-hidden"
+            className="fixed bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg shadow-xl z-[9999] w-48 py-1 overflow-hidden"
             style={{ top: position.y, left: position.x }}
             onContextMenu={(e) => {
                 e.preventDefault();
@@ -95,31 +95,31 @@ const ContextMenu: React.FC<ContextMenuProps> = ({ position, onClose, target }) 
         >
             <button 
                 onClick={(e) => { e.stopPropagation(); handleAction('cut'); }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <Scissors className="w-4 h-4 text-slate-400" />
+                <Scissors className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 Cut
             </button>
             <button 
                 onClick={(e) => { e.stopPropagation(); handleAction('copy'); }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <Copy className="w-4 h-4 text-slate-400" />
+                <Copy className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 Copy
             </button>
             <button 
                 onClick={(e) => { e.stopPropagation(); handleAction('paste'); }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <ClipboardPaste className="w-4 h-4 text-slate-400" />
+                <ClipboardPaste className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 Paste
             </button>
-            <div className="h-px bg-slate-100 my-1" />
+            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
             <button 
                 onClick={(e) => { e.stopPropagation(); handleAction('selectAll'); }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <Maximize className="w-4 h-4 text-slate-400" />
+                <Maximize className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 Select All
             </button>
         </div>

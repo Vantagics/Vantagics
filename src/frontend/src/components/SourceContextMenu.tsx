@@ -88,7 +88,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
     return (
         <div 
             ref={menuRef}
-            className="fixed bg-white border border-slate-200 rounded-lg shadow-xl z-[9999] w-64 py-1 overflow-hidden"
+            className="fixed bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg shadow-xl z-[9999] w-64 py-1 overflow-hidden"
             style={{ top: position.y, left: position.x }}
             onContextMenu={(e) => {
                 e.preventDefault();
@@ -100,22 +100,22 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                     onStartAnalysis();
                     onClose();
                 }}
-                className="w-full text-left px-4 py-2 text-sm text-blue-600 font-medium hover:bg-blue-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-blue-600 dark:text-[#569cd6] font-medium hover:bg-blue-50 dark:hover:bg-[#1a2332] flex items-center gap-2"
             >
-                <Play className="w-4 h-4 text-blue-500" />
+                <Play className="w-4 h-4 text-blue-500 dark:text-[#569cd6]" />
                 {t('start_new_analysis')}
             </button>
 
-            <div className="h-px bg-slate-100 my-1" />
+            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
 
             <button 
                 onClick={() => {
                     onProperties();
                     onClose();
                 }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <Info className="w-4 h-4 text-slate-400" />
+                <Info className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 {t('properties')}
             </button>
             
@@ -125,9 +125,9 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                         onExploreData();
                         onClose();
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
-                    <Database className="w-4 h-4 text-slate-400" />
+                    <Database className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                     {t('explore_data') || 'Explore Data'}
                 </button>
             )}
@@ -138,9 +138,9 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                         onRename();
                         onClose();
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
-                    <Edit3 className="w-4 h-4 text-slate-400" />
+                    <Edit3 className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                     {t('rename') || 'Rename'}
                 </button>
             )}
@@ -150,9 +150,9 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                     onExport();
                     onClose();
                 }}
-                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
             >
-                <Download className="w-4 h-4 text-slate-400" />
+                <Download className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 {t('export_data')}
             </button>
             
@@ -162,7 +162,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                         onOptimize();
                         onClose();
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
                     <Zap className="w-4 h-4 text-amber-500" />
                     <span>{t('optimize_data_source')}</span>
@@ -175,7 +175,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                         onSemanticOptimize();
                         onClose();
                     }}
-                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
                     <Sparkles className="w-4 h-4 text-purple-500" />
                     <span>{t('semantic_optimize')}</span>
@@ -186,8 +186,8 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 <button 
                     onClick={handleRefreshData}
                     disabled={isRefreshing}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 flex items-center gap-2 ${
-                        isRefreshing ? 'text-slate-400 cursor-not-allowed' : 'text-slate-700'
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2 ${
+                        isRefreshing ? 'text-slate-400 dark:text-[#808080] cursor-not-allowed' : 'text-slate-700 dark:text-[#d4d4d4]'
                     }`}
                 >
                     <RefreshCw className={`w-4 h-4 text-green-500 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -195,17 +195,17 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 </button>
             )}
             
-            <div className="h-px bg-slate-100 my-1" />
+            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
 
-            <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
-                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t('associated_chats')}</span>
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30]">
+                <span className="text-xs font-semibold text-slate-500 dark:text-[#808080] uppercase tracking-wider">{t('associated_chats')}</span>
             </div>
             
             <div className="max-h-64 overflow-y-auto">
                 {isLoading ? (
-                    <div className="p-4 text-center text-xs text-slate-400">{t('loading')}...</div>
+                    <div className="p-4 text-center text-xs text-slate-400 dark:text-[#808080]">{t('loading')}...</div>
                 ) : !threads || threads.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400 italic">{t('no_associated_chats')}</div>
+                    <div className="p-4 text-center text-xs text-slate-400 dark:text-[#808080] italic">{t('no_associated_chats')}</div>
                 ) : (
                     threads?.map(thread => (
                         <button 
@@ -214,9 +214,9 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                                 onSelectThread(thread);
                                 onClose();
                             }}
-                            className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2 transition-colors"
+                            className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-blue-50 dark:hover:bg-[#1a2332] hover:text-blue-600 dark:hover:text-[#569cd6] flex items-center gap-2 transition-colors"
                         >
-                            <MessageSquare className="w-3 h-3 text-slate-400" />
+                            <MessageSquare className="w-3 h-3 text-slate-400 dark:text-[#808080]" />
                             <span className="truncate">{thread.title}</span>
                         </button>
                     ))

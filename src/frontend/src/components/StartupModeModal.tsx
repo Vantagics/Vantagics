@@ -219,8 +219,8 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50 flex items-center justify-center z-[10000]">
-            <div className="bg-white rounded-2xl shadow-2xl w-[520px] overflow-hidden">
+        <div className="fixed inset-0 bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50 dark:from-[#1e1e1e] dark:via-[#1e1e1e] dark:to-[#1a2332] flex items-center justify-center z-[10000]">
+            <div className="bg-white dark:bg-[#252526] rounded-2xl shadow-2xl w-[520px] overflow-hidden">
                 {/* Header */}
                 <div className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
                     <div className="flex items-center gap-3">

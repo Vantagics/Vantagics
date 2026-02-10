@@ -45,7 +45,7 @@ const Tooltip: React.FC<{
 
     return (
         <div
-            className="fixed z-50 px-3 py-2 text-sm text-white bg-slate-800 rounded-lg shadow-lg transform -translate-x-1/2 whitespace-nowrap"
+            className="fixed z-50 px-3 py-2 text-sm text-white bg-slate-800 dark:bg-[#3c3c3c] rounded-lg shadow-lg transform -translate-x-1/2 whitespace-nowrap"
             style={{ top: position.top, left: position.left }}
             role="tooltip"
         >
@@ -87,7 +87,7 @@ export const GlobalAnalysisStatus: React.FC<GlobalAnalysisStatusProps> = ({
         <>
             <div
                 ref={containerRef}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full cursor-default transition-all duration-200 hover:bg-blue-100 ${className}`}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] rounded-full cursor-default transition-all duration-200 hover:bg-blue-100 dark:hover:bg-[#1e3a5f] ${className}`}
                 onMouseEnter={() => setShowTooltip(true)}
                 onMouseLeave={() => setShowTooltip(false)}
                 role="status"

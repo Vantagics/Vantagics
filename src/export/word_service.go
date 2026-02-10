@@ -12,6 +12,7 @@ import (
 	"time"
 
 	goword "github.com/VantageDataChat/GoWord"
+	"github.com/VantageDataChat/GoWord/document"
 	"github.com/VantageDataChat/GoWord/style"
 	"vantagedata/i18n"
 )
@@ -151,6 +152,9 @@ func (s *WordExportService) renderMarkdownContent(sec *goword.Section, content s
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
+		// Strip emoji keycap sequences that cause garbled display in Word
+		trimmed = stripEmojiKeycaps(trimmed)
+
 		// 检查代码块标记（跳过）
 		if strings.HasPrefix(trimmed, "```") {
 			inCodeBlock = !inCodeBlock
@@ -192,36 +196,33 @@ func (s *WordExportService) renderMarkdownContent(sec *goword.Section, content s
 
 		// Parse markdown headings
 		if strings.HasPrefix(trimmed, "#### ") {
-			sec.AddText(strings.TrimPrefix(trimmed, "#### "),
+			sec.AddText(stripMarkdownBold(strings.TrimPrefix(trimmed, "#### ")),
 				&style.FontStyle{Bold: true, Size: 11, Color: "475569"},
 				&style.ParagraphStyle{SpaceBefore: 80, SpaceAfter: 40})
 		} else if strings.HasPrefix(trimmed, "### ") {
-			sec.AddText(strings.TrimPrefix(trimmed, "### "),
+			sec.AddText(stripMarkdownBold(strings.TrimPrefix(trimmed, "### ")),
 				&style.FontStyle{Bold: true, Size: 12, Color: "047857"}, // emerald-700
 				&style.ParagraphStyle{SpaceBefore: 120, SpaceAfter: 60})
 		} else if strings.HasPrefix(trimmed, "## ") {
-			sec.AddText(strings.TrimPrefix(trimmed, "## "),
+			sec.AddText(stripMarkdownBold(strings.TrimPrefix(trimmed, "## ")),
 				&style.FontStyle{Bold: true, Size: 14, Color: "059669"}, // emerald-600
 				&style.ParagraphStyle{Alignment: style.AlignCenter, SpaceBefore: 200, SpaceAfter: 100})
 		} else if strings.HasPrefix(trimmed, "# ") {
-			sec.AddText(strings.TrimPrefix(trimmed, "# "),
+			sec.AddText(stripMarkdownBold(strings.TrimPrefix(trimmed, "# ")),
 				&style.FontStyle{Bold: true, Size: 16, Color: "065F46"}, // emerald-800
 				&style.ParagraphStyle{Alignment: style.AlignCenter, SpaceBefore: 240, SpaceAfter: 120})
 		} else if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 			bulletText := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
-			bulletText = stripMarkdownBold(bulletText)
-			sec.AddText("• "+bulletText,
+			addRichTextToSection(sec, "• "+bulletText,
 				&style.FontStyle{Size: 11, Color: "334155"},
 				&style.ParagraphStyle{Indent: 360, Hanging: 360})
 		} else if matched, numText := parseNumberedItem(trimmed); matched {
 			// 有序列表项：使用悬挂缩进确保换行对齐
-			numText = stripMarkdownBold(numText)
-			sec.AddText(numText,
+			addRichTextToSection(sec, numText,
 				&style.FontStyle{Size: 11, Color: "334155"},
 				&style.ParagraphStyle{Indent: 480, Hanging: 480, SpaceAfter: 60})
 		} else {
-			text := stripMarkdownBold(trimmed)
-			sec.AddText(text,
+			addRichTextToSection(sec, trimmed,
 				&style.FontStyle{Size: 11, Color: "334155"},
 				&style.ParagraphStyle{Alignment: style.AlignBoth})
 		}
@@ -272,7 +273,7 @@ func (s *WordExportService) renderMarkdownTable(sec *goword.Section, lines []str
 	for _, h := range headers {
 		headerRow.AddCell(colWidth, &style.CellStyle{
 			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
-		}).AddText(strings.TrimSpace(h), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
+		}).AddText(stripMarkdownBold(strings.TrimSpace(h)), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
 	}
 
 	// Data rows
@@ -284,7 +285,8 @@ func (s *WordExportService) renderMarkdownTable(sec *goword.Section, lines []str
 			if c < len(cells) {
 				cellVal = strings.TrimSpace(cells[c])
 			}
-			row.AddCell(colWidth, nil).AddText(cellVal, &style.FontStyle{Size: 9}, nil)
+			cell := row.AddCell(colWidth, nil)
+			addRichTextToCell(cell, cellVal, &style.FontStyle{Size: 9}, nil)
 		}
 	}
 
@@ -319,7 +321,7 @@ func (s *WordExportService) renderAllTables(sec *goword.Section, data DashboardD
 
 			// Table name as sub-heading
 			if namedTable.Name != "" {
-				sec.AddText(namedTable.Name,
+				sec.AddText(stripMarkdownBold(namedTable.Name),
 					&style.FontStyle{Bold: true, Size: 12, Color: "047857"}, // emerald-700
 					&style.ParagraphStyle{SpaceBefore: 120, SpaceAfter: 60})
 			}
@@ -375,7 +377,8 @@ func (s *WordExportService) renderSingleTable(sec *goword.Section, tableData *Ta
 			if len([]rune(cellValue)) > 50 {
 				cellValue = string([]rune(cellValue)[:47]) + "..."
 			}
-			row.AddCell(colWidth, nil).AddText(cellValue, &style.FontStyle{Size: 9}, nil)
+			cell := row.AddCell(colWidth, nil)
+			addRichTextToCell(cell, cellValue, &style.FontStyle{Size: 9}, nil)
 		}
 	}
 
@@ -403,6 +406,40 @@ func parseNumberedItem(line string) (bool, string) {
 	return false, ""
 }
 
+// stripEmojiKeycaps removes emoji keycap sequences (e.g. 1️⃣ 2️⃣ 3️⃣) that cause
+// garbled display in Word documents. These are decorative and can be safely removed.
+// Keycap sequences: digit + U+FE0F (variation selector) + U+20E3 (combining enclosing keycap)
+// Also handles: digit + U+20E3 without variation selector
+func stripEmojiKeycaps(text string) string {
+	var result []rune
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		// Check if this is a keycap sequence: digit/# /* + optional FE0F + 20E3
+		if (r >= '0' && r <= '9') || r == '#' || r == '*' {
+			remaining := runes[i+1:]
+			skip := 0
+			if len(remaining) > 0 && remaining[0] == '\uFE0F' {
+				skip++
+				remaining = remaining[1:]
+			}
+			if len(remaining) > 0 && remaining[0] == '\u20E3' {
+				skip++
+				// This is a keycap emoji — replace with the plain digit
+				result = append(result, r)
+				i += skip
+				continue
+			}
+		}
+		// Also strip standalone variation selectors and other common emoji modifiers
+		if r == '\uFE0F' {
+			continue
+		}
+		result = append(result, r)
+	}
+	return string(result)
+}
+
 // stripMarkdownBold removes ** bold markers from text
 func stripMarkdownBold(text string) string {
 	for strings.Contains(text, "**") {
@@ -414,6 +451,116 @@ func stripMarkdownBold(text string) string {
 		text = text[:start] + text[start+2:start+2+end] + text[start+2+end+2:]
 	}
 	return text
+}
+
+// markdownTextSegment represents a segment of text with optional bold formatting
+type markdownTextSegment struct {
+	Text   string
+	IsBold bool
+}
+
+// parseMarkdownBoldSegments splits text into segments, identifying **bold** parts
+func parseMarkdownBoldSegments(text string) []markdownTextSegment {
+	var segments []markdownTextSegment
+	remaining := text
+	for {
+		start := strings.Index(remaining, "**")
+		if start == -1 {
+			if remaining != "" {
+				segments = append(segments, markdownTextSegment{Text: remaining, IsBold: false})
+			}
+			break
+		}
+		end := strings.Index(remaining[start+2:], "**")
+		if end == -1 {
+			// No closing **, treat rest as plain text
+			if remaining != "" {
+				segments = append(segments, markdownTextSegment{Text: remaining, IsBold: false})
+			}
+			break
+		}
+		// Text before the bold marker
+		if start > 0 {
+			segments = append(segments, markdownTextSegment{Text: remaining[:start], IsBold: false})
+		}
+		// Bold text (between ** and **)
+		boldText := remaining[start+2 : start+2+end]
+		if boldText != "" {
+			segments = append(segments, markdownTextSegment{Text: boldText, IsBold: true})
+		}
+		remaining = remaining[start+2+end+2:]
+	}
+	return segments
+}
+
+// addRichTextToCell adds text with markdown bold rendering to a table cell.
+// Bold segments (**text**) are rendered with Bold: true font style.
+func addRichTextToCell(cell *document.Cell, text string, baseFont *style.FontStyle, paraStyle *style.ParagraphStyle) {
+	segments := parseMarkdownBoldSegments(text)
+	if len(segments) == 0 {
+		cell.AddText("", baseFont, paraStyle)
+		return
+	}
+	// If no bold segments, use simple AddText
+	hasBold := false
+	for _, seg := range segments {
+		if seg.IsBold {
+			hasBold = true
+			break
+		}
+	}
+	if !hasBold {
+		cell.AddText(text, baseFont, paraStyle)
+		return
+	}
+	// Use first segment to create the paragraph, then append remaining runs
+	firstSeg := segments[0]
+	firstFont := *baseFont
+	if firstSeg.IsBold {
+		firstFont.Bold = true
+	}
+	p := cell.AddText(firstSeg.Text, &firstFont, paraStyle)
+	for _, seg := range segments[1:] {
+		runFont := *baseFont
+		if seg.IsBold {
+			runFont.Bold = true
+		}
+		p.Runs = append(p.Runs, &document.Run{Text: seg.Text, Style: runFont})
+	}
+}
+
+// addRichTextToSection adds text with markdown bold rendering to a section.
+func addRichTextToSection(sec *goword.Section, text string, baseFont *style.FontStyle, paraStyle *style.ParagraphStyle) {
+	segments := parseMarkdownBoldSegments(text)
+	if len(segments) == 0 {
+		sec.AddText("", baseFont, paraStyle)
+		return
+	}
+	hasBold := false
+	for _, seg := range segments {
+		if seg.IsBold {
+			hasBold = true
+			break
+		}
+	}
+	if !hasBold {
+		// No bold markers, strip any leftover ** and render plain
+		sec.AddText(stripMarkdownBold(text), baseFont, paraStyle)
+		return
+	}
+	firstSeg := segments[0]
+	firstFont := *baseFont
+	if firstSeg.IsBold {
+		firstFont.Bold = true
+	}
+	p := sec.AddText(firstSeg.Text, &firstFont, paraStyle)
+	for _, seg := range segments[1:] {
+		runFont := *baseFont
+		if seg.IsBold {
+			runFont.Bold = true
+		}
+		p.Runs = append(p.Runs, &document.Run{Text: seg.Text, Style: runFont})
+	}
 }
 
 // addChartImages adds chart images to the Word document
@@ -530,6 +677,19 @@ func (s *WordExportService) extractStandaloneJsonArrays(text string, tables *[][
 		}
 
 		jsonContent := result[startIdx : endIdx+1]
+
+		// Skip if the extracted content is too large or spans too many lines
+		if len(jsonContent) > 10000 || strings.Count(jsonContent, "\n") > 100 {
+			result = result[:startIdx] + result[startIdx+1:]
+			continue
+		}
+
+		jsonTrimmed := strings.TrimSpace(jsonContent)
+		if !strings.HasPrefix(jsonTrimmed, "[[") {
+			result = result[:startIdx] + result[startIdx+1:]
+			continue
+		}
+
 		tableData := s.parseJsonTable(jsonContent)
 		if len(tableData) >= 2 && len(tableData[0]) >= 2 {
 			headerCols := len(tableData[0])
@@ -548,14 +708,8 @@ func (s *WordExportService) extractStandaloneJsonArrays(text string, tables *[][
 			}
 		}
 
-		if startIdx+1 < len(result) {
-			nextStart := s.findJson2DArrayStart(result[startIdx+1:])
-			if nextStart == -1 {
-				break
-			}
-			continue
-		}
-		break
+		// If not a valid table, skip this occurrence
+		result = result[:startIdx] + result[startIdx+1:]
 	}
 
 	return result
@@ -723,7 +877,7 @@ func (s *WordExportService) renderJsonTable(sec *goword.Section, tableData [][]s
 	for c := 0; c < numCols && c < len(tableData[0]); c++ {
 		headerRow.AddCell(colWidth, &style.CellStyle{
 			Shading: &style.Shading{Fill: "10B981"}, // emerald-500
-		}).AddText(strings.TrimSpace(tableData[0][c]), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
+		}).AddText(stripMarkdownBold(strings.TrimSpace(tableData[0][c])), &style.FontStyle{Bold: true, Size: 9, Color: "FFFFFF"}, nil)
 	}
 
 	// Data rows
@@ -734,7 +888,8 @@ func (s *WordExportService) renderJsonTable(sec *goword.Section, tableData [][]s
 			if c < len(tableData[rowIdx]) {
 				cellVal = strings.TrimSpace(tableData[rowIdx][c])
 			}
-			row.AddCell(colWidth, nil).AddText(cellVal, &style.FontStyle{Size: 9}, nil)
+			cell := row.AddCell(colWidth, nil)
+			addRichTextToCell(cell, cellVal, &style.FontStyle{Size: 9}, nil)
 		}
 	}
 

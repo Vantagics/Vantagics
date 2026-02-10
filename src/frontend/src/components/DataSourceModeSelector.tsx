@@ -49,7 +49,7 @@ const DataSourceModeSelector: React.FC<DataSourceModeSelectorProps> = ({
     return (
         <div
             ref={menuRef}
-            className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[180px]"
+            className="fixed z-50 bg-white dark:bg-[#252526] rounded-lg shadow-xl border border-slate-200 dark:border-[#3c3c3c] py-1 min-w-[180px]"
             style={{ left: position.x, top: position.y }}
         >
             <button
@@ -57,20 +57,20 @@ const DataSourceModeSelector: React.FC<DataSourceModeSelectorProps> = ({
                     onSelectBeginnerMode();
                     onClose();
                 }}
-                className="w-full px-4 py-2.5 text-left hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                className="w-full px-4 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-[#1a2332] flex items-center gap-3 transition-colors"
             >
-                <Sparkles className="w-4 h-4 text-blue-500" />
-                <span className="text-sm text-slate-700">{t('beginner_wizard') || '新手向导'}</span>
+                <Sparkles className="w-4 h-4 text-blue-500 dark:text-[#569cd6]" />
+                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('beginner_wizard') || '新手向导'}</span>
             </button>
             <button
                 onClick={() => {
                     onSelectExpertMode();
                     onClose();
                 }}
-                className="w-full px-4 py-2.5 text-left hover:bg-slate-100 flex items-center gap-3 transition-colors"
+                className="w-full px-4 py-2.5 text-left hover:bg-slate-100 dark:hover:bg-[#2d2d30] flex items-center gap-3 transition-colors"
             >
-                <Settings className="w-4 h-4 text-slate-500" />
-                <span className="text-sm text-slate-700">{t('expert_interface') || '专家界面'}</span>
+                <Settings className="w-4 h-4 text-slate-500 dark:text-[#808080]" />
+                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('expert_interface') || '专家界面'}</span>
             </button>
         </div>
     );

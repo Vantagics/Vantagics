@@ -85,17 +85,17 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
 
     return (
         <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-white dark:bg-[#252526] w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-gradient-to-r from-purple-50 to-blue-50">
+                <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-center bg-gradient-to-r from-purple-50 to-blue-50 dark:from-[#2a1e2e] dark:to-[#1a2332]">
                     <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-600" />
-                        <h2 className="text-lg font-bold text-slate-800">
+                        <Sparkles className="w-5 h-5 text-purple-600 dark:text-[#c586c0]" />
+                        <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">
                             {t('semantic_optimize') || '数据源语义优化'}
                         </h2>
                     </div>
                     {!isOptimizing && (
-                        <button onClick={handleClose} className="text-slate-500 hover:text-slate-700">
+                        <button onClick={handleClose} className="text-slate-500 hover:text-slate-700 dark:text-[#808080] dark:hover:text-[#d4d4d4]">
                             <X className="w-5 h-5" />
                         </button>
                     )}
@@ -105,7 +105,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                 <div className="p-6">
                     {!isOptimizing && !completed && !error && (
                         <div>
-                            <p className="text-sm text-slate-700 mb-4">
+                            <p className="text-sm text-slate-700 dark:text-[#d4d4d4] mb-4">
                                 {t('semantic_optimize_desc') || '将使用 AI 分析数据源结构和样本数据，为字段生成更有意义的名称。'}
                             </p>
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -126,11 +126,11 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
 
                     {isOptimizing && (
                         <div className="flex flex-col items-center py-8">
-                            <Loader2 className="w-12 h-12 text-purple-600 animate-spin mb-4" />
-                            <p className="text-sm text-slate-700 text-center">
+                            <Loader2 className="w-12 h-12 text-purple-600 dark:text-[#c586c0] animate-spin mb-4" />
+                            <p className="text-sm text-slate-700 dark:text-[#d4d4d4] text-center">
                                 {progress}
                             </p>
-                            <div className="mt-4 w-full bg-slate-200 rounded-full h-2">
+                            <div className="mt-4 w-full bg-slate-200 dark:bg-[#3c3c3c] rounded-full h-2">
                                 <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full animate-pulse" 
                                      style={{ width: '60%' }}></div>
                             </div>
@@ -161,10 +161,10 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
 
                 {/* Footer */}
                 {!isOptimizing && !completed && (
-                    <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+                    <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end gap-2">
                         <button
                             onClick={handleClose}
-                            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md"
+                            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-white dark:bg-[#3c3c3c] border border-slate-300 dark:border-[#4d4d4d] hover:bg-slate-50 dark:hover:bg-[#4d4d4d] rounded-md"
                         >
                             {t('cancel') || '取消'}
                         </button>
@@ -179,10 +179,10 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                 )}
 
                 {error && (
-                    <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+                    <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end">
                         <button
                             onClick={handleClose}
-                            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md"
+                            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-white dark:bg-[#3c3c3c] border border-slate-300 dark:border-[#4d4d4d] hover:bg-slate-50 dark:hover:bg-[#4d4d4d] rounded-md"
                         >
                             {t('close') || '关闭'}
                         </button>

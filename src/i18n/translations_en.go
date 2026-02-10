@@ -325,7 +325,7 @@ var englishTranslations = map[string]string{
 	"report.section.conclusions":        "Conclusions and Recommendations",
 
 	// Report Labels (duplicates removed - already defined above)
-	"report.chart_label":                "Chart %d",
+	"report.chart_label":                "Chart %d / %d",
 	"report.total_rows":                 "Total Rows: %d",
 	"report.showing_columns":            "Showing Columns: %s",
 	"report.category_label":             "Category",
@@ -343,5 +343,6 @@ var englishTranslations = map[string]string{
 	"comprehensive_report.analysis_request":   "Analysis Request",
 	"comprehensive_report.analysis_result":    "Analysis Result",
 	"comprehensive_report.insight":            "Insight",
+	"comprehensive_report.key_metric":         "Key Metric",
 	"comprehensive_report.table":              "Data Table",
 }

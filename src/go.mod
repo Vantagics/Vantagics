@@ -149,8 +149,8 @@ require (
 // replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/znsoft/go/pkg/mod
 
 replace (
-	github.com/VantageDataChat/GoExcel v0.1.0 => github.com/VantageDataChat/GoExcel v0.0.0-20260207002334-8dd9b8c8d5f7
-	github.com/VantageDataChat/GoPDF2 v0.1.0 => github.com/VantageDataChat/GoPDF2 v0.0.0-20260208045416-72bc1fe51719
-	github.com/VantageDataChat/GoPPT v0.1.0 => github.com/VantageDataChat/GoPPT v0.0.0-20260207004326-8dd0027aaca8
-	github.com/VantageDataChat/GoWord v0.1.0 => github.com/VantageDataChat/GoWord v0.0.0-20260207005551-23d2a8f9c6a2
+	github.com/VantageDataChat/GoExcel v0.1.0 => github.com/VantageDataChat/GoExcel v0.0.0-20260210221956-22a34d8dea7f
+	github.com/VantageDataChat/GoPDF2 v0.1.0 => github.com/VantageDataChat/GoPDF2 v0.0.0-20260210221934-debe2ff9c48d
+	github.com/VantageDataChat/GoPPT v0.1.0 => github.com/VantageDataChat/GoPPT v0.0.0-20260210220934-e91ef3c4e651
+	github.com/VantageDataChat/GoWord v0.1.0 => github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1
 )

@@ -46,20 +46,20 @@ const MessageModal: React.FC<MessageModalProps> = ({ isOpen, type, title, messag
                 onClick={onClose}
             />
             <div 
-                className={`bg-white rounded-2xl shadow-2xl w-full max-w-sm transform transition-all duration-200 p-6 flex flex-col items-center text-center ${isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
+                className={`bg-white dark:bg-[#252526] rounded-2xl shadow-2xl w-full max-w-sm transform transition-all duration-200 p-6 flex flex-col items-center text-center ${isOpen ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'}`}
             >
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${colorClass}`}>
                     <Icon className="w-6 h-6" />
                 </div>
                 
-                <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
-                <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4] mb-2">{title}</h3>
+                <p className="text-sm text-slate-500 dark:text-[#808080] mb-6 leading-relaxed">
                     {message}
                 </p>
 
                 <button
                     onClick={onClose}
-                    className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 rounded-xl transition-colors active:scale-95"
+                    className="w-full bg-slate-900 dark:bg-[#007acc] hover:bg-slate-800 dark:hover:bg-[#005a9e] text-white font-medium py-2.5 rounded-xl transition-colors active:scale-95"
                 >
                     Close
                 </button>

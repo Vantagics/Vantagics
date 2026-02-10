@@ -152,11 +152,11 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={handleClose}>
             <div
-                className="bg-white rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+                className="bg-white dark:bg-[#252526] rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50">
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-amber-50 to-orange-50 dark:from-[#2a2620] dark:to-[#2a2620]">
                     <div className="flex items-center gap-2">
                         <div className="p-1.5 bg-amber-100 rounded-lg">
                             <Zap className="w-5 h-5 text-amber-600" />
@@ -300,7 +300,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="p-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2">
+                <div className="p-3 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end gap-2">
                     {step === 'confirm' && (
                         <>
                             <button

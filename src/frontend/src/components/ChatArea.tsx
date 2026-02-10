@@ -21,23 +21,23 @@ const ChatArea: React.FC = () => {
     };
 
     return (
-        <div className="flex-1 flex flex-col min-w-0 bg-white relative">
+        <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#1e1e1e] relative">
             {/* Header (Optional) */}
             <div 
-                className="h-20 border-b border-slate-200 flex items-center px-4 pt-6 bg-white/80 backdrop-blur-sm z-10 sticky top-0"
+                className="h-20 border-b border-slate-200 dark:border-[#3c3c3c] flex items-center px-4 pt-6 bg-white/80 dark:bg-[#252526]/80 backdrop-blur-sm z-10 sticky top-0"
                 style={{ WebkitAppRegion: 'drag' } as any}
             >
-                <span className="font-semibold text-slate-700">{t('chat_analysis')}</span>
+                <span className="font-semibold text-slate-700 dark:text-[#d4d4d4]">{t('chat_analysis')}</span>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30 dark:bg-[#1e1e1e]/30">
                 {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                             msg.role === 'user' 
                                 ? 'bg-blue-600 text-white rounded-br-none' 
-                                : 'bg-white border border-slate-200 text-slate-700 rounded-bl-none'
+                                : 'bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] text-slate-700 dark:text-[#d4d4d4] rounded-bl-none'
                         }`}>
                             {msg.text}
                         </div>
@@ -46,11 +46,11 @@ const ChatArea: React.FC = () => {
             </div>
 
             {/* Input Area */}
-            <div className="p-4 border-t border-slate-200 bg-white">
+            <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-white dark:bg-[#252526]">
                 <div className="flex gap-2">
                     <input 
                         type="text" 
-                        className="flex-1 border border-slate-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+                        className="flex-1 border border-slate-300 dark:border-[#4d4d4d] rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400 dark:bg-[#3c3c3c] dark:text-[#d4d4d4]"
                         placeholder="Ask a question about your data..."
                         value={input}
                         onChange={(e) => setInput(e.target.value)}

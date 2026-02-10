@@ -171,16 +171,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         if (loading) {
             return (
-                <div className="relative group my-4 bg-slate-100 rounded-lg p-8 flex items-center justify-center">
-                    <div className="animate-pulse text-slate-400 text-sm">{t('loading_preview')}</div>
+                <div className="relative group my-4 bg-slate-100 dark:bg-[#2d2d30] rounded-lg p-8 flex items-center justify-center">
+                    <div className="animate-pulse text-slate-400 dark:text-[#808080] text-sm">{t('loading_preview')}</div>
                 </div>
             );
         }
 
         if (error || !imageSrc) {
             return (
-                <div className="relative group my-4 bg-blue-50 border border-blue-200 rounded-lg p-8 flex items-center justify-center">
-                    <div className="text-blue-600 text-sm">{t('failed_load_image')}</div>
+                <div className="relative group my-4 bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] rounded-lg p-8 flex items-center justify-center">
+                    <div className="text-blue-600 dark:text-[#569cd6] text-sm">{t('failed_load_image')}</div>
                 </div>
             );
         }
@@ -653,7 +653,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         <>
             <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${isUser
-                    ? 'bg-slate-200 text-slate-600'
+                    ? 'bg-slate-200 dark:bg-[#3c3c3c] text-slate-600 dark:text-[#d4d4d4]'
                     : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
                     }`}>
                     {isUser ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
@@ -670,7 +670,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     ? 'cursor-pointer hover:bg-blue-700 hover:shadow-lg hover:scale-[1.02] transition-all duration-200'
                                     : ''
                         }`
-                        : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none ring-1 ring-slate-50'
+                        : 'bg-white dark:bg-[#252526] border border-slate-100 dark:border-[#3c3c3c] text-slate-700 dark:text-[#d4d4d4] rounded-tl-none ring-1 ring-slate-50 dark:ring-[#3c3c3c]'
                         }`}
                     onClick={onClick && isUser && !isDisabled ? onClick : undefined}
                     onContextMenu={handleContextMenu}
@@ -702,7 +702,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         </div>
                     )}
                     <div
-                        className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700'} max-w-none`}
+                        className={`prose prose-sm font-normal leading-relaxed ${isUser ? 'prose-invert text-white' : 'text-slate-700 dark:text-[#d4d4d4]'} max-w-none`}
                         onContextMenu={handleContextMenu}
                     >
                         <ReactMarkdown
@@ -912,8 +912,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                         className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all border ${isUser
                                             ? 'bg-white/20 border-white/30 text-white hover:bg-white/30'
                                             : isRetryBtn
-                                                ? 'bg-orange-50 border-orange-200 text-orange-600 hover:bg-orange-100'
-                                                : 'bg-blue-50 border-blue-100 text-blue-600 hover:bg-blue-100'
+                                                ? 'bg-orange-50 dark:bg-[#2a2620] border-orange-200 dark:border-[#5a5040] text-orange-600 dark:text-[#dcdcaa] hover:bg-orange-100 dark:hover:bg-[#3d3830]'
+                                                : 'bg-blue-50 dark:bg-[#1a2332] border-blue-100 dark:border-[#264f78] text-blue-600 dark:text-[#569cd6] hover:bg-blue-100 dark:hover:bg-[#1e3a5f]'
                                             } shadow-sm hover:shadow-md active:scale-95`}
                                         style={{ pointerEvents: 'auto', position: 'relative', zIndex: 100, cursor: 'pointer' }}
                                     >
@@ -943,7 +943,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         </button>
                     </div>
                     <div
-                        className="relative z-[205] max-w-[95vw] max-h-[95vh] bg-white rounded-xl p-4 shadow-2xl"
+                        className="relative z-[205] max-w-[95vw] max-h-[95vh] bg-white dark:bg-[#252526] rounded-xl p-4 shadow-2xl"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <img
@@ -958,15 +958,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             {/* Text Selection Context Menu - 使用Portal渲染到body */}
             {contextMenu && ReactDOM.createPortal(
                 <div
+                    className="dark-context-menu"
                     style={{
                         position: 'fixed',
                         left: `${contextMenu.x}px`,
                         top: `${contextMenu.y}px`,
                         zIndex: 99999999,
-                        backgroundColor: 'white',
-                        border: '2px solid #3b82f6',
                         borderRadius: '8px',
-                        boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                         minWidth: '200px',
                         overflow: 'hidden'
                     }}
@@ -976,17 +974,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     }}
                     onMouseDown={(e) => e.stopPropagation()}
                 >
-                    <div style={{
+                    <div className="context-menu-header" style={{
                         padding: '10px 12px',
-                        borderBottom: '1px solid #e2e8f0',
-                        backgroundColor: '#f8fafc'
                     }}>
-                        <div style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>
+                        <div className="context-menu-label" style={{ fontSize: '10px', fontWeight: 600, marginBottom: '4px' }}>
                             选中的文本
                         </div>
-                        <div style={{
+                        <div className="context-menu-text" style={{
                             fontSize: '12px',
-                            color: '#1e293b',
                             maxWidth: '280px',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -997,6 +992,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                         </div>
                     </div>
                     <button
+                        className="context-menu-btn"
                         onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -1007,8 +1003,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             padding: '10px 12px',
                             textAlign: 'left',
                             fontSize: '13px',
-                            color: '#1e293b',
-                            backgroundColor: 'white',
                             border: 'none',
                             cursor: 'pointer',
                             display: 'flex',
@@ -1016,14 +1010,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             gap: '8px',
                             fontWeight: 500,
                             transition: 'background-color 0.15s'
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#eff6ff';
-                            e.currentTarget.style.color = '#2563eb';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'white';
-                            e.currentTarget.style.color = '#1e293b';
                         }}
                     >
                         <svg style={{ width: '14px', height: '14px', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1038,15 +1024,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             {/* Export Analysis Context Menu - Portal to body */}
             {exportMenu && ReactDOM.createPortal(
                 <div
+                    className="dark-context-menu"
                     style={{
                         position: 'fixed',
                         left: `${exportMenu.x}px`,
                         top: `${exportMenu.y}px`,
                         zIndex: 99999999,
-                        backgroundColor: 'white',
-                        border: '1px solid #e2e8f0',
                         borderRadius: '8px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
                         minWidth: '160px',
                         overflow: 'hidden'
                     }}
@@ -1057,6 +1041,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     onMouseDown={(e) => e.stopPropagation()}
                 >
                     <button
+                        className="context-menu-btn"
                         onClick={(e) => {
                             e.stopPropagation();
                             e.preventDefault();
@@ -1071,16 +1056,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                             padding: '10px 12px',
                             textAlign: 'left',
                             fontSize: '13px',
-                            color: '#1e293b',
-                            backgroundColor: 'white',
                             border: 'none',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '8px'
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                     >
                         <span style={{ fontSize: '16px' }}>📋</span>
                         <span style={{ fontWeight: 500 }}>{isUser ? '导出分析过程' : '导出为PDF'}</span>
@@ -1089,6 +1070,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     {/* Retry Analysis Option - Only show for failed user messages */}
                     {isUser && isFailed && onRetryAnalysis && (
                         <button
+                            className="context-menu-btn context-menu-btn-danger"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -1099,22 +1081,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                 padding: '10px 12px',
                                 textAlign: 'left',
                                 fontSize: '13px',
-                                color: '#dc2626',
-                                backgroundColor: 'white',
                                 border: 'none',
-                                borderTop: '1px solid #e2e8f0',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#fef2f2';
-                                e.currentTarget.style.color = '#b91c1c';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'white';
-                                e.currentTarget.style.color = '#dc2626';
                             }}
                         >
                             <span style={{ fontSize: '16px' }}>🔄</span>
@@ -1125,6 +1096,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     {/* Continue Analysis Option - Only show for cancelled user messages */}
                     {isUser && isCancelled && onClick && (
                         <button
+                            className="context-menu-btn context-menu-btn-warning"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -1136,22 +1108,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                 padding: '10px 12px',
                                 textAlign: 'left',
                                 fontSize: '13px',
-                                color: '#ea580c',
-                                backgroundColor: 'white',
                                 border: 'none',
-                                borderTop: '1px solid #e2e8f0',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.backgroundColor = '#fff7ed';
-                                e.currentTarget.style.color = '#c2410c';
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.backgroundColor = 'white';
-                                e.currentTarget.style.color = '#ea580c';
                             }}
                         >
                             <span style={{ fontSize: '16px' }}>▶️</span>
@@ -1162,6 +1123,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                     {/* Timing Analysis Option - Only show if timing data exists */}
                     {timingData && (
                         <button
+                            className="context-menu-btn"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 e.preventDefault();
@@ -1173,17 +1135,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                 padding: '10px 12px',
                                 textAlign: 'left',
                                 fontSize: '13px',
-                                color: '#1e293b',
-                                backgroundColor: 'white',
                                 border: 'none',
-                                borderTop: '1px solid #e2e8f0',
                                 cursor: 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '8px'
                             }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
                         >
                             <span style={{ fontSize: '16px' }}>⏱️</span>
                             <span style={{ fontWeight: 500 }}>耗时分析</span>

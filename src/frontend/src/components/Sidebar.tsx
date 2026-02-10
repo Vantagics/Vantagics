@@ -60,6 +60,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
     const [autoIntentUnderstanding, setAutoIntentUnderstanding] = useState<boolean>(true);
     const [freeChatThreadId, setFreeChatThreadId] = useState<string | null>(null);
+    const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
     const fetchSources = async () => {
         try {
@@ -154,10 +155,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         const unsubCreated = EventsOn('chat-thread-created', () => fetchSessions());
         const unsubDeleted = EventsOn('chat-thread-deleted', () => fetchSessions());
         const unsubUpdated = EventsOn('chat-thread-updated', () => fetchSessions());
+        const unsubReportStatus = EventsOn('comprehensive-report-status', (data: any) => {
+            setIsGeneratingReport(!!data?.generating);
+        });
         return () => {
             if (unsubCreated) unsubCreated();
             if (unsubDeleted) unsubDeleted();
             if (unsubUpdated) unsubUpdated();
+            if (unsubReportStatus) unsubReportStatus();
         };
     }, []);
 
@@ -201,7 +206,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         }
     };
 
-    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages', threadId: string) => {
+    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report', threadId: string) => {
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
         } else if (action === 'export') {
@@ -239,6 +244,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             } catch (e) {
                 console.error('Clear thread messages failed:', e);
             }
+        } else if (action === 'comprehensive_report') {
+            // First switch to the session, then trigger report generation
+            onSessionSelect(threadId);
+            EventsEmit('generate-comprehensive-report', { threadId });
         }
         setSessionContextMenu(null);
     };
@@ -361,17 +370,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
     return (
         <div
-            className="bg-slate-100 border-r border-slate-200 flex flex-col h-full flex-shrink-0"
+            className="bg-slate-100 dark:bg-[#1e1e1e] border-r border-slate-200 dark:border-[#3c3c3c] flex flex-col h-full flex-shrink-0"
             style={{ width: width }}
         >
             <div
-                className="p-4 pt-8 border-b border-slate-200 bg-slate-50 flex items-center justify-between"
+                className="p-4 pt-8 border-b border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#252526] flex items-center justify-between"
             >
-                <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2"><Database className="w-5 h-5 text-blue-500" />{t('data_sources')}</h2>
+                <h2 className="text-lg font-semibold text-slate-700 dark:text-[#d4d4d4] flex items-center gap-2"><Database className="w-5 h-5 text-blue-500" />{t('data_sources')}</h2>
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setIsDataSourceExpanded(!isDataSourceExpanded)}
-                        className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
+                        className="p-1 hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-md text-slate-500 dark:text-[#808080] hover:text-blue-600 transition-colors"
                         title={isDataSourceExpanded ? "折叠" : "展开"}
                     >
                         {isDataSourceExpanded ? '<<' : '>>'}
@@ -380,7 +389,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         onClick={() => {
                             setShowOnboardingWizard(true);
                         }}
-                        className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
+                        className="p-1 hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-md text-slate-500 dark:text-[#808080] hover:text-blue-600 transition-colors"
                         title={t('add_source')}
                     >
                         <Plus className="w-5 h-5" />
@@ -391,7 +400,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 <>
                     <div className="overflow-y-auto p-2" style={{ maxHeight: '30vh' }}>
                         {!sources || sources.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-slate-400 italic">
+                            <div className="p-4 text-center text-xs text-slate-400 dark:text-[#808080] italic">
                                 {t('no_data_sources_yet')}
                             </div>
                         ) : (
@@ -399,7 +408,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                                 {sources.map((source) => (
                                     <li
                                         key={source.id}
-                                        className={`group p-2 rounded-md text-sm flex items-center justify-between transition-colors relative ${selectedId === source.id ? 'bg-blue-200 text-blue-800' : 'hover:bg-blue-100 text-slate-600'}`}
+                                        className={`group p-2 rounded-md text-sm flex items-center justify-between transition-colors relative ${selectedId === source.id ? 'bg-blue-200 dark:bg-[#264f78] text-blue-800 dark:text-[#569cd6]' : 'hover:bg-blue-100 dark:hover:bg-[#2d2d30] text-slate-600 dark:text-[#d4d4d4]'}`}
                                         onContextMenu={(e) => handleContextMenu(e, source.id)}
                                     >
                                         <div
@@ -425,28 +434,32 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             </ul>
                         )}
                     </div>
-                    <div className="p-4 border-t border-slate-200 flex flex-col gap-2">
+                    <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] flex flex-col gap-2">
                         <button
                             onClick={handleStartChatAnalysis}
                             aria-label={t('chat_analysis')}
-                            className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 hover:bg-blue-200 text-blue-700 ring-1 ring-blue-300 shadow-sm"
+                            className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 dark:bg-[#1e3a5f] hover:bg-blue-200 dark:hover:bg-[#264f78] text-blue-700 dark:text-[#569cd6] ring-1 ring-blue-300 dark:ring-[#264f78] shadow-sm"
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
                         {/* System Assistant entry - always visible below Chat Analysis */}
                         {freeChatThreadId && (
-                            <div
-                                className={`group p-2 rounded-md text-sm flex items-center gap-2 cursor-pointer transition-colors ${selectedSessionId === freeChatThreadId ? 'bg-blue-200 text-blue-800' : 'hover:bg-blue-100 text-slate-600'}`}
+                            <button
+                                className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm ${selectedSessionId === freeChatThreadId ? 'bg-red-200 dark:bg-[#5f1e1e] text-red-800 dark:text-[#d69656] ring-red-400 dark:ring-[#783026]' : 'bg-red-50 dark:bg-[#3a1f1f] hover:bg-red-100 dark:hover:bg-[#4a2626] text-red-700 dark:text-[#d69656] ring-red-300 dark:ring-[#5f2e2e]'}`}
                                 onClick={() => {
                                     onSessionSelect(freeChatThreadId);
                                     if (!isChatOpen) {
                                         onToggleChat();
                                     }
                                 }}
+                                onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleSessionContextMenu(e, freeChatThreadId);
+                                }}
                             >
-                                <MessageCircle className="flex-shrink-0 w-4 h-4 text-slate-400" />
-                                <span className="truncate">{t('free_chat')}</span>
-                            </div>
+                                <span>🤖</span> {t('free_chat')}
+                            </button>
                         )}
                     </div>
 
@@ -487,6 +500,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             onAction={handleSessionContextAction}
                             autoIntentUnderstanding={autoIntentUnderstanding}
                             isFreeChatThread={sessionContextMenu.sessionId === freeChatThreadId}
+                            isGeneratingComprehensiveReport={isGeneratingReport}
                         />
                     )}
                 </>

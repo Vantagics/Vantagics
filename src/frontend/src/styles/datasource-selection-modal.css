@@ -234,15 +234,15 @@
 
 /* Dark mode scrollbar */
 .dark .overflow-y-auto::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #1e1e1e;
 }
 
 .dark .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #424242;
 }
 
 .dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #4f4f4f;
 }
 
 /* Enhanced shadows for dark mode */
@@ -289,6 +289,6 @@
 }
 
 .dark .data-source-item-skeleton {
-  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(90deg, #252526 25%, #3c3c3c 50%, #252526 75%);
   background-size: 200% 100%;
 }

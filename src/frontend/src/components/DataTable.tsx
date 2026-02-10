@@ -48,15 +48,15 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
     const isTruncated = data.length > MAX_DISPLAY_ROWS;
 
     return (
-        <div className="w-full bg-white overflow-hidden flex flex-col">
+        <div className="w-full bg-white dark:bg-[#252526] overflow-hidden flex flex-col">
             {title && (
-                <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-                    <h4 className="font-semibold text-sm text-slate-700">{title}</h4>
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30]">
+                    <h4 className="font-semibold text-sm text-slate-700 dark:text-[#d4d4d4]">{renderCellContent(title)}</h4>
                 </div>
             )}
             <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-slate-600">
-                    <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+                <table className="w-full text-sm text-left text-slate-600 dark:text-[#d4d4d4]">
+                    <thead className="text-xs text-slate-500 dark:text-[#808080] uppercase bg-slate-50 dark:bg-[#2d2d30] border-b border-slate-100 dark:border-[#3c3c3c]">
                         <tr>
                             {columns.map((col) => (
                                 <th key={col} className="px-6 py-3 font-medium whitespace-nowrap">
@@ -67,12 +67,12 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                     </thead>
                     <tbody>
                         {displayData.map((row, idx) => (
-                            <tr key={idx} className="bg-white border-b border-slate-50 hover:bg-slate-50/50">
+                            <tr key={idx} className="bg-white dark:bg-[#252526] border-b border-slate-50 dark:border-[#2d2d30] hover:bg-slate-50/50 dark:hover:bg-[#2d2d30]">
                                 {columns.map((col) => (
                                     <td key={`${idx}-${col}`} className="px-6 py-4 whitespace-nowrap">
                                         {row[col] !== null && row[col] !== undefined 
                                             ? renderCellContent(row[col]) 
-                                            : <span className="text-slate-300">{t('null_value')}</span>}
+                                            : <span className="text-slate-300 dark:text-[#4d4d4d]">{t('null_value')}</span>}
                                     </td>
                                 ))}
                             </tr>
@@ -80,7 +80,7 @@ const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
                     </tbody>
                 </table>
             </div>
-            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-400 text-right">
+            <div className="px-4 py-2 bg-slate-50 dark:bg-[#2d2d30] border-t border-slate-100 dark:border-[#3c3c3c] text-xs text-slate-400 dark:text-[#808080] text-right">
                 {isTruncated 
                     ? t('rows_stats', String(MAX_DISPLAY_ROWS), String(data.length), String(MAX_DISPLAY_ROWS))
                     : t('rows_total', String(data.length))

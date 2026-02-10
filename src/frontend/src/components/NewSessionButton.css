@@ -45,10 +45,21 @@
     white-space: nowrap;
 }
 
-/* Dark Theme Support */
-@media (prefers-color-scheme: dark) {
-    .new-session-button-container {
-        border-top-color: var(--border-color-dark, #333);
-        border-bottom-color: var(--border-color-dark, #333);
-    }
+/* Dark Theme Support - Using .dark class selector */
+.dark .new-session-button-container {
+    border-top-color: #3c3c3c;
+    border-bottom-color: #3c3c3c;
+}
+
+.dark .new-session-button {
+    background-color: #007acc;
+}
+
+.dark .new-session-button:hover:not(:disabled) {
+    background-color: #005a9e;
+}
+
+.dark .new-session-button:disabled {
+    background-color: #3c3c3c;
+    color: #808080;
 }

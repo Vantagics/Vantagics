@@ -97,7 +97,7 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 	}
 
 	if fontName == "" {
-		return nil, fmt.Errorf(i18n.T("report.font_load_failed"))
+		return nil, fmt.Errorf("%s", i18n.T("report.font_load_failed"))
 	}
 
 	err = pdf.SetFont(fontName, "", 12)
@@ -129,7 +129,7 @@ func (s *GopdfService) ExportDashboardToPDF(data DashboardData) ([]byte, error) 
 		for _, namedTable := range data.AllTableData {
 			tableData := namedTable.Table
 			if len(tableData.Columns) > 0 {
-				s.addTableSection(&pdf, &tableData, fontName)
+				s.addTableSection(&pdf, &tableData, fontName, namedTable.Name)
 			}
 		}
 	} else if data.TableData != nil && len(data.TableData.Columns) > 0 {
@@ -201,7 +201,7 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 		for _, namedTable := range data.AllTableData {
 			tableData := namedTable.Table
 			if len(tableData.Columns) > 0 {
-				s.addTableSection(&pdf, &tableData, fontName)
+				s.addTableSection(&pdf, &tableData, fontName, namedTable.Name)
 			}
 		}
 	} else if data.TableData != nil && len(data.TableData.Columns) > 0 {
@@ -304,154 +304,8 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 
 // addAnalysisContent adds the analysis content with proper formatting
 func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, fontName string) {
-	y := pdf.GetY()
-
-	// 合并所有内容
-	allContent := strings.Join(insights, "\n")
-	// Extract JSON tables first
-	processedContent, jsonTables := s.extractJsonTables(allContent)
-	lines := strings.Split(processedContent, "\n")
-
-	inCodeBlock := false
-
-	i := 0
-	for i < len(lines) {
-		line := lines[i]
-
-		// 检查代码块标记
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			inCodeBlock = !inCodeBlock
-			i++
-			continue
-		}
-
-		// 跳过代码块内容
-		if inCodeBlock {
-			i++
-			continue
-		}
-
-		// 检测 markdown 表格（连续的 | 开头行）
-		trimmedLine := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmedLine, "|") && strings.Contains(trimmedLine, "|") {
-			tableLines := []string{trimmedLine}
-			j := i + 1
-			for j < len(lines) {
-				nextTrimmed := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(nextTrimmed, "|") && strings.Contains(nextTrimmed, "|") {
-					tableLines = append(tableLines, nextTrimmed)
-					j++
-				} else {
-					break
-				}
-			}
-			if len(tableLines) >= 2 {
-				// Parse markdown table into [][]string for renderInlineTable
-				mdTable := s.parseMarkdownTable(tableLines)
-				if len(mdTable) > 0 {
-					y = s.renderInlineTable(pdf, mdTable, fontName, y)
-				}
-				i = j
-				continue
-			}
-		}
-
-		// 检测 key=value 结构化文本行，转为表格渲染
-		if strings.Contains(trimmedLine, "=") {
-			consumed, kvTable := s.parseKeyValueLines(lines, i)
-			if consumed > 0 && len(kvTable) > 0 {
-				y = s.renderInlineTable(pdf, kvTable, fontName, y)
-				i += consumed
-				continue
-			}
-		}
-
-		// 空行添加间距
-		if trimmedLine == "" {
-			y += 10
-			i++
-			continue
-		}
-
-		// 解析 Markdown 格式
-		format := s.parseMarkdownLine(line)
-
-		// 根据格式设置字体
-		fontSize := pdfFontBody
-		lineHeight := pdfLineHeightBody
-		leftMargin := pdfMarginLeft
-
-		if format.isHeading == 1 {
-			fontSize = 18.0
-			lineHeight = 28.0
-			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(6, 78, 59) // emerald-900 深青色
-			y += 8 // 标题前额外间距
-		} else if format.isHeading == 2 {
-			fontSize = 16.0
-			lineHeight = 24.0
-			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(6, 95, 70) // emerald-800
-			y += 6
-		} else if format.isHeading == 3 {
-			fontSize = 14.0
-			lineHeight = 22.0
-			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(4, 120, 87) // emerald-700
-			y += 4
-		} else if format.isHeading == 4 {
-			fontSize = 12.0
-			lineHeight = 20.0
-			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(5, 150, 105) // emerald-600
-		} else if format.isBold {
-			pdf.SetFont(fontName, "B", fontSize)
-			pdf.SetTextColor(51, 65, 85)
-		} else {
-			pdf.SetFont(fontName, "", fontSize)
-			pdf.SetTextColor(51, 65, 85)
-		}
-
-		// 列表项缩进
-		if format.isList {
-			leftMargin += float64(format.indent) * 24
-		}
-
-		// 检查分页
-		y = s.checkPageBreak(pdf, y, lineHeight)
-
-		// 文本换行 - 使用像素宽度精确换行
-		text := format.text
-		availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
-		wrappedLines := s.wrapTextByWidth(pdf, text, availableWidth)
-
-		for _, wrappedLine := range wrappedLines {
-			y = s.checkPageBreak(pdf, y, lineHeight)
-			// 一级和二级标题居中对齐
-			if format.isHeading == 1 || format.isHeading == 2 {
-				textWidth, _ := pdf.MeasureTextWidth(wrappedLine)
-				pdf.SetX((pdfPageWidth - textWidth) / 2)
-			} else {
-				pdf.SetX(leftMargin)
-			}
-			pdf.SetY(y)
-			pdf.Cell(nil, wrappedLine)
-			y += lineHeight
-		}
-
-		// 标题后额外间距
-		if format.isHeading > 0 {
-			y += 6
-		}
-		i++
-	}
-
-	// Render extracted JSON tables
-	for _, table := range jsonTables {
-		y = s.renderInlineTable(pdf, table, fontName, y)
-	}
-
-	pdf.SetY(y + 20)
+	// Delegate to addInsightsSection which has the same logic
+	s.addInsightsSection(pdf, insights, fontName)
 }
 
 // addCoverPage adds a professional cover page
@@ -676,6 +530,10 @@ func (s *GopdfService) parseMarkdownLine(line string) lineFormat {
 	}
 	
 	// Handle inline bold (**text** or __text__)
+	// Detect if line contains bold markers — set isBold if it starts with **
+	if strings.Contains(result.text, "**") {
+		result.isBold = true
+	}
 	result.text = s.stripMarkdownBold(result.text)
 	
 	return result
@@ -729,6 +587,49 @@ func (s *GopdfService) stripMarkdownBold(text string) string {
 		text = text[:start] + text[start+2:start+2+end] + text[start+2+end+2:]
 	}
 	return text
+}
+
+// markdownBoldToHTML converts **bold** markers to <b>bold</b> HTML tags
+// and escapes basic HTML entities in the rest of the text.
+func markdownBoldToHTML(text string) string {
+	var sb strings.Builder
+	remaining := text
+	for {
+		start := strings.Index(remaining, "**")
+		if start == -1 {
+			sb.WriteString(escapeHTMLBasic(remaining))
+			break
+		}
+		end := strings.Index(remaining[start+2:], "**")
+		if end == -1 {
+			sb.WriteString(escapeHTMLBasic(remaining))
+			break
+		}
+		sb.WriteString(escapeHTMLBasic(remaining[:start]))
+		sb.WriteString("<b>")
+		sb.WriteString(escapeHTMLBasic(remaining[start+2 : start+2+end]))
+		sb.WriteString("</b>")
+		remaining = remaining[start+2+end+2:]
+	}
+	return sb.String()
+}
+
+// escapeHTMLBasic escapes &, <, > for safe HTML embedding
+func escapeHTMLBasic(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
+}
+
+// containsMarkdownBold checks if text contains **bold** markers
+func containsMarkdownBold(text string) bool {
+	start := strings.Index(text, "**")
+	if start == -1 {
+		return false
+	}
+	end := strings.Index(text[start+2:], "**")
+	return end >= 0
 }
 
 func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, fontName string) {
@@ -847,23 +748,40 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 			// Check page break before rendering
 			y = s.checkPageBreak(pdf, y, lineHeight)
 
-			// Render text with word wrapping - 使用像素宽度精确换行
-			text := format.text
-			availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
-			wrappedLines := s.wrapTextByWidth(pdf, text, availableWidth)
-
-			for _, wrappedLine := range wrappedLines {
-				y = s.checkPageBreak(pdf, y, lineHeight)
-				// 一级和二级标题居中对齐
-				if format.isHeading == 1 || format.isHeading == 2 {
-					textWidth, _ := pdf.MeasureTextWidth(wrappedLine)
-					pdf.SetX((pdfPageWidth - textWidth) / 2)
-				} else {
-					pdf.SetX(leftMargin)
+			// Use InsertHTMLBox for non-heading lines with inline **bold** markers
+			if format.isHeading == 0 && containsMarkdownBold(line) {
+				htmlContent := markdownBoldToHTML(format.text)
+				availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
+				// Use a large box height; InsertHTMLBox returns actual Y after rendering
+				newY, err := pdf.InsertHTMLBox(leftMargin, y, availableWidth, 2000, htmlContent, gopdf.HTMLBoxOption{
+					DefaultFontFamily: fontName,
+					DefaultFontSize:   fontSize,
+					DefaultColor:      [3]uint8{51, 65, 85},
+					BoldFontFamily:    fontName,
+					LineSpacing:       lineHeight - fontSize*1.2,
+				})
+				if err == nil {
+					y = newY
 				}
-				pdf.SetY(y)
-				pdf.Cell(nil, wrappedLine)
-				y += lineHeight
+			} else {
+				// Render text with word wrapping - 使用像素宽度精确换行
+				text := format.text
+				availableWidth := pdfContentWidth - (leftMargin - pdfMarginLeft)
+				wrappedLines := s.wrapTextByWidth(pdf, text, availableWidth)
+
+				for _, wrappedLine := range wrappedLines {
+					y = s.checkPageBreak(pdf, y, lineHeight)
+					// 一级和二级标题居中对齐
+					if format.isHeading == 1 || format.isHeading == 2 {
+						textWidth, _ := pdf.MeasureTextWidth(wrappedLine)
+						pdf.SetX((pdfPageWidth - textWidth) / 2)
+					} else {
+						pdf.SetX(leftMargin)
+					}
+					pdf.SetY(y)
+					pdf.Cell(nil, wrappedLine)
+					y += lineHeight
+				}
 			}
 
 			// Add extra spacing after headings
@@ -954,7 +872,22 @@ func (s *GopdfService) extractStandaloneJsonArrays(text string, tables *[][][]st
 		
 		// Extract the JSON content
 		jsonContent := result[startIdx : endIdx+1]
-		
+
+		// Skip if the extracted content is too large (likely not a real JSON table)
+		// or if it spans too many lines (likely regular text with brackets)
+		if len(jsonContent) > 10000 || strings.Count(jsonContent, "\n") > 100 {
+			// Skip this occurrence
+			result = result[:startIdx] + result[startIdx+1:]
+			continue
+		}
+
+		// Validate it's actually valid JSON before trying to parse
+		jsonTrimmed := strings.TrimSpace(jsonContent)
+		if !strings.HasPrefix(jsonTrimmed, "[[") {
+			result = result[:startIdx] + result[startIdx+1:]
+			continue
+		}
+
 		// Validate it's a 2D array (at least 2 rows with same column count)
 		tableData := s.parseJsonTable(jsonContent)
 		if len(tableData) >= 2 && len(tableData[0]) >= 2 {
@@ -977,16 +910,8 @@ func (s *GopdfService) extractStandaloneJsonArrays(text string, tables *[][][]st
 		}
 		
 		// If not a valid table, skip this occurrence and continue searching
-		// Move past this bracket to avoid infinite loop
-		if startIdx+1 < len(result) {
-			nextStart := s.findJson2DArrayStart(result[startIdx+1:])
-			if nextStart == -1 {
-				break
-			}
-			// Adjust for the offset
-			continue
-		}
-		break
+		// Replace the opening bracket to avoid finding it again (prevents infinite loop)
+		result = result[:startIdx] + result[startIdx+1:]
 	}
 	
 	return result
@@ -1273,99 +1198,149 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 	if len(tableData) == 0 {
 		return startY
 	}
-	
+
 	y := startY
 	y = s.checkPageBreak(pdf, y, 80)
-	
+
 	// Determine number of columns from first row (header)
 	numCols := len(tableData[0])
 	if numCols == 0 {
 		return y
 	}
-	
+
 	// Limit columns
-	maxCols := 6
+	maxCols := 8
 	if numCols > maxCols {
 		numCols = maxCols
 	}
-	
+
 	// Calculate column width
 	colWidth := pdfContentWidth / float64(numCols)
-	cellTextWidth := colWidth - 8
-	
-	// Render header row
-	headerHeight := 24.0
-	y = s.checkPageBreak(pdf, y, headerHeight)
-	pdf.SetFont(fontName, "B", pdfFontTableHead)
-	pdf.SetFillColor(16, 185, 129) // emerald-500 清新的青绿色
-	pdf.SetTextColor(255, 255, 255)
-	
-	x := pdfMarginLeft
-	for i := 0; i < numCols && i < len(tableData[0]); i++ {
-		cellValue := s.truncateTextToWidth(pdf, tableData[0][i], cellTextWidth, 30)
-		pdf.SetX(x)
-		pdf.SetY(y)
-		pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: headerHeight}, cellValue, gopdf.CellOption{
-			Align:  gopdf.Center | gopdf.Middle,
-			Border: gopdf.AllBorders,
-		})
-		x += colWidth
+	cellPadding := 4.0
+	cellTextWidth := colWidth - cellPadding*2
+	cellLineHeight := 12.0 // line height within table cells
+
+	// Helper: compute row height based on wrapped cell content
+	computeRowHeight := func(row []string, fontSize float64) (float64, [][]string) {
+		pdf.SetFont(fontName, "", fontSize)
+		maxLines := 1
+		wrappedCells := make([][]string, numCols)
+		for i := 0; i < numCols; i++ {
+			cellText := ""
+			if i < len(row) {
+				cellText = s.stripMarkdownBold(row[i])
+			}
+			wrapped := s.wrapTextByWidth(pdf, cellText, cellTextWidth)
+			if len(wrapped) == 0 {
+				wrapped = []string{""}
+			}
+			wrappedCells[i] = wrapped
+			if len(wrapped) > maxLines {
+				maxLines = len(wrapped)
+			}
+		}
+		height := float64(maxLines)*cellLineHeight + cellPadding*2
+		if height < 20.0 {
+			height = 20.0
+		}
+		return height, wrappedCells
 	}
-	y += headerHeight
-	
+
+	// Helper: draw header row
+	drawInlineHeader := func(atY float64) float64 {
+		pdf.SetFont(fontName, "B", pdfFontTableHead)
+		headerHeight, wrappedCells := computeRowHeight(tableData[0], pdfFontTableHead)
+		pdf.SetFont(fontName, "B", pdfFontTableHead)
+
+		// Draw all cell backgrounds first
+		pdf.SetFillColor(16, 185, 129) // emerald-500
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
+		x := pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			pdf.RectFromUpperLeftWithStyle(x, atY, colWidth, headerHeight, "FD")
+			x += colWidth
+		}
+
+		// Then draw all text on top
+		pdf.SetTextColor(255, 255, 255)
+		pdf.SetFont(fontName, "B", pdfFontTableHead)
+		x = pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			for li, line := range wrappedCells[i] {
+				pdf.SetX(x + cellPadding)
+				pdf.SetY(atY + cellPadding + float64(li)*cellLineHeight)
+				pdf.Cell(nil, line)
+			}
+			x += colWidth
+		}
+		return atY + headerHeight
+	}
+
+	// Draw header
+	y = drawInlineHeader(y)
+
 	// Render data rows
-	rowHeight := 20.0
-	pdf.SetFont(fontName, "", pdfFontTableCell)
-	pdf.SetTextColor(51, 65, 85)
-	
 	for rowIdx := 1; rowIdx < len(tableData); rowIdx++ {
 		row := tableData[rowIdx]
-		
+
+		// Compute row height with wrapping
+		pdf.SetFont(fontName, "", pdfFontTableCell)
+		rowHeight, wrappedCells := computeRowHeight(row, pdfFontTableCell)
+
 		// Check for page break
 		y = s.checkPageBreak(pdf, y, rowHeight)
-		
+
 		// Re-draw header on new page
-		if y < pdfMarginTop + 30 {
-			pdf.SetFont(fontName, "B", pdfFontTableHead)
-			pdf.SetFillColor(16, 185, 129) // emerald-500
-			pdf.SetTextColor(255, 255, 255)
-			x = pdfMarginLeft
-			for i := 0; i < numCols && i < len(tableData[0]); i++ {
-				cellValue := s.truncateTextToWidth(pdf, tableData[0][i], cellTextWidth, 30)
-				pdf.SetX(x)
-				pdf.SetY(y)
-				pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: headerHeight}, cellValue, gopdf.CellOption{
-					Align:  gopdf.Center | gopdf.Middle,
-					Border: gopdf.AllBorders,
-				})
-				x += colWidth
-			}
-			y += headerHeight
-			pdf.SetFont(fontName, "", pdfFontTableCell)
-			pdf.SetTextColor(51, 65, 85)
+		if y < pdfMarginTop+30 {
+			y = drawInlineHeader(y)
 		}
-		
-		// Alternating row colors - 清新的青绿色调
+
+		// Alternating row colors
 		if rowIdx%2 == 0 {
 			pdf.SetFillColor(236, 253, 245) // emerald-50
 		} else {
 			pdf.SetFillColor(209, 250, 229) // emerald-100
 		}
-		
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
+
+		// Draw all cell backgrounds first
+		x := pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			pdf.RectFromUpperLeftWithStyle(x, y, colWidth, rowHeight, "FD")
+			x += colWidth
+		}
+
+		// Then draw all text on top — use InsertHTMLBox for cells with **bold**
+		pdf.SetFont(fontName, "", pdfFontTableCell)
+		pdf.SetTextColor(51, 65, 85)
 		x = pdfMarginLeft
-		for i := 0; i < numCols && i < len(row); i++ {
-			cellValue := s.truncateTextToWidth(pdf, row[i], cellTextWidth, 30)
-			pdf.SetX(x)
-			pdf.SetY(y)
-			pdf.CellWithOption(&gopdf.Rect{W: colWidth, H: rowHeight}, cellValue, gopdf.CellOption{
-				Align:  gopdf.Left | gopdf.Middle,
-				Border: gopdf.AllBorders,
-			})
+		for i := 0; i < numCols; i++ {
+			rawText := ""
+			if i < len(row) {
+				rawText = row[i]
+			}
+			if containsMarkdownBold(rawText) {
+				htmlContent := markdownBoldToHTML(rawText)
+				pdf.InsertHTMLBox(x+cellPadding, y+cellPadding, cellTextWidth, rowHeight-cellPadding*2, htmlContent, gopdf.HTMLBoxOption{
+					DefaultFontFamily: fontName,
+					DefaultFontSize:   pdfFontTableCell,
+					DefaultColor:      [3]uint8{51, 65, 85},
+					BoldFontFamily:    fontName,
+				})
+			} else {
+				for li, line := range wrappedCells[i] {
+					pdf.SetFont(fontName, "", pdfFontTableCell)
+					pdf.SetTextColor(51, 65, 85)
+					pdf.SetX(x + cellPadding)
+					pdf.SetY(y + cellPadding + float64(li)*cellLineHeight)
+					pdf.Cell(nil, line)
+				}
+			}
 			x += colWidth
 		}
 		y += rowHeight
 	}
-	
+
 	return y + 16
 }
 
@@ -1484,7 +1459,7 @@ func (s *GopdfService) wrapTextByWidth(pdf *gopdf.GoPdf, text string, maxWidth f
 		for i := searchStart; i >= minBreak; i-- {
 			ch := runes[i-1]
 			if ch == ' ' || ch == '，' || ch == '。' || ch == '、' || ch == '；' || ch == '：' ||
-				ch == '）' || ch == '）' || ch == '」' || ch == '"' || ch == '\'' {
+				ch == '）' || ch == '」' || ch == '"' || ch == '\'' {
 				bestBreak = i
 				break
 			}
@@ -1634,98 +1609,164 @@ func (s *GopdfService) addCharts(pdf *gopdf.GoPdf, chartImages []string, fontNam
 }
 
 // addTableSection adds data table with professional card-style layout
-func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, fontName string) {
-	y := s.addSectionTitle(pdf, "数据表格", fontName)
+func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, fontName string, tableName ...string) {
+	title := "数据表格"
+	if len(tableName) > 0 && tableName[0] != "" {
+		title = s.stripMarkdownBold(tableName[0])
+	}
+	y := s.addSectionTitle(pdf, title, fontName)
 
 	// 限制列数以保证可读性
-	maxCols := 6
+	maxCols := 8
 	cols := tableData.Columns
 	if len(cols) > maxCols {
 		cols = cols[:maxCols]
 	}
 
-	// 计算列宽 - 根据列数动态调整
-	colWidth := pdfContentWidth / float64(len(cols))
-	// 单元格内可用文本宽度（减去左右内边距各4pt）
-	cellTextWidth := colWidth - 8
+	numCols := len(cols)
+	colWidth := pdfContentWidth / float64(numCols)
+	cellPadding := 4.0
+	cellTextWidth := colWidth - cellPadding*2
+	cellLineHeight := 12.0
 
-	// 表头行高和数据行高
-	headerHeight := 24.0
-	rowHeight := 20.0
-
-	// 每页最大行数
-	maxRowsPerPage := 32
+	// Helper: compute row height with text wrapping
+	computeStructuredRowHeight := func(rowData []interface{}, fontSize float64) (float64, [][]string) {
+		pdf.SetFont(fontName, "", fontSize)
+		maxLines := 1
+		wrappedCells := make([][]string, numCols)
+		for i := 0; i < numCols && i < len(rowData); i++ {
+			cellText := s.stripMarkdownBold(fmt.Sprintf("%v", rowData[i]))
+			wrapped := s.wrapTextByWidth(pdf, cellText, cellTextWidth)
+			if len(wrapped) == 0 {
+				wrapped = []string{""}
+			}
+			wrappedCells[i] = wrapped
+			if len(wrapped) > maxLines {
+				maxLines = len(wrapped)
+			}
+		}
+		// Fill remaining columns with empty
+		for i := len(rowData); i < numCols; i++ {
+			wrappedCells[i] = []string{""}
+		}
+		height := float64(maxLines)*cellLineHeight + cellPadding*2
+		if height < 20.0 {
+			height = 20.0
+		}
+		return height, wrappedCells
+	}
 
 	// 绘制表头的辅助函数
 	drawHeader := func(atY float64) float64 {
-		pdf.SetFillColor(16, 185, 129) // emerald-500 清新的青绿色
-		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, atY, pdfContentWidth, headerHeight, "F")
+		pdf.SetFont(fontName, "B", pdfFontTableHead)
+		// Compute header height with wrapping
+		maxLines := 1
+		wrappedHeaders := make([][]string, numCols)
+		for i, col := range cols {
+			wrapped := s.wrapTextByWidth(pdf, col.Title, cellTextWidth)
+			if len(wrapped) == 0 {
+				wrapped = []string{""}
+			}
+			wrappedHeaders[i] = wrapped
+			if len(wrapped) > maxLines {
+				maxLines = len(wrapped)
+			}
+		}
+		headerHeight := float64(maxLines)*cellLineHeight + cellPadding*2
+		if headerHeight < 24.0 {
+			headerHeight = 24.0
+		}
 
+		pdf.SetFillColor(16, 185, 129) // emerald-500
+		pdf.SetTextColor(255, 255, 255)
+		pdf.SetStrokeColor(167, 243, 208) // emerald-200
+
+		// Draw all cell backgrounds first
+		hx := pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			pdf.RectFromUpperLeftWithStyle(hx, atY, colWidth, headerHeight, "FD")
+			hx += colWidth
+		}
+
+		// Then draw all text on top
 		pdf.SetFont(fontName, "B", pdfFontTableHead)
 		pdf.SetTextColor(255, 255, 255)
-
-		hx := pdfMarginLeft
-		for _, col := range cols {
-			colTitle := s.truncateTextToWidth(pdf, col.Title, cellTextWidth, 30)
-			pdf.SetX(hx + 4)
-			pdf.SetY(atY + 6)
-			pdf.CellWithOption(&gopdf.Rect{W: cellTextWidth, H: headerHeight - 12}, colTitle, gopdf.CellOption{
-				Align: gopdf.Center | gopdf.Middle,
-			})
+		hx = pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			for li, line := range wrappedHeaders[i] {
+				pdf.SetX(hx + cellPadding)
+				pdf.SetY(atY + cellPadding + float64(li)*cellLineHeight)
+				pdf.Cell(nil, line)
+			}
 			hx += colWidth
 		}
 		return atY + headerHeight
 	}
 
 	// 绘制表头
-	y = s.checkPageBreak(pdf, y, headerHeight+rowHeight*3)
+	y = s.checkPageBreak(pdf, y, 80)
 	y = drawHeader(y)
-	headerY := y - headerHeight
 
 	// 绘制数据行
-	pdf.SetFont(fontName, "", pdfFontTableCell)
-	rowCount := 0
 	totalRows := len(tableData.Data)
 
 	for rowIdx, rowData := range tableData.Data {
+		// Compute row height
+		pdf.SetFont(fontName, "", pdfFontTableCell)
+		rowHeight, wrappedCells := computeStructuredRowHeight(rowData, pdfFontTableCell)
+
 		// 检查分页
-		if y+rowHeight > pdfPageHeight-pdfMarginBottom || rowCount >= maxRowsPerPage {
+		if y+rowHeight > pdfPageHeight-pdfMarginBottom {
 			pdf.AddPage()
 			y = pdfMarginTop
 			y = drawHeader(y)
-			headerY = y - headerHeight
-			rowCount = 0
-			pdf.SetFont(fontName, "", pdfFontTableCell)
 		}
 
-		// 交替行背景色 - 清新的青绿色调
+		// 交替行背景色
 		if rowIdx%2 == 0 {
 			pdf.SetFillColor(236, 253, 245) // emerald-50
 		} else {
 			pdf.SetFillColor(209, 250, 229) // emerald-100
 		}
-		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, rowHeight, "F")
-
-		// 绘制单元格边框 - 青绿色
 		pdf.SetStrokeColor(167, 243, 208) // emerald-200
-		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, rowHeight, "D")
 
-		// 绘制数据
-		pdf.SetTextColor(51, 65, 85)
+		// Draw all cell backgrounds first
 		x := pdfMarginLeft
-		for i := 0; i < len(cols) && i < len(rowData); i++ {
-			cellValue := fmt.Sprintf("%v", rowData[i])
-			cellValue = s.truncateTextToWidth(pdf, cellValue, cellTextWidth, 30)
-			pdf.SetX(x + 4)
-			pdf.SetY(y + 5)
-			pdf.CellWithOption(&gopdf.Rect{W: cellTextWidth, H: rowHeight - 10}, cellValue, gopdf.CellOption{
-				Align: gopdf.Left | gopdf.Middle,
-			})
+		for i := 0; i < numCols; i++ {
+			pdf.RectFromUpperLeftWithStyle(x, y, colWidth, rowHeight, "FD")
+			x += colWidth
+		}
+
+		// Then draw all text on top — use InsertHTMLBox for cells with **bold**
+		pdf.SetFont(fontName, "", pdfFontTableCell)
+		pdf.SetTextColor(51, 65, 85)
+		x = pdfMarginLeft
+		for i := 0; i < numCols; i++ {
+			rawText := ""
+			if i < len(rowData) {
+				rawText = fmt.Sprintf("%v", rowData[i])
+			}
+			if containsMarkdownBold(rawText) {
+				htmlContent := markdownBoldToHTML(rawText)
+				pdf.InsertHTMLBox(x+cellPadding, y+cellPadding, cellTextWidth, rowHeight-cellPadding*2, htmlContent, gopdf.HTMLBoxOption{
+					DefaultFontFamily: fontName,
+					DefaultFontSize:   pdfFontTableCell,
+					DefaultColor:      [3]uint8{51, 65, 85},
+					BoldFontFamily:    fontName,
+				})
+			} else {
+				for li, line := range wrappedCells[i] {
+					pdf.SetFont(fontName, "", pdfFontTableCell)
+					pdf.SetTextColor(51, 65, 85)
+					pdf.SetX(x + cellPadding)
+					pdf.SetY(y + cellPadding + float64(li)*cellLineHeight)
+					pdf.Cell(nil, line)
+				}
+			}
 			x += colWidth
 		}
 
 		y += rowHeight
-		rowCount++
 	}
 
 	// 添加表格信息
@@ -1742,9 +1783,6 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 	pdf.Cell(nil, infoText)
 
 	pdf.SetY(y + 24)
-
-	// 避免未使用变量警告
-	_ = headerY
 }
 
 // addTable is kept for backward compatibility

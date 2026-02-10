@@ -51,18 +51,18 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
     return ReactDOM.createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={isDeleting ? undefined : onClose}>
             <div
-                className="bg-white w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 p-6"
+                className="bg-white dark:bg-[#252526] w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6"
                 onClick={e => e.stopPropagation()}
             >
-                <h3 className="text-lg font-bold text-slate-800 mb-2">{getTitle()}</h3>
-                <p className="text-sm text-slate-600 mb-6">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4] mb-2">{getTitle()}</h3>
+                <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mb-6">
                     {getMessage().replace('{0}', sourceName)}
                 </p>
                 <div className="flex justify-end gap-3">
                     <button
                         onClick={onClose}
                         disabled={isDeleting}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {t('cancel')}
                     </button>

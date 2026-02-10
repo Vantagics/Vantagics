@@ -1628,7 +1628,7 @@ function AppContent() {
 
     if (!isAppReady) {
         return (
-            <div className="flex h-screen w-screen bg-slate-50 items-center justify-center flex-col gap-6 relative">
+            <div className="flex h-screen w-screen bg-slate-50 dark:bg-[#1e1e1e] items-center justify-center flex-col gap-6 relative">
                 {/* Removed draggable area - using system window border for dragging */}
 
                 {/* Only show spinner when not in mode selection */}
@@ -1682,7 +1682,7 @@ function AppContent() {
     }
 
     return (
-            <div className="flex h-screen overflow-hidden bg-slate-100 font-sans text-slate-900 relative">
+            <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-[#1e1e1e] font-sans text-slate-900 dark:text-[#d4d4d4] relative">
                 {/* Removed draggable title bar - using system window border for dragging */}
 
                 <Sidebar

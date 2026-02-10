@@ -379,7 +379,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
             return (
                 <th 
                     key={col} 
-                    className="px-2 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider border-r border-slate-200 last:border-0 bg-blue-50"
+                    className="px-2 py-2 text-left text-[10px] font-bold text-slate-500 dark:text-[#808080] uppercase tracking-wider border-r border-slate-200 dark:border-[#3c3c3c] last:border-0 bg-blue-50 dark:bg-[#1a2332]"
                     style={{ minWidth: '120px' }}
                 >
                     <div className="flex items-center gap-1">
@@ -394,8 +394,8 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                             onKeyDown={handleKeyDown}
                             className={`w-[106px] px-1 py-1 text-[10px] border rounded focus:outline-none focus:ring-1 ${
                                 editError 
-                                    ? 'border-red-400 focus:ring-red-200 bg-red-50' 
-                                    : 'border-blue-400 focus:ring-blue-200 bg-white'
+                                    ? 'border-red-400 focus:ring-red-200 bg-red-50 dark:bg-[#2e1e1e] dark:border-[#5a3d3d]' 
+                                    : 'border-blue-400 focus:ring-blue-200 bg-white dark:bg-[#3c3c3c] dark:border-[#007acc]'
                             }`}
                             disabled={savingColumn}
                         />
@@ -428,7 +428,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
         return (
             <th 
                 key={col} 
-                className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider border-r border-slate-200 last:border-0 group/col hover:bg-slate-100 transition-colors"
+                className="px-3 py-2 text-left text-[10px] font-bold text-slate-500 dark:text-[#808080] uppercase tracking-wider border-r border-slate-200 dark:border-[#3c3c3c] last:border-0 group/col hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors"
                 style={{ minWidth: '100px' }}
             >
                 <div className="flex items-center justify-between gap-1">
@@ -441,7 +441,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                     </span>
                     <button
                         onClick={() => handleDeleteColumn(col)}
-                        className="p-0.5 text-slate-400 hover:text-red-600 opacity-0 group-hover/col:opacity-100 transition-opacity flex-shrink-0"
+                        className="p-0.5 text-slate-400 dark:text-[#808080] hover:text-red-600 opacity-0 group-hover/col:opacity-100 transition-opacity flex-shrink-0"
                         title={t('delete_column')}
                     >
                         <Trash2 className="w-3 h-3" />
@@ -453,21 +453,21 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
 
     return (
         <div 
-            className="bg-white border-r border-slate-200 flex flex-col h-full shadow-sm flex-shrink-0"
+            className="bg-white dark:bg-[#1e1e1e] border-r border-slate-200 dark:border-[#3c3c3c] flex flex-col h-full shadow-sm flex-shrink-0"
             style={{ width: width }}
             onClick={handleContextPanelClick}
         >
             <div 
-                className="p-4 pt-8 border-b border-slate-200 bg-slate-50 flex justify-between items-center"
+                className="p-4 pt-8 border-b border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#252526] flex justify-between items-center"
             >
-                <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-700 dark:text-[#d4d4d4] flex items-center gap-2">
                     <Database className="w-4 h-4 text-blue-500" />
                     {t('data_explorer')}
                 </h2>
                 {onCollapse && (
                     <button
                         onClick={onCollapse}
-                        className="p-1 hover:bg-slate-200 rounded-md text-slate-500 hover:text-blue-600 transition-colors"
+                        className="p-1 hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-md text-slate-500 dark:text-[#808080] hover:text-blue-600 transition-colors"
                         title="折叠数据浏览器"
                     >
                         <ChevronLeft className="w-4 h-4" />
@@ -475,26 +475,26 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                 )}
             </div>
             
-            <div className="flex-1 overflow-y-auto bg-slate-50/50">
+            <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-[#1e1e1e]">
                 {!selectedSource ? (
-                    <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400">
-                        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                            <List className="w-8 h-8 text-slate-300" />
+                    <div className="h-full flex flex-col items-center justify-center p-8 text-center text-slate-400 dark:text-[#808080]">
+                        <div className="w-16 h-16 bg-slate-100 dark:bg-[#252526] rounded-full flex items-center justify-center mb-4">
+                            <List className="w-8 h-8 text-slate-300 dark:text-[#808080]" />
                         </div>
                         <p className="text-sm font-medium">{t('select_data_source_to_explore')}</p>
                     </div>
                 ) : (
                     <div className="flex flex-col h-full">
                         {/* Source Header */}
-                        <div className="p-4 bg-white border-b border-slate-200 flex justify-between items-start">
+                        <div className="p-4 bg-white dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-start">
                             <div>
                                 <div className="flex items-center gap-2 mb-1">
                                     <FileText className="w-4 h-4 text-green-600" />
-                                    <span className="text-sm font-bold text-slate-800">
-                                        {selectedSource.name} <span className="text-slate-400 font-normal">({tables.length})</span>
+                                    <span className="text-sm font-bold text-slate-800 dark:text-[#d4d4d4]">
+                                        {selectedSource.name} <span className="text-slate-400 dark:text-[#808080] font-normal">({tables.length})</span>
                                     </span>
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">{selectedSource.type} {t('source')}</div>
+                                <div className="text-[10px] text-slate-400 dark:text-[#808080] font-mono uppercase tracking-wider">{selectedSource.type} {t('source')}</div>
                             </div>
                         </div>
 
@@ -502,20 +502,20 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                         <div className="flex-1 overflow-y-auto">
                             {!selectedTable ? (
                                 <div className="p-2">
-                                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest p-2 mb-1">{t('tables')}</h3>
+                                    <h3 className="text-xs font-bold text-slate-500 dark:text-[#808080] uppercase tracking-widest p-2 mb-1">{t('tables')}</h3>
                                     <div className="space-y-1">
                                         {tables.map((table) => (
                                             <div
                                                 key={table}
-                                                className="w-full flex items-center justify-between p-3 bg-white border border-slate-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-all shadow-sm group"
+                                                className="w-full flex items-center justify-between p-3 bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg hover:border-blue-300 dark:hover:border-[#007acc] hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-all shadow-sm group"
                                             >
                                                 <button
                                                     onClick={() => handleTableClick(table)}
                                                     className="flex-1 flex items-center gap-3 text-left"
                                                 >
-                                                    <Table className="w-4 h-4 text-slate-400 group-hover:text-blue-500" />
-                                                    <span className="text-sm font-medium text-slate-700">
-                                                        {table} <span className="text-slate-400 font-normal">({tableCounts[table] !== undefined ? tableCounts[table] : '-'})</span>
+                                                    <Table className="w-4 h-4 text-slate-400 dark:text-[#808080] group-hover:text-blue-500" />
+                                                    <span className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">
+                                                        {table} <span className="text-slate-400 dark:text-[#808080] font-normal">({tableCounts[table] !== undefined ? tableCounts[table] : '-'})</span>
                                                     </span>
                                                 </button>
                                                 <div className="flex items-center gap-1">
@@ -526,15 +526,15 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                                                     >
                                                         <Trash2 className="w-3 h-3" />
                                                     </button>
-                                                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                                                    <ChevronRight className="w-4 h-4 text-slate-300 dark:text-[#808080]" />
                                                 </div>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             ) : (
-                                <div className="flex flex-col h-full bg-white">
-                                    <div className="p-2 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                                <div className="flex flex-col h-full bg-white dark:bg-[#1e1e1e]">
+                                    <div className="p-2 border-b border-slate-100 dark:border-[#3c3c3c] flex items-center justify-between bg-slate-50 dark:bg-[#252526]">
                                         <div className="flex items-center gap-2">
                                             <button 
                                                 onClick={() => {
@@ -542,39 +542,39 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                                                     setEditingColumn(null);
                                                     setEditError(null);
                                                 }}
-                                                className="text-[10px] font-bold text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                                                className="text-[10px] font-bold text-blue-600 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-colors"
                                             >
                                                 {t('back_to_tables')}
                                             </button>
-                                            <span className="text-xs text-slate-400">/</span>
-                                            <span className="text-xs font-bold text-slate-700 truncate">{selectedTable}</span>
+                                            <span className="text-xs text-slate-400 dark:text-[#808080]">/</span>
+                                            <span className="text-xs font-bold text-slate-700 dark:text-[#d4d4d4] truncate">{selectedTable}</span>
                                         </div>
-                                        <span className="text-[9px] text-slate-400 italic">{t('double_click_to_edit_column')}</span>
+                                        <span className="text-[9px] text-slate-400 dark:text-[#808080] italic">{t('double_click_to_edit_column')}</span>
                                     </div>
                                     
                                     <div className="flex-1 overflow-auto">
                                         {isLoading ? (
-                                            <div className="p-8 text-center text-slate-400 text-xs">{t('loading_data')}</div>
+                                            <div className="p-8 text-center text-slate-400 dark:text-[#808080] text-xs">{t('loading_data')}</div>
                                         ) : !tableData || tableData.length === 0 ? (
-                                            <div className="p-8 text-center text-slate-400 text-xs italic">{t('no_data_in_table')}</div>
+                                            <div className="p-8 text-center text-slate-400 dark:text-[#808080] text-xs italic">{t('no_data_in_table')}</div>
                                         ) : (
                                             <div className="inline-block min-w-full align-middle">
-                                                <table className="min-w-full divide-y divide-slate-200">
-                                                    <thead className="bg-slate-50 sticky top-0 z-10">
+                                                <table className="min-w-full divide-y divide-slate-200 dark:divide-[#3c3c3c]">
+                                                    <thead className="bg-slate-50 dark:bg-[#252526] sticky top-0 z-10">
                                                         <tr>
                                                             {Object.keys(tableData[0]).map((col) => renderColumnHeader(col))}
                                                         </tr>
                                                     </thead>
-                                                    <tbody className="bg-white divide-y divide-slate-100">
+                                                    <tbody className="bg-white dark:bg-[#1e1e1e] divide-y divide-slate-100 dark:divide-[#2d2d30]">
                                                         {tableData.map((row, i) => (
-                                                            <tr key={i} className="hover:bg-slate-50">
+                                                            <tr key={i} className="hover:bg-slate-50 dark:hover:bg-[#2d2d30]">
                                                                 {Object.values(row).map((val: any, j) => (
                                                                     <td 
                                                                         key={j} 
-                                                                        className="px-3 py-2 text-[10px] text-slate-600 border-r border-slate-100 last:border-0 truncate max-w-[150px]"
+                                                                        className="px-3 py-2 text-[10px] text-slate-600 dark:text-[#d4d4d4] border-r border-slate-100 dark:border-[#2d2d30] last:border-0 truncate max-w-[150px]"
                                                                         title={String(val)}
                                                                     >
-                                                                        {val === null ? <span className="text-slate-300 italic">null</span> : String(val)}
+                                                                        {val === null ? <span className="text-slate-300 dark:text-[#808080] italic">null</span> : String(val)}
                                                                     </td>
                                                                 ))}
                                                             </tr>
@@ -584,7 +584,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                                             </div>
                                         )}
                                     </div>
-                                    <div className="p-2 border-t border-slate-100 bg-slate-50 text-[10px] text-slate-400 text-center">
+                                    <div className="p-2 border-t border-slate-100 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#252526] text-[10px] text-slate-400 dark:text-[#808080] text-center">
                                         {t('showing_preview_rows').replace('{0}', previewLimit.toString())}
                                     </div>
                                 </div>

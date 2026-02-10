@@ -337,10 +337,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[800px] h-[600px] rounded-xl shadow-2xl flex overflow-hidden text-slate-900">
+            <div className="bg-white dark:bg-[#252526] w-[800px] h-[600px] rounded-xl shadow-2xl flex overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
                 {/* Sidebar */}
-                <div className="w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col">
-                    <h2 className="text-xl font-bold text-slate-800 mb-6 px-2">{t('preferences')}</h2>
+                <div className="w-64 bg-slate-50 dark:bg-[#1e1e1e] border-r border-slate-200 dark:border-[#3c3c3c] p-4 flex flex-col">
+                    <h2 className="text-xl font-bold text-slate-800 dark:text-[#d4d4d4] mb-6 px-2">{t('preferences')}</h2>
                     
                     {/* Commercial Mode Indicator */}
                     {isCommercialMode && activationInfo && (
@@ -418,7 +418,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
-                                className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-blue-100 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
+                                className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === tab ? 'bg-blue-100 dark:bg-[#1e3a5f] text-blue-700 dark:text-[#569cd6]' : 'text-slate-600 dark:text-[#808080] hover:bg-slate-100 dark:hover:bg-[#2d2d30]'
                                     }`}
                             >
                                 {tab === 'system' && t('system_params')}
@@ -1172,7 +1172,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     </div>
 
                     {/* Footer */}
-                    <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+                    <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end gap-3">
                         <button 
                             onClick={() => {
                                 if (isStartupMode) {
@@ -1181,11 +1181,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     onClose();
                                 }
                             }} 
-                            className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md"
+                            className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-md"
                         >
                             {t('cancel')}
                         </button>
-                        <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm">
+                        <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-[#007acc] hover:bg-blue-700 dark:hover:bg-[#005a9e] rounded-md shadow-sm">
                             {t('save_changes')}
                         </button>
                     </div>
@@ -1194,11 +1194,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                 {/* 退出确认对话框 */}
                 {showExitConfirm && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
-                        <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm mx-4">
-                            <h3 className="text-lg font-semibold text-slate-800 mb-2">
+                        <div className="bg-white dark:bg-[#252526] rounded-lg shadow-xl p-6 max-w-sm mx-4">
+                            <h3 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4] mb-2">
                                 {t('confirm_exit_title') || '确认退出'}
                             </h3>
-                            <p className="text-sm text-slate-600 mb-4">
+                            <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mb-4">
                                 {t('cancel_will_exit_app') || '取消将退出程序，确定要退出吗？'}
                             </p>
                             <div className="flex justify-end gap-3">

@@ -1050,7 +1050,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     gridTemplateColumns: `repeat(${cols}, 1fr)`,
                 }}>
                     {metrics.map((metric: any, idx: number) => (
-                        <div key={idx} className="bg-blue-50 rounded-lg border border-blue-100">
+                        <div key={idx} className="bg-blue-50 dark:bg-[#1a2332] rounded-lg border border-blue-100 dark:border-[#264f78]">
                             <MetricCard
                                 title={metric.title || ''}
                                 value={metric.value || ''}
@@ -1078,7 +1078,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {insights.map((insight: any, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 rounded-lg p-3 border border-purple-100"
+                            className="bg-purple-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-purple-100 dark:border-[#5a3d5f]"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
@@ -1199,7 +1199,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     group relative flex flex-col
                     ${isEditMode ? `ring-2 ring-offset-2 ${componentInfo.borderColor.replace('border-', 'ring-')} ring-opacity-50` : ''}
                     ${(draggedItem === item.id || resizingItem === item.id) ? 'opacity-90 shadow-2xl scale-[1.02]' : 'shadow-md'}
-                    rounded-xl overflow-hidden bg-white
+                    rounded-xl overflow-hidden bg-white dark:bg-[#252526]
                     hover:shadow-xl transition-all duration-200
                 `}
             >
@@ -1341,13 +1341,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染多个指标（4列自动排布）
         const renderMetricsGrid = () => {
             if (!dashboardData.hasMetrics || dashboardData.metrics.length === 0) {
-                return <div className="p-4 text-center text-slate-400 text-sm">暂无指标数据</div>;
+                return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无指标数据</div>;
             }
             const metrics = dashboardData.metrics;
             return (
                 <div className="grid grid-cols-4 gap-2 p-2">
                     {metrics.map((metric, idx: number) => (
-                        <div key={idx} className="bg-blue-50 rounded-lg border border-blue-100">
+                        <div key={idx} className="bg-blue-50 dark:bg-[#1a2332] rounded-lg border border-blue-100 dark:border-[#264f78]">
                             <MetricCard
                                 title={metric.title || ''}
                                 value={metric.value || ''}
@@ -1362,7 +1362,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染多个洞察（3列自动排布）- 可点击发起分析
         const renderInsightsGrid = () => {
             if (!dashboardData.hasInsights || dashboardData.insights.length === 0) {
-                return <div className="p-4 text-center text-slate-400 text-sm">暂无洞察数据</div>;
+                return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无洞察数据</div>;
             }
             const insights = dashboardData.insights;
             return (
@@ -1370,7 +1370,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {insights.map((insight, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 rounded-lg p-3 border border-purple-100"
+                            className="bg-purple-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-purple-100 dark:border-[#5a3d5f]"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
@@ -1404,7 +1404,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染图表
         const renderChart = () => {
             if (!dashboardData.hasECharts || parsedEChartsConfigs.length === 0) {
-                return <div className="p-4 text-center text-slate-400 text-sm">暂无图表数据</div>;
+                return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无图表数据</div>;
             }
             
             return (
@@ -1478,12 +1478,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         const showTitleBar = totalTables > 1 || hasBackendTitle;
                         
                         return (
-                            <div key={index} className="border border-slate-200 rounded-lg overflow-hidden">
+                            <div key={index} className="border border-slate-200 dark:border-[#3c3c3c] rounded-lg overflow-hidden">
                                 {/* 表格标题栏 */}
                                 {showTitleBar && (
-                                    <div className="px-3 py-2 text-sm font-medium text-slate-700 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+                                    <div className="px-3 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-slate-50 dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c] flex items-center gap-2">
                                         <span className="flex-1">{renderInlineMarkdown(tableTitle)}</span>
-                                        <span className="text-xs text-slate-400">{tableData.rows.length} {t('rows') || '行'}</span>
+                                        <span className="text-xs text-slate-400 dark:text-[#808080]">{tableData.rows.length} {t('rows') || '行'}</span>
                                     </div>
                                 )}
                                 <DataTable data={tableData.rows} />
@@ -1497,7 +1497,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染文件下载 - 带预览图和下载功能
         const renderFileDownload = () => {
             if (!sessionFiles || sessionFiles.length === 0) {
-                return <div className="p-4 text-center text-slate-400 text-sm">暂无文件</div>;
+                return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无文件</div>;
             }
             
             // 只显示与当前选中消息关联的文件
@@ -1523,12 +1523,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         return (
                             <div 
                                 key={idx} 
-                                className="flex flex-col bg-white rounded-lg border border-slate-200 overflow-hidden hover:border-blue-400 hover:shadow-lg cursor-pointer transition-all group"
+                                className="flex flex-col bg-white dark:bg-[#252526] rounded-lg border border-slate-200 dark:border-[#3c3c3c] overflow-hidden hover:border-blue-400 dark:hover:border-[#007acc] hover:shadow-lg cursor-pointer transition-all group"
                                 onClick={() => handleFileDownload(file)}
                                 title={`点击下载: ${file.name}`}
                             >
                                 {/* 预览区域 */}
-                                <div className="h-32 bg-slate-100 flex items-center justify-center overflow-hidden">
+                                <div className="h-32 bg-slate-100 dark:bg-[#2d2d30] flex items-center justify-center overflow-hidden">
                                     {isLoading ? (
                                         <div className="animate-pulse text-slate-400 text-xs">加载预览...</div>
                                     ) : preview ? (
@@ -1561,15 +1561,15 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 </div>
                                 
                                 {/* 文件信息 */}
-                                <div className="p-2 border-t border-slate-100">
+                                <div className="p-2 border-t border-slate-100 dark:border-[#3c3c3c]">
                                     <div className="flex items-center gap-1.5">
                                         {getFileIcon(file.name, file.type)}
-                                        <span className="text-xs text-slate-700 truncate flex-1" title={file.name}>
+                                        <span className="text-xs text-slate-700 dark:text-[#d4d4d4] truncate flex-1" title={file.name}>
                                             {file.name}
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between mt-1">
-                                        <span className="text-xs text-slate-400">
+                                        <span className="text-xs text-slate-400 dark:text-[#808080]">
                                             {file.size ? `${(file.size / 1024).toFixed(1)} KB` : ''}
                                         </span>
                                         <span className="text-xs text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
@@ -1597,7 +1597,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     const images = dashboardData.images;
                     
                     if (images.length === 0) {
-                        return <div className="p-4 text-center text-slate-400 text-sm">暂无图片</div>;
+                        return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无图片</div>;
                     }
                     
                     // 确保当前索引在有效范围内
@@ -1664,7 +1664,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             <div
                 key={item.id}
                 className={`
-                    flex flex-col rounded-xl overflow-hidden bg-white shadow-md
+                    flex flex-col rounded-xl overflow-hidden bg-white dark:bg-[#252526] shadow-md
                     hover:shadow-lg transition-shadow duration-200
                     w-full
                 `}
@@ -1680,7 +1680,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         {item.type === 'table' && dashboardData.allTableData.length > 1
                             ? `${areaTitle} (${dashboardData.allTableData.filter(t => t.rows && t.rows.length > 0).length})`
                             : item.type === 'table' && dashboardData.allTableData.length === 1 && dashboardData.allTableData[0]?.title
-                                ? dashboardData.allTableData[0].title
+                                ? renderInlineMarkdown(dashboardData.allTableData[0].title)
                                 : areaTitle
                         }
                     </span>
@@ -1720,9 +1720,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     };
 
     return (
-        <div className="relative h-full w-full bg-slate-50 flex flex-col">
+        <div className="relative h-full w-full bg-slate-50 dark:bg-[#1e1e1e] flex flex-col">
             {/* 顶部标题栏 */}
-            <div className="flex-shrink-0 bg-white border-b border-slate-200 pr-6 pl-4 py-3">
+            <div className="flex-shrink-0 bg-white dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c] pr-6 pl-4 py-3">
                 <div className="flex items-center justify-between">
                     {/* 左侧：编辑按钮 + 标题 */}
                     <div className="flex items-center gap-4">
@@ -1737,8 +1737,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             className={`
                                 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm
                                 ${isEditMode 
-                                    ? 'bg-green-50 border border-green-300 text-green-700 hover:bg-green-100' 
-                                    : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300'
+                                    ? 'bg-green-50 border border-green-300 text-green-700 hover:bg-green-100 dark:bg-[#2d3d2d] dark:border-[#3d5a3d] dark:text-[#6a9955] dark:hover:bg-[#3d5a3d]' 
+                                    : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100 hover:border-slate-300 dark:bg-[#2d2d30] dark:border-[#3c3c3c] dark:text-[#808080] dark:hover:bg-[#3c3c3c]'
                                 }
                             `}
                             title={isEditMode ? t('save_layout') : t('edit_layout')}
@@ -1772,12 +1772,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         )}
 
                         {/* 分隔线 */}
-                        <div className="h-6 w-px bg-slate-200"></div>
+                        <div className="h-6 w-px bg-slate-200 dark:bg-[#3c3c3c]"></div>
 
                         {/* 标题和用户请求 */}
                         <div className="flex flex-col">
                             <div className="flex items-center gap-3">
-                                <h1 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
+                                <h1 className="text-lg font-semibold text-slate-700 dark:text-[#d4d4d4] flex items-center gap-2">
                                     <span>📊</span>
                                     {t('smart_analysis_dashboard')}
                                     {isEditMode && (
@@ -1791,7 +1791,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
                             </div>
                             {userRequestText && (
-                                <p className="text-xs text-slate-500 mt-0.5 max-w-md truncate" title={userRequestText}>
+                                <p className="text-xs text-slate-500 dark:text-[#808080] mt-0.5 max-w-md truncate" title={userRequestText}>
                                     {userRequestText}
                                 </p>
                             )}
@@ -1823,26 +1823,26 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
                                 {/* 格式选择下拉菜单 - 仅在报告已生成后显示 */}
                                 {exportDropdownOpen && preparedReportId && (
-                                    <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
-                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 uppercase tracking-wider">{t('select_export_format') || '选择导出格式'}</div>
+                                    <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-[#252526] rounded-xl shadow-xl border border-slate-200 dark:border-[#3c3c3c] py-1.5 z-50">
+                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 dark:text-[#808080] uppercase tracking-wider">{t('select_export_format') || '选择导出格式'}</div>
                                         <button
                                             onClick={() => exportReportAs('word')}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-indigo-500" />
                                             <span className="whitespace-nowrap">{t('export_as_word') || '导出为 Word'}</span>
                                         </button>
                                         <button
                                             onClick={() => exportReportAs('pdf')}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-rose-500" />
                                             <span className="whitespace-nowrap">{t('export_as_pdf') || '导出为 PDF'}</span>
                                         </button>
-                                        <div className="border-t border-slate-100 mt-1 pt-1">
+                                        <div className="border-t border-slate-100 dark:border-[#3c3c3c] mt-1 pt-1">
                                             <button
                                                 onClick={() => { setPreparedReportId(null); setExportDropdownOpen(false); prepareReport(); }}
-                                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50 transition-colors"
+                                                className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-400 dark:text-[#808080] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                             >
                                                 <span className="whitespace-nowrap">{t('regenerate_report') || '重新生成报告'}</span>
                                             </button>
@@ -1857,9 +1857,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
             {/* 编辑模式下的控件库面板 - 只显示有数据的组件类型 */}
             {isEditMode && (
-                <div className="flex-shrink-0 bg-white border-b border-slate-200 pr-6 pl-4 py-3">
+                <div className="flex-shrink-0 bg-white dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c] pr-6 pl-4 py-3">
                     <div className="flex items-center gap-4">
-                        <span className="text-sm font-medium text-slate-600">控件库：</span>
+                        <span className="text-sm font-medium text-slate-600 dark:text-[#808080]">控件库：</span>
                         <div className="flex items-center gap-2 flex-wrap">
                             {/* 关键指标 - 编辑模式下始终显示 */}
                             <button
@@ -2026,7 +2026,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             >
                 {getDisplayLayout().length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-slate-400">
+                        <div className="text-center text-slate-400 dark:text-[#808080]">
                             <p className="text-lg">{t('no_data_available')}</p>
                             <p className="text-sm mt-2">{t('start_analysis_to_see_results')}</p>
                         </div>
@@ -2074,19 +2074,19 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             {/* 报告生成进度遮罩 */}
             {isGeneratingReport && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-5 min-w-[320px]">
+                    <div className="bg-white dark:bg-[#252526] rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-5 min-w-[320px]">
                         {/* 旋转动画 */}
                         <div className="relative w-16 h-16">
-                            <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
+                            <div className="absolute inset-0 rounded-full border-4 border-slate-200 dark:border-[#3c3c3c]"></div>
                             <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin"></div>
                             <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-purple-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
                         </div>
                         {/* 进度条 */}
-                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div className="w-full bg-slate-100 dark:bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-full animate-pulse" style={{ width: '100%', animation: 'reportProgress 2s ease-in-out infinite' }}></div>
                         </div>
-                        <p className="text-sm font-medium text-slate-700">{t('generate_report_processing') || '正在生成报告，请稍候...'}</p>
-                        <p className="text-xs text-slate-400">{t('generate_report_llm_hint') || 'AI 正在分析数据并撰写报告'}</p>
+                        <p className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{t('generate_report_processing') || '正在生成报告，请稍候...'}</p>
+                        <p className="text-xs text-slate-400 dark:text-[#808080]">{t('generate_report_llm_hint') || 'AI 正在分析数据并撰写报告'}</p>
                         <style>{`
                             @keyframes reportProgress {
                                 0% { transform: translateX(-100%); }

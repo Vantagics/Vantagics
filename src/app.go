@@ -531,8 +531,13 @@ func (a *App) startup(ctx context.Context) {
 			}
 
 			// Start credits usage reporting if applicable
-			if a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" {
-				if a.licenseClient.ShouldReportOnStartup() {
+			isCreditsMode := a.licenseClient.IsCreditsMode()
+			trustLevel := a.licenseClient.GetTrustLevel()
+			a.Log(fmt.Sprintf("[STARTUP] Credits reporting check: credits_mode=%v, trust_level=%s", isCreditsMode, trustLevel))
+			if isCreditsMode && trustLevel == "low" {
+				shouldReport := a.licenseClient.ShouldReportOnStartup()
+				a.Log(fmt.Sprintf("[STARTUP] ShouldReportOnStartup=%v", shouldReport))
+				if shouldReport {
 					a.Log("[STARTUP] Reporting credits usage on startup (overdue)")
 					go a.licenseClient.ReportUsage()
 				}

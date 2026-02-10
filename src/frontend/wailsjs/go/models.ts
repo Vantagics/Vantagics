@@ -1673,6 +1673,7 @@ export namespace main {
 	    threadId: string;
 	    dataSourceName: string;
 	    sessionName: string;
+	    chartImages: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ComprehensiveReportRequest(source);
@@ -1683,6 +1684,7 @@ export namespace main {
 	        this.threadId = source["threadId"];
 	        this.dataSourceName = source["dataSourceName"];
 	        this.sessionName = source["sessionName"];
+	        this.chartImages = source["chartImages"];
 	    }
 	}
 	export class ComprehensiveReportResult {

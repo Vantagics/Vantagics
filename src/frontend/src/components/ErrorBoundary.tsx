@@ -26,10 +26,10 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     render() {
         if (this.state.hasError) {
             return (
-                <div className="flex h-screen w-screen bg-slate-50 items-center justify-center flex-col gap-6">
+                <div className="flex h-screen w-screen bg-slate-50 dark:bg-[#1e1e1e] items-center justify-center flex-col gap-6">
                     <div className="text-center max-w-md px-6">
                         <h2 className="text-xl font-semibold text-red-600 mb-2">应用程序错误</h2>
-                        <p className="text-sm text-slate-600 mb-4">
+                        <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mb-4">
                             应用程序遇到了一个错误。请刷新页面重试。
                         </p>
                         {this.state.error && (

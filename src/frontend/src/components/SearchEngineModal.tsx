@@ -115,9 +115,9 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[500px] rounded-xl shadow-2xl overflow-hidden text-slate-900">
+            <div className="bg-white dark:bg-[#252526] w-[500px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-slate-200">
+                <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-[#3c3c3c]">
                     <h2 className="text-xl font-semibold text-slate-800">
                         {engine ? t('edit_search_engine') : t('add_custom_engine')}
                     </h2>
@@ -214,7 +214,7 @@ const SearchEngineModal: React.FC<SearchEngineModalProps> = ({ isOpen, engine, o
                 </div>
 
                 {/* Footer */}
-                <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e]">
                     <button
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"

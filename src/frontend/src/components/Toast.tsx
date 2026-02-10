@@ -39,13 +39,13 @@ const Toast: React.FC<ToastProps> = ({ message, type = 'info', duration = 3000, 
     const getStyles = () => {
         switch (type) {
             case 'success':
-                return 'bg-green-50 border-green-200 text-green-800';
+                return 'bg-green-50 dark:bg-[#1e2a1e] border-green-200 dark:border-[#3d5a3d] text-green-800 dark:text-[#6a9955]';
             case 'warning':
-                return 'bg-amber-50 border-amber-200 text-amber-800';
+                return 'bg-amber-50 dark:bg-[#2a2620] border-amber-200 dark:border-[#5a5040] text-amber-800 dark:text-[#dcdcaa]';
             case 'error':
-                return 'bg-red-50 border-red-200 text-red-800';
+                return 'bg-red-50 dark:bg-[#2e1e1e] border-red-200 dark:border-[#5a3d3d] text-red-800 dark:text-[#f14c4c]';
             default:
-                return 'bg-blue-50 border-blue-200 text-blue-800';
+                return 'bg-blue-50 dark:bg-[#1a2332] border-blue-200 dark:border-[#264f78] text-blue-800 dark:text-[#569cd6]';
         }
     };
 

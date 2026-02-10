@@ -25,10 +25,10 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
 
     return (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
-                    <h2 className="text-lg font-bold text-slate-800">{t('properties')}</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-700">
+            <div className="bg-white dark:bg-[#252526] w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
+                <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-center bg-slate-50 dark:bg-[#2d2d30]">
+                    <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">{t('properties')}</h2>
+                    <button onClick={onClose} className="text-slate-500 dark:text-[#808080] hover:text-slate-700 dark:hover:text-[#d4d4d4]">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -51,12 +51,12 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
 
                     {localDataSource.analysis?.summary && (
                         <>
-                            <div className="border-t border-slate-100 my-4"></div>
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="border-t border-slate-100 dark:border-[#3c3c3c] my-4"></div>
+                            <div className="bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] rounded-lg p-4">
                                 <div className="flex items-start gap-2">
-                                    <div className="text-sm font-bold text-blue-900 mb-2">{t('data_summary')}</div>
+                                    <div className="text-sm font-bold text-blue-900 dark:text-[#569cd6] mb-2">{t('data_summary')}</div>
                                 </div>
-                                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                <div className="text-sm text-slate-700 dark:text-[#d4d4d4] leading-relaxed whitespace-pre-wrap">
                                     {localDataSource.analysis.summary}
                                 </div>
                             </div>
@@ -65,18 +65,18 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
 
                     {localDataSource.analysis?.schema && localDataSource.analysis.schema.length > 0 && (
                         <>
-                            <div className="border-t border-slate-100 my-4"></div>
-                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
-                                <div className="text-sm font-bold text-slate-900 mb-3">{t('table_schema')}</div>
+                            <div className="border-t border-slate-100 dark:border-[#3c3c3c] my-4"></div>
+                            <div className="bg-slate-50 dark:bg-[#1e1e1e] border border-slate-200 dark:border-[#3c3c3c] rounded-lg p-4">
+                                <div className="text-sm font-bold text-slate-900 dark:text-[#d4d4d4] mb-3">{t('table_schema')}</div>
                                 <div className="space-y-3 max-h-60 overflow-y-auto">
                                     {localDataSource.analysis.schema.map((table, tableIdx) => (
-                                        <div key={tableIdx} className="bg-white border border-slate-200 rounded-md p-3">
-                                            <div className="text-xs font-bold text-slate-700 mb-2">{table.table_name}</div>
+                                        <div key={tableIdx} className="bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-md p-3">
+                                            <div className="text-xs font-bold text-slate-700 dark:text-[#d4d4d4] mb-2">{table.table_name}</div>
                                             <div className="flex flex-wrap gap-1.5">
                                                 {table.columns && table.columns.map((col, colIdx) => (
                                                     <span
                                                         key={colIdx}
-                                                        className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded border border-slate-200"
+                                                        className="text-xs px-2 py-1 bg-slate-100 dark:bg-[#3c3c3c] text-slate-600 dark:text-[#d4d4d4] rounded border border-slate-200 dark:border-[#4d4d4d]"
                                                     >
                                                         {col}
                                                     </span>
@@ -148,10 +148,10 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
                     )}
                 </div>
 
-                <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-md shadow-sm"
+                        className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-white dark:bg-[#3c3c3c] border border-slate-300 dark:border-[#4d4d4d] hover:bg-slate-50 dark:hover:bg-[#4d4d4d] rounded-md shadow-sm"
                     >
                         {t('close')}
                     </button>

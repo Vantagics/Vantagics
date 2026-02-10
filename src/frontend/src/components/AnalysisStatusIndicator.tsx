@@ -116,7 +116,7 @@ const ProgressBar: React.FC<{ progress: number; className?: string }> = ({
     const clampedProgress = Math.max(0, Math.min(100, progress));
     
     return (
-        <div className={`w-full bg-slate-200 rounded-full h-1.5 overflow-hidden ${className}`}>
+        <div className={`w-full bg-slate-200 dark:bg-[#3c3c3c] rounded-full h-1.5 overflow-hidden ${className}`}>
             <div 
                 className="bg-blue-600 h-full rounded-full transition-all duration-300 ease-out"
                 style={{ width: `${clampedProgress}%` }}
@@ -152,7 +152,7 @@ const CompactIndicator: React.FC<{
     <div className={`inline-flex items-center gap-2 ${className}`}>
         <Spinner size="sm" label={t('loading')} />
         {showMessage && message && (
-            <span className="text-sm text-slate-600 truncate max-w-[200px]">
+            <span className="text-sm text-slate-600 dark:text-[#9d9d9d] truncate max-w-[200px]">
                 {message}
             </span>
         )}
@@ -173,17 +173,17 @@ const CancelConfirmDialog: React.FC<{
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-xl shadow-2xl p-6 w-[380px] transform transition-all animate-in zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl p-6 w-[380px] transform transition-all animate-in zoom-in-95 duration-200">
                 <div className="flex items-start gap-4 mb-4">
-                    <div className="bg-amber-100 p-2 rounded-full">
-                        <AlertTriangle className="w-6 h-6 text-amber-600" />
+                    <div className="bg-amber-100 dark:bg-[#3d3830] p-2 rounded-full">
+                        <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-[#dcdcaa]" />
                     </div>
                     <div className="flex-1">
-                        <h3 className="text-lg font-bold text-slate-900 mb-1">{t('cancel_analysis_dialog_title')}</h3>
-                        <p className="text-sm text-slate-600">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-[#d4d4d4] mb-1">{t('cancel_analysis_dialog_title')}</h3>
+                        <p className="text-sm text-slate-600 dark:text-[#9d9d9d]">
                             {t('cancel_analysis_dialog_message')}
                         </p>
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-slate-400 dark:text-[#808080] mt-2">
                             {t('cancel_analysis_dialog_note')}
                         </p>
                     </div>
@@ -192,7 +192,7 @@ const CancelConfirmDialog: React.FC<{
                 <div className="flex justify-end gap-3 mt-6">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                        className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-lg transition-colors"
                     >
                         {t('continue_analysis')}
                     </button>
@@ -273,7 +273,7 @@ const FullIndicator: React.FC<{
                 </div>
                 
                 {/* 状态内容区域 */}
-                <div className="flex-1 flex flex-col gap-2 p-3 bg-white border border-slate-100 rounded-2xl rounded-tl-none shadow-sm">
+                <div className="flex-1 flex flex-col gap-2 p-3 bg-white dark:bg-[#252526] border border-slate-100 dark:border-[#3c3c3c] rounded-2xl rounded-tl-none shadow-sm">
                     {/* 顶部：阶段 + 已用时间 + 取消按钮 */}
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -290,13 +290,13 @@ const FullIndicator: React.FC<{
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-500">
+                            <span className="text-xs text-slate-500 dark:text-[#808080]">
                                 {formatElapsedTime(elapsedTime, t)}
                             </span>
                             {showCancelButton && onCancel && (
                                 <button
                                     onClick={handleCancelClick}
-                                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 dark:text-[#808080] hover:text-red-600 dark:hover:text-[#f14c4c] hover:bg-red-50 dark:hover:bg-[#2e1e1e] rounded-md transition-colors"
                                     title={t('cancel')}
                                 >
                                     <XCircle className="w-3.5 h-3.5" />
@@ -313,7 +313,7 @@ const FullIndicator: React.FC<{
                     
                     {/* 消息 */}
                     {showMessage && resolvedMessage && (
-                        <p className="text-sm text-slate-600">
+                        <p className="text-sm text-slate-600 dark:text-[#9d9d9d]">
                             {resolvedMessage}
                         </p>
                     )}

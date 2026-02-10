@@ -106,7 +106,7 @@ const ChartModal: React.FC<ChartModalProps> = ({ isOpen, options, onClose }) => 
 
             {/* Chart Container */}
             <div 
-                className="relative z-[205] w-[95vw] h-[90vh] bg-white rounded-xl p-8 shadow-2xl overflow-hidden"
+                className="relative z-[205] w-[95vw] h-[90vh] bg-white dark:bg-[#252526] rounded-xl p-8 shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
             >
                 <ReactECharts

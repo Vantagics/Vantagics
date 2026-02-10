@@ -3,6 +3,7 @@ import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings,
 import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
+import * as echarts from 'echarts';
 import MessageBubble from './MessageBubble';
 import { useLanguage } from '../i18n';
 import { getDataSourceIcon } from './DataSourcesSection';
@@ -84,6 +85,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [preparedComprehensiveReportId, setPreparedComprehensiveReportId] = useState<string | null>(null);
     const [comprehensiveReportExportDropdownOpen, setComprehensiveReportExportDropdownOpen] = useState(false);
     const [comprehensiveReportCached, setComprehensiveReportCached] = useState(false);
+    const [comprehensiveReportError, setComprehensiveReportError] = useState<string | null>(null);
+
+    // Broadcast comprehensive report generation state to other components (e.g. Sidebar context menu)
+    useEffect(() => {
+        EventsEmit('comprehensive-report-status', { generating: isGeneratingComprehensiveReport });
+    }, [isGeneratingComprehensiveReport]);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const blankMenuRef = useRef<HTMLDivElement>(null);
@@ -780,6 +787,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setIsSearching(searching);
         });
 
+        // Listen for comprehensive report generation request from Sidebar context menu
+        const unsubscribeComprehensiveReport = EventsOn('generate-comprehensive-report', (data: any) => {
+            console.log('[ChatSidebar] Generate comprehensive report event received:', data);
+            const { threadId } = data;
+            if (threadId) {
+                handleGenerateComprehensiveReport(threadId);
+            }
+        });
+
         return () => {
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeSwitchToSession) unsubscribeSwitchToSession();
@@ -794,6 +810,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeStreamChunk) unsubscribeStreamChunk();
             if (unsubscribeStreamEnd) unsubscribeStreamEnd();
             if (unsubscribeSearchStatus) unsubscribeSearchStatus();
+            if (unsubscribeComprehensiveReport) unsubscribeComprehensiveReport();
         };
     }, [threads]);
 
@@ -1236,22 +1253,235 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         const dataSourceName = dataSource?.name || 'Unknown';
         const sessionName = targetThread.title || 'Session';
 
-        // Show progress dialog
+        // Close any existing dropdown first
+        setComprehensiveReportExportDropdownOpen(false);
+        setComprehensiveReportError(null);
+        
+        // Show progress indicator
         setIsGeneratingComprehensiveReport(true);
         setPreparedComprehensiveReportId(null);
         setComprehensiveReportCached(false);
 
+        console.log("[COMPREHENSIVE-REPORT] Starting report generation:", {
+            threadId: targetThreadId,
+            dataSourceName: dataSourceName,
+            sessionName: sessionName
+        });
+
+        // Shared offscreen container for ECharts rendering (declared outside try for cleanup in catch)
+        let offscreenContainer: HTMLDivElement | null = null;
+
         try {
+            // Collect ECharts images from all analysis results in this thread
+            const chartImages: string[] = [];
+            const collectedImageHashes = new Set<string>(); // deduplicate by first 200 chars
+            
+            const addChartImage = (dataURL: string) => {
+                if (!dataURL || dataURL.length < 500) return; // skip trivially small images
+                const hash = dataURL.substring(0, 200);
+                if (collectedImageHashes.has(hash)) return;
+                collectedImageHashes.add(hash);
+                chartImages.push(dataURL);
+            };
+            
+            // Create a single offscreen container for all ECharts rendering.
+            // Reusing one container avoids repeated DOM add/remove cycles that cause UI flashing.
+            offscreenContainer = document.createElement('div');
+            offscreenContainer.style.cssText = 'width:800px;height:500px;position:fixed;left:-9999px;top:-9999px;z-index:-9999;pointer-events:none;overflow:hidden;';
+            document.body.appendChild(offscreenContainer);
+            
+            // Helper: render ECharts options to a base64 PNG image (reuses offscreenContainer)
+            const renderEChartsToImage = (options: any): Promise<string | null> => {
+                return new Promise((resolve) => {
+                    let chart: any = null;
+                    let resolved = false;
+                    let timeoutId: any = null;
+                    
+                    const cleanup = () => {
+                        if (timeoutId) clearTimeout(timeoutId);
+                        try { if (chart) chart.dispose(); } catch (_) {}
+                    };
+                    
+                    const captureImage = () => {
+                        if (resolved) return;
+                        resolved = true;
+                        try {
+                            const dataURL = chart.getDataURL({
+                                type: 'png',
+                                pixelRatio: 3,
+                                backgroundColor: '#fff'
+                            });
+                            cleanup();
+                            resolve(dataURL && dataURL.length > 500 ? dataURL : null);
+                        } catch (e) {
+                            console.warn("[COMPREHENSIVE-REPORT] getDataURL failed:", e);
+                            cleanup();
+                            resolve(null);
+                        }
+                    };
+                    
+                    try {
+                        chart = echarts.init(offscreenContainer, null, { width: 800, height: 500 });
+                        
+                        // Listen for 'finished' event before setOption, in case it fires synchronously
+                        chart.on('finished', () => {
+                            if (timeoutId) clearTimeout(timeoutId);
+                            // Small delay after 'finished' to ensure canvas is fully painted
+                            setTimeout(captureImage, 50);
+                        });
+                        
+                        // Disable animation for instant rendering
+                        const renderOptions = { ...options, animation: false };
+                        chart.setOption(renderOptions);
+                        
+                        // Fallback: if 'finished' doesn't fire within 2s, capture anyway
+                        timeoutId = setTimeout(() => {
+                            console.warn("[COMPREHENSIVE-REPORT] ECharts 'finished' event timeout, capturing anyway");
+                            captureImage();
+                        }, 2000);
+                    } catch (e) {
+                        console.warn("[COMPREHENSIVE-REPORT] ECharts init/setOption failed:", e);
+                        cleanup();
+                        if (!resolved) { resolved = true; resolve(null); }
+                    }
+                });
+            };
+            
+            // Helper: parse ECharts options from raw data (string or object)
+            const parseEChartsOptions = (rawData: any): any | null => {
+                if (!rawData) return null;
+                if (typeof rawData === 'object' && rawData !== null) {
+                    // Already an object (Wails may auto-deserialize JSON)
+                    return rawData;
+                }
+                if (typeof rawData === 'string') {
+                    // Try direct JSON parse first
+                    try { return JSON.parse(rawData); } catch (_) {}
+                    // Try cleaning JS function expressions that break JSON parsing
+                    try {
+                        const cleaned = rawData
+                            .replace(/:\s*function\s*\([^)]*\)\s*\{[^}]*\}/g, ': null')
+                            .replace(/:\s*\([^)]*\)\s*=>\s*\{[^}]*\}/g, ': null')
+                            .replace(/:\s*\([^)]*\)\s*=>\s*[^,}\]]+/g, ': null');
+                        return JSON.parse(cleaned);
+                    } catch (_) {}
+                }
+                return null;
+            };
+            
+            // First, collect from currently rendered ECharts in the DOM
+            const echartsComponents = document.querySelectorAll('.echarts-for-react');
+            console.log(`[COMPREHENSIVE-REPORT] Found ${echartsComponents.length} DOM ECharts components`);
+            for (let i = 0; i < echartsComponents.length; i++) {
+                try {
+                    const component = echartsComponents[i] as any;
+                    if (component?.getEchartsInstance) {
+                        const instance = component.getEchartsInstance();
+                        if (instance) {
+                            const dataURL = instance.getDataURL({
+                                type: 'png',
+                                pixelRatio: 4,
+                                backgroundColor: '#fff'
+                            });
+                            addChartImage(dataURL);
+                        }
+                    }
+                } catch (e) { /* skip */ }
+            }
+            
+            // Canvas fallback for currently rendered charts
+            if (chartImages.length === 0) {
+                const canvasElements = document.querySelectorAll('canvas');
+                for (let i = 0; i < canvasElements.length; i++) {
+                    const canvas = canvasElements[i];
+                    const parent = canvas.parentElement;
+                    if (parent && (parent.classList.contains('echarts-for-react') || canvas.width > 200)) {
+                        try { addChartImage(canvas.toDataURL('image/png')); } catch (e) { /* skip */ }
+                    }
+                }
+            }
+            
+            const domChartCount = chartImages.length;
+            console.log(`[COMPREHENSIVE-REPORT] Collected ${domChartCount} charts from DOM`);
+            
+            // Then, load analysis data for ALL user messages and render ECharts offscreen
+            if (targetThread.messages) {
+                for (const msg of targetThread.messages) {
+                    if (msg.role !== 'user') continue;
+                    try {
+                        const analysisData = await GetMessageAnalysisData(targetThreadId, msg.id);
+                        const items = analysisData?.analysisResults;
+                        if (!Array.isArray(items) || items.length === 0) continue;
+                        
+                        console.log(`[COMPREHENSIVE-REPORT] Message ${msg.id}: ${items.length} items, types: ${items.map((i: any) => i.type).join(',')}`);
+                        
+                        for (const item of items) {
+                            if (item.type === 'echarts' && item.data) {
+                                const options = parseEChartsOptions(item.data);
+                                if (!options || typeof options !== 'object') {
+                                    console.warn(`[COMPREHENSIVE-REPORT] Could not parse ECharts options for item ${item.id}`);
+                                    continue;
+                                }
+                                
+                                try {
+                                    const dataURL = await renderEChartsToImage(options);
+                                    if (dataURL) {
+                                        addChartImage(dataURL);
+                                        console.log(`[COMPREHENSIVE-REPORT] Rendered ECharts image for ${item.id}: ${dataURL.length} chars`);
+                                    } else {
+                                        console.warn(`[COMPREHENSIVE-REPORT] ECharts rendered empty/null for ${item.id}`);
+                                    }
+                                } catch (e) {
+                                    console.warn(`[COMPREHENSIVE-REPORT] Failed to render ECharts ${item.id}:`, e);
+                                }
+                            } else if (item.type === 'image' && typeof item.data === 'string' && item.data.startsWith('data:image')) {
+                                addChartImage(item.data);
+                            }
+                        }
+                    } catch (e) {
+                        console.log(`[COMPREHENSIVE-REPORT] No analysis data for message ${msg.id}`);
+                    }
+                }
+            }
+            
+            console.log(`[COMPREHENSIVE-REPORT] Total: ${chartImages.length} chart images (${domChartCount} from DOM, ${chartImages.length - domChartCount} from offscreen rendering)`);
+
+            // Clean up the shared offscreen container now that all charts are rendered
+            try { document.body.removeChild(offscreenContainer); } catch (_) {}
+
             const result = await PrepareComprehensiveReport({
                 threadId: targetThreadId,
                 dataSourceName: dataSourceName,
-                sessionName: sessionName
+                sessionName: sessionName,
+                chartImages: chartImages
             });
             
-            setIsGeneratingComprehensiveReport(false);
+            console.log("[COMPREHENSIVE-REPORT] PrepareComprehensiveReport result:", JSON.stringify(result));
+            
+            if (!result || !result.reportId) {
+                console.error("[COMPREHENSIVE-REPORT] Invalid result: missing reportId", result);
+                setIsGeneratingComprehensiveReport(false);
+                const errMsg = '返回结果无效 (reportId is empty)';
+                setComprehensiveReportError(errMsg);
+                setToast({
+                    message: (t('comprehensive_report_failed') || '综合报告生成失败：') + errMsg,
+                    type: 'error'
+                });
+                return;
+            }
+            
+            // Set report ID and cached state, stop progress
             setPreparedComprehensiveReportId(result.reportId);
             setComprehensiveReportCached(result.cached);
-            setComprehensiveReportExportDropdownOpen(true);
+            setIsGeneratingComprehensiveReport(false);
+            
+            // Use a longer delay to ensure React has rendered the button before opening dropdown
+            // This prevents the dropdown from being immediately closed by stale click events
+            setTimeout(() => {
+                dropdownJustOpenedRef.current = true;
+                setComprehensiveReportExportDropdownOpen(true);
+                setTimeout(() => { dropdownJustOpenedRef.current = false; }, 300);
+            }, 250);
             
             if (result.cached) {
                 setToast({
@@ -1265,10 +1495,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 });
             }
         } catch (e) {
+            // Ensure offscreen container is cleaned up on error
+            try { if (offscreenContainer?.parentNode) offscreenContainer.parentNode.removeChild(offscreenContainer); } catch (_) {}
             setIsGeneratingComprehensiveReport(false);
-            console.error("Prepare comprehensive report failed:", e);
+            const errMsg = String(e);
+            setComprehensiveReportError(errMsg);
+            console.error("[COMPREHENSIVE-REPORT] Prepare comprehensive report failed:", e);
             setToast({
-                message: (t('comprehensive_report_failed') || '综合报告生成失败：') + String(e),
+                message: (t('comprehensive_report_failed') || '综合报告生成失败：') + errMsg,
                 type: 'error'
             });
         }
@@ -1293,19 +1527,22 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     };
 
     // Close comprehensive report dropdown when clicking outside
+    const dropdownJustOpenedRef = useRef(false);
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (comprehensiveReportExportDropdownOpen) {
+        if (comprehensiveReportExportDropdownOpen) {
+            const handleClickOutside = (event: MouseEvent) => {
+                if (dropdownJustOpenedRef.current) return;
                 const target = event.target as HTMLElement;
                 if (!target.closest('.comprehensive-report-dropdown-container')) {
                     setComprehensiveReportExportDropdownOpen(false);
                 }
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+            };
+            // Use mouseup (not mousedown) to avoid catching the originating click
+            document.addEventListener('mouseup', handleClickOutside);
+            return () => {
+                document.removeEventListener('mouseup', handleClickOutside);
+            };
+        }
     }, [comprehensiveReportExportDropdownOpen]);
 
     /**
@@ -2631,7 +2868,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             <div
                 data-testid="chat-sidebar"
                 style={{ width: '100%' }}
-                className={`relative h-full bg-white flex overflow-hidden`}
+                className={`relative h-full bg-white dark:bg-[#1e1e1e] flex overflow-hidden`}
             >
                 {/* Thread List Sidebar - hidden, sessions managed in left Sidebar */}
                 <div
@@ -2641,15 +2878,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     {/* Collapse button on the left edge of history panel */}
                     <button
                         onClick={onClose}
-                        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-50 bg-white border border-slate-200 rounded-full p-1.5 shadow-lg hover:bg-slate-50 text-slate-400 hover:text-blue-500 transition-all hover:scale-110"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 z-50 bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-full p-1.5 shadow-lg hover:bg-slate-50 dark:hover:bg-[#2d2d30] text-slate-400 dark:text-[#808080] hover:text-blue-500 dark:hover:text-[#569cd6] transition-all hover:scale-110"
                         title={t('collapse_chat')}
                     >
                         <ChevronLeft className="w-4 h-4" />
                     </button>
 
-                    <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-white/50 backdrop-blur-sm sticky top-0 z-10"
+                    <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex items-center justify-between bg-white/50 dark:bg-[#252526]/50 backdrop-blur-sm sticky top-0 z-10"
                     >
-                        <span className="font-bold text-slate-900 text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
+                        <span className="font-bold text-slate-900 dark:text-[#d4d4d4] text-[11px] uppercase tracking-[0.1em]">{t('history')}</span>
                         <div className="w-4" />
                     </div>
 
@@ -2665,8 +2902,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     onClick={() => handleThreadSwitch(thread.id)}
                                     onContextMenu={(e) => handleContextMenu(e, thread.id)}
                                     className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs transition-all border ${activeThreadId === thread.id
-                                        ? 'bg-white border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100'
-                                        : 'text-slate-600 hover:bg-white hover:border-slate-200 border-transparent'
+                                        ? 'bg-white dark:bg-[#264f78] border-blue-200 dark:border-[#264f78] text-blue-700 dark:text-[#569cd6] shadow-sm ring-1 ring-blue-100 dark:ring-[#264f78]'
+                                        : 'text-slate-600 dark:text-[#d4d4d4] hover:bg-white dark:hover:bg-[#2d2d30] hover:border-slate-200 dark:hover:border-[#3c3c3c] border-transparent'
                                         }`}
                                 >
                                     <div className="flex items-center gap-2.5 truncate pr-1">
@@ -2687,7 +2924,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     </div>
                                     <button
                                         onClick={(e) => handleDeleteThread(thread.id, e)}
-                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all rounded-lg hover:bg-red-50 text-slate-400"
+                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:text-red-500 transition-all rounded-lg hover:bg-red-50 dark:hover:bg-[#2e1e1e] text-slate-400 dark:text-[#808080]"
                                     >
                                         <Trash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -2696,18 +2933,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         })}
                         {(!threads || threads.length === 0) && (
                             <div className="text-center py-12 px-4">
-                                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                                    <MessageSquare className="w-5 h-5 text-slate-300" />
+                                <div className="w-10 h-10 bg-slate-100 dark:bg-[#252526] rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <MessageSquare className="w-5 h-5 text-slate-300 dark:text-[#808080]" />
                                 </div>
-                                <p className="text-[10px] text-slate-400 font-medium">{t('no_threads_yet')}</p>
+                                <p className="text-[10px] text-slate-400 dark:text-[#808080] font-medium">{t('no_threads_yet')}</p>
                             </div>
                         )}
                     </div>
 
-                    <div className="p-3 border-t border-slate-200 bg-white/50">
+                    <div className="p-3 border-t border-slate-200 dark:border-[#3c3c3c] bg-white/50 dark:bg-[#252526]/50">
                         <button
                             onClick={handleClearHistory}
-                            className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] font-bold text-slate-500 hover:text-red-600 transition-colors rounded-xl hover:bg-red-50"
+                            className="w-full flex items-center justify-center gap-2 py-2.5 text-[10px] font-bold text-slate-500 dark:text-[#808080] hover:text-red-600 dark:hover:text-[#f14c4c] transition-colors rounded-xl hover:bg-red-50 dark:hover:bg-[#2e1e1e]"
                         >
                             <Trash2 className="w-3.5 h-3.5" />
                             {t('clear_history')}
@@ -2722,117 +2959,153 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 {/* Main Chat Area */}
-                <div className="flex-1 flex flex-col min-w-0 bg-white relative">
+                <div className="flex-1 flex flex-col min-w-0 bg-white dark:bg-[#1e1e1e] relative">
 
-                    <div className="px-4 pt-3 pb-2 border-b border-slate-100 bg-white/80 backdrop-blur-md z-10 relative">
+                    <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-[#2d2d30] bg-white/80 dark:bg-[#1e1e1e]/80 backdrop-blur-md z-10 relative">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200 flex-shrink-0">
+                            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200/50 dark:shadow-blue-900/30 flex-shrink-0">
                                 <MessageSquare className="w-5 h-5 text-white" />
                             </div>
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-slate-900 text-sm tracking-tight">{t('ai_assistant')}</h3>
+                            <div className="flex items-center gap-2 min-w-0">
+                                <h3 className="font-bold text-slate-900 dark:text-[#d4d4d4] text-sm tracking-tight flex-shrink-0">{activeThread && !activeThread.data_source_id ? t('free_chat') : t('ai_assistant')}</h3>
                                 <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
+                                {activeThread && activeThread.data_source_id && (
+                                    <span className="text-xs text-slate-500 dark:text-[#808080] font-medium truncate border border-slate-200 dark:border-[#3c3c3c] rounded-md px-2 py-0.5 bg-slate-50 dark:bg-[#252526]">
+                                        {activeThread.title}
+                                    </span>
+                                )}
                             </div>
+                            {/* Inline Comprehensive Report Progress / Export Button */}
+                            {activeDataSource && activeThread && activeThread.data_source_id && (
+                                <div className="ml-auto flex items-center gap-2 comprehensive-report-dropdown-container">
+                                    {isGeneratingComprehensiveReport ? (
+                                        /* Inline progress indicator */
+                                        <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 dark:bg-[#1e1e2e] border border-indigo-200 dark:border-[#3d3d5a] rounded-lg">
+                                            <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[10px] font-medium text-indigo-600">{t('comprehensive_report_generating') || '正在生成综合报告...'}</span>
+                                                <div className="w-28 bg-indigo-100 rounded-full h-1 overflow-hidden">
+                                                    <div className="h-full bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 rounded-full" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
+                                                </div>
+                                            </div>
+                                            <style>{`
+                                                @keyframes comprehensiveReportProgress {
+                                                    0% { transform: translateX(-100%); }
+                                                    50% { transform: translateX(0%); }
+                                                    100% { transform: translateX(100%); }
+                                                }
+                                            `}</style>
+                                        </div>
+                                    ) : (
+                                        /* Report button / Export dropdown */
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => {
+                                                    if (preparedComprehensiveReportId) {
+                                                        setComprehensiveReportExportDropdownOpen(!comprehensiveReportExportDropdownOpen);
+                                                    } else {
+                                                        setComprehensiveReportError(null);
+                                                        handleGenerateComprehensiveReport();
+                                                    }
+                                                }}
+                                                className={`text-[10px] px-2.5 py-1 rounded-lg font-medium flex items-center gap-1.5 transition-all ${
+                                                    preparedComprehensiveReportId
+                                                        ? 'bg-green-50 border border-green-200 text-green-600 hover:bg-green-100'
+                                                        : comprehensiveReportError
+                                                            ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100'
+                                                            : 'bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100'
+                                                }`}
+                                                title={preparedComprehensiveReportId 
+                                                    ? (t('comprehensive_report_ready_title') || '报告已就绪，选择导出格式')
+                                                    : comprehensiveReportError
+                                                        ? `${t('comprehensive_report_failed') || '生成失败'}：${comprehensiveReportError}`
+                                                        : t('comprehensive_report_button_title')}
+                                            >
+                                                <FileText className="w-3 h-3" />
+                                                {preparedComprehensiveReportId 
+                                                    ? (t('export_comprehensive_report') || '导出报告')
+                                                    : comprehensiveReportError
+                                                        ? (t('comprehensive_report_retry') || '重试生成报告')
+                                                        : t('comprehensive_report')}
+                                            </button>
+                                            
+                                            {/* Export Format Dropdown */}
+                                            {comprehensiveReportExportDropdownOpen && preparedComprehensiveReportId && (
+                                                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-[#252526] rounded-lg shadow-xl border border-slate-200 dark:border-[#3c3c3c] py-1 z-50">
+                                                    <div className="px-3 py-1 text-[9px] font-medium text-slate-400 dark:text-[#808080] uppercase tracking-wider">
+                                                        {t('select_export_format') || '选择导出格式'}
+                                                    </div>
+                                                    {comprehensiveReportCached && (
+                                                        <div className="px-3 py-1 text-[9px] text-green-600 dark:text-[#6a9955] bg-green-50 dark:bg-[#1e2a1e] border-b border-slate-100 dark:border-[#3c3c3c]">
+                                                            {t('comprehensive_report_using_cache') || '使用缓存报告'}
+                                                        </div>
+                                                    )}
+                                                    <button
+                                                        onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('word'); }}
+                                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
+                                                    >
+                                                        <FileChartColumn size={12} className="flex-shrink-0 text-indigo-500" />
+                                                        <span>{t('export_as_word') || '导出为 Word'}</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('pdf'); }}
+                                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
+                                                    >
+                                                        <FileChartColumn size={12} className="flex-shrink-0 text-rose-500" />
+                                                        <span>{t('export_as_pdf') || '导出为 PDF'}</span>
+                                                    </button>
+                                                    <div className="border-t border-slate-100 dark:border-[#3c3c3c] mt-1 pt-1">
+                                                        <button
+                                                            onClick={() => { 
+                                                                setPreparedComprehensiveReportId(null); 
+                                                                setComprehensiveReportExportDropdownOpen(false); 
+                                                                handleGenerateComprehensiveReport(); 
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-400 dark:text-[#808080] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
+                                                        >
+                                                            <span>{t('regenerate_comprehensive_report') || '重新生成报告'}</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         {activeDataSource ? (
-                            <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                            <div className="rounded-lg border border-slate-200 dark:border-[#3c3c3c] bg-slate-50/80 dark:bg-[#252526] px-3 py-2.5">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                                    <span
+                                        className="text-[11px] font-semibold text-blue-600 dark:text-[#569cd6]"
                                         title={activeDataSource.name}
-                                        onClick={() => EventsEmit('open-data-browser', { sourceId: activeDataSource.id, sourceName: activeDataSource.name })}
                                     >
                                         {getDataSourceIcon(activeDataSource.type)} {activeDataSource.name}
-                                    </button>
-                                    <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium uppercase tracking-wide">
+                                    </span>
+                                    <span className="text-[9px] px-1.5 py-0.5 bg-blue-50 dark:bg-[#1a2332] text-blue-600 dark:text-[#569cd6] rounded font-medium uppercase tracking-wide">
                                         {activeDataSource.type}
                                     </span>
                                     {activeDataSource.analysis?.schema?.length > 0 && (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-white text-slate-500 rounded border border-slate-200 flex items-center gap-1">
+                                        <button
+                                            className="text-[9px] px-1.5 py-0.5 bg-white dark:bg-[#3c3c3c] text-blue-600 dark:text-[#569cd6] rounded border border-blue-200 dark:border-[#4d4d4d] flex items-center gap-1 cursor-pointer hover:bg-blue-50 dark:hover:bg-[#2a2d2e] hover:border-blue-300 dark:hover:border-[#569cd6] transition-colors font-medium"
+                                            onClick={() => EventsEmit('open-data-browser', { sourceId: activeDataSource.id, sourceName: activeDataSource.name })}
+                                            title={t('browse_data') || 'Browse data tables'}
+                                        >
                                             <Database className="w-2.5 h-2.5" />
                                             {t('ds_tables_count').replace('{0}', String(activeDataSource.analysis.schema.length))}
-                                        </span>
-                                    )}
-                                    {/* Comprehensive Report Button with Dropdown */}
-                                    <div className="relative comprehensive-report-dropdown-container ml-auto">
-                                        <button
-                                            onClick={() => {
-                                                if (preparedComprehensiveReportId) {
-                                                    setComprehensiveReportExportDropdownOpen(!comprehensiveReportExportDropdownOpen);
-                                                } else {
-                                                    handleGenerateComprehensiveReport();
-                                                }
-                                            }}
-                                            className={`text-[9px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1 transition-colors ${
-                                                preparedComprehensiveReportId
-                                                    ? 'bg-green-500 text-white hover:bg-green-600'
-                                                    : 'bg-blue-500 text-white hover:bg-blue-600'
-                                            }`}
-                                            title={preparedComprehensiveReportId 
-                                                ? (t('comprehensive_report_ready_title') || '报告已就绪，选择导出格式')
-                                                : t('comprehensive_report_button_title')}
-                                        >
-                                            <FileText className="w-2.5 h-2.5" />
-                                            {preparedComprehensiveReportId 
-                                                ? (t('export_comprehensive_report') || '导出报告')
-                                                : t('comprehensive_report')}
                                         </button>
-                                        
-                                        {/* Export Format Dropdown */}
-                                        {comprehensiveReportExportDropdownOpen && preparedComprehensiveReportId && (
-                                            <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50">
-                                                <div className="px-3 py-1 text-[9px] font-medium text-slate-400 uppercase tracking-wider">
-                                                    {t('select_export_format') || '选择导出格式'}
-                                                </div>
-                                                {comprehensiveReportCached && (
-                                                    <div className="px-3 py-1 text-[9px] text-green-600 bg-green-50 border-b border-slate-100">
-                                                        {t('comprehensive_report_using_cache') || '使用缓存报告'}
-                                                    </div>
-                                                )}
-                                                <button
-                                                    onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('word'); }}
-                                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50 transition-colors"
-                                                >
-                                                    <FileChartColumn size={12} className="flex-shrink-0 text-indigo-500" />
-                                                    <span>{t('export_as_word') || '导出为 Word'}</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('pdf'); }}
-                                                    className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 hover:bg-slate-50 transition-colors"
-                                                >
-                                                    <FileChartColumn size={12} className="flex-shrink-0 text-rose-500" />
-                                                    <span>{t('export_as_pdf') || '导出为 PDF'}</span>
-                                                </button>
-                                                <div className="border-t border-slate-100 mt-1 pt-1">
-                                                    <button
-                                                        onClick={() => { 
-                                                            setPreparedComprehensiveReportId(null); 
-                                                            setComprehensiveReportExportDropdownOpen(false); 
-                                                            handleGenerateComprehensiveReport(); 
-                                                        }}
-                                                        className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-400 hover:bg-slate-50 transition-colors"
-                                                    >
-                                                        <span>{t('regenerate_comprehensive_report') || '重新生成报告'}</span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                    )}
                                 </div>
                                 {activeDataSource.analysis?.summary && (
-                                    <p className="text-[10px] text-slate-500 mt-1.5 leading-relaxed">
+                                    <p className="text-[10px] text-slate-500 dark:text-[#808080] mt-1.5 leading-relaxed">
                                         {activeDataSource.analysis.summary}
                                     </p>
                                 )}
                             </div>
-                        ) : (
-                            <p className="text-[10px] text-slate-500 font-medium truncate max-w-[200px] ml-11">
-                                {activeThread?.title || t('ready_to_help')}
-                            </p>
-                        )}
+                        ) : null}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                    <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 dark:bg-transparent scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-[#424242] scrollbar-track-transparent">
                         {activeThread?.messages.map((msg, index) => {
                             // 如果是空的助手消息，跳过渲染（避免显示空气泡）
                             if (msg.role === 'assistant' && !msg.content) {
@@ -3079,10 +3352,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         {/* 显示"生成建议分析"按钮 - 当自动分析关闭且会话为空时 */}
                         {activeThreadId && suggestionButtonSessions.has(activeThreadId) && activeThread && (!activeThread.messages || activeThread.messages.length === 0) && !(isLoading && loadingThreadId === activeThreadId) && (
                             <div className="flex flex-col items-center justify-center py-12 animate-in fade-in zoom-in-95 duration-300">
-                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-5 rounded-[2rem] mb-5 shadow-inner ring-1 ring-white">
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e] p-5 rounded-[2rem] mb-5 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
                                     <Zap className="w-8 h-8 text-blue-500" />
                                 </div>
-                                <p className="text-sm text-slate-500 mb-4 text-center max-w-[280px]">
+                                <p className="text-sm text-slate-500 dark:text-[#808080] mb-4 text-center max-w-[280px]">
                                     {t('ask_about_sales')}
                                 </p>
                                 <button
@@ -3096,11 +3369,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         )}
                         {!activeThread && !(isLoading && loadingThreadId === activeThreadId) && (
                             <div className="h-full flex flex-col items-center justify-center text-center px-8 animate-in fade-in zoom-in-95 duration-500">
-                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white">
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e] p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
                                     <MessageSquare className="w-10 h-10 text-blue-500" />
                                 </div>
-                                <h4 className="text-slate-900 font-extrabold text-xl tracking-tight mb-3">{t('insights_at_fingertips')}</h4>
-                                <p className="text-sm text-slate-500 max-w-[280px] leading-relaxed font-medium">
+                                <h4 className="text-slate-900 dark:text-[#d4d4d4] font-extrabold text-xl tracking-tight mb-3">{t('insights_at_fingertips')}</h4>
+                                <p className="text-sm text-slate-500 dark:text-[#808080] max-w-[280px] leading-relaxed font-medium">
                                     {t('ask_about_sales')}
                                 </p>
                             </div>
@@ -3151,10 +3424,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 </div>
                                 
                                 {/* 状态内容区域 */}
-                                <div className="flex-1 flex flex-col gap-2 p-3 bg-white border border-slate-100 rounded-2xl rounded-tl-none shadow-sm">
+                                <div className="flex-1 flex flex-col gap-2 p-3 bg-white dark:bg-[#252526] border border-slate-100 dark:border-[#3c3c3c] rounded-2xl rounded-tl-none shadow-sm">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-                                        <span className="text-sm text-slate-700 font-medium">
+                                        <div className="w-4 h-4 border-2 border-blue-200 dark:border-[#264f78] border-t-blue-600 dark:border-t-[#007acc] rounded-full animate-spin" />
+                                        <span className="text-sm text-slate-700 dark:text-[#d4d4d4] font-medium">
                                             {t('searching_web') || '正在搜索网络信息...'}
                                         </span>
                                     </div>
@@ -3164,7 +3437,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         <div ref={messagesEndRef} />
                     </div>
 
-                    <div className="p-6 border-t border-slate-100 bg-white">
+                    <div className="p-6 border-t border-slate-100 dark:border-[#2d2d30] bg-white dark:bg-[#1e1e1e]">
                         <div className="flex items-stretch gap-3 max-w-2xl mx-auto w-full">
                             <input
                                 type="text"
@@ -3179,23 +3452,23 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 }}
                                 placeholder={t('what_to_analyze')}
                                 disabled={(isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId)}
-                                className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 focus:ring-4 focus:ring-blue-100 focus:bg-white focus:border-blue-300 transition-all outline-none shadow-sm hover:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
+                                className="flex-1 bg-slate-50 dark:bg-[#3c3c3c] border border-slate-200 dark:border-[#4d4d4d] rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 dark:text-[#d4d4d4] focus:ring-4 focus:ring-blue-100 dark:focus:ring-[#007acc33] focus:bg-white dark:focus:bg-[#3c3c3c] focus:border-blue-300 dark:focus:border-[#007acc] transition-all outline-none shadow-sm hover:border-slate-300 dark:hover:border-[#5a5a5a] disabled:bg-slate-100 dark:disabled:bg-[#2d2d30] disabled:text-slate-400 dark:disabled:text-[#808080] disabled:cursor-not-allowed"
                             />
                             <button
                                 onClick={() => handleSendMessage()}
                                 disabled={(isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId) || !input.trim()}
-                                className="aspect-square bg-blue-600 text-white hover:bg-blue-700 rounded-2xl disabled:bg-slate-200 disabled:text-slate-400 transition-all shadow-md active:scale-95 flex items-center justify-center"
+                                className="aspect-square bg-blue-600 dark:bg-[#007acc] text-white hover:bg-blue-700 dark:hover:bg-[#005a9e] rounded-2xl disabled:bg-slate-200 dark:disabled:bg-[#3c3c3c] disabled:text-slate-400 dark:disabled:text-[#808080] transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >
                                 <Send className="w-5 h-5" />
                             </button>
                         </div>
                         <div className="flex items-center justify-center gap-4 mt-4">
-                            <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                            <p className="text-[10px] text-slate-400 dark:text-[#808080] font-medium flex items-center gap-1">
+                                <span className="w-1 h-1 bg-slate-300 dark:bg-[#4d4d4d] rounded-full" />
                                 {t('data_driven_reasoning')}
                             </p>
-                            <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                <span className="w-1 h-1 bg-slate-300 rounded-full" />
+                            <p className="text-[10px] text-slate-400 dark:text-[#808080] font-medium flex items-center gap-1">
+                                <span className="w-1 h-1 bg-slate-300 dark:bg-[#4d4d4d] rounded-full" />
                                 {t('visualized_summaries')}
                             </p>
                         </div>
@@ -3250,13 +3523,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     onClose={() => setContextMenu(null)}
                     onAction={handleContextAction}
                     autoIntentUnderstanding={autoIntentUnderstanding}
+                    isGeneratingComprehensiveReport={isGeneratingComprehensiveReport}
                 />
             )}
 
             {blankAreaContextMenu && (
                 <div
                     ref={blankMenuRef}
-                    className="fixed bg-white border border-slate-200 rounded-lg shadow-xl z-[9999] w-40 py-1 overflow-hidden"
+                    className="fixed bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg shadow-xl z-[9999] w-40 py-1 overflow-hidden"
                     style={{ top: blankAreaContextMenu.y, left: blankAreaContextMenu.x }}
                     onContextMenu={(e) => {
                         e.preventDefault();
@@ -3265,46 +3539,19 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 >
                     <button
                         onClick={(e) => { e.stopPropagation(); handleStartFreeChat(); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                     >
-                        <MessageCircle className="w-4 h-4 text-blue-500" />
+                        <MessageCircle className="w-4 h-4 text-purple-500" />
                         {t('start_free_chat')}
                     </button>
-                    <div className="h-px bg-slate-100 my-1" />
+                    <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
                     <button
                         onClick={(e) => { e.stopPropagation(); handleImportAction(); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                     >
-                        <Upload className="w-4 h-4 text-slate-400" />
+                        <Upload className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                         Import
                     </button>
-                </div>
-            )}
-
-            {/* Comprehensive Report Progress Dialog */}
-            {isGeneratingComprehensiveReport && (
-                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-5 min-w-[320px]">
-                        {/* Spinning Animation */}
-                        <div className="relative w-16 h-16">
-                            <div className="absolute inset-0 rounded-full border-4 border-slate-200"></div>
-                            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin"></div>
-                            <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-purple-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
-                        </div>
-                        {/* Progress Bar */}
-                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-full animate-pulse" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
-                        </div>
-                        <p className="text-sm font-medium text-slate-700">{t('comprehensive_report_generating') || '正在生成综合报告，请稍候...'}</p>
-                        <p className="text-xs text-slate-400">{t('comprehensive_report_llm_hint') || 'AI 正在分析所有会话内容并撰写报告'}</p>
-                        <style>{`
-                            @keyframes comprehensiveReportProgress {
-                                0% { transform: translateX(-100%); }
-                                50% { transform: translateX(0%); }
-                                100% { transform: translateX(100%); }
-                            }
-                        `}</style>
-                    </div>
                 </div>
             )}
 

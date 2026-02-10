@@ -64,11 +64,11 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
     return ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={onClose}>
             <div
-                className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+                className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e]">
                     <div className="flex items-center gap-2.5">
                         <div className="p-1.5 bg-blue-100 rounded-lg">
                             <Clock className="w-5 h-5 text-blue-600" />
@@ -187,7 +187,7 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
                 </div>
 
                 {/* Footer */}
-                <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <div className="px-5 py-3 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30] flex justify-end">
                     <button
                         onClick={onClose}
                         className="px-5 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"

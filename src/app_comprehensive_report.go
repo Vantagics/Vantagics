@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -16,11 +20,15 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// regex to extract base64 images from markdown content
+var base64ImageRegex = regexp.MustCompile(`!\[.*?\]\((data:image/[^;]+;base64,[A-Za-z0-9+/=]+)\)`)
+
 // ComprehensiveReportRequest represents the request for generating a comprehensive report
 type ComprehensiveReportRequest struct {
-	ThreadID       string `json:"threadId"`
-	DataSourceName string `json:"dataSourceName"`
-	SessionName    string `json:"sessionName"`
+	ThreadID       string   `json:"threadId"`
+	DataSourceName string   `json:"dataSourceName"`
+	SessionName    string   `json:"sessionName"`
+	ChartImages    []string `json:"chartImages"` // base64 encoded chart images from frontend ECharts rendering
 }
 
 // ComprehensiveReportResult represents the result of preparing a comprehensive report
@@ -80,97 +88,325 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 	var analysisContents []string
 	var chartImages []string
 	var allTableData []NamedTableData
-	isFirstUserMessage := true
+	chartImageSet := make(map[string]bool) // deduplicate chart images
+
+	// Known suggestion request patterns that should be skipped
+	suggestionPatterns := []string{
+		"请给出一些本数据源的分析建议",
+		"Give me some analysis suggestions for this data source",
+	}
 
 	for i, msg := range thread.Messages {
 		if msg.Role == "user" {
-			if isFirstUserMessage {
-				// Skip the first user message (analysis suggestions)
-				isFirstUserMessage = false
+			// Skip suggestion request messages (auto-generated first message)
+			isSuggestionRequest := false
+			trimmedContent := strings.TrimSpace(msg.Content)
+			for _, pattern := range suggestionPatterns {
+				if strings.Contains(trimmedContent, pattern) {
+					isSuggestionRequest = true
+					break
+				}
+			}
+			if isSuggestionRequest {
+				a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Skipping suggestion request message: %s", msg.ID))
 				continue
 			}
 
-			// Get analysis data for this message
-			analysisData, err := a.chatService.GetMessageAnalysisData(req.ThreadID, msg.ID)
+			// Get analysis data using App method (resolves file:// references)
+			analysisData, err := a.GetMessageAnalysisData(req.ThreadID, msg.ID)
 			if err != nil {
 				a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Failed to get analysis data for message %s: %v", msg.ID, err))
-				continue
 			}
 
 			// Add user's analysis request
 			analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.analysis_request"), msg.Content))
 
-			// Get the corresponding assistant response
+			// Get the corresponding assistant response and extract inline base64 images
 			if i+1 < len(thread.Messages) && thread.Messages[i+1].Role == "assistant" {
 				assistantMsg := thread.Messages[i+1]
 				if assistantMsg.Content != "" {
-					analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.analysis_result"), assistantMsg.Content))
+					// Extract base64 images from assistant message content
+					matches := base64ImageRegex.FindAllStringSubmatch(assistantMsg.Content, -1)
+					for _, match := range matches {
+						if len(match) > 1 && !chartImageSet[match[1]] {
+							chartImages = append(chartImages, match[1])
+							chartImageSet[match[1]] = true
+						}
+					}
+
+					// Add text content (strip inline images for LLM summary)
+					cleanContent := base64ImageRegex.ReplaceAllString(assistantMsg.Content, "[图表]")
+					analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.analysis_result"), cleanContent))
+
+					// Extract json:table blocks from assistant message content
+					reJsonTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
+					for _, jtMatch := range reJsonTable.FindAllStringSubmatchIndex(assistantMsg.Content, -1) {
+						if len(jtMatch) >= 4 {
+							fullMatchStart := jtMatch[0]
+							jsonContent := strings.TrimSpace(assistantMsg.Content[jtMatch[2]:jtMatch[3]])
+
+							// Extract table title from the line before the code block
+							tableTitle := ""
+							if fullMatchStart > 0 {
+								textBefore := assistantMsg.Content[:fullMatchStart]
+								lastNewline := strings.LastIndex(textBefore, "\n")
+								if lastNewline >= 0 {
+									lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
+									lineBeforeCodeBlock = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
+									lineBeforeCodeBlock = strings.TrimRight(lineBeforeCodeBlock, ":：")
+									tableTitle = strings.TrimSpace(lineBeforeCodeBlock)
+									if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
+										tableTitle = ""
+									}
+								}
+							}
+							if tableTitle == "" {
+								tableTitle = fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
+							}
+
+							// Try to parse as object array
+							var tableData []map[string]interface{}
+							if err := json.Unmarshal([]byte(jsonContent), &tableData); err != nil {
+								// Try 2D array format
+								var arrayData [][]interface{}
+								if err2 := json.Unmarshal([]byte(jsonContent), &arrayData); err2 == nil && len(arrayData) > 1 {
+									headers := make([]string, len(arrayData[0]))
+									for i, h := range arrayData[0] {
+										headers[i] = fmt.Sprintf("%v", h)
+									}
+									tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+									for _, row := range arrayData[1:] {
+										rowMap := make(map[string]interface{})
+										for ri, val := range row {
+											if ri < len(headers) {
+												rowMap[headers[ri]] = val
+											}
+										}
+										tableData = append(tableData, rowMap)
+									}
+								}
+							}
+
+							if len(tableData) > 0 {
+								// Convert rows format to columns/data format
+								firstRow := tableData[0]
+								var tableCols []TableColumn
+								var colOrder []string
+								for key := range firstRow {
+									tableCols = append(tableCols, TableColumn{Title: key, DataType: "string"})
+									colOrder = append(colOrder, key)
+								}
+								var tableRows [][]any
+								for _, row := range tableData {
+									var rowData []any
+									for _, col := range colOrder {
+										rowData = append(rowData, row[col])
+									}
+									tableRows = append(tableRows, rowData)
+								}
+								if len(tableCols) > 0 && len(tableRows) > 0 {
+									allTableData = append(allTableData, NamedTableData{
+										Name: tableTitle,
+										Table: TableData{
+											Columns: tableCols,
+											Data:    tableRows,
+										},
+									})
+									a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Extracted json:table from content: %s (%d rows)", tableTitle, len(tableRows)))
+								}
+							}
+						}
+					}
+
+					// Extract markdown tables from assistant message content
+					mdTables := extractMarkdownTablesFromContent(assistantMsg.Content)
+					for _, mdTable := range mdTables {
+						if len(mdTable.Rows) > 0 {
+							mdTitle := mdTable.Title
+							if mdTitle == "" {
+								mdTitle = fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
+							}
+							// Convert rows format to columns/data format
+							firstRow := mdTable.Rows[0]
+							var tableCols []TableColumn
+							var colOrder []string
+							for key := range firstRow {
+								tableCols = append(tableCols, TableColumn{Title: key, DataType: "string"})
+								colOrder = append(colOrder, key)
+							}
+							var tableRows [][]any
+							for _, row := range mdTable.Rows {
+								var rowData []any
+								for _, col := range colOrder {
+									rowData = append(rowData, row[col])
+								}
+								tableRows = append(tableRows, rowData)
+							}
+							if len(tableCols) > 0 && len(tableRows) > 0 {
+								allTableData = append(allTableData, NamedTableData{
+									Name: mdTitle,
+									Table: TableData{
+										Columns: tableCols,
+										Data:    tableRows,
+									},
+								})
+								a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Extracted markdown table from content: %s (%d rows)", mdTitle, len(tableRows)))
+							}
+						}
+					}
 				}
 			}
 
-			// Process analysis results
-			if items, ok := analysisData["analysisResults"]; items != nil && ok {
-				if resultItems, ok := items.([]AnalysisResultItem); ok {
-					for _, item := range resultItems {
-						switch item.Type {
-						case "echarts":
-							// For charts, we need to note them for the report
-							if strData, ok := item.Data.(string); ok && strData != "" {
-								chartImages = append(chartImages, strData)
-							}
-						case "table":
-							// Extract table data
-							if tableData, ok := item.Data.(map[string]interface{}); ok {
-								if columns, ok := tableData["columns"].([]interface{}); ok {
-									if data, ok := tableData["data"].([]interface{}); ok {
-										var tableCols []TableColumn
-										for _, col := range columns {
-											if colMap, ok := col.(map[string]interface{}); ok {
-												tableCols = append(tableCols, TableColumn{
-													Title:    fmt.Sprintf("%v", colMap["title"]),
-													DataType: fmt.Sprintf("%v", colMap["dataType"]),
-												})
+			// Process analysis results for tables and insights
+			if analysisData != nil {
+				if items, ok := analysisData["analysisResults"]; items != nil && ok {
+					if resultItems, ok := items.([]AnalysisResultItem); ok {
+						a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Message %s has %d analysis result items", msg.ID, len(resultItems)))
+						for _, item := range resultItems {
+							a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT]   Item %s: type=%s, dataType=%T", item.ID, item.Type, item.Data))
+							switch item.Type {
+							case "echarts":
+								// ECharts data is JSON config, not an image - cannot render server-side
+								// Frontend is responsible for rendering ECharts to images and passing via req.ChartImages
+								a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Found echarts item %s (data len: %d) - will be rendered by frontend", item.ID, len(fmt.Sprintf("%v", item.Data))))
+							case "table":
+								// Table data may be a JSON string (resolved from file://) or a map
+								tableMap := make(map[string]interface{})
+								switch td := item.Data.(type) {
+								case string:
+									// Resolved from file:// - parse JSON string
+									if err := json.Unmarshal([]byte(td), &tableMap); err != nil {
+										a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Failed to parse table JSON: %v", err))
+										continue
+									}
+								case map[string]interface{}:
+									tableMap = td
+								default:
+									continue
+								}
+
+								// Try columns/data format first
+								columns, colOk := tableMap["columns"].([]interface{})
+								data, dataOk := tableMap["data"].([]interface{})
+								if colOk && dataOk {
+									var tableCols []TableColumn
+									for _, col := range columns {
+										if colMap, ok := col.(map[string]interface{}); ok {
+											tableCols = append(tableCols, TableColumn{
+												Title:    fmt.Sprintf("%v", colMap["title"]),
+												DataType: fmt.Sprintf("%v", colMap["dataType"]),
+											})
+										}
+									}
+									var tableRows [][]any
+									for _, row := range data {
+										if rowSlice, ok := row.([]interface{}); ok {
+											tableRows = append(tableRows, rowSlice)
+										} else if rowMap, ok := row.(map[string]interface{}); ok {
+											var rowData []any
+											for _, col := range tableCols {
+												if val, exists := rowMap[col.Title]; exists {
+													rowData = append(rowData, val)
+												} else {
+													rowData = append(rowData, nil)
+												}
+											}
+											tableRows = append(tableRows, rowData)
+										}
+									}
+									if len(tableCols) > 0 && len(tableRows) > 0 {
+										tableName := fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
+										if item.Metadata != nil {
+											if name, ok := item.Metadata["name"].(string); ok && name != "" {
+												tableName = name
 											}
 										}
+										allTableData = append(allTableData, NamedTableData{
+											Name: tableName,
+											Table: TableData{
+												Columns: tableCols,
+												Data:    tableRows,
+											},
+										})
+										// Also add table summary to analysis contents for LLM
+										var colNames []string
+										for _, c := range tableCols {
+											colNames = append(colNames, c.Title)
+										}
+										analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s: %s (%d %s)",
+											i18n.T("comprehensive_report.table"), tableName,
+											strings.Join(colNames, ", "), len(tableRows), "rows"))
+									}
+								} else if rows, rowsOk := tableMap["rows"].([]interface{}); rowsOk && len(rows) > 0 {
+									// Fallback: rows format from restored data {title: "...", rows: [{col: val, ...}, ...]}
+									tableTitle, _ := tableMap["title"].(string)
+									if tableTitle == "" {
+										tableTitle = fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
+									}
+									// Extract columns from first row
+									if firstRow, ok := rows[0].(map[string]interface{}); ok {
+										var tableCols []TableColumn
+										var colOrder []string
+										for key := range firstRow {
+											tableCols = append(tableCols, TableColumn{Title: key, DataType: "string"})
+											colOrder = append(colOrder, key)
+										}
 										var tableRows [][]any
-										for _, row := range data {
-											if rowSlice, ok := row.([]interface{}); ok {
+										for _, row := range rows {
+											if rowMap, ok := row.(map[string]interface{}); ok {
 												var rowData []any
-												for _, cell := range rowSlice {
-													rowData = append(rowData, cell)
-												}
-												tableRows = append(tableRows, rowData)
-											} else if rowMap, ok := row.(map[string]interface{}); ok {
-												var rowData []any
-												for _, col := range tableCols {
-													if val, exists := rowMap[col.Title]; exists {
-														rowData = append(rowData, val)
-													} else {
-														rowData = append(rowData, nil)
-													}
+												for _, col := range colOrder {
+													rowData = append(rowData, rowMap[col])
 												}
 												tableRows = append(tableRows, rowData)
 											}
 										}
 										if len(tableCols) > 0 && len(tableRows) > 0 {
-											tableName := fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
-											if name, ok := item.Metadata["name"].(string); ok && name != "" {
-												tableName = name
-											}
 											allTableData = append(allTableData, NamedTableData{
-												Name: tableName,
+												Name: tableTitle,
 												Table: TableData{
 													Columns: tableCols,
 													Data:    tableRows,
 												},
 											})
+											analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s: %s (%d %s)",
+												i18n.T("comprehensive_report.table"), tableTitle,
+												strings.Join(colOrder, ", "), len(tableRows), "rows"))
 										}
 									}
 								}
-							}
-						case "insight":
-							if strData, ok := item.Data.(string); ok && strData != "" {
-								analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.insight"), strData))
+							case "insight":
+								if strData, ok := item.Data.(string); ok && strData != "" {
+									analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.insight"), strData))
+								} else if mapData, ok := item.Data.(map[string]interface{}); ok {
+									// Insight may be stored as {text: "...", icon: "..."} object
+									if text, ok := mapData["text"].(string); ok && text != "" {
+										analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.insight"), text))
+									}
+								} else if insightObj, ok := item.Data.(Insight); ok && insightObj.Text != "" {
+									analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.insight"), insightObj.Text))
+								}
+							case "metric":
+								// Metric may be stored as {title: "...", value: "...", change: "..."} or Metric struct
+								if mapData, ok := item.Data.(map[string]interface{}); ok {
+									title, _ := mapData["title"].(string)
+									value, _ := mapData["value"].(string)
+									if title != "" && value != "" {
+										change, _ := mapData["change"].(string)
+										metricText := fmt.Sprintf("%s: %s", title, value)
+										if change != "" {
+											metricText += fmt.Sprintf(" (%s)", change)
+										}
+										analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.key_metric"), metricText))
+									}
+								} else if strData, ok := item.Data.(string); ok && strData != "" {
+									analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.key_metric"), strData))
+								}
+							case "csv":
+								// CSV data as string - include as analysis content
+								if strData, ok := item.Data.(string); ok && strData != "" {
+									analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.table"), strData))
+								}
 							}
 						}
 					}
@@ -179,7 +415,41 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 		}
 	}
 
+	// Also collect chart images from session files (Python-generated charts)
+	sessionFiles, err := a.chatService.GetSessionFiles(req.ThreadID)
+	if err == nil {
+		sessionDir := a.chatService.GetSessionFilesDirectory(req.ThreadID)
+		for _, file := range sessionFiles {
+			if file.Type == "image" && (strings.HasSuffix(file.Name, ".png") || strings.HasSuffix(file.Name, ".jpg") || strings.HasSuffix(file.Name, ".jpeg")) {
+				filePath := filepath.Join(sessionDir, file.Name)
+				imageData, readErr := os.ReadFile(filePath)
+				if readErr == nil {
+					base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
+					if !chartImageSet[base64Data] {
+						chartImages = append(chartImages, base64Data)
+						chartImageSet[base64Data] = true
+					}
+				}
+			}
+		}
+	}
+
+	// Merge chart images from frontend (ECharts rendered to base64 by frontend)
+	if len(req.ChartImages) > 0 {
+		a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Received %d chart images from frontend", len(req.ChartImages)))
+		for _, img := range req.ChartImages {
+			if !chartImageSet[img] {
+				chartImages = append(chartImages, img)
+				chartImageSet[img] = true
+			}
+		}
+	}
+
 	if len(analysisContents) == 0 {
+		a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] No valid analysis contents found. Thread has %d messages.", len(thread.Messages)))
+		for idx, msg := range thread.Messages {
+			a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT]   Message[%d]: role=%s, id=%s, contentLen=%d", idx, msg.Role, msg.ID, len(msg.Content)))
+		}
 		return nil, fmt.Errorf("%s", i18n.T("comprehensive_report.no_valid_analysis"))
 	}
 
@@ -191,8 +461,24 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 	comprehensiveReportCacheMu.Lock()
 	if cached, ok := comprehensiveReportCache[reportID]; ok {
 		if cached.ContentHash == contentHash {
+			// Update chart images from frontend even when using cache
+			// (frontend may have rendered new ECharts since last cache)
+			if len(req.ChartImages) > 0 || len(chartImages) > 0 {
+				allCharts := chartImages
+				// Deduplicate
+				seen := make(map[string]bool)
+				for _, img := range allCharts {
+					seen[img] = true
+				}
+				for _, img := range req.ChartImages {
+					if !seen[img] {
+						allCharts = append(allCharts, img)
+					}
+				}
+				cached.ExportData.ChartImages = allCharts
+			}
 			comprehensiveReportCacheMu.Unlock()
-			a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Using cached report: %s", reportID))
+			a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Using cached report: %s (updated %d chart images)", reportID, len(cached.ExportData.ChartImages)))
 			return &ComprehensiveReportResult{
 				ReportID: reportID,
 				Cached:   true,
@@ -222,6 +508,12 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 
 	// Build export data
 	exportData := buildComprehensiveReportExportData(req, parsed, chartImages, allTableData)
+
+	a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Export data: insights=%d, insightsLen=%d, charts=%d, tables=%d",
+		len(exportData.Insights),
+		func() int { total := 0; for _, s := range exportData.Insights { total += len(s) }; return total }(),
+		len(exportData.ChartImages),
+		len(exportData.AllTableData)))
 
 	// Cache the report
 	comprehensiveReportCacheMu.Lock()

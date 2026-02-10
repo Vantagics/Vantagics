@@ -53,8 +53,8 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 p-6">
-                <h3 className="text-lg font-bold text-slate-800 mb-4">{t('start_new_analysis')}</h3>
+            <div className="bg-white dark:bg-[#252526] w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4] mb-4">{t('start_new_analysis')}</h3>
                 <form onSubmit={handleSubmit}>
                     <div className="mb-4">
                         {error && (
@@ -62,7 +62,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
                                 {error}
                             </div>
                         )}
-                        <label htmlFor="sessionName" className="block text-sm font-medium text-slate-700 mb-1">{t('session_name')}</label>
+                        <label htmlFor="sessionName" className="block text-sm font-medium text-slate-700 dark:text-[#d4d4d4] mb-1">{t('session_name')}</label>
                         <input
                             id="sessionName"
                             type="text"
@@ -94,7 +94,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
                             <button 
                                 type="button"
                                 onClick={onClose}
-                                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+                                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-md transition-colors"
                                 disabled={isValidating}
                             >
                                 {t('cancel')}

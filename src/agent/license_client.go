@@ -848,6 +848,10 @@ func (c *LicenseClient) ReportUsage() error {
 	}
 	c.mu.RUnlock()
 
+	if c.log != nil {
+		c.log(fmt.Sprintf("[LICENSE] ReportUsage: serverURL=%s, sn=%s, usedCredits=%.1f", serverURL, sn, usedCredits))
+	}
+
 	if serverURL == "" || sn == "" {
 		return fmt.Errorf("not activated, cannot report usage")
 	}
@@ -933,11 +937,20 @@ func (c *LicenseClient) ShouldReportOnStartup() bool {
 
 	// Case 1: Never reported, but has credits consumption
 	if c.lastReportAt.IsZero() {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] ShouldReportOnStartup: never reported, usedCredits=%.1f", usedCredits))
+		}
 		return usedCredits > 0
 	}
 
 	// Case 2: Over 1 hour since last report AND credits have changed
-	return time.Since(c.lastReportAt) >= time.Hour && usedCredits != c.lastReportedCredits
+	elapsed := time.Since(c.lastReportAt)
+	changed := usedCredits != c.lastReportedCredits
+	if c.log != nil {
+		c.log(fmt.Sprintf("[LICENSE] ShouldReportOnStartup: lastReportAt=%v, elapsed=%v, usedCredits=%.1f, lastReportedCredits=%.1f, changed=%v",
+			c.lastReportAt.Format(time.RFC3339), elapsed, usedCredits, c.lastReportedCredits, changed))
+	}
+	return elapsed >= time.Hour && changed
 }
 
 // StartUsageReporting starts a background goroutine that reports usage every hour

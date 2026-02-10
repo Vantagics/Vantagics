@@ -12,6 +12,12 @@ tools/license_server/build/license_server_macos
 # Dependencies
 node_modules/
 
+# Kiro IDE
+.kiro/
+
+# VS Code
+.vscode/
+
 # OS files
 .DS_Store
 Thumbs.db

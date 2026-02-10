@@ -30,14 +30,14 @@ const MemoryViewModal: React.FC<MemoryViewModalProps> = ({ isOpen, threadId, onC
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white w-[600px] h-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900">
+            <div className="bg-white dark:bg-[#252526] w-[600px] h-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-900 dark:text-[#d4d4d4]">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-center bg-slate-50 dark:bg-[#2d2d30]">
                     <div className="flex items-center gap-2">
                         <Brain className="w-5 h-5 text-blue-600" />
-                        <h2 className="text-lg font-bold text-slate-800">{t('agent_memory')}</h2>
+                        <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">{t('agent_memory')}</h2>
                     </div>
-                    <button onClick={onClose} className="text-slate-500 hover:text-slate-700">
+                    <button onClick={onClose} className="text-slate-500 dark:text-[#808080] hover:text-slate-700 dark:hover:text-[#d4d4d4]">
                         <X className="w-5 h-5" />
                     </button>
                 </div>

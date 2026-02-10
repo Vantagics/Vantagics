@@ -325,7 +325,7 @@ var chineseTranslations = map[string]string{
 	"report.section.conclusions":        "结论与建议",
 
 	// 报告标签（已删除重复项 - 在上面已定义）
-	"report.chart_label":                "图表 %d",
+	"report.chart_label":                "图表 %d / %d",
 	"report.total_rows":                 "总行数: %d",
 	"report.showing_columns":            "显示列: %s",
 	"report.category_label":             "分类",
@@ -343,5 +343,6 @@ var chineseTranslations = map[string]string{
 	"comprehensive_report.analysis_request":   "分析请求",
 	"comprehensive_report.analysis_result":    "分析结果",
 	"comprehensive_report.insight":            "洞察",
+	"comprehensive_report.key_metric":         "关键指标",
 	"comprehensive_report.table":              "数据表",
 }

@@ -437,3 +437,355 @@ input, textarea {
 .dark table.min-w-full tbody tr:nth-child(odd) {
   background-color: #1e1e1e !important;
 }
+
+
+/* ========== 右键菜单深色模式 ========== */
+.dark-context-menu {
+  background-color: white;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+.dark .dark-context-menu {
+  background-color: #252526 !important;
+  border-color: #3c3c3c !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+}
+
+.context-menu-header {
+  border-bottom: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.dark .context-menu-header {
+  border-bottom-color: #3c3c3c !important;
+  background-color: #2d2d30 !important;
+}
+
+.context-menu-label {
+  color: #64748b;
+}
+
+.dark .context-menu-label {
+  color: #808080 !important;
+}
+
+.context-menu-text {
+  color: #1e293b;
+}
+
+.dark .context-menu-text {
+  color: #d4d4d4 !important;
+}
+
+.context-menu-btn {
+  color: #1e293b;
+  background-color: white;
+}
+
+.context-menu-btn:hover {
+  background-color: #eff6ff;
+  color: #2563eb;
+}
+
+.dark .context-menu-btn {
+  color: #d4d4d4 !important;
+  background-color: #252526 !important;
+}
+
+.dark .context-menu-btn:hover {
+  background-color: #2d2d30 !important;
+  color: #569cd6 !important;
+}
+
+.context-menu-btn-danger {
+  color: #dc2626;
+  border-top: 1px solid #e2e8f0;
+}
+
+.context-menu-btn-danger:hover {
+  background-color: #fef2f2;
+  color: #b91c1c;
+}
+
+.dark .context-menu-btn-danger {
+  color: #f14c4c !important;
+  border-top-color: #3c3c3c !important;
+}
+
+.dark .context-menu-btn-danger:hover {
+  background-color: #2e1e1e !important;
+  color: #f14c4c !important;
+}
+
+.context-menu-btn-warning {
+  color: #ea580c;
+  border-top: 1px solid #e2e8f0;
+}
+
+.context-menu-btn-warning:hover {
+  background-color: #fff7ed;
+  color: #c2410c;
+}
+
+.dark .context-menu-btn-warning {
+  color: #dcdcaa !important;
+  border-top-color: #3c3c3c !important;
+}
+
+.dark .context-menu-btn-warning:hover {
+  background-color: #2a2620 !important;
+  color: #dcdcaa !important;
+}
+
+/* ========== 模态框深色模式 ========== */
+.dark .bg-white.rounded-xl.shadow-2xl,
+.dark .bg-white.rounded-xl.shadow-2xl.overflow-hidden {
+  background-color: #252526 !important;
+  color: #d4d4d4 !important;
+}
+
+/* Toast 深色模式 */
+.dark .bg-green-50.border-green-200 {
+  background-color: #1e2a1e !important;
+  border-color: #3d5a3d !important;
+}
+
+.dark .bg-green-50.border-green-200 .text-green-800 {
+  color: #6a9955 !important;
+}
+
+.dark .bg-amber-50.border-amber-200 {
+  background-color: #2a2620 !important;
+  border-color: #5a5040 !important;
+}
+
+.dark .bg-amber-50.border-amber-200 .text-amber-800 {
+  color: #dcdcaa !important;
+}
+
+.dark .bg-red-50.border-red-200 {
+  background-color: #2e1e1e !important;
+  border-color: #5a3d3d !important;
+}
+
+.dark .bg-red-50.border-red-200 .text-red-800 {
+  color: #f14c4c !important;
+}
+
+.dark .bg-blue-50.border-blue-200 {
+  background-color: #1a2332 !important;
+  border-color: #264f78 !important;
+}
+
+.dark .bg-blue-50.border-blue-200 .text-blue-800 {
+  color: #569cd6 !important;
+}
+
+/* ========== AnalysisStatusIndicator 深色模式 ========== */
+.dark .border-blue-200.border-t-blue-600 {
+  border-color: #264f78 !important;
+  border-top-color: #007acc !important;
+}
+
+/* ========== ChartModal 深色模式 ========== */
+.dark .bg-white.rounded-xl.p-8 {
+  background-color: #252526 !important;
+}
+
+/* ========== ResizeHandle 深色模式 ========== */
+.dark .resize-handle div {
+  --resize-handle-bg: #3c3c3c;
+  --resize-handle-hover-bg: #808080;
+  --resize-handle-active-bg: #007acc;
+}
+
+/* Yellow warning backgrounds */
+.dark .bg-yellow-50 {
+  background-color: #2a2620 !important;
+}
+
+.dark .border-yellow-200 {
+  border-color: #5a5040 !important;
+}
+
+.dark .text-yellow-800 {
+  color: #dcdcaa !important;
+}
+
+/* Additional text color overrides */
+.dark .text-yellow-900 {
+  color: #dcdcaa !important;
+}
+
+.dark .text-red-800,
+.dark .text-red-900 {
+  color: #f14c4c !important;
+}
+
+.dark .text-green-800 {
+  color: #6a9955 !important;
+}
+
+.dark .text-blue-800,
+.dark .text-blue-900 {
+  color: #569cd6 !important;
+}
+
+.dark .text-orange-800 {
+  color: #dcdcaa !important;
+}
+
+.dark .text-purple-800 {
+  color: #c586c0 !important;
+}
+
+/* Optimization status badges */
+.dark .text-green-700.bg-green-100 {
+  background-color: #2d3d2d !important;
+  color: #6a9955 !important;
+}
+
+.dark .border-green-300 {
+  border-color: #3d5a3d !important;
+}
+
+.dark .border-slate-300 {
+  border-color: #4d4d4d !important;
+}
+
+/* hover:bg-slate-50 */
+.dark .hover\:bg-slate-50:hover {
+  background-color: #2d2d30 !important;
+}
+
+/* bg-white/80 透明白色 */
+.dark .bg-white\/80 {
+  background-color: rgba(37, 37, 38, 0.8) !important;
+}
+
+/* bg-slate-50/30 半透明 */
+.dark .bg-slate-50\/30 {
+  background-color: rgba(30, 30, 30, 0.3) !important;
+}
+
+/* hover:bg-white/80 */
+.dark .hover\:bg-white\/80:hover {
+  background-color: rgba(45, 45, 48, 0.8) !important;
+}
+
+/* hover:bg-white/50 */
+.dark .hover\:bg-white\/50:hover {
+  background-color: rgba(45, 45, 48, 0.5) !important;
+}
+
+/* hover:bg-white/20 */
+.dark .hover\:bg-white\/20:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* gradient overrides for dark mode */
+.dark .from-blue-50 {
+  --tw-gradient-from: #1a2332 !important;
+}
+
+.dark .to-blue-50 {
+  --tw-gradient-to: #1a2332 !important;
+}
+
+.dark .from-indigo-50 {
+  --tw-gradient-from: #1e1e2e !important;
+}
+
+.dark .to-indigo-50 {
+  --tw-gradient-to: #1e1e2e !important;
+}
+
+.dark .from-purple-50 {
+  --tw-gradient-from: #2a1e2e !important;
+}
+
+.dark .to-purple-50 {
+  --tw-gradient-to: #2a1e2e !important;
+}
+
+.dark .from-slate-100 {
+  --tw-gradient-from: #252526 !important;
+}
+
+.dark .via-slate-50 {
+  --tw-gradient-via: #1e1e1e !important;
+}
+
+/* text-slate-900 for headings */
+.dark .text-slate-900 {
+  color: #d4d4d4 !important;
+}
+
+/* border-gray-200 */
+.dark .border-gray-200 {
+  border-color: #3c3c3c !important;
+}
+
+.dark .border-gray-300 {
+  border-color: #4d4d4d !important;
+}
+
+/* text-gray-900 */
+.dark .text-gray-900 {
+  color: #d4d4d4 !important;
+}
+
+.dark .text-gray-800 {
+  color: #d4d4d4 !important;
+}
+
+/* bg-gray-50 */
+.dark .bg-gray-50 {
+  background-color: #1e1e1e !important;
+}
+
+/* hover:bg-slate-300:hover */
+.dark .hover\:bg-slate-300:hover {
+  background-color: #4d4d4d !important;
+}
+
+/* hover:bg-blue-50 */
+.dark .hover\:bg-blue-50:hover {
+  background-color: #1a2332 !important;
+}
+
+/* hover:border-blue-300 */
+.dark .hover\:border-blue-300:hover {
+  border-color: #264f78 !important;
+}
+
+/* hover:border-slate-300 */
+.dark .hover\:border-slate-300:hover {
+  border-color: #4d4d4d !important;
+}
+
+/* hover:bg-red-100 */
+.dark .hover\:bg-red-100:hover {
+  background-color: #422d2d !important;
+}
+
+/* hover:bg-red-200 */
+.dark .hover\:bg-red-200:hover {
+  background-color: #5a3d3d !important;
+}
+
+/* hover:bg-green-200 */
+.dark .hover\:bg-green-200:hover {
+  background-color: #3d5a3d !important;
+}
+
+/* hover:bg-slate-50 */
+.dark .hover\:bg-slate-50:hover {
+  background-color: #2d2d30 !important;
+}
+
+/* bg-slate-50/50 */
+.dark .bg-slate-50\/50 {
+  background-color: rgba(30, 30, 30, 0.5) !important;
+}
