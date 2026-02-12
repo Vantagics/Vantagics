@@ -9,6 +9,9 @@ REM Ensure GOPATH\bin is in PATH for wails, makefat, etc.
 for /f "delims=" %%i in ('go env GOPATH') do set "GOPATH_DIR=%%i"
 set "PATH=%GOPATH_DIR%\bin;%PATH%"
 
+REM Add NSIS to PATH (using short path name)
+set "PATH=C:\PROGRA~2\NSIS;C:\PROGRA~1\NSIS;%PATH%"
+
 set "SRC_DIR=src"
 set "DIST_DIR=dist"
 set "BUILD_DIR=src\build\bin"
@@ -32,18 +35,6 @@ exit /b 0
 
 :build_windows
 echo [Windows] Building...
-
-REM Add NSIS to PATH if available
-if exist "C:\Program Files (x86)\NSIS\makensis.exe" (
-    set "PATH=C:\Program Files (x86)\NSIS;%PATH%"
-    echo NSIS found at C:\Program Files (x86)\NSIS
-) else if exist "C:\Program Files\NSIS\makensis.exe" (
-    set "PATH=C:\Program Files\NSIS;%PATH%"
-    echo NSIS found at C:\Program Files\NSIS
-) else (
-    echo Warning: NSIS not found in standard locations. Make sure it's in PATH.
-)
-
 cd /d "%SRC_DIR%"
 set CGO_ENABLED=1
 call wails build -clean -platform windows/amd64 -nsis
