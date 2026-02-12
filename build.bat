@@ -51,6 +51,13 @@ if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
 ) else (
     echo Warning: %BUILD_DIR%\%OUTPUT_NAME%.exe not found
 )
+REM Copy NSIS installer
+if exist "%BUILD_DIR%\VantageData-amd64-installer.exe" (
+    copy /y "%BUILD_DIR%\VantageData-amd64-installer.exe" "%DIST_DIR%\" >nul
+    echo NSIS installer copied to %DIST_DIR%\VantageData-amd64-installer.exe
+) else (
+    echo Warning: NSIS installer not found
+)
 exit /b 0
 
 :build_tools
