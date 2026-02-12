@@ -3135,6 +3135,14 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Allow optional newline after json:echarts
 			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 			allEChartsMatches := reECharts.FindAllStringSubmatch(resp, -1)
+			reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\n(?:---|###)|$)")
+			allEChartsNoBTMatches := reEChartsNoBT.FindAllStringSubmatch(resp, -1)
+
+			// Combine both matches
+			for _, match := range allEChartsNoBTMatches {
+				allEChartsMatches = append(allEChartsMatches, match)
+			}
+
 			for matchIdx, matchECharts := range allEChartsMatches {
 				if len(matchECharts) > 1 {
 					jsonStr := strings.TrimSpace(matchECharts[1])
