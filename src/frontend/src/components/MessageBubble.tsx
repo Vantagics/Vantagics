@@ -630,7 +630,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // Now clean the content (removing code blocks and standalone base64 data)
     const cleanedContent = contentWithPlaceholders
         .replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '')
-        .replace(/```[ \t]*json:echarts[\s\S]*?```/g, '') // 隐藏ECharts代码
+        .replace(/```[ \t]*json:echarts[\s\S]*?```/g, '') // 隐藏ECharts代码（带反引号格式）
+        .replace(/(?:^|\n)json:echarts\s*\n\{[\s\S]+?\n\}/g, '') // 隐藏ECharts代码（无反引号格式）
         // json:table 保留，在 ReactMarkdown 中渲染为表格
         .replace(/```[ \t]*json:metrics[\s\S]*?```/g, '') // 隐藏Metrics代码，在仪表盘显示
         .replace(/```[ \t]*(sql|SQL)[\s\S]*?```/g, '')

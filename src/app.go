@@ -3135,7 +3135,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Allow optional newline after json:echarts
 			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 			allEChartsMatches := reECharts.FindAllStringSubmatch(resp, -1)
-			reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\n(?:---|###)|$)")
+			reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\s*\\n(?:---|###)|\\s*$)")
 			allEChartsNoBTMatches := reEChartsNoBT.FindAllStringSubmatch(resp, -1)
 
 			// Combine both matches
