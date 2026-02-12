@@ -32,6 +32,18 @@ exit /b 0
 
 :build_windows
 echo [Windows] Building...
+
+REM Add NSIS to PATH if available
+if exist "C:\Program Files (x86)\NSIS\makensis.exe" (
+    set "PATH=C:\Program Files (x86)\NSIS;%PATH%"
+    echo NSIS found at C:\Program Files (x86)\NSIS
+) else if exist "C:\Program Files\NSIS\makensis.exe" (
+    set "PATH=C:\Program Files\NSIS;%PATH%"
+    echo NSIS found at C:\Program Files\NSIS
+) else (
+    echo Warning: NSIS not found in standard locations. Make sure it's in PATH.
+)
+
 cd /d "%SRC_DIR%"
 set CGO_ENABLED=1
 call wails build -clean -platform windows/amd64 -nsis
