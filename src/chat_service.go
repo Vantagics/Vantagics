@@ -864,7 +864,10 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 
 	// Extract ECharts blocks
 	reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-	for _, match := range reECharts.FindAllStringSubmatch(content, -1) {
+	reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\n(?:---|###)|$)")
+	allEChartsMatches := reECharts.FindAllStringSubmatch(content, -1)
+	allEChartsMatches = append(allEChartsMatches, reEChartsNoBT.FindAllStringSubmatch(content, -1)...)
+	for _, match := range allEChartsMatches {
 		if len(match) > 1 {
 			jsonStr := strings.TrimSpace(match[1])
 			// Validate JSON
