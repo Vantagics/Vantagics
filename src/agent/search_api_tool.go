@@ -204,11 +204,11 @@ func (t *SearchAPITool) searchDuckDuckGo(ctx context.Context, query string, maxR
 	// DuckDuckGo may return 202 (Accepted) or 200 (OK)
 	// Both are valid responses
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit for search responses
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
@@ -338,12 +338,12 @@ func (t *SearchAPITool) searchSerper(ctx context.Context, query string, maxResul
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Read response
-	body, err := io.ReadAll(resp.Body)
+	// Read response with size limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB limit
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}

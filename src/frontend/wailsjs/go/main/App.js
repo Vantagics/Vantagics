@@ -18,6 +18,10 @@ export function ApplyOptimizeSuggestions(arg1, arg2) {
   return window['go']['main']['App']['ApplyOptimizeSuggestions'](arg1, arg2);
 }
 
+export function BrowseMarketplacePacks(arg1) {
+  return window['go']['main']['App']['BrowseMarketplacePacks'](arg1);
+}
+
 export function CanStartNewAnalysis() {
   return window['go']['main']['App']['CanStartNewAnalysis']();
 }
@@ -106,6 +110,10 @@ export function DownloadFile(arg1) {
   return window['go']['main']['App']['DownloadFile'](arg1);
 }
 
+export function DownloadMarketplacePack(arg1) {
+  return window['go']['main']['App']['DownloadMarketplacePack'](arg1);
+}
+
 export function DownloadSessionFile(arg1, arg2) {
   return window['go']['main']['App']['DownloadSessionFile'](arg1, arg2);
 }
@@ -116,6 +124,10 @@ export function EnableSkill(arg1) {
 
 export function ExecuteImportAnalysis(arg1, arg2) {
   return window['go']['main']['App']['ExecuteImportAnalysis'](arg1, arg2);
+}
+
+export function ExecuteQuickAnalysisPack(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExecuteQuickAnalysisPack'](arg1, arg2, arg3);
 }
 
 export function ExportAnalysisProcess(arg1) {
@@ -148,6 +160,10 @@ export function ExportDashboardToWord(arg1) {
 
 export function ExportMessageToPDF(arg1, arg2) {
   return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
+}
+
+export function ExportQuickAnalysisPack(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportQuickAnalysisPack'](arg1, arg2, arg3);
 }
 
 export function ExportReport(arg1, arg2) {
@@ -318,6 +334,14 @@ export function GetLogStats() {
   return window['go']['main']['App']['GetLogStats']();
 }
 
+export function GetMarketplaceCategories() {
+  return window['go']['main']['App']['GetMarketplaceCategories']();
+}
+
+export function GetMarketplaceCreditsBalance() {
+  return window['go']['main']['App']['GetMarketplaceCreditsBalance']();
+}
+
 export function GetMessageAnalysisData(arg1, arg2) {
   return window['go']['main']['App']['GetMessageAnalysisData'](arg1, arg2);
 }
@@ -414,8 +438,16 @@ export function IsLicenseActivated() {
   return window['go']['main']['App']['IsLicenseActivated']();
 }
 
+export function IsMarketplaceLoggedIn() {
+  return window['go']['main']['App']['IsMarketplaceLoggedIn']();
+}
+
 export function IsRefreshableDataSource(arg1) {
   return window['go']['main']['App']['IsRefreshableDataSource'](arg1);
+}
+
+export function ListLocalQuickAnalysisPacks() {
+  return window['go']['main']['App']['ListLocalQuickAnalysisPacks']();
 }
 
 export function ListSkills() {
@@ -430,6 +462,14 @@ export function LoadMetricsJson(arg1) {
   return window['go']['main']['App']['LoadMetricsJson'](arg1);
 }
 
+export function LoadQuickAnalysisPack(arg1) {
+  return window['go']['main']['App']['LoadQuickAnalysisPack'](arg1);
+}
+
+export function LoadQuickAnalysisPackWithPassword(arg1, arg2, arg3) {
+  return window['go']['main']['App']['LoadQuickAnalysisPackWithPassword'](arg1, arg2, arg3);
+}
+
 export function LoadSavedActivation(arg1) {
   return window['go']['main']['App']['LoadSavedActivation'](arg1);
 }
@@ -440,6 +480,10 @@ export function Log(arg1) {
 
 export function MarkAsFinding(arg1, arg2, arg3) {
   return window['go']['main']['App']['MarkAsFinding'](arg1, arg2, arg3);
+}
+
+export function MarketplaceLogin(arg1) {
+  return window['go']['main']['App']['MarketplaceLogin'](arg1);
 }
 
 export function OpenDevTools() {
@@ -580,6 +624,10 @@ export function SendMessage(arg1, arg2, arg3, arg4) {
 
 export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
+}
+
+export function SharePackToMarketplace(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SharePackToMarketplace'](arg1, arg2, arg3, arg4);
 }
 
 export function ShowAbout() {

@@ -4,26 +4,55 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"marketplace_server/templates"
 )
 
 // Global database connection
 var db *sql.DB
+
+// Session store (in-memory)
+var (
+	sessions   = make(map[string]sessionEntry) // sessionID -> entry
+	sessionsMu sync.RWMutex
+)
+
+type sessionEntry struct {
+	AdminID int64
+	Expiry  time.Time
+}
+
+// Captcha store (in-memory)
+var (
+	captchas   = make(map[string]captchaEntry) // captchaID -> entry
+	captchasMu sync.RWMutex
+)
+
+type captchaEntry struct {
+	Code   string
+	Expiry time.Time
+}
 
 // MarketplaceUser 市场用户
 type MarketplaceUser struct {
@@ -47,19 +76,25 @@ type PackCategory struct {
 
 // PackListingInfo 分析包列表信息（不含文件数据）
 type PackListingInfo struct {
-	ID              int64  `json:"id"`
-	UserID          int64  `json:"user_id"`
-	CategoryID      int64  `json:"category_id"`
-	CategoryName    string `json:"category_name"`
-	PackName        string `json:"pack_name"`
-	PackDescription string `json:"pack_description"`
-	SourceName      string `json:"source_name"`
-	AuthorName      string `json:"author_name"`
-	ShareMode       string `json:"share_mode"`
-	CreditsPrice    int    `json:"credits_price"`
-	DownloadCount   int    `json:"download_count"`
-	CreatedAt       string `json:"created_at"`
+	ID              int64            `json:"id"`
+	UserID          int64            `json:"user_id"`
+	CategoryID      int64            `json:"category_id"`
+	CategoryName    string           `json:"category_name"`
+	PackName        string           `json:"pack_name"`
+	PackDescription string           `json:"pack_description"`
+	SourceName      string           `json:"source_name"`
+	AuthorName      string           `json:"author_name"`
+	ShareMode       string           `json:"share_mode"`
+	CreditsPrice    int              `json:"credits_price"`
+	DownloadCount   int              `json:"download_count"`
+	Status          string           `json:"status"`
+	RejectReason    string           `json:"reject_reason,omitempty"`
+	ReviewedBy      *int64           `json:"reviewed_by,omitempty"`
+	ReviewedAt      string           `json:"reviewed_at,omitempty"`
+	MetaInfo        json.RawMessage  `json:"meta_info"`
+	CreatedAt       string           `json:"created_at"`
 }
+
 
 // CreditsTransaction Credits 交易记录
 type CreditsTransaction struct {
@@ -74,7 +109,7 @@ type CreditsTransaction struct {
 
 // initDB initializes the SQLite database with WAL mode and creates all required tables.
 func initDB(dbPath string) (*sql.DB, error) {
-	database, err := sql.Open("sqlite3", dbPath)
+	database, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -140,6 +175,12 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create pack_listings table: %w", err)
 	}
 
+	// Add review-related columns to pack_listings (ignore error if already exists)
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN reject_reason TEXT")
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN reviewed_by INTEGER REFERENCES admin_credentials(id)")
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN reviewed_at DATETIME")
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN meta_info TEXT DEFAULT '{}'")
+
 	// Create credits_transactions table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS credits_transactions (
@@ -197,6 +238,54 @@ func initDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		database.Close()
 		return nil, fmt.Errorf("failed to insert default settings: %w", err)
+	}
+
+	// Migrate admin_credentials table: detect old CHECK(id=1) constraint and rebuild
+	var adminTableSQL string
+	err = database.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='admin_credentials'").Scan(&adminTableSQL)
+	if err == nil && strings.Contains(adminTableSQL, "CHECK") {
+		// Old table detected, migrate to new schema
+		if _, err := database.Exec(`
+			CREATE TABLE admin_credentials_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				username TEXT NOT NULL UNIQUE,
+				password_hash TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'regular',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)
+		`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to create admin_credentials_new table: %w", err)
+		}
+		if _, err := database.Exec(`
+			INSERT INTO admin_credentials_new (id, username, password_hash, role, created_at)
+			SELECT id, username, password_hash, 'super', created_at FROM admin_credentials
+		`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to migrate admin_credentials data: %w", err)
+		}
+		if _, err := database.Exec(`DROP TABLE admin_credentials`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to drop old admin_credentials table: %w", err)
+		}
+		if _, err := database.Exec(`ALTER TABLE admin_credentials_new RENAME TO admin_credentials`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to rename admin_credentials_new table: %w", err)
+		}
+	} else {
+		// Fresh install or already migrated: create new schema
+		if _, err := database.Exec(`
+			CREATE TABLE IF NOT EXISTS admin_credentials (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				username TEXT NOT NULL UNIQUE,
+				password_hash TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'regular',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)
+		`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to create admin_credentials table: %w", err)
+		}
 	}
 
 	return database, nil
@@ -326,6 +415,506 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r)
 	}
 }
+
+// --- Admin Authentication System ---
+
+// isAdminSetup checks if admin credentials have been configured.
+func isAdminSetup() bool {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM admin_credentials").Scan(&count)
+	return err == nil && count > 0
+}
+
+// hashPassword hashes a password using SHA-256 with a random salt.
+func hashPassword(password string) string {
+	salt := make([]byte, 16)
+	rand.Read(salt)
+	h := sha256.New()
+	h.Write(salt)
+	h.Write([]byte(password))
+	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+}
+
+// checkPassword verifies a password against a stored hash.
+func checkPassword(password, stored string) bool {
+	parts := strings.SplitN(stored, ":", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	salt, _ := hex.DecodeString(parts[0])
+	h := sha256.New()
+	h.Write(salt)
+	h.Write([]byte(password))
+	return hex.EncodeToString(h.Sum(nil)) == parts[1]
+}
+
+// generateSessionID creates a random session ID.
+func generateSessionID() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// createSession creates a new session and returns the session ID.
+func createSession(adminID int64) string {
+	id := generateSessionID()
+	sessionsMu.Lock()
+	sessions[id] = sessionEntry{AdminID: adminID, Expiry: time.Now().Add(24 * time.Hour)}
+	sessionsMu.Unlock()
+	return id
+}
+
+// isValidSession checks if a session ID is valid and not expired.
+func isValidSession(id string) bool {
+	sessionsMu.RLock()
+	entry, ok := sessions[id]
+	sessionsMu.RUnlock()
+	if !ok {
+		return false
+	}
+	if time.Now().After(entry.Expiry) {
+		sessionsMu.Lock()
+		delete(sessions, id)
+		sessionsMu.Unlock()
+		return false
+	}
+	return true
+}
+
+// getSessionFromRequest extracts session ID from cookie.
+func getSessionFromRequest(r *http.Request) string {
+	cookie, err := r.Cookie("admin_session")
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
+
+// getSessionAdminID returns the Admin_ID associated with the session in the request.
+// Returns 0 if no valid session is found or the session has expired.
+func getSessionAdminID(r *http.Request) int64 {
+	sid := getSessionFromRequest(r)
+	if sid == "" {
+		return 0
+	}
+	sessionsMu.RLock()
+	entry, ok := sessions[sid]
+	sessionsMu.RUnlock()
+	if !ok || time.Now().After(entry.Expiry) {
+		return 0
+	}
+	return entry.AdminID
+}
+
+// getAdminRole returns the role ("super" or "regular") for the given admin ID.
+// Returns "" if the admin is not found.
+func getAdminRole(adminID int64) string {
+	var role string
+	err := db.QueryRow("SELECT role FROM admin_credentials WHERE id = ?", adminID).Scan(&role)
+	if err != nil {
+		return ""
+	}
+	return role
+}
+
+// --- Captcha Generation (pure Go, no external deps) ---
+
+// generateCaptchaCode creates a random 4-digit code.
+func generateCaptchaCode() string {
+	digits := "0123456789"
+	code := make([]byte, 4)
+	for i := range code {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(digits))))
+		code[i] = digits[n.Int64()]
+	}
+	return string(code)
+}
+
+// createCaptcha generates a captcha and stores it, returns captchaID.
+func createCaptcha() string {
+	id := generateSessionID()[:16]
+	code := generateCaptchaCode()
+	log.Printf("[CAPTCHA] created id=%s code=%s", id, code)
+	captchasMu.Lock()
+	captchas[id] = captchaEntry{Code: code, Expiry: time.Now().Add(5 * time.Minute)}
+	captchasMu.Unlock()
+	return id
+}
+
+// verifyCaptcha checks if the captcha answer is correct.
+func verifyCaptcha(id, answer string) bool {
+	captchasMu.Lock()
+	entry, ok := captchas[id]
+	delete(captchas, id) // one-time use
+	captchasMu.Unlock()
+	if !ok || time.Now().After(entry.Expiry) {
+		return false
+	}
+	return strings.EqualFold(entry.Code, answer)
+}
+
+// getCaptchaCode returns the code for a captcha ID (for image generation).
+func getCaptchaCode(id string) string {
+	captchasMu.RLock()
+	entry, ok := captchas[id]
+	captchasMu.RUnlock()
+	if !ok || time.Now().After(entry.Expiry) {
+		return ""
+	}
+	return entry.Code
+}
+
+// drawDigit draws a single digit on the image at position x.
+func drawDigit(img *image.RGBA, digit byte, xOff, yOff int, c color.RGBA) {
+	// Simple 5x7 bitmap font for digits 0-9
+	font := map[byte][]string{
+		'0': {"01110", "10001", "10011", "10101", "11001", "10001", "01110"},
+		'1': {"00100", "01100", "00100", "00100", "00100", "00100", "01110"},
+		'2': {"01110", "10001", "00010", "00100", "01000", "10000", "11111"},
+		'3': {"01110", "10001", "00001", "00110", "00001", "10001", "01110"},
+		'4': {"00010", "00110", "01010", "10010", "11111", "00010", "00010"},
+		'5': {"11111", "10000", "11110", "00001", "00001", "10001", "01110"},
+		'6': {"01110", "10000", "11110", "10001", "10001", "10001", "01110"},
+		'7': {"11111", "00001", "00010", "00100", "01000", "01000", "01000"},
+		'8': {"01110", "10001", "10001", "01110", "10001", "10001", "01110"},
+		'9': {"01110", "10001", "10001", "01111", "00001", "00001", "01110"},
+	}
+	pattern, ok := font[digit]
+	if !ok {
+		return
+	}
+	scale := 4
+	for row, line := range pattern {
+		for col, ch := range line {
+			if ch == '1' {
+				for dy := 0; dy < scale; dy++ {
+					for dx := 0; dx < scale; dx++ {
+						img.SetRGBA(xOff+col*scale+dx, yOff+row*scale+dy, c)
+					}
+				}
+			}
+		}
+	}
+}
+
+// generateCaptchaImage creates a PNG image for the given captcha ID.
+func generateCaptchaImage(id string) []byte {
+	code := getCaptchaCode(id)
+	if code == "" {
+		return nil
+	}
+
+	width, height := 160, 50
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// Background
+	bg := color.RGBA{240, 240, 245, 255}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.SetRGBA(x, y, bg)
+		}
+	}
+
+	// Add noise dots
+	noiseColors := []color.RGBA{
+		{180, 180, 190, 255}, {200, 200, 210, 255}, {160, 170, 180, 255},
+	}
+	for i := 0; i < 100; i++ {
+		nx, _ := rand.Int(rand.Reader, big.NewInt(int64(width)))
+		ny, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		ci, _ := rand.Int(rand.Reader, big.NewInt(int64(len(noiseColors))))
+		img.SetRGBA(int(nx.Int64()), int(ny.Int64()), noiseColors[ci.Int64()])
+	}
+
+	// Add noise lines
+	lineColor := color.RGBA{180, 180, 200, 255}
+	for l := 0; l < 3; l++ {
+		y1r, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		y2r, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		y1, y2 := int(y1r.Int64()), int(y2r.Int64())
+		for x := 0; x < width; x++ {
+			y := y1 + (y2-y1)*x/width
+			if y >= 0 && y < height {
+				img.SetRGBA(x, y, lineColor)
+				if y+1 < height {
+					img.SetRGBA(x, y+1, lineColor)
+				}
+			}
+		}
+	}
+
+	// Draw digits
+	digitColors := []color.RGBA{
+		{50, 50, 120, 255}, {120, 40, 40, 255}, {40, 100, 50, 255}, {100, 50, 120, 255},
+	}
+	for i, ch := range code {
+		xOff := 15 + i*35
+		yOff := 8
+		drawDigit(img, byte(ch), xOff, yOff, digitColors[i%len(digitColors)])
+	}
+
+	var buf bytes.Buffer
+	png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
+// adminAuth protects admin routes with session-based authentication.
+func isAPIRoute(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, "/api/")
+}
+
+func makeSessionCookie(name, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
+}
+
+func adminAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminSetup() {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "not_setup"})
+			} else {
+				http.Redirect(w, r, "/admin/setup", http.StatusFound)
+			}
+			return
+		}
+		sid := getSessionFromRequest(r)
+		log.Printf("[AUTH] path=%s sid=%q valid=%v", r.URL.Path, sid, isValidSession(sid))
+		if !isValidSession(sid) {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+			}
+			return
+		}
+		adminID := getSessionAdminID(r)
+		if adminID == 0 {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+			}
+			return
+		}
+		r.Header.Set("X-Admin-ID", strconv.FormatInt(adminID, 10))
+		next(w, r)
+	}
+}
+
+func superAdminAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminSetup() {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "not_setup"})
+			} else {
+				http.Redirect(w, r, "/admin/setup", http.StatusFound)
+			}
+			return
+		}
+		sid := getSessionFromRequest(r)
+		if !isValidSession(sid) {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+			}
+			return
+		}
+		adminID := getSessionAdminID(r)
+		if adminID == 0 {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+			}
+			return
+		}
+		role := getAdminRole(adminID)
+		if role != "super" {
+			jsonResponse(w, http.StatusForbidden, map[string]string{"error": "permission_denied"})
+			return
+		}
+		r.Header.Set("X-Admin-ID", strconv.FormatInt(adminID, 10))
+		next(w, r)
+	}
+}
+
+
+// handleAdminSetup handles the first-time admin setup page.
+func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
+	if isAdminSetup() {
+		http.Redirect(w, r, "/admin/login", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		captchaID := createCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.SetupTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": captchaID,
+			"Error":     "",
+		})
+		return
+	}
+
+	// POST
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	password2 := r.FormValue("password2")
+	captchaID := r.FormValue("captcha_id")
+	captchaAns := strings.TrimSpace(r.FormValue("captcha"))
+
+	errMsg := ""
+	if username == "" || len(username) < 3 {
+		errMsg = "用户名至少3个字符"
+	} else if password == "" || len(password) < 6 {
+		errMsg = "密码至少6个字符"
+	} else if password != password2 {
+		errMsg = "两次输入的密码不一致"
+	} else if !verifyCaptcha(captchaID, captchaAns) {
+		errMsg = "验证码错误"
+	}
+
+	if errMsg != "" {
+		newCaptchaID := createCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.SetupTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": newCaptchaID,
+			"Error":     errMsg,
+			"Username":  username,
+		})
+		return
+	}
+
+	hash := hashPassword(password)
+	result, err := db.Exec("INSERT INTO admin_credentials (username, password_hash, role) VALUES (?, ?, 'super')", username, hash)
+	if err != nil {
+		log.Printf("Failed to save admin credentials: %v", err)
+		newCaptchaID := createCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.SetupTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": newCaptchaID,
+			"Error":     "保存失败，请重试",
+			"Username":  username,
+		})
+		return
+	}
+
+	adminID, _ := result.LastInsertId()
+	// Auto-login after setup
+	sid := createSession(adminID)
+	http.SetCookie(w, makeSessionCookie("admin_session", sid, 86400))
+	http.Redirect(w, r, "/admin/", http.StatusFound)
+}
+
+// handleAdminLogin handles the login page.
+func handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	if !isAdminSetup() {
+		http.Redirect(w, r, "/admin/setup", http.StatusFound)
+		return
+	}
+
+	// Already logged in?
+	if isValidSession(getSessionFromRequest(r)) {
+		http.Redirect(w, r, "/admin/", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		captchaID := createCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.LoginTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": captchaID,
+			"Error":     "",
+		})
+		return
+	}
+
+	// POST
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	captchaID := r.FormValue("captcha_id")
+	captchaAns := strings.TrimSpace(r.FormValue("captcha"))
+
+	log.Printf("[LOGIN] attempt: username=%q, captchaID=%q, captchaAns=%q", username, captchaID, captchaAns)
+
+	errMsg := ""
+	var adminID int64
+	if !verifyCaptcha(captchaID, captchaAns) {
+		log.Printf("[LOGIN] captcha verification failed for ID=%q answer=%q", captchaID, captchaAns)
+		errMsg = "验证码错误"
+	} else {
+		var storedHash string
+		err := db.QueryRow("SELECT id, password_hash FROM admin_credentials WHERE username = ?", username).Scan(&adminID, &storedHash)
+		if err != nil {
+			log.Printf("[LOGIN] db query error for username=%q: %v", username, err)
+			errMsg = "用户名或密码错误"
+		} else if !checkPassword(password, storedHash) {
+			log.Printf("[LOGIN] password check failed for username=%q adminID=%d", username, adminID)
+			errMsg = "用户名或密码错误"
+		} else {
+			log.Printf("[LOGIN] success for username=%q adminID=%d", username, adminID)
+		}
+	}
+
+	if errMsg != "" {
+		newCaptchaID := createCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.LoginTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": newCaptchaID,
+			"Error":     errMsg,
+			"Username":  username,
+		})
+		return
+	}
+
+	sid := createSession(adminID)
+	http.SetCookie(w, makeSessionCookie("admin_session", sid, 86400))
+	http.Redirect(w, r, "/admin/", http.StatusFound)
+}
+
+// handleAdminLogout logs out the admin.
+func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	sid := getSessionFromRequest(r)
+	if sid != "" {
+		sessionsMu.Lock()
+		delete(sessions, sid)
+		sessionsMu.Unlock()
+	}
+	http.SetCookie(w, makeSessionCookie("admin_session", "", -1))
+	http.Redirect(w, r, "/admin/login", http.StatusFound)
+}
+
+// handleCaptchaImage serves the captcha image.
+func handleCaptchaImage(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	data := generateCaptchaImage(id)
+	if data == nil {
+		http.Error(w, "captcha expired", http.StatusGone)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(data)
+}
+
+// handleCaptchaRefresh creates a new captcha and returns its ID as JSON.
+func handleCaptchaRefresh(w http.ResponseWriter, r *http.Request) {
+	id := createCaptcha()
+	jsonResponse(w, http.StatusOK, map[string]string{"captcha_id": id})
+}
+
 
 // getSetting reads a value from the settings table by key.
 func getSetting(key string) string {
@@ -633,9 +1222,26 @@ func handleUpdateCategory(w http.ResponseWriter, r *http.Request, categoryID int
 // handleDeleteCategory handles DELETE /api/admin/categories/{id}.
 // Refuses deletion if the category has associated pack_listings.
 func handleDeleteCategory(w http.ResponseWriter, r *http.Request, categoryID int64) {
+	// Check if category is a preset (not deletable)
+	var isPreset int
+	err := db.QueryRow("SELECT is_preset FROM categories WHERE id = ?", categoryID).Scan(&isPreset)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "category not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to check category: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if isPreset == 1 {
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "preset categories cannot be deleted"})
+		return
+	}
+
 	// Check for associated pack_listings
 	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE category_id = ?", categoryID).Scan(&count)
+	err = db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE category_id = ?", categoryID).Scan(&count)
 	if err != nil {
 		log.Printf("Failed to count pack listings: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -665,6 +1271,7 @@ func handleDeleteCategory(w http.ResponseWriter, r *http.Request, categoryID int
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
+
 
 // handleAdminCategories dispatches admin category requests based on HTTP method and URL path.
 func handleAdminCategories(w http.ResponseWriter, r *http.Request) {
@@ -699,6 +1306,17 @@ func handleAdminCategories(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// schemaColumn represents a column in a schema requirement.
+type schemaColumn struct {
+	Name string `json:"name"`
+}
+
+// schemaRequirement represents a table and its columns in schema_requirements.
+type schemaRequirement struct {
+	TableName string         `json:"table_name"`
+	Columns   []schemaColumn `json:"columns"`
+}
+
 // qapFileContent represents the JSON structure inside a .qap ZIP file.
 type qapFileContent struct {
 	FileType      string `json:"file_type"`
@@ -709,6 +1327,18 @@ type qapFileContent struct {
 		SourceName  string `json:"source_name"`
 		Description string `json:"description"`
 	} `json:"metadata"`
+	SchemaRequirements []schemaRequirement `json:"schema_requirements"`
+}
+
+// PackMetaInfo represents extracted meta information from a QAP file.
+type PackMetaInfo struct {
+	Tables []PackMetaTable `json:"tables"`
+}
+
+// PackMetaTable represents a table and its column names in pack meta info.
+type PackMetaTable struct {
+	TableName string   `json:"table_name"`
+	Columns   []string `json:"columns"`
 }
 
 // handleUploadPack handles POST /api/packs/upload.
@@ -836,12 +1466,32 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		packName = "Untitled"
 	}
 
+	// Extract meta info from schema_requirements
+	metaInfo := PackMetaInfo{Tables: []PackMetaTable{}}
+	for _, sr := range qapContent.SchemaRequirements {
+		table := PackMetaTable{
+			TableName: sr.TableName,
+			Columns:   []string{},
+		}
+		for _, col := range sr.Columns {
+			table.Columns = append(table.Columns, col.Name)
+		}
+		metaInfo.Tables = append(metaInfo.Tables, table)
+	}
+
+	metaInfoJSON := "{}"
+	if len(metaInfo.Tables) > 0 {
+		if b, err := json.Marshal(metaInfo); err == nil {
+			metaInfoJSON = string(b)
+		}
+	}
+
 	// Insert pack_listing record
 	result, err := db.Exec(
-		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
 		userID, categoryID, fileData, packName, qapContent.Metadata.Description,
-		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice,
+		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, metaInfoJSON,
 	)
 	if err != nil {
 		log.Printf("Failed to insert pack listing: %v", err)
@@ -858,19 +1508,25 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	// Read back the created listing
 	var listing PackListingInfo
+	var metaInfoReadBack sql.NullString
 	err = db.QueryRow(
 		`SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.created_at
+		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
 		 FROM pack_listings pl
 		 JOIN categories c ON c.id = pl.category_id
 		 WHERE pl.id = ?`, listingID,
 	).Scan(&listing.ID, &listing.UserID, &listing.CategoryID, &listing.CategoryName,
 		&listing.PackName, &listing.PackDescription, &listing.SourceName, &listing.AuthorName,
-		&listing.ShareMode, &listing.CreditsPrice, &listing.DownloadCount, &listing.CreatedAt)
+		&listing.ShareMode, &listing.CreditsPrice, &listing.DownloadCount, &listing.Status, &metaInfoReadBack, &listing.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to read back listing: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+	if metaInfoReadBack.Valid && metaInfoReadBack.String != "" {
+		listing.MetaInfo = json.RawMessage(metaInfoReadBack.String)
+	} else {
+		listing.MetaInfo = json.RawMessage("{}")
 	}
 
 	jsonResponse(w, http.StatusCreated, listing)
@@ -886,7 +1542,7 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.created_at
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.meta_info, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.status = 'published'`
@@ -916,10 +1572,10 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 	listings := []PackListingInfo{}
 	for rows.Next() {
 		var l PackListingInfo
-		var desc, sourceName, authorName sql.NullString
+		var desc, sourceName, authorName, metaInfoStr sql.NullString
 		if err := rows.Scan(&l.ID, &l.UserID, &l.CategoryID, &l.CategoryName,
 			&l.PackName, &desc, &sourceName, &authorName,
-			&l.ShareMode, &l.CreditsPrice, &l.DownloadCount, &l.CreatedAt); err != nil {
+			&l.ShareMode, &l.CreditsPrice, &l.DownloadCount, &metaInfoStr, &l.CreatedAt); err != nil {
 			log.Printf("Failed to scan pack listing: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
@@ -932,6 +1588,11 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 		}
 		if authorName.Valid {
 			l.AuthorName = authorName.String
+		}
+		if metaInfoStr.Valid && metaInfoStr.String != "" {
+			l.MetaInfo = json.RawMessage(metaInfoStr.String)
+		} else {
+			l.MetaInfo = json.RawMessage("{}")
 		}
 		listings = append(listings, l)
 	}
@@ -970,10 +1631,11 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	var creditsPrice int
 	var fileData []byte
 	var packName string
+	var metaInfoStr sql.NullString
 	err = db.QueryRow(
-		`SELECT share_mode, credits_price, file_data, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		`SELECT share_mode, credits_price, file_data, pack_name, meta_info FROM pack_listings WHERE id = ? AND status = 'published'`,
 		packID,
-	).Scan(&shareMode, &creditsPrice, &fileData, &packName)
+	).Scan(&shareMode, &creditsPrice, &fileData, &packName, &metaInfoStr)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
 		return
@@ -1067,10 +1729,15 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Return file data as binary response
+	// Return file data as binary response with meta_info header
+	metaInfoValue := "{}"
+	if metaInfoStr.Valid && metaInfoStr.String != "" {
+		metaInfoValue = metaInfoStr.String
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
+	w.Header().Set("X-Meta-Info", metaInfoValue)
 	w.WriteHeader(http.StatusOK)
 	w.Write(fileData)
 }
@@ -1208,7 +1875,7 @@ func handleListTransactions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := db.Query(
 		`SELECT id, user_id, transaction_type, amount, listing_id, description, created_at
-		 FROM credits_transactions WHERE user_id = ? ORDER BY created_at DESC`,
+		 FROM credits_transactions WHERE user_id = ? ORDER BY created_at DESC, id DESC`,
 		userID,
 	)
 	if err != nil {
@@ -1238,6 +1905,320 @@ func handleListTransactions(w http.ResponseWriter, r *http.Request) {
 		"transactions": transactions,
 	})
 }
+// handleAdminManagement dispatches GET and POST requests for /api/admin/admins.
+func handleAdminManagement(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		handleAdminList(w, r)
+	case http.MethodPost:
+		handleCreateAdmin(w, r)
+	default:
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+// handleAdminList returns all admins with id, username, role, created_at.
+// GET /api/admin/admins
+func handleAdminList(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, username, role, created_at FROM admin_credentials ORDER BY id")
+	if err != nil {
+		log.Printf("Failed to query admins: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	type adminInfo struct {
+		ID        int64  `json:"id"`
+		Username  string `json:"username"`
+		Role      string `json:"role"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	var admins []adminInfo
+	for rows.Next() {
+		var a adminInfo
+		if err := rows.Scan(&a.ID, &a.Username, &a.Role, &a.CreatedAt); err != nil {
+			log.Printf("Failed to scan admin row: %v", err)
+			continue
+		}
+		admins = append(admins, a)
+	}
+	if admins == nil {
+		admins = []adminInfo{}
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"admins": admins})
+}
+
+// handleCreateAdmin creates a new admin with role="regular".
+// POST /api/admin/admins
+func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	if len(req.Username) < 3 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "username must be at least 3 characters"})
+		return
+	}
+	if len(req.Password) < 6 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 6 characters"})
+		return
+	}
+
+	// Check username uniqueness
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM admin_credentials WHERE username = ?", req.Username).Scan(&count)
+	if err != nil {
+		log.Printf("Failed to check username: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if count > 0 {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "username_already_exists"})
+		return
+	}
+
+	passwordHash := hashPassword(req.Password)
+	result, err := db.Exec("INSERT INTO admin_credentials (username, password_hash, role) VALUES (?, ?, 'regular')", req.Username, passwordHash)
+	if err != nil {
+		log.Printf("Failed to create admin: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	newID, _ := result.LastInsertId()
+	var createdAt string
+	db.QueryRow("SELECT created_at FROM admin_credentials WHERE id = ?", newID).Scan(&createdAt)
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":         newID,
+		"username":   req.Username,
+		"role":       "regular",
+		"created_at": createdAt,
+	})
+}
+
+// handleUpdateProfile allows an admin to update their own username and/or password.
+// PUT /api/admin/profile
+func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, err := strconv.ParseInt(adminIDStr, 10, 64)
+	if err != nil || adminID == 0 {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Username    string `json:"username"`
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Get current admin info
+	var currentUsername, currentPasswordHash string
+	err = db.QueryRow("SELECT username, password_hash FROM admin_credentials WHERE id = ?", adminID).Scan(&currentUsername, &currentPasswordHash)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Update username if provided and different
+	if req.Username != "" && req.Username != currentUsername {
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM admin_credentials WHERE username = ? AND id != ?", req.Username, adminID).Scan(&count)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if count > 0 {
+			jsonResponse(w, http.StatusConflict, map[string]string{"error": "username_already_exists"})
+			return
+		}
+		_, err = db.Exec("UPDATE admin_credentials SET username = ? WHERE id = ?", req.Username, adminID)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+
+	// Update password if new_password provided
+	if req.NewPassword != "" {
+		if !checkPassword(req.OldPassword, currentPasswordHash) {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_old_password"})
+			return
+		}
+		newHash := hashPassword(req.NewPassword)
+		_, err = db.Exec("UPDATE admin_credentials SET password_hash = ? WHERE id = ?", newHash, adminID)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handlePendingList returns all pack listings with status='pending'.
+// GET /api/admin/review/pending
+func handlePendingList(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query(`
+		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		FROM pack_listings pl
+		JOIN categories c ON c.id = pl.category_id
+		WHERE pl.status = 'pending'
+		ORDER BY pl.created_at ASC`)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	var listings []PackListingInfo
+	for rows.Next() {
+		var p PackListingInfo
+		var categoryName, metaInfoStr sql.NullString
+		err := rows.Scan(&p.ID, &p.UserID, &p.CategoryID, &categoryName, &p.PackName, &p.PackDescription,
+			&p.SourceName, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.Status, &metaInfoStr, &p.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if categoryName.Valid {
+			p.CategoryName = categoryName.String
+		}
+		if metaInfoStr.Valid && metaInfoStr.String != "" {
+			p.MetaInfo = json.RawMessage(metaInfoStr.String)
+		} else {
+			p.MetaInfo = json.RawMessage("{}")
+		}
+		listings = append(listings, p)
+	}
+	if listings == nil {
+		listings = []PackListingInfo{}
+	}
+	jsonResponse(w, http.StatusOK, listings)
+}
+
+// handleApproveReview approves a pending pack listing.
+// POST /api/admin/review/{id}/approve
+func handleApproveReview(w http.ResponseWriter, r *http.Request, listingID int64) {
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	// Check current status
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM pack_listings WHERE id = ?", listingID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	if currentStatus != "pending" {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "invalid_review_status"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE pack_listings SET status='published', reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+		adminID, listingID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleRejectReview rejects a pending pack listing with a reason.
+// POST /api/admin/review/{id}/reject
+func handleRejectReview(w http.ResponseWriter, r *http.Request, listingID int64) {
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if strings.TrimSpace(body.Reason) == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "reject_reason_required"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	// Check current status
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM pack_listings WHERE id = ?", listingID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	if currentStatus != "pending" {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "invalid_review_status"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE pack_listings SET status='rejected', reject_reason=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'",
+		body.Reason, adminID, listingID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleReviewRoutes dispatches review API requests.
+func handleReviewRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/review/")
+	if path == "pending" && r.Method == http.MethodGet {
+		handlePendingList(w, r)
+		return
+	}
+	// Parse: {id}/approve or {id}/reject
+	parts := strings.Split(path, "/")
+	if len(parts) == 2 {
+		id, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+			return
+		}
+		switch parts[1] {
+		case "approve":
+			if r.Method == http.MethodPost {
+				handleApproveReview(w, r, id)
+				return
+			}
+		case "reject":
+			if r.Method == http.MethodPost {
+				handleRejectReview(w, r, id)
+				return
+			}
+		}
+	}
+	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
 // adminTmpl is the parsed admin panel HTML template.
 var adminTmpl = template.Must(template.New("admin").Parse(templates.AdminHTML))
 
@@ -1254,11 +2235,18 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		initialCredits = "0"
 	}
 
+	// Get admin info from session
+	adminID := getSessionAdminID(r)
+	role := getAdminRole(adminID)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	adminTmpl.Execute(w, map[string]interface{}{
 		"InitialCredits": initialCredits,
+		"Role":           role,
+		"AdminID":        adminID,
 	})
 }
+
 
 // handleSetInitialCredits updates the initial_credits_balance setting.
 // POST /admin/settings/initial-credits
@@ -1292,7 +2280,7 @@ func handleSetInitialCredits(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	port := flag.Int("port", 8090, "Server port")
+	port := flag.Int("port", 8088, "Server port")
 	dbPath := flag.String("db", "marketplace.db", "SQLite database path")
 	flag.Parse()
 
@@ -1306,10 +2294,10 @@ func main() {
 	// Auth routes
 	http.HandleFunc("/api/auth/oauth", handleOAuthCallback)
 
-	// Category routes (listing is public)
+	// Category routes (listing is public, admin requires auth)
 	http.HandleFunc("/api/categories", handleListCategories)
-	http.HandleFunc("/api/admin/categories", handleAdminCategories)
-	http.HandleFunc("/api/admin/categories/", handleAdminCategories)
+	http.HandleFunc("/api/admin/categories", superAdminAuth(handleAdminCategories))
+	http.HandleFunc("/api/admin/categories/", superAdminAuth(handleAdminCategories))
 
 	// Pack routes (upload and download require auth, listing is public)
 	http.HandleFunc("/api/packs/upload", authMiddleware(handleUploadPack))
@@ -1321,9 +2309,32 @@ func main() {
 	http.HandleFunc("/api/credits/purchase", authMiddleware(handlePurchaseCredits))
 	http.HandleFunc("/api/credits/transactions", authMiddleware(handleListTransactions))
 
-	// Admin routes
-	http.HandleFunc("/admin/settings/initial-credits", handleSetInitialCredits)
-	http.HandleFunc("/admin/", handleAdminDashboard)
+	// Admin auth routes (public)
+	http.HandleFunc("/admin/setup", handleAdminSetup)
+	http.HandleFunc("/admin/login", handleAdminLogin)
+	http.HandleFunc("/admin/logout", handleAdminLogout)
+	http.HandleFunc("/admin/captcha", handleCaptchaImage)
+	http.HandleFunc("/admin/captcha/refresh", handleCaptchaRefresh)
+
+	// Admin management API routes
+	http.HandleFunc("/api/admin/admins", superAdminAuth(handleAdminManagement))
+	http.HandleFunc("/api/admin/profile", adminAuth(handleUpdateProfile))
+
+	// Review API routes
+	http.HandleFunc("/api/admin/review/", adminAuth(handleReviewRoutes))
+
+	// Admin routes (protected by session auth)
+	http.HandleFunc("/admin/settings/initial-credits", superAdminAuth(handleSetInitialCredits))
+	http.HandleFunc("/admin/", adminAuth(handleAdminDashboard))
+
+	// Root redirect to admin
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/admin/", http.StatusFound)
+			return
+		}
+		http.NotFound(w, r)
+	})
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("Marketplace server starting on %s", addr)

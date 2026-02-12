@@ -2455,8 +2455,13 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 		return nil, err
 	}
 
+	const maxRows = 50000 // Safety limit to prevent memory exhaustion
 	var result []map[string]interface{}
 	for rows.Next() {
+		if len(result) >= maxRows {
+			s.log(fmt.Sprintf("[ExecuteSQL] Result truncated at %d rows", maxRows))
+			break
+		}
 		values := make([]interface{}, len(cols))
 		ptrs := make([]interface{}, len(cols))
 		for i := range values {

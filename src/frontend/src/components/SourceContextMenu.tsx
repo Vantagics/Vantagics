@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource, RefreshEcommerceDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
-import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw, Database } from 'lucide-react';
+import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw, Database, PackageOpen } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface SourceContextMenuProps {
@@ -20,9 +20,10 @@ interface SourceContextMenuProps {
     onRename?: () => void; // Rename data source
     onSemanticOptimize?: () => void; // New: semantic optimization
     onExploreData?: () => void; // Explore data browser
+    onLoadPack?: (dataSourceId: string) => void; // Load quick analysis pack
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize, onExploreData }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onOptimize, onRename, onSemanticOptimize, onExploreData, onLoadPack }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
@@ -155,6 +156,19 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 <Download className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                 {t('export_data')}
             </button>
+            
+            {onLoadPack && (
+                <button 
+                    onClick={() => {
+                        onLoadPack(sourceId);
+                        onClose();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                >
+                    <PackageOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                    {t('load_quick_analysis_pack')}
+                </button>
+            )}
             
             {hasLocalDB && !isOptimized && onOptimize && (
                 <button 

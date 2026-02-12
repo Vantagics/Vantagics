@@ -31,6 +31,7 @@ type PythonPool struct {
 	poolSize   int
 	mu         sync.Mutex
 	closed     bool
+	stopMaint  chan struct{} // Signal to stop maintenance goroutine
 }
 
 // WorkerRequest is sent to the Python worker
@@ -133,6 +134,7 @@ func NewPythonPool(pythonPath string, size int) (*PythonPool, error) {
 		available:  make(chan *PythonWorker, size),
 		pythonPath: pythonPath,
 		poolSize:   size,
+		stopMaint:  make(chan struct{}),
 	}
 
 	// Start initial workers
@@ -309,13 +311,14 @@ func (w *PythonWorker) execute(code string, workDir string) (string, error) {
 		if w.cmd.Process != nil {
 			w.cmd.Process.Kill()
 		}
-		// Wait briefly for the goroutine to finish after process kill
-		go func() {
-			select {
-			case <-resultChan:
-			case <-time.After(5 * time.Second):
-			}
-		}()
+		// Wait for the goroutine to finish after process kill (blocking, with timeout)
+		// This prevents goroutine leaks by ensuring the reader goroutine exits
+		select {
+		case <-resultChan:
+			// Goroutine exited cleanly after process kill
+		case <-time.After(5 * time.Second):
+			// Goroutine didn't exit in time; it will exit when the pipe closes
+		}
 		return "", fmt.Errorf("execution timeout (120s)")
 	}
 }
@@ -358,20 +361,32 @@ func (p *PythonPool) replaceWorker(oldWorker *PythonWorker) {
 	}()
 }
 
-// maintenance runs periodic cleanup
+// maintenance runs periodic health checks on workers
 func (p *PythonPool) maintenance() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		p.mu.Lock()
-		if p.closed {
-			p.mu.Unlock()
+	for {
+		select {
+		case <-p.stopMaint:
 			return
+		case <-ticker.C:
+			p.mu.Lock()
+			if p.closed {
+				p.mu.Unlock()
+				return
+			}
+			// Check worker health: identify workers idle for too long
+			for _, w := range p.workers {
+				w.mu.Lock()
+				if w.ready && w.cmd.ProcessState != nil {
+					// Process has exited unexpectedly
+					w.ready = false
+				}
+				w.mu.Unlock()
+			}
+			p.mu.Unlock()
 		}
-		p.mu.Unlock()
-
-		// Could add worker health checks here
 	}
 }
 
@@ -385,6 +400,9 @@ func (p *PythonPool) Close() {
 	}
 	p.closed = true
 	p.mu.Unlock()
+
+	// Signal maintenance goroutine to stop
+	close(p.stopMaint)
 
 	// Kill all worker processes first (this unblocks any pending Execute calls)
 	for _, worker := range p.workers {

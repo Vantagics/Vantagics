@@ -21,3 +21,14 @@ node_modules/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Deployment scripts
+deploy/
+
+# Marketplace server temporary files
+tools/marketplace_server/build/
+tools/marketplace_server/*.py
+tools/marketplace_server/*.db
+tools/marketplace_server/*.db-shm
+tools/marketplace_server/*.db-wal
+tools/marketplace_server/templates/auth.go

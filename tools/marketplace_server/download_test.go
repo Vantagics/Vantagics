@@ -9,12 +9,16 @@ import (
 	"testing"
 )
 
+// testUserCounter is used to generate unique oauth_provider_id values in tests.
+var testUserCounter int64
+
 // createTestUserWithBalance inserts a test user with a specific credits balance and returns the user ID.
 func createTestUserWithBalance(t *testing.T, balance float64) int64 {
 	t.Helper()
+	testUserCounter++
 	result, err := db.Exec(
 		"INSERT INTO users (oauth_provider, oauth_provider_id, display_name, email, credits_balance) VALUES ('google', ?, 'Downloader', 'dl@test.com', ?)",
-		fmt.Sprintf("dl-user-%f", balance), balance,
+		fmt.Sprintf("dl-user-%d-%f", testUserCounter, balance), balance,
 	)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)

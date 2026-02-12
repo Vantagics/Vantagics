@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import DraggableDashboard from './components/DraggableDashboard';
-import ContextPanel from './components/ContextPanel';
 import PreferenceModal from './components/PreferenceModal';
 import AboutModal from './components/AboutModal';
 import ChatSidebar from './components/ChatSidebar';
@@ -11,12 +10,15 @@ import MessageModal from './components/MessageModal';
 import SkillsManagementPage from './components/SkillsManagementPage';
 import StartupModeModal from './components/StartupModeModal';
 import CenterPanel from './components/CenterPanel';
+import PackManagerPage from './components/PackManagerPage';
+import OAuthLoginDialog from './components/OAuthLoginDialog';
+import ShareToMarketDialog from './components/ShareToMarketDialog';
 import RightPanel from './components/RightPanel';
 import ResizeHandle from './components/ResizeHandle';
 import DataBrowser from './components/DataBrowser';
 import { PanelWidths, PANEL_CONSTRAINTS, calculatePanelWidths, getDefaultPanelWidths, handleResizeDrag } from './utils/PanelWidths';
 import { EventsOn, EventsEmit, Quit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense, IsMarketplaceLoggedIn } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -37,6 +39,11 @@ function AppContent() {
     const [preferenceInitialTab, setPreferenceInitialTab] = useState<'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent' | undefined>(undefined);
     const [isAboutOpen, setIsAboutOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+    const [isPackManagerOpen, setIsPackManagerOpen] = useState(false);
+    // Sharing flow state (Task 11.1)
+    const [sharePackInfo, setSharePackInfo] = useState<{ pack_name: string; qap_file_path: string } | null>(null);
+    const [showOAuthLogin, setShowOAuthLogin] = useState(false);
+    const [showShareDialog, setShowShareDialog] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
     const [activeChart, setActiveChart] = useState<{ type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: main.ChartData } | null>(null);
@@ -207,6 +214,43 @@ function AppContent() {
     // Generate unique request ID for tracking analysis requests (Requirements 2.1, 4.1)
     const generateRequestId = (): string => {
         return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    };
+
+    // Handle share pack flow (Task 11.1 - Requirements 8.5, 8.6, 8.7, 9.1)
+    const handleSharePack = async (pack: { pack_name: string; qap_file_path: string }) => {
+        setSharePackInfo(pack);
+        try {
+            const loggedIn = await IsMarketplaceLoggedIn();
+            if (loggedIn) {
+                setShowShareDialog(true);
+            } else {
+                setShowOAuthLogin(true);
+            }
+        } catch {
+            // If check fails, show login dialog as fallback
+            setShowOAuthLogin(true);
+        }
+    };
+
+    const handleOAuthLoginSuccess = () => {
+        setShowOAuthLogin(false);
+        setShowShareDialog(true);
+    };
+
+    const handleOAuthLoginClose = () => {
+        setShowOAuthLogin(false);
+        setSharePackInfo(null);
+    };
+
+    const handleShareSuccess = () => {
+        setShowShareDialog(false);
+        setSharePackInfo(null);
+        showToast('success', t('share_dialog_success'));
+    };
+
+    const handleShareClose = () => {
+        setShowShareDialog(false);
+        setSharePackInfo(null);
     };
 
     // Handle insight click - Requirements 1.1, 1.2, 2.1, 2.2, 4.2, 5.3, 5.4
@@ -722,6 +766,11 @@ function AppContent() {
         // Listen for about menu event
         const unsubscribeAbout = EventsOn("open-about", () => {
             setIsAboutOpen(true);
+        });
+
+        // Listen for pack manager menu event
+        const unsubscribePackManager = EventsOn("open-pack-manager", () => {
+            setIsPackManagerOpen(true);
         });
 
         // Listen for open startup mode modal event (from AboutModal when switching to commercial mode)
@@ -1518,6 +1567,7 @@ function AppContent() {
             if (unsubscribeLoading) unsubscribeLoading();
             if (unsubscribeSettings) unsubscribeSettings();
             if (unsubscribeAbout) unsubscribeAbout();
+            if (unsubscribePackManager) unsubscribePackManager();
             if (unsubscribeStartupMode) unsubscribeStartupMode();
             if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
             if (unsubscribeSessionSwitch) unsubscribeSessionSwitch();
@@ -1772,6 +1822,28 @@ function AppContent() {
                     isOpen={isSkillsOpen}
                     onClose={() => setIsSkillsOpen(false)}
                 />
+
+                <PackManagerPage
+                    isOpen={isPackManagerOpen}
+                    onClose={() => setIsPackManagerOpen(false)}
+                    onSharePack={handleSharePack}
+                />
+
+                {showOAuthLogin && (
+                    <OAuthLoginDialog
+                        onSuccess={handleOAuthLoginSuccess}
+                        onClose={handleOAuthLoginClose}
+                    />
+                )}
+
+                {showShareDialog && sharePackInfo && (
+                    <ShareToMarketDialog
+                        packFilePath={sharePackInfo.qap_file_path}
+                        packName={sharePackInfo.pack_name}
+                        onSuccess={handleShareSuccess}
+                        onClose={handleShareClose}
+                    />
+                )}
 
                 <AboutModal
                     isOpen={isAboutOpen}

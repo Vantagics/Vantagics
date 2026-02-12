@@ -215,12 +215,15 @@ func (sf *SessionFile) UnmarshalJSON(data []byte) error {
 
 // ChatThread represents a conversation thread
 type ChatThread struct {
-	ID           string        `json:"id"`
-	Title        string        `json:"title"`
-	DataSourceID string        `json:"data_source_id"` // Associated Data Source ID
-	CreatedAt    int64         `json:"created_at"`
-	Messages     []ChatMessage `json:"messages"`
-	Files        []SessionFile `json:"files,omitempty"` // Generated files during session
+	ID              string        `json:"id"`
+	Title           string        `json:"title"`
+	DataSourceID    string        `json:"data_source_id"` // Associated Data Source ID
+	CreatedAt       int64         `json:"created_at"`
+	Messages        []ChatMessage `json:"messages"`
+	Files           []SessionFile `json:"files,omitempty"`           // Generated files during session
+	IsReplaySession bool          `json:"is_replay_session,omitempty"` // Quick analysis replay session flag
+	PackMetadata    *PackMetadata `json:"pack_metadata,omitempty"`     // Quick analysis pack metadata
+	QapFilePath     string        `json:"qap_file_path,omitempty"`     // File path of the imported .qap file (for re-execution)
 }
 
 // UnmarshalJSON implements custom unmarshaling to handle both new (int64) and old (time.Time string) formats
@@ -293,7 +296,12 @@ func NewChatService(sessionsDir string) *ChatService {
 // getThreadPath returns the path to the history file for a given thread
 // Validates threadID to prevent path traversal attacks
 func (s *ChatService) getThreadPath(threadID string) string {
-	// Sanitize threadID: only allow alphanumeric, hyphens, and underscores
+	return filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID), "history.json")
+}
+
+// sanitizeThreadID sanitizes a threadID to prevent path traversal attacks
+// Only allows alphanumeric, hyphens, and underscores
+func (s *ChatService) sanitizeThreadID(threadID string) string {
 	safe := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
 			return r
@@ -303,7 +311,7 @@ func (s *ChatService) getThreadPath(threadID string) string {
 	if safe == "" {
 		safe = "invalid"
 	}
-	return filepath.Join(s.sessionsDir, safe, "history.json")
+	return safe
 }
 
 // LoadThreads loads all chat threads from storage
@@ -581,7 +589,7 @@ func (s *ChatService) DeleteThread(threadID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dir := filepath.Join(s.sessionsDir, threadID)
+	dir := filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID))
 	return os.RemoveAll(dir)
 }
 
@@ -614,11 +622,11 @@ func (s *ChatService) ClearThreadMessages(threadID string) error {
 	}
 
 	// Clean up analysis results directory
-	resultsDir := filepath.Join(s.sessionsDir, threadID, "analysis_results")
+	resultsDir := filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID), "analysis_results")
 	os.RemoveAll(resultsDir)
 
 	// Clean up files directory
-	filesDir := filepath.Join(s.sessionsDir, threadID, "files")
+	filesDir := filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID), "files")
 	os.RemoveAll(filesDir)
 
 	return nil
@@ -634,12 +642,12 @@ func (s *ChatService) ClearHistory() error {
 
 // GetSessionDirectory returns the directory path for a specific session
 func (s *ChatService) GetSessionDirectory(threadID string) string {
-	return filepath.Join(s.sessionsDir, threadID)
+	return filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID))
 }
 
 // GetSessionFilesDirectory returns the files directory path for a specific session
 func (s *ChatService) GetSessionFilesDirectory(threadID string) string {
-	return filepath.Join(s.sessionsDir, threadID, "files")
+	return filepath.Join(s.sessionsDir, s.sanitizeThreadID(threadID), "files")
 }
 
 // AddSessionFile registers a file generated during the session

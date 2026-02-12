@@ -29,31 +29,43 @@ var icon []byte
 
 // MenuTexts holds localized menu text
 type MenuTexts struct {
-	File     string
-	Settings string
-	Exit     string
-	Help     string
-	About    string
+	File           string
+	Settings       string
+	Exit           string
+	Help           string
+	About          string
+	Market         string
+	PackManager    string
+	VisitMarket    string
+	ProductService string
 }
 
 // getMenuTexts returns localized menu texts based on language
 func getMenuTexts(language string) MenuTexts {
 	if language == "简体中文" {
 		return MenuTexts{
-			File:     "文件",
-			Settings: "设置",
-			Exit:     "退出",
-			Help:     "帮助",
-			About:    "关于",
+			File:           "文件",
+			Settings:       "设置",
+			Exit:           "退出",
+			Help:           "帮助",
+			About:          "关于",
+			Market:         "市场",
+			PackManager:    "快捷包管理",
+			VisitMarket:    "访问市场",
+			ProductService: "产品服务",
 		}
 	}
 	// Default to English
 	return MenuTexts{
-		File:     "File",
-		Settings: "Settings",
-		Exit:     "Exit",
-		Help:     "Help",
-		About:    "About",
+		File:           "File",
+		Settings:       "Settings",
+		Exit:           "Exit",
+		Help:           "Help",
+		About:          "About",
+		Market:         "Market",
+		PackManager:    "Pack Manager",
+		VisitMarket:    "Visit Market",
+		ProductService: "Product Service",
 	}
 }
 
@@ -172,6 +184,21 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 
 		// IMPORTANT: Add EditMenu to enable Cmd+C, Cmd+V, Cmd+X, Cmd+A, Cmd+Z shortcuts on macOS
 		newMenu.Append(menu.EditMenu())
+
+		// Add Market menu
+		marketMenu := newMenu.AddSubmenu(texts.Market)
+		marketMenu.AddText(texts.PackManager, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.EventsEmit(app.ctx, "open-pack-manager")
+		})
+		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
+		})
+
+		// Add Help menu for macOS
+		helpMenuMac := newMenu.AddSubmenu(texts.Help)
+		helpMenuMac.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat")
+		})
 	} else {
 		// Non-macOS: Keep Settings in File menu
 		fileMenu := newMenu.AddSubmenu(texts.File)
@@ -183,10 +210,22 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.Quit(app.ctx)
 		})
 
+		// Add Market menu
+		marketMenu := newMenu.AddSubmenu(texts.Market)
+		marketMenu.AddText(texts.PackManager, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.EventsEmit(app.ctx, "open-pack-manager")
+		})
+		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
+		})
+
 		// Add Help Menu for non-macOS
 		helpMenu := newMenu.AddSubmenu(texts.Help)
 		helpMenu.AddText(texts.About, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.EventsEmit(app.ctx, "open-about")
+		})
+		helpMenu.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat")
 		})
 	}
 

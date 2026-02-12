@@ -404,7 +404,7 @@ func TestUploadPack_EmptySourceName_FallsBackToUntitled(t *testing.T) {
 	}
 }
 
-func TestUploadPack_StatusIsPublished(t *testing.T) {
+func TestUploadPack_StatusIsPending(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()
 
@@ -426,14 +426,14 @@ func TestUploadPack_StatusIsPublished(t *testing.T) {
 	var listing PackListingInfo
 	json.Unmarshal(rr.Body.Bytes(), &listing)
 
-	// Verify status in DB directly
+	// Verify status in DB directly - should be 'pending' after admin review feature
 	var status string
 	err := db.QueryRow("SELECT status FROM pack_listings WHERE id = ?", listing.ID).Scan(&status)
 	if err != nil {
 		t.Fatalf("failed to query status: %v", err)
 	}
-	if status != "published" {
-		t.Errorf("expected status='published', got %q", status)
+	if status != "pending" {
+		t.Errorf("expected status='pending', got %q", status)
 	}
 }
 

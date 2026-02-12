@@ -154,7 +154,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024)) // 1MB limit for activation response
 	if err != nil {
 		return &ActivateResult{
 			Success: false,
@@ -510,7 +510,7 @@ func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, 
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %v", err)
 	}
@@ -875,7 +875,7 @@ func (c *LicenseClient) ReportUsage() error {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024)) // 1MB limit
 	if err != nil {
 		if c.log != nil {
 			c.log(fmt.Sprintf("[LICENSE] Failed to read report response: %v", err))

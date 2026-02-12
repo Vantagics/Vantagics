@@ -18,6 +18,7 @@ require (
 	github.com/johnfercher/maroto/v2 v2.3.3
 	github.com/snowflakedb/gosnowflake v1.7.2
 	github.com/wailsapp/wails/v2 v2.11.0
+	golang.org/x/crypto v0.44.0
 	modernc.org/sqlite v1.42.2
 )
 
@@ -127,7 +128,6 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.mozilla.org/pkcs7 v0.9.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/image v0.25.0 // indirect
 	golang.org/x/mod v0.29.0 // indirect

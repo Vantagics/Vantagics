@@ -246,6 +246,40 @@ func TestDeleteCategory_NotFound(t *testing.T) {
 	}
 }
 
+func TestDeleteCategory_PresetForbidden(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Get preset categories
+	rr := listCategories(t)
+	var categories []PackCategory
+	json.Unmarshal(rr.Body.Bytes(), &categories)
+
+	// Find a preset category
+	var presetID int64
+	for _, cat := range categories {
+		if cat.IsPreset {
+			presetID = cat.ID
+			break
+		}
+	}
+	if presetID == 0 {
+		t.Fatal("no preset category found")
+	}
+
+	// Try to delete it - should be forbidden
+	rr2 := deleteCategoryReq(t, presetID)
+	if rr2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d; body: %s", rr2.Code, rr2.Body.String())
+	}
+
+	var resp map[string]string
+	json.Unmarshal(rr2.Body.Bytes(), &resp)
+	if resp["error"] != "preset categories cannot be deleted" {
+		t.Errorf("expected error='preset categories cannot be deleted', got %q", resp["error"])
+	}
+}
+
 func TestDeleteCategory_HasListings(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()

@@ -17,6 +17,8 @@ import OnboardingWizard from './OnboardingWizard';
 import HistoricalSessionsSection from './HistoricalSessionsSection';
 import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
+import ExportPackDialog from './ExportPackDialog';
+import ImportPackDialog from './ImportPackDialog';
 import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History } from 'lucide-react';
 import { useLoadingState } from '../hooks/useLoadingState';
 import './LeftPanel.css';
@@ -58,6 +60,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
     const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ id: string; title: string } | null>(null);
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
+    const [exportPackThreadId, setExportPackThreadId] = useState<string | null>(null);
+    const [importPackDataSourceId, setImportPackDataSourceId] = useState<string | null>(null);
     const [autoIntentUnderstanding, setAutoIntentUnderstanding] = useState<boolean>(true);
     const [freeChatThreadId, setFreeChatThreadId] = useState<string | null>(null);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
@@ -206,7 +210,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         }
     };
 
-    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report', threadId: string) => {
+    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => {
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
         } else if (action === 'export') {
@@ -248,6 +252,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             // First switch to the session, then trigger report generation
             onSessionSelect(threadId);
             EventsEmit('generate-comprehensive-report', { threadId });
+        } else if (action === 'export_quick_analysis_pack') {
+            setExportPackThreadId(threadId);
         }
         setSessionContextMenu(null);
     };
@@ -503,6 +509,26 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             isGeneratingComprehensiveReport={isGeneratingReport}
                         />
                     )}
+
+                    {/* Export Quick Analysis Pack Dialog */}
+                    {exportPackThreadId && (
+                        <ExportPackDialog
+                            isOpen={true}
+                            onClose={() => setExportPackThreadId(null)}
+                            onConfirm={() => setExportPackThreadId(null)}
+                            threadId={exportPackThreadId}
+                        />
+                    )}
+
+                    {/* Import Quick Analysis Pack Dialog */}
+                    {importPackDataSourceId && (
+                        <ImportPackDialog
+                            isOpen={true}
+                            onClose={() => setImportPackDataSourceId(null)}
+                            onConfirm={() => setImportPackDataSourceId(null)}
+                            dataSourceId={importPackDataSourceId}
+                        />
+                    )}
                 </>
             )}
 
@@ -649,6 +675,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             sourceId: contextMenu.sourceId,
                             sourceName: contextMenu.sourceName
                         });
+                    }}
+                    onLoadPack={(dataSourceId) => {
+                        setImportPackDataSourceId(dataSourceId);
                     }}
                 />
             )}

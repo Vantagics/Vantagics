@@ -60,9 +60,9 @@ if errorlevel 1 (
 REM Step 3: Build on remote server
 echo.
 echo [3/4] Compiling on %SERVER%...
-sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && go mod tidy && CGO_ENABLED=1 go build -o marketplace_server ." 2>NUL
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && go mod tidy && CGO_ENABLED=0 go build -o marketplace_server ." 2>NUL
 if errorlevel 1 (
-    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && go mod tidy && CGO_ENABLED=1 go build -o marketplace_server ."
+    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && go mod tidy && CGO_ENABLED=0 go build -o marketplace_server ."
 )
 echo      Done: %REMOTE_DIR%/marketplace_server
 

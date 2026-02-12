@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport } from '../../wailsjs/go/main/App';
+import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play } from 'lucide-react';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import * as echarts from 'echarts';
@@ -11,6 +11,7 @@ import DeleteConfirmationModal from './DeleteConfirmationModal';
 import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
 import CancelConfirmationModal from './CancelConfirmationModal';
+import ExportPackDialog from './ExportPackDialog';
 import Toast, { ToastType } from './Toast';
 import { createLogger } from '../utils/systemLog';
 import { loadingStateManager } from '../managers/LoadingStateManager';
@@ -53,6 +54,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
+    const [exportPackThreadId, setExportPackThreadId] = useState<string | null>(null);
     const [suggestionButtonSessions, setSuggestionButtonSessions] = useState<Set<string>>(new Set()); // 跟踪哪些会话需要显示建议按钮
     const [isSearching, setIsSearching] = useState(false); // 跟踪是否正在进行网络搜索
     const [isStreaming, setIsStreaming] = useState(false); // 跟踪Free Chat是否正在流式响应
@@ -86,6 +88,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [comprehensiveReportExportDropdownOpen, setComprehensiveReportExportDropdownOpen] = useState(false);
     const [comprehensiveReportCached, setComprehensiveReportCached] = useState(false);
     const [comprehensiveReportError, setComprehensiveReportError] = useState<string | null>(null);
+
+    // QAP Replay Session State (Requirements: 5.7, 6.2, 6.3, 6.4)
+    const [qapProgress, setQapProgress] = useState<{ threadId: string; currentStep: number; totalSteps: number; description: string } | null>(null);
+    const [qapCompleteThreads, setQapCompleteThreads] = useState<Set<string>>(new Set());
+    const [qapReExecuting, setQapReExecuting] = useState(false);
 
     // Broadcast comprehensive report generation state to other components (e.g. Sidebar context menu)
     useEffect(() => {
@@ -803,6 +810,26 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
         });
 
+        // QAP Replay Session events (Requirements: 5.7, 6.4)
+        const unsubscribeQapProgress = EventsOn('qap-progress', (data: any) => {
+            if (data && data.threadId) {
+                setQapProgress({
+                    threadId: data.threadId,
+                    currentStep: data.currentStep,
+                    totalSteps: data.totalSteps,
+                    description: data.description || '',
+                });
+            }
+        });
+
+        const unsubscribeQapComplete = EventsOn('qap-complete', (data: any) => {
+            if (data && data.threadId) {
+                setQapProgress(null);
+                setQapCompleteThreads(prev => new Set(prev).add(data.threadId));
+                setQapReExecuting(false);
+            }
+        });
+
         return () => {
             if (unsubscribeOpen) unsubscribeOpen();
             if (unsubscribeSwitchToSession) unsubscribeSwitchToSession();
@@ -818,6 +845,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeStreamEnd) unsubscribeStreamEnd();
             if (unsubscribeSearchStatus) unsubscribeSearchStatus();
             if (unsubscribeComprehensiveReport) unsubscribeComprehensiveReport();
+            if (unsubscribeQapProgress) unsubscribeQapProgress();
+            if (unsubscribeQapComplete) unsubscribeQapComplete();
         };
     }, [threads]);
 
@@ -1149,7 +1178,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setBlankAreaContextMenu(null);
     };
 
-    const handleContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'start_free_chat' | 'comprehensive_report', threadId: string) => {
+    const handleContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'start_free_chat' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => {
         console.log(`Action ${action} on thread ${threadId}`);
         if (action === 'view_memory') {
             setMemoryModalTarget(threadId);
@@ -1196,6 +1225,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         } else if (action === 'comprehensive_report') {
             // Generate comprehensive report for the session
             await handleGenerateComprehensiveReport(threadId);
+        } else if (action === 'export_quick_analysis_pack') {
+            setExportPackThreadId(threadId);
         } else if (action === 'start_free_chat') {
             try {
                 // Create a new thread without data source for free chat
@@ -2995,6 +3026,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         {/* Loading spinner for sessions with ongoing analysis - Requirements: 2.1, 2.2, 2.3 */}
                                         {isThreadLoading(thread.id) ? (
                                             <Loader2 className={`w-4 h-4 flex-shrink-0 animate-spin ${activeThreadId === thread.id ? 'text-blue-500' : 'text-blue-400'}`} />
+                                        ) : thread.is_replay_session ? (
+                                            <Zap className={`w-4 h-4 flex-shrink-0 ${activeThreadId === thread.id ? 'text-amber-500' : 'text-amber-400'}`} />
                                         ) : (
                                             <MessageSquare className={`w-4 h-4 flex-shrink-0 ${activeThreadId === thread.id ? 'text-blue-500' : 'text-slate-400'}`} />
                                         )}
@@ -3189,6 +3222,86 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </div>
                         ) : null}
                     </div>
+
+                    {/* QAP Replay Session Metadata Banner (Requirements: 6.3, 5.7, 6.4) */}
+                    {activeThread?.is_replay_session && activeThread.pack_metadata && (
+                        <div className="px-4 py-3 border-b border-amber-200 dark:border-amber-800/40 bg-amber-50/80 dark:bg-amber-900/20">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Zap className="w-4 h-4 text-amber-500" />
+                                <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                    {t('replay_session_badge')}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                <div>
+                                    <span className="text-slate-500 dark:text-[#808080]">{t('replay_session_author')}:</span>{' '}
+                                    <span className="font-medium text-slate-700 dark:text-[#d4d4d4]">{activeThread.pack_metadata.author}</span>
+                                </div>
+                                <div>
+                                    <span className="text-slate-500 dark:text-[#808080]">{t('replay_session_created_at')}:</span>{' '}
+                                    <span className="font-medium text-slate-700 dark:text-[#d4d4d4]">
+                                        {new Date(activeThread.pack_metadata.created_at).toLocaleString()}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-slate-500 dark:text-[#808080]">{t('replay_session_source')}:</span>{' '}
+                                    <span className="font-medium text-slate-700 dark:text-[#d4d4d4]">{activeThread.pack_metadata.source_name}</span>
+                                </div>
+                            </div>
+
+                            {/* Progress bar during execution (Requirement 5.7) */}
+                            {qapProgress && qapProgress.threadId === activeThreadId && (
+                                <div className="mt-3">
+                                    <div className="flex items-center justify-between text-[10px] text-slate-600 dark:text-[#b0b0b0] mb-1">
+                                        <span>{t('replay_session_progress').replace('{current}', String(qapProgress.currentStep)).replace('{total}', String(qapProgress.totalSteps))}</span>
+                                        <span>{Math.round((qapProgress.currentStep / qapProgress.totalSteps) * 100)}%</span>
+                                    </div>
+                                    <div className="w-full bg-amber-100 dark:bg-amber-900/30 rounded-full h-1.5 overflow-hidden">
+                                        <div
+                                            className="h-full bg-amber-500 dark:bg-amber-400 rounded-full transition-all duration-300"
+                                            style={{ width: `${(qapProgress.currentStep / qapProgress.totalSteps) * 100}%` }}
+                                        />
+                                    </div>
+                                    {qapProgress.description && (
+                                        <p className="text-[10px] text-slate-500 dark:text-[#808080] mt-1 truncate">{qapProgress.description}</p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Re-execute button after completion (Requirement 6.4) */}
+                            {activeThreadId && qapCompleteThreads.has(activeThreadId) && !(qapProgress && qapProgress.threadId === activeThreadId) && (
+                                <div className="mt-3 flex items-center gap-3">
+                                    <span className="text-[11px] text-green-600 dark:text-green-400 font-medium">✅ {t('replay_session_complete')}</span>
+                                    <button
+                                        onClick={async () => {
+                                            if (!activeThread.qap_file_path || !activeThread.data_source_id) return;
+                                            setQapReExecuting(true);
+                                            setQapCompleteThreads(prev => {
+                                                const next = new Set(prev);
+                                                next.delete(activeThreadId!);
+                                                return next;
+                                            });
+                                            try {
+                                                await ExecuteQuickAnalysisPack(activeThread.qap_file_path, activeThread.data_source_id, '');
+                                            } catch (err: any) {
+                                                setQapReExecuting(false);
+                                                setToast({ message: err?.message || 'Re-execution failed', type: 'error' });
+                                            }
+                                        }}
+                                        disabled={qapReExecuting}
+                                        className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium text-white bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-500 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {qapReExecuting ? (
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                            <Play className="w-3 h-3" />
+                                        )}
+                                        {t('replay_session_re_execute')}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 dark:bg-transparent scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-[#424242] scrollbar-track-transparent">
                         {activeThread?.messages.map((msg, index) => {
@@ -3522,6 +3635,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         <div ref={messagesEndRef} />
                     </div>
 
+                    {/* Message Input Area - hidden for Replay Sessions (Requirement 6.2) */}
+                    {!activeThread?.is_replay_session && (
                     <div className="p-6 border-t border-slate-100 dark:border-[#2d2d30] bg-white dark:bg-[#1e1e1e]">
                         <div className="flex items-stretch gap-3 max-w-2xl mx-auto w-full">
                             <input
@@ -3558,6 +3673,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </p>
                         </div>
                     </div>
+                    )}
                 </div>
             </div>
 
@@ -3609,6 +3725,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     onAction={handleContextAction}
                     autoIntentUnderstanding={autoIntentUnderstanding}
                     isGeneratingComprehensiveReport={isGeneratingComprehensiveReport}
+                />
+            )}
+
+            {exportPackThreadId && (
+                <ExportPackDialog
+                    isOpen={true}
+                    onClose={() => setExportPackThreadId(null)}
+                    onConfirm={() => {
+                        setExportPackThreadId(null);
+                        setToast({ message: t('export_pack_title') + ' ✓', type: 'success' });
+                    }}
+                    threadId={exportPackThreadId}
                 />
             )}
 

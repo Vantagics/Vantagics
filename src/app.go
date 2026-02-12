@@ -138,6 +138,8 @@ type App struct {
 	licenseClient             *agent.LicenseClient
 	licenseActivationFailed   bool   // True if license activation/refresh failed
 	licenseActivationError    string // Error message to show user
+	// Marketplace client for pack sharing
+	marketplaceClient *MarketplaceClient
 }
 
 // AgentMemoryView structure for frontend
@@ -188,6 +190,70 @@ func (a *App) OpenDevTools() {
 		Title:   i18n.T("app.devtools_title"),
 		Message: i18n.T("app.devtools_message"),
 	})
+}
+
+// tryLicenseActivationWithRetry attempts license activation with exponential backoff retry.
+// operation should be "Activation" or "Refresh" for logging purposes.
+func (a *App) tryLicenseActivationWithRetry(cfg *config.Config, operation string) {
+	const maxRetries = 10
+	const maxBackoff = 60 * time.Second
+
+	success := false
+	var lastErr error
+	var serverRejected bool
+	var rejectionCode string
+
+	for retry := 0; retry < maxRetries; retry++ {
+		if retry > 0 {
+			backoff := time.Duration(1<<retry) * time.Second
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			a.Log(fmt.Sprintf("[STARTUP] %s retry %d/%d in %v...", operation, retry+1, maxRetries, backoff))
+			time.Sleep(backoff)
+		}
+		result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
+		if err != nil {
+			lastErr = err
+			a.Log(fmt.Sprintf("[STARTUP] %s attempt %d failed: %v", operation, retry+1, err))
+			continue
+		}
+		if !result.Success {
+			lastErr = fmt.Errorf("%s", result.Message)
+			a.Log(fmt.Sprintf("[STARTUP] %s attempt %d rejected: %s (code: %s)", operation, retry+1, result.Message, result.Code))
+			if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
+				serverRejected = true
+				rejectionCode = result.Code
+				break
+			}
+			continue
+		}
+		success = true
+		a.Log(fmt.Sprintf("[STARTUP] License %s successful", strings.ToLower(operation)))
+		if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save %s data: %v", strings.ToLower(operation), saveErr))
+		}
+		break
+	}
+
+	if !success {
+		if serverRejected {
+			a.Log(fmt.Sprintf("[STARTUP] License rejected by server (code: %s), switching to open source mode", rejectionCode))
+			a.licenseClient.ClearSavedData()
+			a.licenseClient.Clear()
+			cfg.LicenseSN = ""
+			cfg.LicenseServerURL = ""
+			a.SaveConfig(*cfg)
+		} else {
+			a.Log(fmt.Sprintf("[STARTUP] FATAL: License %s failed after %d retries: %v", strings.ToLower(operation), maxRetries, lastErr))
+			a.licenseActivationFailed = true
+			i18nKey := "app.license_activation_failed"
+			if operation == "Refresh" {
+				i18nKey = "app.license_refresh_failed"
+			}
+			a.licenseActivationError = i18n.T(i18nKey, lastErr)
+		}
+	}
 }
 
 // onBeforeClose is called when the application is about to close
@@ -384,66 +450,7 @@ func (a *App) startup(ctx context.Context) {
 			loadErr := a.licenseClient.LoadActivationData(cfg.LicenseSN)
 			if loadErr != nil {
 				a.Log(fmt.Sprintf("[STARTUP] No local cache or invalid: %v, activating from server...", loadErr))
-				// No local cache, activate from server with exponential backoff retry
-				activationSuccess := false
-				var lastErr error
-				var serverRejected bool // True if server explicitly rejected the SN
-				var rejectionCode string
-				for retry := 0; retry < 10; retry++ {
-					if retry > 0 {
-						// Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s
-						backoff := time.Duration(1<<retry) * time.Second
-						if backoff > 60*time.Second {
-							backoff = 60 * time.Second // Cap at 60 seconds
-						}
-						a.Log(fmt.Sprintf("[STARTUP] Retry %d/10 in %v...", retry+1, backoff))
-						time.Sleep(backoff)
-					}
-					result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
-					if err != nil {
-						lastErr = err
-						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d failed: %v", retry+1, err))
-						continue
-					}
-					if !result.Success {
-						lastErr = fmt.Errorf("%s", result.Message)
-						a.Log(fmt.Sprintf("[STARTUP] Activation attempt %d rejected: %s (code: %s)", retry+1, result.Message, result.Code))
-						// If server explicitly rejects (invalid SN, expired, etc.), don't retry
-						if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
-							serverRejected = true
-							rejectionCode = result.Code
-							break
-						}
-						continue
-					}
-					activationSuccess = true
-					a.Log("[STARTUP] License auto-activated successfully")
-					// Save to local cache
-					if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
-						a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save activation data: %v", saveErr))
-					}
-					break
-				}
-				
-				if !activationSuccess {
-					if serverRejected {
-						// Server explicitly rejected the SN - switch to open source mode
-						a.Log(fmt.Sprintf("[STARTUP] License rejected by server (code: %s), switching to open source mode", rejectionCode))
-						// Clear license data
-						a.licenseClient.ClearSavedData()
-						a.licenseClient.Clear()
-						// Clear license info from config
-						cfg.LicenseSN = ""
-						cfg.LicenseServerURL = ""
-						a.SaveConfig(cfg)
-						// Continue with open source mode (don't set licenseActivationFailed)
-					} else {
-						// Network or other error - show error and exit
-						a.Log(fmt.Sprintf("[STARTUP] FATAL: License activation failed after 10 retries: %v", lastErr))
-						a.licenseActivationFailed = true
-						a.licenseActivationError = i18n.T("app.license_activation_failed", lastErr)
-					}
-				}
+				a.tryLicenseActivationWithRetry(&cfg, "Activation")
 			} else {
 				a.Log("[STARTUP] Loaded license from local cache")
 				
@@ -451,66 +458,10 @@ func (a *App) startup(ctx context.Context) {
 				needsRefresh, reason := a.licenseClient.NeedsRefresh()
 				if needsRefresh {
 					a.Log(fmt.Sprintf("[STARTUP] %s, refreshing...", reason))
-					
-					// Exponential backoff retry for refresh
-					refreshSuccess := false
-					var lastErr error
-					var serverRejected bool
-					var rejectionCode string
-					for retry := 0; retry < 10; retry++ {
-						if retry > 0 {
-							backoff := time.Duration(1<<retry) * time.Second
-							if backoff > 60*time.Second {
-								backoff = 60 * time.Second
-							}
-							a.Log(fmt.Sprintf("[STARTUP] Refresh retry %d/10 in %v...", retry+1, backoff))
-							time.Sleep(backoff)
-						}
-						result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
-						if err != nil {
-							lastErr = err
-							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d failed: %v", retry+1, err))
-							continue
-						}
-						if !result.Success {
-							lastErr = fmt.Errorf("%s", result.Message)
-							a.Log(fmt.Sprintf("[STARTUP] Refresh attempt %d rejected: %s (code: %s)", retry+1, result.Message, result.Code))
-							// If server explicitly rejects, don't retry
-							if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
-								serverRejected = true
-								rejectionCode = result.Code
-								break
-							}
-							continue
-						}
-						refreshSuccess = true
-						a.Log("[STARTUP] License refreshed successfully")
-						if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
-							a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save refreshed data: %v", saveErr))
-						}
-						break
-					}
-					
-					if !refreshSuccess {
-						if serverRejected {
-							// Server explicitly rejected the SN - switch to open source mode
-							a.Log(fmt.Sprintf("[STARTUP] License rejected by server during refresh (code: %s), switching to open source mode", rejectionCode))
-							// Clear license data
-							a.licenseClient.ClearSavedData()
-							a.licenseClient.Clear()
-							// Clear license info from config
-							cfg.LicenseSN = ""
-							cfg.LicenseServerURL = ""
-							a.SaveConfig(cfg)
-							// Continue with open source mode (don't set licenseActivationFailed)
-						} else {
-							// Network or other error - show error and exit
-							a.Log(fmt.Sprintf("[STARTUP] FATAL: License refresh failed after 10 retries: %v", lastErr))
-							a.licenseActivationFailed = true
-							a.licenseActivationError = i18n.T("app.license_refresh_failed", lastErr)
-							// Clear the cached data since it's no longer valid
-							a.licenseClient.Clear()
-						}
+					a.tryLicenseActivationWithRetry(&cfg, "Refresh")
+					// If refresh failed (not rejected), clear cached data
+					if a.licenseActivationFailed {
+						a.licenseClient.Clear()
 					}
 				} else {
 					trustLevel := a.licenseClient.GetTrustLevel()

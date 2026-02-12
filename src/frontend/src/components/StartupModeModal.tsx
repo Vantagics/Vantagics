@@ -22,7 +22,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const [commercialStep, setCommercialStep] = useState<CommercialStep>('check');
     
     // Commercial mode state - server URL is fixed, not user-configurable
-    const serverURL = 'http://license.vantagedata.chat:6699';
+    const serverURL = 'https://license.vantagedata.chat';
     const [sn, setSN] = useState('');
     const [email, setEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);

@@ -9,6 +9,7 @@ import (
 type CodeValidator struct {
 	allowedImports    []string
 	forbiddenPatterns []string
+	compiledPatterns  []*regexp.Regexp // Pre-compiled regex patterns for performance
 	maxCodeLength     int
 }
 
@@ -24,7 +25,7 @@ type ValidationResult struct {
 
 // NewCodeValidator creates a new code validator with default settings
 func NewCodeValidator() *CodeValidator {
-	return &CodeValidator{
+	cv := &CodeValidator{
 		allowedImports: []string{
 			"sqlite3", "pandas", "numpy", "matplotlib", "seaborn",
 			"json", "os", "datetime", "math", "re", "collections",
@@ -77,6 +78,14 @@ func NewCodeValidator() *CodeValidator {
 		},
 		maxCodeLength: 50000, // 50KB max
 	}
+
+	// Pre-compile forbidden patterns for performance
+	cv.compiledPatterns = make([]*regexp.Regexp, 0, len(cv.forbiddenPatterns))
+	for _, pattern := range cv.forbiddenPatterns {
+		cv.compiledPatterns = append(cv.compiledPatterns, regexp.MustCompile(pattern))
+	}
+
+	return cv
 }
 
 // ValidateCode checks the generated code for safety and correctness
@@ -101,12 +110,11 @@ func (v *CodeValidator) ValidateCode(code string) *ValidationResult {
 		return result
 	}
 
-	// Check for forbidden patterns
-	for _, pattern := range v.forbiddenPatterns {
-		re := regexp.MustCompile(pattern)
+	// Check for forbidden patterns using pre-compiled regexes
+	for i, re := range v.compiledPatterns {
 		if re.MatchString(code) {
 			result.Valid = false
-			result.Errors = append(result.Errors, "检测到不安全的代码模式: "+pattern)
+			result.Errors = append(result.Errors, "检测到不安全的代码模式: "+v.forbiddenPatterns[i])
 		}
 	}
 
@@ -348,4 +356,5 @@ func (v *CodeValidator) AddAllowedImport(module string) {
 // AddForbiddenPattern adds a pattern to the forbidden list
 func (v *CodeValidator) AddForbiddenPattern(pattern string) {
 	v.forbiddenPatterns = append(v.forbiddenPatterns, pattern)
+	v.compiledPatterns = append(v.compiledPatterns, regexp.MustCompile(pattern))
 }

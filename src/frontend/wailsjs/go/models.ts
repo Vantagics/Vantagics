@@ -1607,6 +1607,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class PackMetadata {
+	    author: string;
+	    created_at: string;
+	    source_name: string;
+	    description: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackMetadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.author = source["author"];
+	        this.created_at = source["created_at"];
+	        this.source_name = source["source_name"];
+	        this.description = source["description"];
+	    }
+	}
 	export class SessionFile {
 	    name: string;
 	    path: string;
@@ -1636,6 +1654,9 @@ export namespace main {
 	    created_at: number;
 	    messages: ChatMessage[];
 	    files?: SessionFile[];
+	    is_replay_session?: boolean;
+	    pack_metadata?: PackMetadata;
+	    qap_file_path?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatThread(source);
@@ -1649,6 +1670,9 @@ export namespace main {
 	        this.created_at = source["created_at"];
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.files = this.convertValues(source["files"], SessionFile);
+	        this.is_replay_session = source["is_replay_session"];
+	        this.pack_metadata = this.convertValues(source["pack_metadata"], PackMetadata);
+	        this.qap_file_path = source["qap_file_path"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2046,6 +2070,30 @@ export namespace main {
 	        this.id = source["id"];
 	    }
 	}
+	export class LocalPackInfo {
+	    thread_id: string;
+	    pack_name: string;
+	    description: string;
+	    source_name: string;
+	    author: string;
+	    qap_file_path: string;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalPackInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.thread_id = source["thread_id"];
+	        this.pack_name = source["pack_name"];
+	        this.description = source["description"];
+	        this.source_name = source["source_name"];
+	        this.author = source["author"];
+	        this.qap_file_path = source["qap_file_path"];
+	        this.created_at = source["created_at"];
+	    }
+	}
 	export class LogStats {
 	    totalSizeMB: number;
 	    logCount: number;
@@ -2065,6 +2113,20 @@ export namespace main {
 	    }
 	}
 	
+	export class MissingColumnInfo {
+	    table_name: string;
+	    column_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MissingColumnInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table_name = source["table_name"];
+	        this.column_name = source["column_name"];
+	    }
+	}
 	
 	export class OptimizeDataSourceResult {
 	    data_source_id: string;
@@ -2145,6 +2207,248 @@ export namespace main {
 		}
 	}
 	
+	export class PackCategory {
+	    id: number;
+	    name: string;
+	    description: string;
+	    is_preset: boolean;
+	    pack_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackCategory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.is_preset = source["is_preset"];
+	        this.pack_count = source["pack_count"];
+	    }
+	}
+	export class PackColumnInfo {
+	    name: string;
+	    type: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackColumnInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	    }
+	}
+	export class PackListingInfo {
+	    id: number;
+	    user_id: number;
+	    category_id: number;
+	    category_name: string;
+	    pack_name: string;
+	    pack_description: string;
+	    source_name: string;
+	    author_name: string;
+	    share_mode: string;
+	    credits_price: number;
+	    download_count: number;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackListingInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.user_id = source["user_id"];
+	        this.category_id = source["category_id"];
+	        this.category_name = source["category_name"];
+	        this.pack_name = source["pack_name"];
+	        this.pack_description = source["pack_description"];
+	        this.source_name = source["source_name"];
+	        this.author_name = source["author_name"];
+	        this.share_mode = source["share_mode"];
+	        this.credits_price = source["credits_price"];
+	        this.download_count = source["download_count"];
+	        this.created_at = source["created_at"];
+	    }
+	}
+	export class SchemaValidationResult {
+	    compatible: boolean;
+	    table_count_match: boolean;
+	    source_table_count: number;
+	    target_table_count: number;
+	    missing_tables: string[];
+	    missing_columns: MissingColumnInfo[];
+	    extra_tables: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SchemaValidationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.compatible = source["compatible"];
+	        this.table_count_match = source["table_count_match"];
+	        this.source_table_count = source["source_table_count"];
+	        this.target_table_count = source["target_table_count"];
+	        this.missing_tables = source["missing_tables"];
+	        this.missing_columns = this.convertValues(source["missing_columns"], MissingColumnInfo);
+	        this.extra_tables = source["extra_tables"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PackStep {
+	    step_id: number;
+	    step_type: string;
+	    code: string;
+	    description: string;
+	    depends_on?: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PackStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.step_id = source["step_id"];
+	        this.step_type = source["step_type"];
+	        this.code = source["code"];
+	        this.description = source["description"];
+	        this.depends_on = source["depends_on"];
+	    }
+	}
+	export class PackTableSchema {
+	    table_name: string;
+	    columns: PackColumnInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PackTableSchema(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.table_name = source["table_name"];
+	        this.columns = this.convertValues(source["columns"], PackColumnInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class QuickAnalysisPack {
+	    file_type: string;
+	    format_version: string;
+	    metadata: PackMetadata;
+	    schema_requirements: PackTableSchema[];
+	    executable_steps: PackStep[];
+	
+	    static createFrom(source: any = {}) {
+	        return new QuickAnalysisPack(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file_type = source["file_type"];
+	        this.format_version = source["format_version"];
+	        this.metadata = this.convertValues(source["metadata"], PackMetadata);
+	        this.schema_requirements = this.convertValues(source["schema_requirements"], PackTableSchema);
+	        this.executable_steps = this.convertValues(source["executable_steps"], PackStep);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PackLoadResult {
+	    pack?: QuickAnalysisPack;
+	    validation?: SchemaValidationResult;
+	    is_encrypted: boolean;
+	    needs_password: boolean;
+	    file_path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PackLoadResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pack = this.convertValues(source["pack"], QuickAnalysisPack);
+	        this.validation = this.convertValues(source["validation"], SchemaValidationResult);
+	        this.is_encrypted = source["is_encrypted"];
+	        this.needs_password = source["needs_password"];
+	        this.file_path = source["file_path"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	
 	
 	export class ReportGenerateRequest {
 	    userRequest: string;
@@ -2208,6 +2512,7 @@ export namespace main {
 	        this.code = source["code"];
 	    }
 	}
+	
 	
 	
 	

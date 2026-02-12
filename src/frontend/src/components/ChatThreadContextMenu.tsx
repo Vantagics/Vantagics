@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { Download, Briefcase, Brain, FolderOpen, Check, Eraser, FileText } from 'lucide-react';
+import { Download, Briefcase, Brain, FolderOpen, Check, Eraser, FileText, PackageOpen } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface ChatThreadContextMenuProps {
     position: { x: number; y: number };
     threadId: string;
     onClose: () => void;
-    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report', threadId: string) => void;
+    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => void;
     autoIntentUnderstanding?: boolean;
     isFreeChatThread?: boolean;
     isGeneratingComprehensiveReport?: boolean;
@@ -26,7 +26,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [onClose]);
 
-    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report') => {
+    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack') => {
         onAction(action, threadId);
         // Don't close menu for toggle action so user can see the state change
         if (action !== 'toggle_intent_understanding') {
@@ -85,6 +85,13 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                     >
                         <Download className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
                         Export
+                    </button>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleAction('export_quick_analysis_pack'); }}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                    >
+                        <PackageOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                        {t('export_quick_analysis_pack')}
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (!isGeneratingComprehensiveReport) handleAction('comprehensive_report'); }}

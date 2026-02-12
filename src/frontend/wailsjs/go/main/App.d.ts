@@ -13,6 +13,8 @@ export function AddDataSource(arg1:string,arg2:string,arg3:Record<string, string
 
 export function ApplyOptimizeSuggestions(arg1:string,arg2:Array<main.IndexSuggestion>):Promise<main.OptimizeDataSourceResult>;
 
+export function BrowseMarketplacePacks(arg1:number):Promise<Array<main.PackListingInfo>>;
+
 export function CanStartNewAnalysis():Promise<boolean|string>;
 
 export function CancelAnalysis():Promise<void>;
@@ -57,11 +59,15 @@ export function DisableSkill(arg1:string):Promise<void>;
 
 export function DownloadFile(arg1:string):Promise<string>;
 
+export function DownloadMarketplacePack(arg1:number):Promise<string>;
+
 export function DownloadSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function EnableSkill(arg1:string):Promise<void>;
 
 export function ExecuteImportAnalysis(arg1:main.AnalysisExport,arg2:string):Promise<void>;
+
+export function ExecuteQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExportAnalysisProcess(arg1:string):Promise<void>;
 
@@ -78,6 +84,8 @@ export function ExportDashboardToPPT(arg1:main.DashboardExportData):Promise<void
 export function ExportDashboardToWord(arg1:main.DashboardExportData):Promise<void>;
 
 export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
+
+export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExportReport(arg1:string,arg2:string):Promise<void>;
 
@@ -163,6 +171,10 @@ export function GetLicenseActivationError():Promise<string>;
 
 export function GetLogStats():Promise<main.LogStats>;
 
+export function GetMarketplaceCategories():Promise<Array<main.PackCategory>>;
+
+export function GetMarketplaceCreditsBalance():Promise<number>;
+
 export function GetMessageAnalysisData(arg1:string,arg2:string):Promise<Record<string, any>>;
 
 export function GetMySQLDatabases(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<string>>;
@@ -211,7 +223,11 @@ export function IsEcommerceDataSource(arg1:string):Promise<boolean>;
 
 export function IsLicenseActivated():Promise<boolean>;
 
+export function IsMarketplaceLoggedIn():Promise<boolean>;
+
 export function IsRefreshableDataSource(arg1:string):Promise<boolean>;
+
+export function ListLocalQuickAnalysisPacks():Promise<Array<main.LocalPackInfo>>;
 
 export function ListSkills():Promise<Array<agent.Skill>>;
 
@@ -219,11 +235,17 @@ export function LoadLayout(arg1:string):Promise<database.LayoutConfiguration>;
 
 export function LoadMetricsJson(arg1:string):Promise<string>;
 
+export function LoadQuickAnalysisPack(arg1:string):Promise<main.PackLoadResult>;
+
+export function LoadQuickAnalysisPackWithPassword(arg1:string,arg2:string,arg3:string):Promise<main.PackLoadResult>;
+
 export function LoadSavedActivation(arg1:string):Promise<main.ActivationResult>;
 
 export function Log(arg1:string):Promise<void>;
 
 export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>;
+
+export function MarketplaceLogin(arg1:string):Promise<void>;
 
 export function OpenDevTools():Promise<void>;
 
@@ -294,6 +316,8 @@ export function SendFreeChatMessage(arg1:string,arg2:string,arg3:string):Promise
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
+
+export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number):Promise<void>;
 
 export function ShowAbout():Promise<void>;
 
