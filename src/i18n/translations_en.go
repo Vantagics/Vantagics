@@ -345,4 +345,8 @@ var englishTranslations = map[string]string{
 	"comprehensive_report.insight":            "Insight",
 	"comprehensive_report.key_metric":         "Key Metric",
 	"comprehensive_report.table":              "Data Table",
+	"comprehensive_report.pack_info_header":   "## Analysis Pack Information",
+	"comprehensive_report.pack_author":        "Author: ",
+	"comprehensive_report.pack_description":   "Description: ",
+	"comprehensive_report.pack_source_name":   "Original Data Source: ",
 }

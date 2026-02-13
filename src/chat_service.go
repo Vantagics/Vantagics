@@ -376,14 +376,14 @@ func (s *ChatService) GetThreadsByDataSource(dataSourceID string) ([]ChatThread,
 }
 
 // CheckSessionNameExists checks if a thread with the same title already exists for a specific data source
-func (s *ChatService) CheckSessionNameExists(dataSourceID string, title string) (bool, error) {
+func (s *ChatService) CheckSessionNameExists(dataSourceID string, title string, excludeThreadID string) (bool, error) {
 	threads, err := s.LoadThreads()
 	if err != nil {
 		return false, err
 	}
 
 	for _, t := range threads {
-		if t.DataSourceID == dataSourceID && strings.EqualFold(t.Title, title) {
+		if t.DataSourceID == dataSourceID && strings.EqualFold(t.Title, title) && t.ID != excludeThreadID {
 			return true, nil
 		}
 	}
@@ -636,6 +636,15 @@ func (s *ChatService) ClearThreadMessages(threadID string) error {
 func (s *ChatService) ClearHistory() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Safety check: only delete if the path looks like a sessions directory
+	// to prevent accidental deletion of unrelated directories
+	if s.sessionsDir == "" || s.sessionsDir == "/" || s.sessionsDir == "\\" {
+		return fmt.Errorf("refusing to clear history: sessions directory path is unsafe: %q", s.sessionsDir)
+	}
+	if !strings.Contains(s.sessionsDir, "sessions") {
+		return fmt.Errorf("refusing to clear history: sessions directory path does not contain 'sessions': %q", s.sessionsDir)
+	}
 
 	return os.RemoveAll(s.sessionsDir)
 }
@@ -921,6 +930,7 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 
 			// Try to parse as object array
 			var tableData []map[string]interface{}
+			var columnsOrder []string
 			if err := json.Unmarshal([]byte(jsonContent), &tableData); err != nil {
 				// Try 2D array format
 				var arrayData [][]interface{}
@@ -929,6 +939,7 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 					for i, h := range arrayData[0] {
 						headers[i] = fmt.Sprintf("%v", h)
 					}
+					columnsOrder = headers
 					tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
 					for _, row := range arrayData[1:] {
 						rowMap := make(map[string]interface{})
@@ -940,12 +951,15 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 						tableData = append(tableData, rowMap)
 					}
 				}
+			} else {
+				columnsOrder = extractJSONObjectKeysOrdered(jsonContent)
 			}
 
 			if len(tableData) > 0 {
 				tableDataWithTitle := map[string]interface{}{
-					"title": tableTitle,
-					"rows":  tableData,
+					"title":   tableTitle,
+					"columns": columnsOrder,
+					"rows":    tableData,
 				}
 				seq++
 				items = append(items, AnalysisResultItem{
@@ -968,8 +982,9 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 	for mdIdx, mdTable := range mdTables {
 		if len(mdTable.Rows) > 0 {
 			tableDataWithTitle := map[string]interface{}{
-				"title": mdTable.Title,
-				"rows":  mdTable.Rows,
+				"title":   mdTable.Title,
+				"columns": mdTable.Columns,
+				"rows":    mdTable.Rows,
 			}
 			seq++
 			items = append(items, AnalysisResultItem{
@@ -1185,8 +1200,9 @@ func cleanEChartsJSONSimple(jsonStr string) string {
 
 // MarkdownTableDataCS represents a parsed markdown table (ChatService local copy)
 type MarkdownTableDataCS struct {
-	Title string                   `json:"title"`
-	Rows  []map[string]interface{} `json:"rows"`
+	Title   string                   `json:"title"`
+	Columns []string                 `json:"columns"`
+	Rows    []map[string]interface{} `json:"rows"`
 }
 
 // extractMarkdownTablesFromContent extracts standard markdown tables from content
@@ -1302,8 +1318,9 @@ func isMarkdownTableSeparatorCS(line string) bool {
 // parseMarkdownTableFromLinesCS parses a markdown table starting at the given line index
 func parseMarkdownTableFromLinesCS(lines []string, startIdx int) MarkdownTableDataCS {
 	table := MarkdownTableDataCS{
-		Title: "",
-		Rows:  []map[string]interface{}{},
+		Title:   "",
+		Columns: []string{},
+		Rows:    []map[string]interface{}{},
 	}
 
 	if startIdx >= len(lines) {
@@ -1316,6 +1333,8 @@ func parseMarkdownTableFromLinesCS(lines []string, startIdx int) MarkdownTableDa
 	if len(headers) == 0 {
 		return table
 	}
+
+	table.Columns = headers
 
 	// Skip separator line
 	dataStartIdx := startIdx + 2

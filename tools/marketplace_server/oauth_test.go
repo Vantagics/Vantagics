@@ -146,8 +146,8 @@ func TestOAuthCallback_NewUserCreation(t *testing.T) {
 	}
 
 	user := resp["user"].(map[string]interface{})
-	if user["oauth_provider"] != "google" {
-		t.Errorf("expected oauth_provider=google, got %v", user["oauth_provider"])
+	if user["auth_type"] != "google" {
+		t.Errorf("expected auth_type=google, got %v", user["auth_type"])
 	}
 	if user["display_name"] != "Alice" {
 		t.Errorf("expected display_name=Alice, got %v", user["display_name"])
@@ -198,7 +198,7 @@ func TestOAuthCallback_RepeatedLoginReturnsSameUser(t *testing.T) {
 
 	// Verify only one user exists in DB
 	var count int
-	db.QueryRow("SELECT COUNT(*) FROM users WHERE oauth_provider = 'apple' AND oauth_provider_id = 'apple-user-1'").Scan(&count)
+	db.QueryRow("SELECT COUNT(*) FROM users WHERE auth_type = 'apple' AND auth_id = 'apple-user-1'").Scan(&count)
 	if count != 1 {
 		t.Errorf("expected 1 user record, got %d", count)
 	}

@@ -10,6 +10,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSessionStatus } from '../hooks/useSessionStatus';
 import { AlertCircle, Loader2, XCircle, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../i18n';
@@ -171,8 +172,8 @@ const CancelConfirmDialog: React.FC<{
 }> = ({ isOpen, onClose, onConfirm, t }) => {
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+    return createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl p-6 w-[380px] transform transition-all animate-in zoom-in-95 duration-200">
                 <div className="flex items-start gap-4 mb-4">
                     <div className="bg-amber-100 dark:bg-[#3d3830] p-2 rounded-full">
@@ -204,7 +205,8 @@ const CancelConfirmDialog: React.FC<{
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

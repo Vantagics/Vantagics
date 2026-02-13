@@ -140,6 +140,8 @@ type App struct {
 	licenseActivationError    string // Error message to show user
 	// Marketplace client for pack sharing
 	marketplaceClient *MarketplaceClient
+	// Usage license store for local billing enforcement
+	usageLicenseStore *UsageLicenseStore
 }
 
 // AgentMemoryView structure for frontend
@@ -314,6 +316,23 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 
 // shutdown is called when the application is closing to clean up resources
 func (a *App) shutdown(ctx context.Context) {
+	// Final credits usage report before shutdown (synchronous, with timeout)
+	if a.licenseClient != nil && a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" {
+		done := make(chan struct{})
+		go func() {
+			if err := a.licenseClient.ReportUsage(); err != nil {
+				a.Log(fmt.Sprintf("[SHUTDOWN] Final usage report failed: %v", err))
+			} else {
+				a.Log("[SHUTDOWN] Final usage report sent successfully")
+			}
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			a.Log("[SHUTDOWN] Final usage report timed out after 5s")
+		}
+	}
 	// Stop credits usage reporting
 	if a.licenseClient != nil {
 		a.licenseClient.StopUsageReporting()
@@ -558,6 +577,18 @@ func (a *App) startup(ctx context.Context) {
 		a.eventAggregator = NewEventAggregator(ctx)
 		a.eventAggregator.SetLogger(a.Log)
 		a.Log("[STARTUP] EventAggregator initialized successfully")
+
+		// Initialize usage license store for local billing enforcement
+		uls, err := NewUsageLicenseStore()
+		if err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to create UsageLicenseStore: %v", err))
+		} else {
+			if err := uls.Load(); err != nil {
+				a.Log(fmt.Sprintf("[STARTUP] Failed to load usage licenses: %v", err))
+			}
+			a.usageLicenseStore = uls
+			a.Log("[STARTUP] UsageLicenseStore initialized successfully")
+		}
 	}
 
 	// Always initialize logger directory for log management (compression, cleanup)
@@ -1454,8 +1485,8 @@ func (a *App) SaveConfig(cfg config.Config) error {
 		a.logger.SetLogDir(logDir)
 	}
 
-	// Save the configuration file
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Save the configuration file (0600: owner-only read/write since it contains API keys)
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
 
@@ -1501,7 +1532,7 @@ func (a *App) SaveLayoutConfig(sidebarWidth int, panelRightRatio float64) error 
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
@@ -3318,6 +3349,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					// Try to parse as object array first (standard format)
 					var tableData []map[string]interface{}
 					var parseErr error
+					var columnsOrder []string
 					if parseErr = json.Unmarshal([]byte(jsonContent), &tableData); parseErr != nil {
 						// Try to parse as 2D array (first row is headers)
 						var arrayData [][]interface{}
@@ -3328,6 +3360,7 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 							for i, h := range arrayData[0] {
 								headers[i] = fmt.Sprintf("%v", h)
 							}
+							columnsOrder = headers
 							
 							// Remaining rows are data
 							tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
@@ -3343,13 +3376,17 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 							parseErr = nil
 							a.Log(fmt.Sprintf("[CHART] Converted 2D array table #%d: %d columns, %d rows", matchIdx+1, len(headers), len(tableData)))
 						}
+					} else {
+						// Extract column order from original JSON object keys
+						columnsOrder = extractJSONObjectKeysOrdered(jsonContent)
 					}
 					
 					if parseErr == nil && len(tableData) > 0 {
-						// Create table data with title
+						// Create table data with title and ordered columns
 						tableDataWithTitle := map[string]interface{}{
-							"title": tableTitle,
-							"rows":  tableData,
+							"title":   tableTitle,
+							"columns": columnsOrder,
+							"rows":    tableData,
 						}
 						
 						tableDataJSON, _ := json.Marshal(tableData)
@@ -3416,8 +3453,9 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 				a.Log(fmt.Sprintf("[CHART] Found %d markdown tables in response text", len(mdTables)))
 				for mdIdx, mdTable := range mdTables {
 					tableDataWithTitle := map[string]interface{}{
-						"title": mdTable.Title,
-						"rows":  mdTable.Rows,
+						"title":   mdTable.Title,
+						"columns": mdTable.Columns,
+						"rows":    mdTable.Rows,
 					}
 
 					tableDataJSON, _ := json.Marshal(mdTable.Rows)
@@ -5209,11 +5247,11 @@ func (a *App) GetChatHistoryByDataSource(dataSourceID string) ([]ChatThread, err
 }
 
 // CheckSessionNameExists checks if a session name already exists for a data source
-func (a *App) CheckSessionNameExists(dataSourceID string, sessionName string) (bool, error) {
+func (a *App) CheckSessionNameExists(dataSourceID string, sessionName string, excludeThreadID string) (bool, error) {
 	if a.chatService == nil {
 		return false, fmt.Errorf("chat service not initialized")
 	}
-	return a.chatService.CheckSessionNameExists(dataSourceID, sessionName)
+	return a.chatService.CheckSessionNameExists(dataSourceID, sessionName, excludeThreadID)
 }
 
 // SaveChatHistory saves the chat history
@@ -7819,6 +7857,208 @@ func (a *App) GetMessageAnalysisData(threadID, messageID string) (map[string]int
 	return result, nil
 }
 
+// ShowStepResultOnDashboard re-pushes a step's analysis results to the dashboard via EventAggregator.
+// This allows users to view a specific step's results on the dashboard by clicking the result display button.
+// For QAP replay sessions, step results may be embedded in the assistant message content (json:table blocks)
+// rather than stored as separate AnalysisResults, so we also extract from content as a fallback.
+func (a *App) ShowStepResultOnDashboard(threadID string, messageID string) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	if a.eventAggregator == nil {
+		return fmt.Errorf("event aggregator not initialized")
+	}
+
+	// First try GetMessageAnalysisData which handles both stored results and content extraction
+	analysisData, err := a.GetMessageAnalysisData(threadID, messageID)
+	if err != nil {
+		return fmt.Errorf("消息不存在: %w", err)
+	}
+
+	pushed := false
+
+	if items, ok := analysisData["analysisResults"]; items != nil && ok {
+		if resultItems, ok := items.([]AnalysisResultItem); ok {
+			for _, item := range resultItems {
+				switch item.Type {
+				case "table":
+					a.eventAggregator.AddItem(threadID, messageID, "", "table", item.Data, item.Metadata)
+					pushed = true
+				case "echarts":
+					a.eventAggregator.AddItem(threadID, messageID, "", "echarts", item.Data, item.Metadata)
+					pushed = true
+				case "image":
+					a.eventAggregator.AddItem(threadID, messageID, "", "image", item.Data, item.Metadata)
+					pushed = true
+				case "metric":
+					a.eventAggregator.AddItem(threadID, messageID, "", "metric", item.Data, item.Metadata)
+					pushed = true
+				case "insight":
+					a.eventAggregator.AddItem(threadID, messageID, "", "insight", item.Data, item.Metadata)
+					pushed = true
+				}
+			}
+		}
+	}
+
+	// Also check for legacy chart data
+	if chartData, ok := analysisData["chartData"]; chartData != nil && ok {
+		if cd, ok := chartData.(*ChartData); ok && cd != nil {
+			for _, chart := range cd.Charts {
+				if chart.Data != "" {
+					a.eventAggregator.AddECharts(threadID, messageID, "", chart.Data)
+					pushed = true
+				}
+			}
+		}
+	}
+
+	// Fallback: For QAP replay session messages, the step result is in the message content itself.
+	// Extract from the message content directly if no results were found above.
+	if !pushed {
+		thread, err := a.chatService.LoadThread(threadID)
+		if err == nil && thread != nil {
+			for _, msg := range thread.Messages {
+				if msg.ID == messageID && msg.Role == "assistant" {
+					stepDesc := extractStepDescriptionFromContent(msg.Content)
+					extracted := a.chatService.extractAnalysisItemsFromContent(msg.Content, threadID, messageID)
+					for _, item := range extracted {
+						if stepDesc != "" {
+							if item.Metadata == nil {
+								item.Metadata = map[string]interface{}{}
+							}
+							item.Metadata["step_description"] = stepDesc
+						}
+						a.eventAggregator.AddItem(threadID, messageID, "", item.Type, item.Data, item.Metadata)
+						pushed = true
+					}
+					break
+				}
+			}
+		}
+	}
+
+	if !pushed {
+		return fmt.Errorf("该步骤没有可显示的结果")
+	}
+
+	a.eventAggregator.FlushNow(threadID, false)
+	a.Log(fmt.Sprintf("[SHOW-RESULT] Re-pushed results for message %s in thread %s", messageID, threadID))
+	return nil
+}
+
+// ShowAllSessionResults 将整个会话的所有分析结果一次性推送到仪表盘。
+// 遍历会话中所有成功的 assistant 消息，收集并推送所有结果。
+// 所有结果使用统一的 messageID 推送，确保前端 AnalysisResultManager 不会
+// 因为不同 messageID 而清除之前的数据。
+func (a *App) ShowAllSessionResults(threadID string) error {
+	if a.chatService == nil {
+		return fmt.Errorf("chat service not initialized")
+	}
+	if a.eventAggregator == nil {
+		return fmt.Errorf("event aggregator not initialized")
+	}
+
+	thread, err := a.chatService.LoadThread(threadID)
+	if err != nil {
+		return fmt.Errorf("failed to load thread: %w", err)
+	}
+	if thread == nil {
+		return fmt.Errorf("thread not found: %s", threadID)
+	}
+
+	// Use a single unified messageID for all items so the frontend treats them as one batch.
+	// This prevents AnalysisResultManager.processBatch from clearing previous step data
+	// when it sees a new messageID.
+	unifiedMessageID := "all_results_" + threadID
+
+	pushed := 0
+	for _, msg := range thread.Messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		// 跳过失败和跳过的步骤
+		if strings.Contains(msg.Content, "❌") || strings.Contains(msg.Content, "⏭️") {
+			continue
+		}
+		// 只处理成功步骤
+		if !strings.Contains(msg.Content, "✅") {
+			continue
+		}
+
+		// 尝试从存储的分析结果中获取
+		msgPushed := 0
+		analysisData, err := a.GetMessageAnalysisData(threadID, msg.ID)
+		if err == nil && analysisData != nil {
+			if items, ok := analysisData["analysisResults"]; items != nil && ok {
+				if resultItems, ok := items.([]AnalysisResultItem); ok {
+					for _, item := range resultItems {
+						a.eventAggregator.AddItem(threadID, unifiedMessageID, "", item.Type, item.Data, item.Metadata)
+						msgPushed++
+					}
+				}
+			}
+			if chartData, ok := analysisData["chartData"]; chartData != nil && ok {
+				if cd, ok := chartData.(*ChartData); ok && cd != nil {
+					for _, chart := range cd.Charts {
+						if chart.Data != "" {
+							a.eventAggregator.AddECharts(threadID, unifiedMessageID, "", chart.Data)
+							msgPushed++
+						}
+					}
+				}
+			}
+		}
+
+		// 回退：从消息内容中提取
+		if msgPushed == 0 {
+			stepDesc := extractStepDescriptionFromContent(msg.Content)
+			extracted := a.chatService.extractAnalysisItemsFromContent(msg.Content, threadID, msg.ID)
+			for _, item := range extracted {
+				// Add step_description to metadata if extracted
+				if stepDesc != "" {
+					if item.Metadata == nil {
+						item.Metadata = map[string]interface{}{}
+					}
+					item.Metadata["step_description"] = stepDesc
+				}
+				a.eventAggregator.AddItem(threadID, unifiedMessageID, "", item.Type, item.Data, item.Metadata)
+				msgPushed++
+			}
+		}
+		pushed += msgPushed
+	}
+
+	if pushed == 0 {
+		return fmt.Errorf("该会话没有可显示的结果")
+	}
+
+	a.eventAggregator.FlushNow(threadID, true)
+	a.Log(fmt.Sprintf("[SHOW-ALL-RESULTS] Pushed %d results for thread %s (unified messageID: %s)", pushed, threadID, unifiedMessageID))
+	return nil
+}
+// Pre-compiled regexes for extractStepDescriptionFromContent
+var (
+	reAnalysisRequestLine = regexp.MustCompile(`📋 分析请求：(.+)`)
+	reStepHeader          = regexp.MustCompile(`步骤\s+\d+\s+\(([^)]+)\)`)
+)
+
+// extractStepDescriptionFromContent extracts step description from message content.
+// It first tries to extract from "📋 分析请求：" line, then falls back to step header "步骤 N (描述)".
+func extractStepDescriptionFromContent(content string) string {
+	// First try to extract from "📋 分析请求：" line
+	matches := reAnalysisRequestLine.FindStringSubmatch(content)
+	if len(matches) > 1 {
+		return strings.TrimSpace(matches[1])
+	}
+	// Fallback: extract from step header "步骤 N (描述)"
+	matches = reStepHeader.FindStringSubmatch(content)
+	if len(matches) > 1 {
+		return matches[1]
+	}
+	return ""
+}
+
 // SaveMessageAnalysisResults saves analysis results for a specific message
 func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []AnalysisResultItem) error {
 	if a.chatService == nil {
@@ -7941,6 +8181,7 @@ func (a *App) GetActivationStatus() map[string]interface{} {
 	data := a.licenseClient.GetData()
 	count, limit, date := a.licenseClient.GetAnalysisStatus()
 	totalCredits, usedCredits, isCreditsMode := a.licenseClient.GetCreditsStatus()
+	cfg, _ := a.GetConfig()
 	
 	return map[string]interface{}{
 		"activated":            true,
@@ -7959,6 +8200,7 @@ func (a *App) GetActivationStatus() map[string]interface{} {
 		"total_credits":        totalCredits,
 		"used_credits":         usedCredits,
 		"credits_mode":         isCreditsMode,
+		"email":                cfg.LicenseEmail,
 	}
 }
 
@@ -8032,6 +8274,7 @@ func (a *App) DeactivateLicense() error {
 		cfg.LicenseExtraInfo = nil
 		cfg.LicenseSN = ""
 		cfg.LicenseServerURL = ""
+		cfg.LicenseEmail = ""
 		if saveErr := a.SaveConfig(cfg); saveErr != nil {
 			a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear license info from config: %v", saveErr))
 		} else {
@@ -8169,8 +8412,9 @@ func (a *App) IsLicenseActivated() bool {
 
 // MarkdownTableData represents a parsed markdown table
 type MarkdownTableData struct {
-	Title string                   `json:"title"`
-	Rows  []map[string]interface{} `json:"rows"`
+	Title   string                   `json:"title"`
+	Columns []string                 `json:"columns"`
+	Rows    []map[string]interface{} `json:"rows"`
 }
 
 // extractMarkdownTablesFromText extracts standard markdown tables from text
@@ -8297,8 +8541,9 @@ func isMarkdownTableSeparator(line string) bool {
 // parseMarkdownTableFromLines parses a markdown table starting at the given line index
 func parseMarkdownTableFromLines(lines []string, startIdx int) MarkdownTableData {
 	table := MarkdownTableData{
-		Title: "",
-		Rows:  []map[string]interface{}{},
+		Title:   "",
+		Columns: []string{},
+		Rows:    []map[string]interface{}{},
 	}
 
 	if startIdx >= len(lines) {
@@ -8311,6 +8556,8 @@ func parseMarkdownTableFromLines(lines []string, startIdx int) MarkdownTableData
 	if len(headers) == 0 {
 		return table
 	}
+
+	table.Columns = headers
 
 	// Skip separator line
 	dataStartIdx := startIdx + 2
@@ -8351,4 +8598,44 @@ func parseMarkdownTableRowCells(line string) []string {
 		result = append(result, strings.TrimSpace(p))
 	}
 	return result
+}
+
+// extractJSONObjectKeysOrdered extracts keys from the first JSON object in an array,
+// preserving the original order from the JSON string.
+// For input like `[{"name":"a","age":1},...]`, returns ["name","age"].
+func extractJSONObjectKeysOrdered(jsonStr string) []string {
+	dec := json.NewDecoder(strings.NewReader(jsonStr))
+	// Expect opening '['
+	t, err := dec.Token()
+	if err != nil {
+		return nil
+	}
+	if delim, ok := t.(json.Delim); !ok || delim != '[' {
+		return nil
+	}
+	// Expect opening '{' of first object
+	t, err = dec.Token()
+	if err != nil {
+		return nil
+	}
+	if delim, ok := t.(json.Delim); !ok || delim != '{' {
+		return nil
+	}
+	// Read key-value pairs from first object
+	var keys []string
+	for dec.More() {
+		t, err = dec.Token()
+		if err != nil {
+			break
+		}
+		if key, ok := t.(string); ok {
+			keys = append(keys, key)
+			// Skip the value
+			var v json.RawMessage
+			if err := dec.Decode(&v); err != nil {
+				break
+			}
+		}
+	}
+	return keys
 }

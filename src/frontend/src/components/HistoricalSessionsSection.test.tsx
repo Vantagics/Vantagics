@@ -9,6 +9,21 @@ import HistoricalSessionsSection, {
     formatSessionDate,
 } from './HistoricalSessionsSection';
 
+// Mock i18n to return the key as-is for easy assertion
+vi.mock('../i18n', () => ({
+    useLanguage: () => ({
+        language: 'English',
+        t: (key: string) => {
+            const translations: Record<string, string> = {
+                'historical_sessions': 'Historical Sessions',
+                'no_historical_sessions': 'No historical sessions',
+                'delete_session': 'Delete session',
+            };
+            return translations[key] || key;
+        },
+    }),
+}));
+
 describe('HistoricalSessionsSection Component', () => {
     const defaultProps: HistoricalSessionsSectionProps = {
         sessions: [],
@@ -325,5 +340,137 @@ describe('formatSessionDate', () => {
     it('should handle timestamp of 0 (epoch)', () => {
         const result = formatSessionDate(0);
         expect(result).toBeTruthy();
+    });
+});
+
+describe('QAP Session Icon Differentiation', () => {
+    const defaultProps: HistoricalSessionsSectionProps = {
+        sessions: [],
+        selectedId: null,
+        onSelect: vi.fn(),
+        onContextMenu: vi.fn(),
+    };
+
+    const now = Date.now() / 1000;
+
+    it('should render Zap icon (amber) for replay sessions', () => {
+        const replaySessions: SessionItem[] = [
+            {
+                id: 'qap1',
+                title: 'QAP Replay Session',
+                data_source_id: 'ds1',
+                created_at: now,
+                is_replay_session: true,
+            },
+        ];
+        const { container } = render(
+            <HistoricalSessionsSection {...defaultProps} sessions={replaySessions} />
+        );
+        // Zap icon should have amber color class
+        const zapIcon = container.querySelector('.text-amber-500');
+        expect(zapIcon).toBeInTheDocument();
+        // Should NOT have the default BarChart3 blue icon
+        const barChartIcon = container.querySelector('.session-title .text-blue-400');
+        expect(barChartIcon).not.toBeInTheDocument();
+    });
+
+    it('should render BarChart3 icon (blue) for normal sessions', () => {
+        const normalSessions: SessionItem[] = [
+            {
+                id: 'normal1',
+                title: 'Normal Session',
+                data_source_id: 'ds1',
+                created_at: now,
+                is_replay_session: false,
+            },
+        ];
+        const { container } = render(
+            <HistoricalSessionsSection {...defaultProps} sessions={normalSessions} />
+        );
+        // BarChart3 icon should have blue color class
+        const barChartIcon = container.querySelector('.text-blue-400');
+        expect(barChartIcon).toBeInTheDocument();
+        // Should NOT have amber Zap icon
+        const zapIcon = container.querySelector('.text-amber-500');
+        expect(zapIcon).not.toBeInTheDocument();
+    });
+
+    it('should render BarChart3 icon when is_replay_session is undefined', () => {
+        const sessions: SessionItem[] = [
+            {
+                id: 's1',
+                title: 'Session Without Flag',
+                data_source_id: 'ds1',
+                created_at: now,
+                // is_replay_session not set
+            },
+        ];
+        const { container } = render(
+            <HistoricalSessionsSection {...defaultProps} sessions={sessions} />
+        );
+        const barChartIcon = container.querySelector('.text-blue-400');
+        expect(barChartIcon).toBeInTheDocument();
+        const zapIcon = container.querySelector('.text-amber-500');
+        expect(zapIcon).not.toBeInTheDocument();
+    });
+
+    it('should show correct icons in mixed session list', () => {
+        const mixedSessions: SessionItem[] = [
+            {
+                id: 'normal1',
+                title: 'Normal Analysis',
+                data_source_id: 'ds1',
+                created_at: now,
+                is_replay_session: false,
+            },
+            {
+                id: 'qap1',
+                title: 'QAP Replay',
+                data_source_id: 'ds1',
+                created_at: now - 3600,
+                is_replay_session: true,
+            },
+            {
+                id: 'normal2',
+                title: 'Another Normal',
+                data_source_id: 'ds1',
+                created_at: now - 7200,
+                is_replay_session: false,
+            },
+        ];
+        const { container } = render(
+            <HistoricalSessionsSection {...defaultProps} sessions={mixedSessions} />
+        );
+        // Should have 2 blue icons (normal) and 1 amber icon (QAP)
+        const blueIcons = container.querySelectorAll('.session-title .text-blue-400');
+        const amberIcons = container.querySelectorAll('.session-title .text-amber-500');
+        expect(blueIcons).toHaveLength(2);
+        expect(amberIcons).toHaveLength(1);
+    });
+
+    it('should show loading spinner instead of Zap for loading replay session', () => {
+        const replaySessions: SessionItem[] = [
+            {
+                id: 'qap1',
+                title: 'Loading QAP Session',
+                data_source_id: 'ds1',
+                created_at: now,
+                is_replay_session: true,
+            },
+        ];
+        const isSessionLoading = (id: string) => id === 'qap1';
+        const { container } = render(
+            <HistoricalSessionsSection
+                {...defaultProps}
+                sessions={replaySessions}
+                isSessionLoading={isSessionLoading}
+            />
+        );
+        // Loading spinner should take priority over Zap icon
+        const spinner = container.querySelector('.animate-spin');
+        expect(spinner).toBeInTheDocument();
+        // Zap icon should NOT be shown while loading
+        const zapIcon = container.querySelector('.text-amber-500');
+        expect(zapIcon).not.toBeInTheDocument();
     });
 });

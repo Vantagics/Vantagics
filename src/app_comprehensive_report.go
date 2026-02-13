@@ -96,6 +96,126 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 		"Give me some analysis suggestions for this data source",
 	}
 
+	// For replay sessions (quick analysis packs), all messages are "assistant" role.
+	// We need a different collection strategy: iterate assistant messages directly,
+	// extract their content and analysis data.
+	if thread.IsReplaySession {
+		a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Replay session detected, collecting from assistant messages"))
+		for _, msg := range thread.Messages {
+			if msg.Role != "assistant" {
+				continue
+			}
+			// Skip completion/skip messages (✅ 快捷分析包执行完成, ⏭️ 已跳过)
+			trimmed := strings.TrimSpace(msg.Content)
+			if strings.HasPrefix(trimmed, "✅ 快捷分析包执行完成") || strings.HasPrefix(trimmed, "⏭️") {
+				continue
+			}
+			// Skip error messages
+			if strings.HasPrefix(trimmed, "❌") {
+				continue
+			}
+
+			// Extract the user request from the message content (format: > 📋 分析请求：xxx)
+			if idx := strings.Index(msg.Content, "📋 分析请求："); idx >= 0 {
+				reqStart := idx + len("📋 分析请求：")
+				reqEnd := strings.Index(msg.Content[reqStart:], "\n")
+				if reqEnd > 0 {
+					userReq := strings.TrimSpace(msg.Content[reqStart : reqStart+reqEnd])
+					if userReq != "" {
+						analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.analysis_request"), userReq))
+					}
+				}
+			}
+
+			// Add the assistant message content (strip code blocks for cleaner summary)
+			if msg.Content != "" {
+				analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.analysis_result"), msg.Content))
+			}
+
+			// Get analysis data for this assistant message
+			analysisData, err := a.GetMessageAnalysisData(req.ThreadID, msg.ID)
+			if err != nil {
+				a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Failed to get analysis data for replay message %s: %v", msg.ID, err))
+			}
+			if analysisData != nil {
+				if items, ok := analysisData["analysisResults"]; items != nil && ok {
+					if resultItems, ok := items.([]AnalysisResultItem); ok {
+						a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Replay message %s has %d analysis result items", msg.ID, len(resultItems)))
+						for _, item := range resultItems {
+							switch item.Type {
+							case "echarts":
+								a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Found echarts item %s - will be rendered by frontend", item.ID))
+							case "table":
+								tableMap := make(map[string]interface{})
+								switch td := item.Data.(type) {
+								case string:
+									if err := json.Unmarshal([]byte(td), &tableMap); err != nil {
+										continue
+									}
+								case map[string]interface{}:
+									tableMap = td
+								default:
+									continue
+								}
+								columns, colOk := tableMap["columns"].([]interface{})
+								data, dataOk := tableMap["data"].([]interface{})
+								if colOk && dataOk {
+									var tableCols []TableColumn
+									for _, col := range columns {
+										if colMap, ok := col.(map[string]interface{}); ok {
+											tableCols = append(tableCols, TableColumn{
+												Title:    fmt.Sprintf("%v", colMap["title"]),
+												DataType: fmt.Sprintf("%v", colMap["dataType"]),
+											})
+										}
+									}
+									var tableRows [][]any
+									for _, row := range data {
+										if rowSlice, ok := row.([]interface{}); ok {
+											tableRows = append(tableRows, rowSlice)
+										}
+									}
+									if len(tableCols) > 0 && len(tableRows) > 0 {
+										tableName := fmt.Sprintf("%s %d", i18n.T("comprehensive_report.table"), len(allTableData)+1)
+										if item.Metadata != nil {
+											if name, ok := item.Metadata["name"].(string); ok && name != "" {
+												tableName = name
+											}
+										}
+										allTableData = append(allTableData, NamedTableData{
+											Name: tableName,
+											Table: TableData{Columns: tableCols, Data: tableRows},
+										})
+										var colNames []string
+										for _, c := range tableCols {
+											colNames = append(colNames, c.Title)
+										}
+										analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s: %s (%d %s)",
+											i18n.T("comprehensive_report.table"), tableName,
+											strings.Join(colNames, ", "), len(tableRows), "rows"))
+									}
+								}
+							case "insight":
+								if strData, ok := item.Data.(string); ok && strData != "" {
+									analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s", i18n.T("comprehensive_report.insight"), strData))
+								}
+							case "metric":
+								if mapData, ok := item.Data.(map[string]interface{}); ok {
+									title, _ := mapData["title"].(string)
+									value, _ := mapData["value"].(string)
+									if title != "" && value != "" {
+										analysisContents = append(analysisContents, fmt.Sprintf("### %s\n%s: %s", i18n.T("comprehensive_report.key_metric"), title, value))
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	} else {
+	// Normal session: iterate user messages and pair with assistant responses
+
 	for i, msg := range thread.Messages {
 		if msg.Role == "user" {
 			// Skip suggestion request messages (auto-generated first message)
@@ -414,6 +534,7 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 			}
 		}
 	}
+	} // end else (normal session)
 
 	// Also collect chart images from session files (Python-generated charts)
 	sessionFiles, err := a.chatService.GetSessionFiles(req.ThreadID)
@@ -490,8 +611,19 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 	a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Generating new report, collected %d analysis contents, %d tables, %d charts", 
 		len(analysisContents), len(allTableData), len(chartImages)))
 
+	// Handle Pack metadata for replay sessions
+	var packMeta *PackMetadata
+	if thread.IsReplaySession && thread.PackMetadata != nil {
+		packMeta = thread.PackMetadata
+		// Use PackMetadata.SourceName as fallback when DataSourceName is empty
+		if req.DataSourceName == "" && packMeta.SourceName != "" {
+			req.DataSourceName = packMeta.SourceName
+			a.Log(fmt.Sprintf("[COMPREHENSIVE-REPORT] Using pack source name as data source: %s", req.DataSourceName))
+		}
+	}
+
 	// Build comprehensive summary for LLM
-	comprehensiveSummary := buildComprehensiveSummary(req.DataSourceName, req.SessionName, analysisContents)
+	comprehensiveSummary := buildComprehensiveSummary(req.DataSourceName, req.SessionName, analysisContents, packMeta)
 
 	// Call LLM to generate comprehensive report
 	reportText, err := a.callLLMForComprehensiveReport(comprehensiveSummary)
@@ -577,8 +709,30 @@ func (a *App) GenerateComprehensiveReport(req ComprehensiveReportRequest) error 
 	return a.ExportComprehensiveReport(result.ReportID, "word")
 }
 
-func buildComprehensiveSummary(dataSourceName, sessionName string, analysisContents []string) string {
+func buildComprehensiveSummary(dataSourceName, sessionName string, analysisContents []string, packMeta *PackMetadata) string {
 	var sb strings.Builder
+
+	// If pack metadata is available, add analysis pack info section at the beginning
+	if packMeta != nil {
+		sb.WriteString(i18n.T("comprehensive_report.pack_info_header"))
+		sb.WriteString("\n")
+		if packMeta.Author != "" {
+			sb.WriteString(i18n.T("comprehensive_report.pack_author"))
+			sb.WriteString(packMeta.Author)
+			sb.WriteString("\n")
+		}
+		if packMeta.Description != "" {
+			sb.WriteString(i18n.T("comprehensive_report.pack_description"))
+			sb.WriteString(packMeta.Description)
+			sb.WriteString("\n")
+		}
+		if packMeta.SourceName != "" {
+			sb.WriteString(i18n.T("comprehensive_report.pack_source_name"))
+			sb.WriteString(packMeta.SourceName)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
 
 	sb.WriteString(i18n.T("comprehensive_report.data_source"))
 	sb.WriteString(dataSourceName)
@@ -598,6 +752,7 @@ func buildComprehensiveSummary(dataSourceName, sessionName string, analysisConte
 
 	return sb.String()
 }
+
 
 func (a *App) callLLMForComprehensiveReport(summary string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)

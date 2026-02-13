@@ -6,7 +6,7 @@ import MetricCard from './MetricCard';
 import Chart from './Chart';
 import DataTable from './DataTable';
 import TimingAnalysisModal from './TimingAnalysisModal';
-import { User, Bot, ZoomIn } from 'lucide-react';
+import { User, Bot, ZoomIn, BarChart3 } from 'lucide-react';
 import { EventsEmit } from '../../wailsjs/runtime/runtime';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 import { createLogger } from '../utils/systemLog';
@@ -30,9 +30,11 @@ interface MessageBubbleProps {
     isFailed?: boolean;  // 新增：分析是否失败
     onRetryAnalysis?: () => void;  // 新增：重新分析回调
     isCancelled?: boolean;  // 新增：分析是否被中止（可点击继续分析）
+    isReplaySession?: boolean;  // 快捷分析会话标识
+    onShowResult?: (messageId: string) => void;  // 结果显示按钮回调
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId, isFailed, onRetryAnalysis, isCancelled }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, onActionClick, onClick, hasChart, messageId, userMessageId, dataSourceId, isDisabled, timingData, threadId, isFailed, onRetryAnalysis, isCancelled, isReplaySession, onShowResult }) => {
     const { t } = useLanguage();
     const isUser = role === 'user';
     const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -41,6 +43,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
     const [exportMenu, setExportMenu] = useState<{ x: number; y: number } | null>(null);
     const [timingModalOpen, setTimingModalOpen] = useState(false);
+    const [showResultClicked, setShowResultClicked] = useState(false);
     const messageContentRef = useRef<HTMLDivElement>(null);
 
     // Image component that loads base64 data for file:// URLs
@@ -862,6 +865,33 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                 },
                                 td(props) {
                                     return <td className="border border-slate-200 px-3 py-2 text-slate-600">{props.children}</td>;
+                                },
+                                blockquote(props) {
+                                    const boldifyRequest = (children: React.ReactNode): React.ReactNode => {
+                                        return React.Children.map(children, (child) => {
+                                            if (typeof child === 'string') {
+                                                const parts = child.split(/(分析请求[：:])/);
+                                                if (parts.length > 1) {
+                                                    return <>{parts.map((part, i) =>
+                                                        /^分析请求[：:]$/.test(part)
+                                                            ? <strong key={i}>{part}</strong>
+                                                            : part
+                                                    )}</>;
+                                                }
+                                                return child;
+                                            }
+                                            if (React.isValidElement(child)) {
+                                                const el = child as React.ReactElement<{ children?: React.ReactNode }>;
+                                                return React.cloneElement(el, {}, boldifyRequest(el.props.children));
+                                            }
+                                            return child;
+                                        });
+                                    };
+                                    return (
+                                        <blockquote className="border-l-4 border-blue-300 pl-3 my-2 text-slate-700">
+                                            {boldifyRequest(props.children)}
+                                        </blockquote>
+                                    );
                                 }
                             }}
                         >
@@ -922,6 +952,30 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     </button>
                                 );
                             })}
+                        </div>
+                    )}
+
+                    {/* Result Display Button for Replay Session steps (exclude pack completion summary) */}
+                    {isReplaySession && !isUser && content.includes('✅') && !content.includes('❌') && !content.includes('执行完成') && messageId && onShowResult && (
+                        <div className="mt-2 flex">
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onShowResult(messageId);
+                                    setShowResultClicked(true);
+                                    setTimeout(() => setShowResultClicked(false), 1500);
+                                }}
+                                className={`flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium rounded-lg transition-colors ${
+                                    showResultClicked
+                                        ? 'text-green-600 dark:text-[#6a9955] bg-green-50 dark:bg-[#1a2e1a] border border-green-300 dark:border-[#4a7a4a]'
+                                        : 'text-blue-600 dark:text-[#569cd6] bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] hover:bg-blue-100 dark:hover:bg-[#1e3a5f]'
+                                }`}
+                                disabled={showResultClicked}
+                            >
+                                <BarChart3 className="w-3 h-3" />
+                                {showResultClicked ? '✓ ' + t('show_result_on_dashboard') : t('show_result_on_dashboard')}
+                            </button>
                         </div>
                     )}
                 </div>

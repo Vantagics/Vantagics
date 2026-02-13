@@ -4,14 +4,16 @@ import '@testing-library/jest-dom';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import ImportPackDialog from './ImportPackDialog';
 
-// Mock Wails bindings
+// Mock Wails bindings — must include ALL APIs used by the refactored component
 vi.mock('../../wailsjs/go/main/App', () => ({
     LoadQuickAnalysisPack: vi.fn(),
     LoadQuickAnalysisPackWithPassword: vi.fn(),
     ExecuteQuickAnalysisPack: vi.fn(),
+    ListLocalQuickAnalysisPacks: vi.fn(),
+    LoadQuickAnalysisPackByPath: vi.fn(),
 }));
 
-// Mock i18n
+// Mock i18n — returns the key as-is
 vi.mock('../i18n', () => ({
     useLanguage: () => ({
         language: 'English',
@@ -23,11 +25,26 @@ import {
     LoadQuickAnalysisPack,
     LoadQuickAnalysisPackWithPassword,
     ExecuteQuickAnalysisPack,
+    ListLocalQuickAnalysisPacks,
+    LoadQuickAnalysisPackByPath,
 } from '../../wailsjs/go/main/App';
 
-const mockLoad = vi.mocked(LoadQuickAnalysisPack);
+const mockListPacks = vi.mocked(ListLocalQuickAnalysisPacks);
+const mockLoadByPath = vi.mocked(LoadQuickAnalysisPackByPath);
+const mockLoadBrowse = vi.mocked(LoadQuickAnalysisPack);
 const mockLoadWithPassword = vi.mocked(LoadQuickAnalysisPackWithPassword);
 const mockExecute = vi.mocked(ExecuteQuickAnalysisPack);
+
+const mockPackInfo = {
+    file_name: 'test_pack.qap',
+    file_path: '/tmp/qap/test_pack.qap',
+    pack_name: 'Test Analysis Pack',
+    description: 'A test pack',
+    source_name: 'test_db',
+    author: 'Alice',
+    created_at: '2024-01-15T10:30:00Z',
+    is_encrypted: false,
+};
 
 const makePackResult = (overrides: any = {}) => ({
     pack: {
@@ -55,7 +72,7 @@ const makePackResult = (overrides: any = {}) => ({
     },
     is_encrypted: false,
     needs_password: false,
-    file_path: '/tmp/test.qap',
+    file_path: '/tmp/qap/test_pack.qap',
     ...overrides,
 });
 
@@ -71,148 +88,118 @@ describe('ImportPackDialog', () => {
         vi.clearAllMocks();
     });
 
+    // 1. Basic render test
     it('should not render when isOpen is false', () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
+        mockListPacks.mockResolvedValue([]);
         render(<ImportPackDialog {...defaultProps} isOpen={false} />);
         expect(screen.queryByText('import_pack_title')).not.toBeInTheDocument();
     });
 
-    it('should show loading state initially', () => {
-        mockLoad.mockReturnValue(new Promise(() => {})); // never resolves
+    // 2. Loading state while fetching pack list
+    it('should show loading state while fetching pack list', () => {
+        mockListPacks.mockReturnValue(new Promise(() => {})); // never resolves
         render(<ImportPackDialog {...defaultProps} />);
         expect(screen.getByText('import_pack_loading')).toBeInTheDocument();
     });
 
-    it('should call LoadQuickAnalysisPack with dataSourceId on open', () => {
-        mockLoad.mockReturnValue(new Promise(() => {}));
+    // 3. Show pack list after loading
+    it('should show pack list after loading', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
         render(<ImportPackDialog {...defaultProps} />);
-        expect(mockLoad).toHaveBeenCalledWith('ds-123');
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+            expect(screen.getByText('A test pack')).toBeInTheDocument();
+        });
     });
 
+    // 4. Empty state when no packs
+    it('should show empty state when no packs', async () => {
+        mockListPacks.mockResolvedValue([]);
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('import_pack_empty_hint')).toBeInTheDocument();
+        });
+    });
+
+    // 5. Click pack item → preview state
+    it('should show preview when clicking a pack item', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult() as any);
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(mockLoadByPath).toHaveBeenCalledWith('/tmp/qap/test_pack.qap', 'ds-123');
+            expect(screen.getByText('Alice')).toBeInTheDocument();
+            expect(screen.getByText('test_db')).toBeInTheDocument();
+        });
+    });
+
+    // 6. Click pack → needs_password=true → password input
     it('should show password input when pack needs password', async () => {
-        mockLoad.mockResolvedValue(makePackResult({
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult({
             needs_password: true,
             is_encrypted: true,
             pack: null,
             validation: null,
+            file_path: '/tmp/qap/test_pack.qap',
         }) as any);
+
         render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
         await waitFor(() => {
             expect(screen.getByPlaceholderText('import_pack_password_placeholder')).toBeInTheDocument();
         });
     });
 
-    it('should show preview with metadata when pack loads successfully', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
+    // 7. Browse file button → LoadQuickAnalysisPack → preview
+    it('should handle browse file button', async () => {
+        mockListPacks.mockResolvedValue([]);
+        mockLoadBrowse.mockResolvedValue(makePackResult() as any);
+
         render(<ImportPackDialog {...defaultProps} />);
         await waitFor(() => {
+            expect(screen.getByText('import_pack_browse_file')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('import_pack_browse_file'));
+
+        await waitFor(() => {
+            expect(mockLoadBrowse).toHaveBeenCalledWith('ds-123');
             expect(screen.getByText('Alice')).toBeInTheDocument();
-            expect(screen.getByText('test_db')).toBeInTheDocument();
-            expect(screen.getByText('1')).toBeInTheDocument(); // steps count
         });
     });
 
-    it('should show schema compatible message when no issues', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_schema_compatible')).toBeInTheDocument();
-        });
-    });
-
-    it('should show missing tables error and disable import', async () => {
-        mockLoad.mockResolvedValue(makePackResult({
-            validation: {
-                compatible: false,
-                table_count_match: false,
-                source_table_count: 3,
-                target_table_count: 1,
-                missing_tables: ['orders', 'customers'],
-                missing_columns: [],
-                extra_tables: [],
-            },
-        }) as any);
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_missing_tables')).toBeInTheDocument();
-            expect(screen.getByText('orders, customers')).toBeInTheDocument();
-            const confirmBtn = screen.getByText('import_pack_confirm');
-            expect(confirmBtn.closest('button')).toBeDisabled();
-        });
-    });
-
-    it('should show missing columns warning but allow import', async () => {
-        mockLoad.mockResolvedValue(makePackResult({
-            validation: {
-                compatible: true,
-                table_count_match: true,
-                source_table_count: 2,
-                target_table_count: 2,
-                missing_tables: [],
-                missing_columns: [{ table_name: 'orders', column_name: 'discount' }],
-                extra_tables: [],
-            },
-        }) as any);
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_missing_columns')).toBeInTheDocument();
-            expect(screen.getByText('orders.discount')).toBeInTheDocument();
-            const confirmBtn = screen.getByText('import_pack_confirm');
-            expect(confirmBtn.closest('button')).not.toBeDisabled();
-        });
-    });
-
-    it('should call ExecuteQuickAnalysisPack on confirm', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
-        mockExecute.mockResolvedValue(undefined as any);
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
-        });
-        fireEvent.click(screen.getByText('import_pack_confirm'));
-        await waitFor(() => {
-            expect(mockExecute).toHaveBeenCalledWith('/tmp/test.qap', 'ds-123', '');
-        });
-    });
-
-    it('should call onConfirm and onClose on successful import', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
-        mockExecute.mockResolvedValue(undefined as any);
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
-        });
-        fireEvent.click(screen.getByText('import_pack_confirm'));
-        await waitFor(() => {
-            expect(defaultProps.onConfirm).toHaveBeenCalled();
-            expect(defaultProps.onClose).toHaveBeenCalled();
-        });
-    });
-
-    it('should show error when import execution fails', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
-        mockExecute.mockRejectedValue(new Error('Execution failed'));
-        render(<ImportPackDialog {...defaultProps} />);
-        await waitFor(() => {
-            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
-        });
-        fireEvent.click(screen.getByText('import_pack_confirm'));
-        await waitFor(() => {
-            expect(screen.getByText('Execution failed')).toBeInTheDocument();
-        });
-    });
-
-    it('should submit password and show preview on success', async () => {
-        mockLoad.mockResolvedValue(makePackResult({
+    // 8. Password flow → submit → preview
+    it('should submit password and show preview', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult({
             needs_password: true,
             is_encrypted: true,
             pack: null,
             validation: null,
-            file_path: '/tmp/encrypted.qap',
+            file_path: '/tmp/qap/test_pack.qap',
         }) as any);
         mockLoadWithPassword.mockResolvedValue(makePackResult() as any);
 
         render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
         await waitFor(() => {
             expect(screen.getByPlaceholderText('import_pack_password_placeholder')).toBeInTheDocument();
         });
@@ -223,22 +210,30 @@ describe('ImportPackDialog', () => {
         fireEvent.click(screen.getByText('confirm'));
 
         await waitFor(() => {
-            expect(mockLoadWithPassword).toHaveBeenCalledWith('/tmp/encrypted.qap', 'ds-123', 'mypassword');
+            expect(mockLoadWithPassword).toHaveBeenCalledWith('/tmp/qap/test_pack.qap', 'ds-123', 'mypassword');
             expect(screen.getByText('Alice')).toBeInTheDocument();
         });
     });
 
-    it('should show error on wrong password and allow retry', async () => {
-        mockLoad.mockResolvedValue(makePackResult({
+    // 9. Wrong password → error
+    it('should show error on wrong password', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult({
             needs_password: true,
             is_encrypted: true,
             pack: null,
             validation: null,
-            file_path: '/tmp/encrypted.qap',
+            file_path: '/tmp/qap/test_pack.qap',
         }) as any);
         mockLoadWithPassword.mockRejectedValue(new Error('wrong password'));
 
         render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
         await waitFor(() => {
             expect(screen.getByPlaceholderText('import_pack_password_placeholder')).toBeInTheDocument();
         });
@@ -250,13 +245,141 @@ describe('ImportPackDialog', () => {
 
         await waitFor(() => {
             expect(screen.getByText('wrong password')).toBeInTheDocument();
-            // Should still be on password screen for retry
             expect(screen.getByPlaceholderText('import_pack_password_placeholder')).toBeInTheDocument();
         });
     });
 
+    // 10. Execute pack on confirm
+    it('should execute pack on confirm', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult() as any);
+        mockExecute.mockResolvedValue(undefined as any);
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('import_pack_confirm'));
+
+        await waitFor(() => {
+            expect(mockExecute).toHaveBeenCalledWith('/tmp/qap/test_pack.qap', 'ds-123', '');
+        });
+    });
+
+    // 11. Successful execution → onConfirm + onClose
+    it('should call onConfirm and onClose on successful execution', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult() as any);
+        mockExecute.mockResolvedValue(undefined as any);
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('import_pack_confirm'));
+
+        await waitFor(() => {
+            expect(defaultProps.onConfirm).toHaveBeenCalled();
+            expect(defaultProps.onClose).toHaveBeenCalled();
+        });
+    });
+
+    // 12. Execution failure → error shown
+    it('should show error when execution fails', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult() as any);
+        mockExecute.mockRejectedValue(new Error('Execution failed'));
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(screen.getByText('import_pack_confirm')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('import_pack_confirm'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Execution failed')).toBeInTheDocument();
+        });
+    });
+
+    // 13. Back button from preview → pack-list
+    it('should go back to pack-list from preview', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult() as any);
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Alice')).toBeInTheDocument();
+        });
+
+        // Click back button
+        fireEvent.click(screen.getByText('import_pack_back'));
+
+        await waitFor(() => {
+            // Should be back on pack-list showing the pack list again
+            expect(screen.getByText('import_pack_browse_file')).toBeInTheDocument();
+        });
+    });
+
+    // 14. Back button from password → pack-list
+    it('should go back to pack-list from password', async () => {
+        mockListPacks.mockResolvedValue([mockPackInfo] as any);
+        mockLoadByPath.mockResolvedValue(makePackResult({
+            needs_password: true,
+            is_encrypted: true,
+            pack: null,
+            validation: null,
+            file_path: '/tmp/qap/test_pack.qap',
+        }) as any);
+
+        render(<ImportPackDialog {...defaultProps} />);
+        await waitFor(() => {
+            expect(screen.getByText('Test Analysis Pack')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Test Analysis Pack'));
+
+        await waitFor(() => {
+            expect(screen.getByPlaceholderText('import_pack_password_placeholder')).toBeInTheDocument();
+        });
+
+        // Click back button
+        fireEvent.click(screen.getByText('import_pack_back'));
+
+        await waitFor(() => {
+            expect(screen.getByText('import_pack_browse_file')).toBeInTheDocument();
+        });
+    });
+
+    // 15. Cancel button → onClose
     it('should call onClose when cancel is clicked', async () => {
-        mockLoad.mockResolvedValue(makePackResult() as any);
+        mockListPacks.mockResolvedValue([]);
         render(<ImportPackDialog {...defaultProps} />);
         await waitFor(() => {
             expect(screen.getByText('cancel')).toBeInTheDocument();

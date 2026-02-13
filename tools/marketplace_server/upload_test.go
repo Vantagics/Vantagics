@@ -70,7 +70,7 @@ func createUploadRequest(t *testing.T, userID int64, fileData []byte, fields map
 func createTestUser(t *testing.T) int64 {
 	t.Helper()
 	result, err := db.Exec(
-		"INSERT INTO users (oauth_provider, oauth_provider_id, display_name, email) VALUES ('google', 'upload-test-user', 'Uploader', 'up@test.com')",
+		"INSERT INTO users (auth_type, auth_id, display_name, email) VALUES ('google', 'upload-test-user', 'Uploader', 'up@test.com')",
 	)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)
@@ -148,7 +148,7 @@ func TestUploadPack_Success_Paid(t *testing.T) {
 
 	req := createUploadRequest(t, userID, qapData, map[string]string{
 		"category_id":   fmt.Sprintf("%d", catID),
-		"share_mode":    "paid",
+		"share_mode":    "per_use",
 		"credits_price": "100",
 	})
 	rr := httptest.NewRecorder()
@@ -161,8 +161,8 @@ func TestUploadPack_Success_Paid(t *testing.T) {
 	var listing PackListingInfo
 	json.Unmarshal(rr.Body.Bytes(), &listing)
 
-	if listing.ShareMode != "paid" {
-		t.Errorf("expected share_mode='paid', got %q", listing.ShareMode)
+	if listing.ShareMode != "per_use" {
+		t.Errorf("expected share_mode='per_use', got %q", listing.ShareMode)
 	}
 	if listing.CreditsPrice != 100 {
 		t.Errorf("expected credits_price=100, got %d", listing.CreditsPrice)
@@ -218,7 +218,7 @@ func TestUploadPack_PaidMissingPrice(t *testing.T) {
 
 	req := createUploadRequest(t, userID, qapData, map[string]string{
 		"category_id": fmt.Sprintf("%d", catID),
-		"share_mode":  "paid",
+		"share_mode":  "per_use",
 	})
 	rr := httptest.NewRecorder()
 	handleUploadPack(rr, req)
@@ -238,7 +238,7 @@ func TestUploadPack_PaidZeroPrice(t *testing.T) {
 
 	req := createUploadRequest(t, userID, qapData, map[string]string{
 		"category_id":   fmt.Sprintf("%d", catID),
-		"share_mode":    "paid",
+		"share_mode":    "per_use",
 		"credits_price": "0",
 	})
 	rr := httptest.NewRecorder()
@@ -259,7 +259,7 @@ func TestUploadPack_PaidNegativePrice(t *testing.T) {
 
 	req := createUploadRequest(t, userID, qapData, map[string]string{
 		"category_id":   fmt.Sprintf("%d", catID),
-		"share_mode":    "paid",
+		"share_mode":    "per_use",
 		"credits_price": "-5",
 	})
 	rr := httptest.NewRecorder()

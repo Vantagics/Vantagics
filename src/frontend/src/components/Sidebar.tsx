@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, ExportSessionHTML, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread } from '../../wailsjs/go/main/App';
-import { EventsEmit, EventsOn } from '../../wailsjs/runtime/runtime';
+import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread, UpdateThreadTitle } from '../../wailsjs/go/main/App';
+import { EventsEmit, EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import AddDataSourceModal from './AddDataSourceModal';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
@@ -19,6 +19,7 @@ import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
 import ExportPackDialog from './ExportPackDialog';
 import ImportPackDialog from './ImportPackDialog';
+import RenameSessionModal from './RenameSessionModal';
 import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History } from 'lucide-react';
 import { useLoadingState } from '../hooks/useLoadingState';
 import './LeftPanel.css';
@@ -57,7 +58,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     // Historical sessions state
     const [sessions, setSessions] = useState<main.ChatThread[]>([]);
     const [isLoadingSessions, setIsLoadingSessions] = useState(false);
-    const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string } | null>(null);
+    const [sessionContextMenu, setSessionContextMenu] = useState<{ x: number; y: number; sessionId: string; isReplaySession?: boolean } | null>(null);
     const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ id: string; title: string } | null>(null);
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
     const [exportPackThreadId, setExportPackThreadId] = useState<string | null>(null);
@@ -65,6 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [autoIntentUnderstanding, setAutoIntentUnderstanding] = useState<boolean>(true);
     const [freeChatThreadId, setFreeChatThreadId] = useState<string | null>(null);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+    const [renameSessionTarget, setRenameSessionTarget] = useState<{ id: string; title: string; dataSourceId: string; dataSourceName?: string } | null>(null);
 
     const fetchSources = async () => {
         try {
@@ -159,6 +161,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         const unsubCreated = EventsOn('chat-thread-created', () => fetchSessions());
         const unsubDeleted = EventsOn('chat-thread-deleted', () => fetchSessions());
         const unsubUpdated = EventsOn('chat-thread-updated', () => fetchSessions());
+        const unsubQapCreated = EventsOn('qap-session-created', () => fetchSessions());
         const unsubReportStatus = EventsOn('comprehensive-report-status', (data: any) => {
             setIsGeneratingReport(!!data?.generating);
         });
@@ -166,6 +169,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             if (unsubCreated) unsubCreated();
             if (unsubDeleted) unsubDeleted();
             if (unsubUpdated) unsubUpdated();
+            if (unsubQapCreated) unsubQapCreated();
             if (unsubReportStatus) unsubReportStatus();
         };
     }, []);
@@ -173,7 +177,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const handleSessionContextMenu = (e: React.MouseEvent, sessionId: string) => {
         e.preventDefault();
         e.stopPropagation();
-        setSessionContextMenu({ x: e.clientX, y: e.clientY, sessionId });
+        const session = sessions.find(s => s.id === sessionId);
+        setSessionContextMenu({ x: e.clientX, y: e.clientY, sessionId, isReplaySession: session?.is_replay_session });
     };
 
     // Close session context menu on outside click
@@ -210,15 +215,20 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         }
     };
 
-    const handleSessionContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => {
-        if (action === 'view_memory') {
-            setMemoryModalTarget(threadId);
-        } else if (action === 'export') {
-            try {
-                await ExportSessionHTML(threadId);
-            } catch (e) {
-                console.error('Export failed:', e);
+    const handleSessionContextAction = async (action: 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack' | 'rename', threadId: string) => {
+        if (action === 'rename') {
+            const session = sessions.find(s => s.id === threadId);
+            if (session) {
+                const dsName = sources?.find((s: any) => s.id === session.data_source_id)?.name;
+                setRenameSessionTarget({
+                    id: session.id,
+                    title: session.title,
+                    dataSourceId: session.data_source_id,
+                    dataSourceName: dsName,
+                });
             }
+        } else if (action === 'view_memory') {
+            setMemoryModalTarget(threadId);
         } else if (action === 'view_results_directory') {
             try {
                 await OpenSessionResultsDirectory(threadId);
@@ -286,6 +296,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             EventsEmit('data-source-renamed', { id: renameTarget.id, newName });
         } catch (err) {
             throw err; // Re-throw to let modal handle the error
+        }
+    };
+
+    const handleRenameSession = async (newTitle: string) => {
+        if (!renameSessionTarget) return;
+        const targetId = renameSessionTarget.id;
+        setRenameSessionTarget(null);
+        try {
+            await UpdateThreadTitle(targetId, newTitle);
+            await fetchSessions();
+            EventsEmit('chat-thread-updated', targetId);
+        } catch (err) {
+            console.error('Failed to rename session:', err);
         }
     };
 
@@ -448,25 +471,34 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
-                        {/* System Assistant entry - always visible below Chat Analysis */}
-                        {freeChatThreadId && (
+                        {/* System Assistant and Customer Service - row layout */}
+                        <div className="flex gap-2">
+                            {freeChatThreadId && (
+                                <button
+                                    className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm ${selectedSessionId === freeChatThreadId ? 'bg-red-200 dark:bg-[#5f1e1e] text-red-800 dark:text-[#d69656] ring-red-400 dark:ring-[#783026]' : 'bg-red-50 dark:bg-[#3a1f1f] hover:bg-red-100 dark:hover:bg-[#4a2626] text-red-700 dark:text-[#d69656] ring-red-300 dark:ring-[#5f2e2e]'}`}
+                                    onClick={() => {
+                                        onSessionSelect(freeChatThreadId);
+                                        if (!isChatOpen) {
+                                            onToggleChat();
+                                        }
+                                    }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleSessionContextMenu(e, freeChatThreadId);
+                                    }}
+                                >
+                                    <span>🤖</span> {t('free_chat')}
+                                </button>
+                            )}
                             <button
-                                className={`w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm ${selectedSessionId === freeChatThreadId ? 'bg-red-200 dark:bg-[#5f1e1e] text-red-800 dark:text-[#d69656] ring-red-400 dark:ring-[#783026]' : 'bg-red-50 dark:bg-[#3a1f1f] hover:bg-red-100 dark:hover:bg-[#4a2626] text-red-700 dark:text-[#d69656] ring-red-300 dark:ring-[#5f2e2e]'}`}
-                                onClick={() => {
-                                    onSessionSelect(freeChatThreadId);
-                                    if (!isChatOpen) {
-                                        onToggleChat();
-                                    }
-                                }}
-                                onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleSessionContextMenu(e, freeChatThreadId);
-                                }}
+                                className="flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm bg-green-50 dark:bg-[#1f3a2a] hover:bg-green-100 dark:hover:bg-[#264f3a] text-green-700 dark:text-[#56d6a0] ring-green-300 dark:ring-[#2e5f3e]"
+                                onClick={() => BrowserOpenURL('https://service.vantagedata.chat/?vantagedata')}
+                                aria-label={t('customer_service')}
                             >
-                                <span>🤖</span> {t('free_chat')}
+                                <span>🎧</span> {t('customer_service')}
                             </button>
-                        )}
+                        </div>
                     </div>
 
                     {/* Historical Sessions - below Chat Analysis button */}
@@ -486,6 +518,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                                     data_source_id: session.data_source_id,
                                     created_at: session.created_at,
                                     dataSourceName: sources?.find(s => s.id === session.data_source_id)?.name,
+                                    is_replay_session: session.is_replay_session,
                                 }))}
                                 selectedId={selectedSessionId}
                                 onSelect={onSessionSelect}
@@ -506,6 +539,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             onAction={handleSessionContextAction}
                             autoIntentUnderstanding={autoIntentUnderstanding}
                             isFreeChatThread={sessionContextMenu.sessionId === freeChatThreadId}
+                            isReplaySession={sessionContextMenu.isReplaySession}
                             isGeneratingComprehensiveReport={isGeneratingReport}
                         />
                     )}
@@ -702,6 +736,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 isOpen={!!memoryModalTarget}
                 threadId={memoryModalTarget || ''}
                 onClose={() => setMemoryModalTarget(null)}
+            />
+
+            <RenameSessionModal
+                isOpen={!!renameSessionTarget}
+                currentTitle={renameSessionTarget?.title || ''}
+                threadId={renameSessionTarget?.id || ''}
+                dataSourceId={renameSessionTarget?.dataSourceId || ''}
+                dataSourceName={renameSessionTarget?.dataSourceName}
+                onClose={() => setRenameSessionTarget(null)}
+                onConfirm={handleRenameSession}
             />
         </div>
     );

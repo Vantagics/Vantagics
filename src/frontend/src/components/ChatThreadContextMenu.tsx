@@ -1,18 +1,19 @@
 import React, { useEffect, useRef } from 'react';
-import { Download, Briefcase, Brain, FolderOpen, Check, Eraser, FileText, PackageOpen } from 'lucide-react';
+import { Brain, FolderOpen, Check, Eraser, FileText, PackageOpen, Pencil } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 interface ChatThreadContextMenuProps {
     position: { x: number; y: number };
     threadId: string;
     onClose: () => void;
-    onAction: (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => void;
+    onAction: (action: 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack' | 'rename', threadId: string) => void;
     autoIntentUnderstanding?: boolean;
     isFreeChatThread?: boolean;
+    isReplaySession?: boolean;
     isGeneratingComprehensiveReport?: boolean;
 }
 
-const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position, threadId, onClose, onAction, autoIntentUnderstanding = true, isFreeChatThread = false, isGeneratingComprehensiveReport = false }) => {
+const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position, threadId, onClose, onAction, autoIntentUnderstanding = true, isFreeChatThread = false, isReplaySession = false, isGeneratingComprehensiveReport = false }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +27,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [onClose]);
 
-    const handleAction = (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack') => {
+    const handleAction = (action: 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'comprehensive_report' | 'export_quick_analysis_pack' | 'rename') => {
         onAction(action, threadId);
         // Don't close menu for toggle action so user can see the state change
         if (action !== 'toggle_intent_understanding') {
@@ -55,44 +56,50 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
             ) : (
                 <>
                     <button
-                        onClick={(e) => { e.stopPropagation(); handleAction('view_memory'); }}
+                        onClick={(e) => { e.stopPropagation(); handleAction('rename'); }}
                         className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                     >
-                        <Brain className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                        {t('view_memory')}
+                        <Pencil className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                        {t('context_menu_rename')}
                     </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleAction('view_results_directory'); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
-                    >
-                        <FolderOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                        {t('view_results_directory')}
-                    </button>
+                    {!isReplaySession && (
+                        <>
+                            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleAction('view_memory'); }}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                            >
+                                <Brain className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                                {t('view_memory')}
+                            </button>
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleAction('view_results_directory'); }}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                            >
+                                <FolderOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                                {t('view_results_directory')}
+                            </button>
+                            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleAction('toggle_intent_understanding'); }}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                            >
+                                <div className={`w-4 h-4 border rounded flex items-center justify-center ${autoIntentUnderstanding ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
+                                    {autoIntentUnderstanding && <Check className="w-3 h-3 text-white" />}
+                                </div>
+                                {t('auto_intent_understanding')}
+                            </button>
+                            <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleAction('export_quick_analysis_pack'); }}
+                                className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
+                            >
+                                <PackageOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
+                                {t('export_quick_analysis_pack')}
+                            </button>
+                        </>
+                    )}
                     <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleAction('toggle_intent_understanding'); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
-                    >
-                        <div className={`w-4 h-4 border rounded flex items-center justify-center ${autoIntentUnderstanding ? 'bg-blue-500 border-blue-500' : 'border-slate-300'}`}>
-                            {autoIntentUnderstanding && <Check className="w-3 h-3 text-white" />}
-                        </div>
-                        {t('auto_intent_understanding')}
-                    </button>
-                    <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleAction('export'); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
-                    >
-                        <Download className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                        Export
-                    </button>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); handleAction('export_quick_analysis_pack'); }}
-                        className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
-                    >
-                        <PackageOpen className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                        {t('export_quick_analysis_pack')}
-                    </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); if (!isGeneratingComprehensiveReport) handleAction('comprehensive_report'); }}
                         className={`w-full text-left px-4 py-2 text-sm flex items-center gap-2 ${

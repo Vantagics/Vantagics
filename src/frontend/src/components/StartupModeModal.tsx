@@ -24,6 +24,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     // Commercial mode state - server URL is fixed, not user-configurable
     const serverURL = 'https://license.vantagedata.chat';
     const [sn, setSN] = useState('');
+    const [activationEmail, setActivationEmail] = useState('');
     const [email, setEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -56,6 +57,9 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
             const config = await GetConfig() as any;
             if (config.licenseSN) {
                 setSN(config.licenseSN);
+                if (config.licenseEmail) {
+                    setActivationEmail(config.licenseEmail);
+                }
                 // Try to load from local encrypted storage
                 const loadResult = await LoadSavedActivation(config.licenseSN);
                 if (loadResult.success) {
@@ -125,7 +129,22 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
     const handleActivate = async (snToUse?: string) => {
         const activateSN = snToUse || sn;
-        if (!serverURL || !activateSN) {
+        if (!activateSN) {
+            setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
+            return;
+        }
+
+        if (!activationEmail) {
+            setError(t('activation_email_required') || '请输入邮箱地址');
+            return;
+        }
+        const atIndex = activationEmail.indexOf('@');
+        if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
+            setError(t('please_enter_valid_email') || '请输入有效的邮箱地址');
+            return;
+        }
+
+        if (!serverURL) {
             setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
             return;
         }
@@ -137,10 +156,11 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
         try {
             const result = await ActivateLicense(serverURL, activateSN);
             if (result.success) {
-                // Save SN to config
+                // Save SN and email to config
                 const config = await GetConfig() as any;
                 config.licenseSN = activateSN;
                 config.licenseServerURL = serverURL;
+                config.licenseEmail = activationEmail;
                 await SaveConfig(config);
                 
                 setSuccessMessage(t('activation_success') || '激活成功！');
@@ -179,6 +199,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
             
             if (result.success) {
                 setSN(result.sn || '');
+                setActivationEmail(email);
                 setSuccessMessage(t('sn_request_success') || '序列号申请成功！');
                 // Auto-switch to activation step with the new SN
                 setCommercialStep('check');
@@ -357,6 +378,19 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                             onChange={(e) => setSN(e.target.value.toUpperCase())}
                                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
                                             placeholder="XXXX-XXXX-XXXX-XXXX"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                                            {t('activation_email_label') || '邮箱'}
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={activationEmail}
+                                            onChange={(e) => setActivationEmail(e.target.value)}
+                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder={t('activation_email_placeholder') || '请输入您的邮箱地址'}
                                         />
                                     </div>
 

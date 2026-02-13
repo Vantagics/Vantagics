@@ -11,14 +11,14 @@ import SkillsManagementPage from './components/SkillsManagementPage';
 import StartupModeModal from './components/StartupModeModal';
 import CenterPanel from './components/CenterPanel';
 import PackManagerPage from './components/PackManagerPage';
-import OAuthLoginDialog from './components/OAuthLoginDialog';
+import SNAuthErrorDialog from './components/SNAuthErrorDialog';
 import ShareToMarketDialog from './components/ShareToMarketDialog';
 import RightPanel from './components/RightPanel';
 import ResizeHandle from './components/ResizeHandle';
 import DataBrowser from './components/DataBrowser';
 import { PanelWidths, PANEL_CONSTRAINTS, calculatePanelWidths, getDefaultPanelWidths, handleResizeDrag } from './utils/PanelWidths';
 import { EventsOn, EventsEmit, Quit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense, IsMarketplaceLoggedIn } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense, EnsureMarketplaceAuth } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -41,8 +41,10 @@ function AppContent() {
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [isPackManagerOpen, setIsPackManagerOpen] = useState(false);
     // Sharing flow state (Task 11.1)
-    const [sharePackInfo, setSharePackInfo] = useState<{ pack_name: string; qap_file_path: string } | null>(null);
-    const [showOAuthLogin, setShowOAuthLogin] = useState(false);
+    const [sharePackInfo, setSharePackInfo] = useState<{ pack_name: string; file_path: string } | null>(null);
+    const [showAuthError, setShowAuthError] = useState(false);
+    const [authError, setAuthError] = useState('');
+    const [authRetrying, setAuthRetrying] = useState(false);
     const [showShareDialog, setShowShareDialog] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [dashboardData, setDashboardData] = useState<main.DashboardData | null>(null);
@@ -217,28 +219,34 @@ function AppContent() {
     };
 
     // Handle share pack flow (Task 11.1 - Requirements 8.5, 8.6, 8.7, 9.1)
-    const handleSharePack = async (pack: { pack_name: string; qap_file_path: string }) => {
+    const handleSharePack = async (pack: { pack_name: string; file_path: string }) => {
         setSharePackInfo(pack);
         try {
-            const loggedIn = await IsMarketplaceLoggedIn();
-            if (loggedIn) {
-                setShowShareDialog(true);
-            } else {
-                setShowOAuthLogin(true);
-            }
-        } catch {
-            // If check fails, show login dialog as fallback
-            setShowOAuthLogin(true);
+            await EnsureMarketplaceAuth();
+            setShowShareDialog(true);
+        } catch (err: any) {
+            setAuthError(err?.message || err?.toString() || t('sn_auth_error_default'));
+            setShowAuthError(true);
         }
     };
 
-    const handleOAuthLoginSuccess = () => {
-        setShowOAuthLogin(false);
-        setShowShareDialog(true);
+    const handleAuthRetry = async () => {
+        setAuthRetrying(true);
+        try {
+            await EnsureMarketplaceAuth();
+            setShowAuthError(false);
+            setAuthError('');
+            setAuthRetrying(false);
+            setShowShareDialog(true);
+        } catch (err: any) {
+            setAuthError(err?.message || err?.toString() || t('sn_auth_error_default'));
+            setAuthRetrying(false);
+        }
     };
 
-    const handleOAuthLoginClose = () => {
-        setShowOAuthLogin(false);
+    const handleAuthErrorClose = () => {
+        setShowAuthError(false);
+        setAuthError('');
         setSharePackInfo(null);
     };
 
@@ -1829,16 +1837,18 @@ function AppContent() {
                     onSharePack={handleSharePack}
                 />
 
-                {showOAuthLogin && (
-                    <OAuthLoginDialog
-                        onSuccess={handleOAuthLoginSuccess}
-                        onClose={handleOAuthLoginClose}
+                {showAuthError && (
+                    <SNAuthErrorDialog
+                        error={authError}
+                        retrying={authRetrying}
+                        onRetry={handleAuthRetry}
+                        onClose={handleAuthErrorClose}
                     />
                 )}
 
                 {showShareDialog && sharePackInfo && (
                     <ShareToMarketDialog
-                        packFilePath={sharePackInfo.qap_file_path}
+                        packFilePath={sharePackInfo.file_path}
                         packName={sharePackInfo.pack_name}
                         onSuccess={handleShareSuccess}
                         onClose={handleShareClose}

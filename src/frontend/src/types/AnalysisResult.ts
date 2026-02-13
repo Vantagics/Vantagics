@@ -29,6 +29,7 @@ export interface ResultMetadata {
   requestId?: string;            // 请求ID（用于匹配）
   fileName?: string;             // 文件名（如适用）
   mimeType?: string;             // MIME类型（图片/文件）
+  step_description?: string;     // 步骤描述（快捷分析包）
 }
 
 // 统一的分析结果数据项

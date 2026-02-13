@@ -25,7 +25,7 @@ export function CheckComponentHasData(arg1:string,arg2:string):Promise<boolean>;
 
 export function CheckLicenseActivationFailed():Promise<boolean>;
 
-export function CheckSessionNameExists(arg1:string,arg2:string):Promise<boolean>;
+export function CheckSessionNameExists(arg1:string,arg2:string,arg3:string):Promise<boolean>;
 
 export function CheckVantageDataEnvironmentExists():Promise<boolean>;
 
@@ -44,6 +44,8 @@ export function DeactivateLicense():Promise<void>;
 export function DeleteColumn(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DeleteDataSource(arg1:string):Promise<void>;
+
+export function DeleteLocalPack(arg1:string):Promise<void>;
 
 export function DeleteSessionFile(arg1:string,arg2:string):Promise<void>;
 
@@ -65,6 +67,8 @@ export function DownloadSessionFile(arg1:string,arg2:string):Promise<void>;
 
 export function EnableSkill(arg1:string):Promise<void>;
 
+export function EnsureMarketplaceAuth():Promise<void>;
+
 export function ExecuteImportAnalysis(arg1:main.AnalysisExport,arg2:string):Promise<void>;
 
 export function ExecuteQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -85,7 +89,7 @@ export function ExportDashboardToWord(arg1:main.DashboardExportData):Promise<voi
 
 export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
-export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<void>;
+export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function ExportReport(arg1:string,arg2:string):Promise<void>;
 
@@ -201,6 +205,8 @@ export function GetSkills():Promise<Array<main.SkillInfo>>;
 
 export function GetStoreConfig(arg1:string):Promise<agent.StoreCredentials>;
 
+export function GetUsageLicenses():Promise<Array<main.UsageLicense>>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function HasActiveAnalysis():Promise<boolean>;
@@ -237,6 +243,8 @@ export function LoadMetricsJson(arg1:string):Promise<string>;
 
 export function LoadQuickAnalysisPack(arg1:string):Promise<main.PackLoadResult>;
 
+export function LoadQuickAnalysisPackByPath(arg1:string,arg2:string):Promise<main.PackLoadResult>;
+
 export function LoadQuickAnalysisPackWithPassword(arg1:string,arg2:string,arg3:string):Promise<main.PackLoadResult>;
 
 export function LoadSavedActivation(arg1:string):Promise<main.ActivationResult>;
@@ -245,7 +253,7 @@ export function Log(arg1:string):Promise<void>;
 
 export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>;
 
-export function MarketplaceLogin(arg1:string):Promise<void>;
+export function MarketplaceLoginWithSN():Promise<void>;
 
 export function OpenDevTools():Promise<void>;
 
@@ -263,6 +271,10 @@ export function PrepareImportAnalysis():Promise<main.AnalysisExport>;
 
 export function PrepareReport(arg1:main.ReportGenerateRequest):Promise<string>;
 
+export function PurchaseAdditionalUses(arg1:number,arg2:number):Promise<void>;
+
+export function ReExecuteQuickAnalysisPack(arg1:string):Promise<void>;
+
 export function ReadChartDataFile(arg1:string,arg2:string):Promise<string>;
 
 export function RecordIntentSelection(arg1:string,arg2:main.IntentSuggestion):Promise<void>;
@@ -278,6 +290,8 @@ export function ReloadSkills():Promise<void>;
 export function RenameColumn(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function RenameDataSource(arg1:string,arg2:string):Promise<void>;
+
+export function RenewSubscription(arg1:number):Promise<void>;
 
 export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<agent.ReplayResult>;
 
@@ -317,11 +331,15 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Pro
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
-export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number):Promise<void>;
+export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number,arg5:string,arg6:number,arg7:string):Promise<void>;
 
 export function ShowAbout():Promise<void>;
 
+export function ShowAllSessionResults(arg1:string):Promise<void>;
+
 export function ShowMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function ShowStepResultOnDashboard(arg1:string,arg2:string):Promise<void>;
 
 export function StartDataSourceAnalysis(arg1:string):Promise<string>;
 
@@ -348,6 +366,8 @@ export function UpdateApplicationMenu(arg1:string):Promise<void>;
 export function UpdateDeviceLocation(arg1:number,arg2:number,arg3:number,arg4:number,arg5:string,arg6:string,arg7:string,arg8:boolean,arg9:string):Promise<void>;
 
 export function UpdateMySQLExportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
+
+export function UpdatePackMetadata(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateThreadTitle(arg1:string,arg2:string):Promise<string>;
 

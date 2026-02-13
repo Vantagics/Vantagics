@@ -1030,6 +1030,7 @@ export namespace config {
 	    shopifyClientSecret?: string;
 	    licenseSN?: string;
 	    licenseServerURL?: string;
+	    licenseEmail?: string;
 	    licenseExtraInfo?: Record<string, any>;
 	    sidebarWidth?: number;
 	    panelRightRatio?: number;
@@ -1077,6 +1078,7 @@ export namespace config {
 	        this.shopifyClientSecret = source["shopifyClientSecret"];
 	        this.licenseSN = source["licenseSN"];
 	        this.licenseServerURL = source["licenseServerURL"];
+	        this.licenseEmail = source["licenseEmail"];
 	        this.licenseExtraInfo = source["licenseExtraInfo"];
 	        this.sidebarWidth = source["sidebarWidth"];
 	        this.panelRightRatio = source["panelRightRatio"];
@@ -1612,6 +1614,7 @@ export namespace main {
 	    created_at: string;
 	    source_name: string;
 	    description: string;
+	    listing_id?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackMetadata(source);
@@ -1623,6 +1626,7 @@ export namespace main {
 	        this.created_at = source["created_at"];
 	        this.source_name = source["source_name"];
 	        this.description = source["description"];
+	        this.listing_id = source["listing_id"];
 	    }
 	}
 	export class SessionFile {
@@ -2071,13 +2075,14 @@ export namespace main {
 	    }
 	}
 	export class LocalPackInfo {
-	    thread_id: string;
+	    file_name: string;
+	    file_path: string;
 	    pack_name: string;
 	    description: string;
 	    source_name: string;
 	    author: string;
-	    qap_file_path: string;
 	    created_at: string;
+	    is_encrypted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalPackInfo(source);
@@ -2085,13 +2090,14 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.thread_id = source["thread_id"];
+	        this.file_name = source["file_name"];
+	        this.file_path = source["file_path"];
 	        this.pack_name = source["pack_name"];
 	        this.description = source["description"];
 	        this.source_name = source["source_name"];
 	        this.author = source["author"];
-	        this.qap_file_path = source["qap_file_path"];
 	        this.created_at = source["created_at"];
+	        this.is_encrypted = source["is_encrypted"];
 	    }
 	}
 	export class LogStats {
@@ -2252,6 +2258,8 @@ export namespace main {
 	    author_name: string;
 	    share_mode: string;
 	    credits_price: number;
+	    valid_days: number;
+	    billing_cycle: string;
 	    download_count: number;
 	    created_at: string;
 	
@@ -2271,6 +2279,8 @@ export namespace main {
 	        this.author_name = source["author_name"];
 	        this.share_mode = source["share_mode"];
 	        this.credits_price = source["credits_price"];
+	        this.valid_days = source["valid_days"];
+	        this.billing_cycle = source["billing_cycle"];
 	        this.download_count = source["download_count"];
 	        this.created_at = source["created_at"];
 	    }
@@ -2322,7 +2332,11 @@ export namespace main {
 	    step_type: string;
 	    code: string;
 	    description: string;
+	    user_request?: string;
 	    depends_on?: number[];
+	    source_tool?: string;
+	    paired_sql_step_id?: number;
+	    echarts_configs?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PackStep(source);
@@ -2334,7 +2348,11 @@ export namespace main {
 	        this.step_type = source["step_type"];
 	        this.code = source["code"];
 	        this.description = source["description"];
+	        this.user_request = source["user_request"];
 	        this.depends_on = source["depends_on"];
+	        this.source_tool = source["source_tool"];
+	        this.paired_sql_step_id = source["paired_sql_step_id"];
+	        this.echarts_configs = source["echarts_configs"];
 	    }
 	}
 	export class PackTableSchema {
@@ -2413,6 +2431,8 @@ export namespace main {
 	    is_encrypted: boolean;
 	    needs_password: boolean;
 	    file_path: string;
+	    has_python_steps: boolean;
+	    python_configured: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackLoadResult(source);
@@ -2425,6 +2445,8 @@ export namespace main {
 	        this.is_encrypted = source["is_encrypted"];
 	        this.needs_password = source["needs_password"];
 	        this.file_path = source["file_path"];
+	        this.has_python_steps = source["has_python_steps"];
+	        this.python_configured = source["python_configured"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2567,6 +2589,32 @@ export namespace main {
 	
 	
 	
+	export class UsageLicense {
+	    listing_id: number;
+	    pack_name: string;
+	    pricing_model: string;
+	    remaining_uses: number;
+	    expires_at: string;
+	    billing_cycle: string;
+	    created_at: string;
+	    updated_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UsageLicense(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.listing_id = source["listing_id"];
+	        this.pack_name = source["pack_name"];
+	        this.pricing_model = source["pricing_model"];
+	        this.remaining_uses = source["remaining_uses"];
+	        this.expires_at = source["expires_at"];
+	        this.billing_cycle = source["billing_cycle"];
+	        this.created_at = source["created_at"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
 	export class ValidationIssue {
 	    type: string;
 	    table?: string;

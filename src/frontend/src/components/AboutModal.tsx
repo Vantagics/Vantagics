@@ -26,6 +26,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         total_credits?: number;
         used_credits?: number;
         credits_mode?: boolean;
+        email?: string;
     }>({ activated: false });
 
     // State for license mode switch feature
@@ -46,6 +47,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     total_credits: status.total_credits || 0,
                     used_credits: status.used_credits || 0,
                     credits_mode: status.credits_mode || false,
+                    email: status.email || '',
                 });
             }).catch(() => {
                 setActivationStatus({ activated: false });
@@ -68,6 +70,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     total_credits: status.total_credits || 0,
                     used_credits: status.used_credits || 0,
                     credits_mode: status.credits_mode || false,
+                    email: status.email || '',
                 });
             }).catch(() => {
                 setActivationStatus({ activated: false });
@@ -146,6 +149,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                     total_credits: status.total_credits || 0,
                     used_credits: status.used_credits || 0,
                     credits_mode: status.credits_mode || false,
+                    email: status.email || '',
                 });
                 setShowConfirmDialog(false);
                 setConfirmAction(null);
@@ -253,6 +257,12 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-500 text-xs">{t('serial_number')}</span>
                                 <span className="text-slate-700 font-mono text-xs">{activationStatus.sn}</span>
+                            </div>
+                        )}
+                        {activationStatus.activated && activationStatus.email && (
+                            <div className="flex justify-between items-center">
+                                <span className="text-slate-500 text-xs">{t('license_email')}</span>
+                                <span className="text-slate-700 text-xs">{activationStatus.email}</span>
                             </div>
                         )}
                         {activationStatus.activated && activationStatus.expires_at && (

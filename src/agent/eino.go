@@ -375,6 +375,25 @@ func (s *EinoService) GetConfig() config.Config {
 	return s.cfg
 }
 
+// ExecutePython executes Python code using the pool if available, falling back to PythonService.
+// Returns the output string and any error.
+func (s *EinoService) ExecutePython(code string, workDir string) (string, error) {
+	if s.pythonPool != nil {
+		return s.pythonPool.Execute(code, workDir)
+	}
+	// Fallback to direct execution
+	if s.cfg.PythonPath != "" {
+		ps := &PythonService{}
+		return ps.ExecuteScript(s.cfg.PythonPath, code)
+	}
+	return "", fmt.Errorf("Python environment not available")
+}
+
+// HasPython returns true if the EinoService has a working Python environment (pool or config path).
+func (s *EinoService) HasPython() bool {
+	return s.pythonPool != nil || s.cfg.PythonPath != ""
+}
+
 // routeFromCombinedResult determines execution path from combined classification result
 func (s *EinoService) routeFromCombinedResult(result *CombinedResult, dataSourceID string) ExecutionPath {
 	switch result.RequestType {
@@ -1980,12 +1999,13 @@ func messagesToMap(msgs []*schema.Message) []map[string]interface{} {
 
 // escapeForTraining converts content to escaped format for better training visibility
 func escapeForTraining(content string) string {
-	// Replace actual characters with their escaped representations for training visibility
+	// IMPORTANT: Backslash must be escaped FIRST to avoid double-escaping
+	// the backslashes introduced by subsequent replacements.
+	content = strings.ReplaceAll(content, "\\", "\\\\")
 	content = strings.ReplaceAll(content, "\n", "\\n")
 	content = strings.ReplaceAll(content, "\r", "\\r")
 	content = strings.ReplaceAll(content, "\t", "\\t")
 	content = strings.ReplaceAll(content, "\"", "\\\"")
-	content = strings.ReplaceAll(content, "\\", "\\\\")
 	return content
 }
 

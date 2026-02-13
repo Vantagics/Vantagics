@@ -1331,6 +1331,7 @@ class AnalysisResultManagerImpl implements IAnalysisResultManager {
         requestId: metadata.requestId,
         fileName: metadata.fileName,
         mimeType: metadata.mimeType,
+        step_description: metadata.step_description,
       },
       source,
     };

@@ -563,7 +563,7 @@ export function normalizeTable(data: any): NormalizedResult<NormalizedTableData>
       logger.debug('[Normalize] Data does not match known table formats, attempting conversion');
     }
     
-    // 处理带有 title 和 rows 的新格式 { title: string, rows: array }
+    // 处理带有 title 和 rows 的新格式 { title: string, columns?: string[], rows: array }
     if (parsed && typeof parsed === 'object' && 'rows' in parsed && Array.isArray(parsed.rows)) {
       const title = parsed.title || '';
       const rows = parsed.rows;
@@ -571,7 +571,10 @@ export function normalizeTable(data: any): NormalizedResult<NormalizedTableData>
       if (rows.length > 0) {
         const firstRow = rows[0];
         if (typeof firstRow === 'object' && firstRow !== null && !Array.isArray(firstRow)) {
-          const columns = Object.keys(firstRow);
+          // Use backend-provided columns to preserve order, fallback to Object.keys
+          const columns = Array.isArray(parsed.columns) && parsed.columns.length > 0
+            ? parsed.columns
+            : Object.keys(firstRow);
           logger.debug(`[Normalize] Table with title "${title}": ${columns.length} columns, ${rows.length} rows`);
           return {
             success: true,

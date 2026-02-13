@@ -432,15 +432,37 @@ function doManualRequest() {
 }
 
 function showUsageLog(sn) {
-    fetch('/api/credits-usage-log?sn=' + encodeURIComponent(sn))
-        .then(function(resp) { return resp.json(); })
-        .then(function(logs) {
-            var html = '<div class="p-6"><h3 class="text-lg font-bold mb-4">📊 Credits 使用记录</h3>';
+    loadUsageLogPage(sn, 1);
+}
+
+function loadUsageLogPage(sn, page) {
+    fetch('/api/credits-usage-log?sn=' + encodeURIComponent(sn) + '&page=' + page + '&pageSize=15')
+        .then(function(resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.json();
+        })
+        .then(function(data) {
+            var logs = data.records || [];
+            var total = data.total || 0;
+            var currentPage = data.page || 1;
+            var totalPages = data.totalPages || 1;
+            var totalCredits = data.total_credits || 0;
+            var usedCredits = data.used_credits || 0;
+
+            var usageColor = (totalCredits > 0 && usedCredits >= totalCredits) ? 'text-red-600' : 'text-teal-600';
+            var usageText = usedCredits + ' / ' + (totalCredits > 0 ? totalCredits : '∞');
+
+            var html = '<div class="p-6">';
+            html += '<div class="flex justify-between items-center mb-4">';
+            html += '<h3 class="text-lg font-bold">📊 Credits 使用记录</h3>';
+            html += '<span class="text-sm font-mono font-bold ' + usageColor + '">已用 ' + usageText + '</span>';
+            html += '</div>';
             html += '<p class="text-sm text-slate-600 mb-3">序列号: <code class="font-mono text-blue-600">' + escapeHtml(sn) + '</code></p>';
-            if (!logs || logs.length === 0) {
+
+            if (logs.length === 0) {
                 html += '<p class="text-slate-500 text-center py-4">暂无使用记录</p>';
             } else {
-                html += '<div class="max-h-96 overflow-y-auto"><table class="w-full text-sm">';
+                html += '<div class="max-h-80 overflow-y-auto"><table class="w-full text-sm">';
                 html += '<thead class="bg-slate-100 sticky top-0"><tr><th class="px-3 py-2 text-left">上报时间</th><th class="px-3 py-2 text-right">已用量</th><th class="px-3 py-2 text-left">客户端 IP</th></tr></thead>';
                 html += '<tbody>';
                 logs.forEach(function(log) {
@@ -451,8 +473,22 @@ function showUsageLog(sn) {
                     html += '</tr>';
                 });
                 html += '</tbody></table></div>';
-                html += '<p class="text-xs text-slate-400 mt-2">共 ' + logs.length + ' 条记录</p>';
             }
+
+            // Pagination
+            html += '<div class="flex justify-between items-center mt-3">';
+            html += '<span class="text-xs text-slate-400">共 ' + total + ' 条记录</span>';
+            if (totalPages > 1) {
+                html += '<div class="flex items-center gap-1">';
+                html += '<button onclick="loadUsageLogPage(\'' + escapeHtml(sn) + '\',' + 1 + ')" class="px-2 py-1 text-xs rounded ' + (currentPage === 1 ? 'text-slate-300 cursor-default' : 'hover:bg-slate-100 text-slate-600') + '"' + (currentPage === 1 ? ' disabled' : '') + '>首页</button>';
+                html += '<button onclick="loadUsageLogPage(\'' + escapeHtml(sn) + '\',' + (currentPage - 1) + ')" class="px-2 py-1 text-xs rounded ' + (currentPage === 1 ? 'text-slate-300 cursor-default' : 'hover:bg-slate-100 text-slate-600') + '"' + (currentPage === 1 ? ' disabled' : '') + '>上一页</button>';
+                html += '<span class="px-2 text-xs text-slate-500">' + currentPage + ' / ' + totalPages + '</span>';
+                html += '<button onclick="loadUsageLogPage(\'' + escapeHtml(sn) + '\',' + (currentPage + 1) + ')" class="px-2 py-1 text-xs rounded ' + (currentPage === totalPages ? 'text-slate-300 cursor-default' : 'hover:bg-slate-100 text-slate-600') + '"' + (currentPage === totalPages ? ' disabled' : '') + '>下一页</button>';
+                html += '<button onclick="loadUsageLogPage(\'' + escapeHtml(sn) + '\',' + totalPages + ')" class="px-2 py-1 text-xs rounded ' + (currentPage === totalPages ? 'text-slate-300 cursor-default' : 'hover:bg-slate-100 text-slate-600') + '"' + (currentPage === totalPages ? ' disabled' : '') + '>末页</button>';
+                html += '</div>';
+            }
+            html += '</div>';
+
             html += '<div class="mt-4"><button onclick="hideModal()" class="w-full py-2 bg-slate-200 rounded-lg">关闭</button></div>';
             html += '</div>';
             showModal(html);

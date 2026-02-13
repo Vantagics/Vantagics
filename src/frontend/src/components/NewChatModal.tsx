@@ -27,7 +27,7 @@ const NewChatModal: React.FC<NewChatModalProps> = ({ isOpen, dataSourceId, onClo
         setIsValidating(true);
         setError(null);
         try {
-            const exists = await CheckSessionNameExists(dataSourceId, trimmedName);
+            const exists = await CheckSessionNameExists(dataSourceId, trimmedName, '');
             if (exists) {
                 setError(t('session_already_exists').replace('{0}', trimmedName));
                 setIsValidating(false);

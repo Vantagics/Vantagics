@@ -42,8 +42,8 @@ export function CheckLicenseActivationFailed() {
   return window['go']['main']['App']['CheckLicenseActivationFailed']();
 }
 
-export function CheckSessionNameExists(arg1, arg2) {
-  return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2);
+export function CheckSessionNameExists(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2, arg3);
 }
 
 export function CheckVantageDataEnvironmentExists() {
@@ -80,6 +80,10 @@ export function DeleteColumn(arg1, arg2, arg3) {
 
 export function DeleteDataSource(arg1) {
   return window['go']['main']['App']['DeleteDataSource'](arg1);
+}
+
+export function DeleteLocalPack(arg1) {
+  return window['go']['main']['App']['DeleteLocalPack'](arg1);
 }
 
 export function DeleteSessionFile(arg1, arg2) {
@@ -120,6 +124,10 @@ export function DownloadSessionFile(arg1, arg2) {
 
 export function EnableSkill(arg1) {
   return window['go']['main']['App']['EnableSkill'](arg1);
+}
+
+export function EnsureMarketplaceAuth() {
+  return window['go']['main']['App']['EnsureMarketplaceAuth']();
 }
 
 export function ExecuteImportAnalysis(arg1, arg2) {
@@ -394,6 +402,10 @@ export function GetStoreConfig(arg1) {
   return window['go']['main']['App']['GetStoreConfig'](arg1);
 }
 
+export function GetUsageLicenses() {
+  return window['go']['main']['App']['GetUsageLicenses']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -466,6 +478,10 @@ export function LoadQuickAnalysisPack(arg1) {
   return window['go']['main']['App']['LoadQuickAnalysisPack'](arg1);
 }
 
+export function LoadQuickAnalysisPackByPath(arg1, arg2) {
+  return window['go']['main']['App']['LoadQuickAnalysisPackByPath'](arg1, arg2);
+}
+
 export function LoadQuickAnalysisPackWithPassword(arg1, arg2, arg3) {
   return window['go']['main']['App']['LoadQuickAnalysisPackWithPassword'](arg1, arg2, arg3);
 }
@@ -482,8 +498,8 @@ export function MarkAsFinding(arg1, arg2, arg3) {
   return window['go']['main']['App']['MarkAsFinding'](arg1, arg2, arg3);
 }
 
-export function MarketplaceLogin(arg1) {
-  return window['go']['main']['App']['MarketplaceLogin'](arg1);
+export function MarketplaceLoginWithSN() {
+  return window['go']['main']['App']['MarketplaceLoginWithSN']();
 }
 
 export function OpenDevTools() {
@@ -518,6 +534,14 @@ export function PrepareReport(arg1) {
   return window['go']['main']['App']['PrepareReport'](arg1);
 }
 
+export function PurchaseAdditionalUses(arg1, arg2) {
+  return window['go']['main']['App']['PurchaseAdditionalUses'](arg1, arg2);
+}
+
+export function ReExecuteQuickAnalysisPack(arg1) {
+  return window['go']['main']['App']['ReExecuteQuickAnalysisPack'](arg1);
+}
+
 export function ReadChartDataFile(arg1, arg2) {
   return window['go']['main']['App']['ReadChartDataFile'](arg1, arg2);
 }
@@ -548,6 +572,10 @@ export function RenameColumn(arg1, arg2, arg3, arg4) {
 
 export function RenameDataSource(arg1, arg2) {
   return window['go']['main']['App']['RenameDataSource'](arg1, arg2);
+}
+
+export function RenewSubscription(arg1) {
+  return window['go']['main']['App']['RenewSubscription'](arg1);
 }
 
 export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
@@ -626,16 +654,24 @@ export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
 }
 
-export function SharePackToMarketplace(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SharePackToMarketplace'](arg1, arg2, arg3, arg4);
+export function SharePackToMarketplace(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['SharePackToMarketplace'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function ShowAbout() {
   return window['go']['main']['App']['ShowAbout']();
 }
 
+export function ShowAllSessionResults(arg1) {
+  return window['go']['main']['App']['ShowAllSessionResults'](arg1);
+}
+
 export function ShowMessage(arg1, arg2, arg3) {
   return window['go']['main']['App']['ShowMessage'](arg1, arg2, arg3);
+}
+
+export function ShowStepResultOnDashboard(arg1, arg2) {
+  return window['go']['main']['App']['ShowStepResultOnDashboard'](arg1, arg2);
 }
 
 export function StartDataSourceAnalysis(arg1) {
@@ -688,6 +724,10 @@ export function UpdateDeviceLocation(arg1, arg2, arg3, arg4, arg5, arg6, arg7, a
 
 export function UpdateMySQLExportConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['UpdateMySQLExportConfig'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function UpdatePackMetadata(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdatePackMetadata'](arg1, arg2, arg3);
 }
 
 export function UpdateThreadTitle(arg1, arg2) {

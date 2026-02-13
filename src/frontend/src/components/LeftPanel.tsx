@@ -73,7 +73,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             setSessions(sortedSessions);
             logger.debug(`Loaded ${sortedSessions.length} sessions`);
         } catch (error) {
-            logger.error('Failed to fetch sessions:', error);
+            logger.error(`Failed to fetch sessions: ${error}`);
             setSessions([]);
         } finally {
             setIsLoadingSessions(false);
@@ -127,10 +127,16 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
             fetchSessions();
         });
 
+        const unsubscribeQapCreated = EventsOn('qap-session-created', () => {
+            logger.debug('QAP session created event received');
+            fetchSessions();
+        });
+
         return () => {
             if (unsubscribeCreated) unsubscribeCreated();
             if (unsubscribeDeleted) unsubscribeDeleted();
             if (unsubscribeUpdated) unsubscribeUpdated();
+            if (unsubscribeQapCreated) unsubscribeQapCreated();
         };
     }, []);
 
@@ -178,6 +184,7 @@ const LeftPanel: React.FC<LeftPanelProps> = ({
                         title: session.title,
                         data_source_id: session.data_source_id,
                         created_at: session.created_at,
+                        is_replay_session: session.is_replay_session,
                     }))}
                     selectedId={selectedSessionId}
                     onSelect={onSessionSelect}

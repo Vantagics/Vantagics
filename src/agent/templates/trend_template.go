@@ -2,6 +2,7 @@ package templates
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -129,8 +130,10 @@ func (t *TrendTemplate) Execute(ctx context.Context, executor DataExecutor, data
 	}
 
 	dataJSON, _ := json.Marshal(data)
+	encodedData := base64.StdEncoding.EncodeToString(dataJSON)
 	pythonCode := fmt.Sprintf(`
 import json
+import base64
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -142,7 +145,7 @@ plt.rcParams['axes.unicode_minus'] = False  # Fix minus sign display
 from datetime import datetime
 
 # Load data
-data = json.loads('''%s''')
+data = json.loads(base64.b64decode("%s").decode("utf-8"))
 df = pd.DataFrame(data)
 
 # Convert date column
@@ -233,7 +236,7 @@ print("\nVisualization saved to chart.png")
 # Save CSV
 monthly.to_csv('trend_results.csv', index=False)
 print("Detailed results saved to trend_results.csv")
-`, string(dataJSON))
+`, encodedData)
 
 	output, err := executor.ExecutePython(ctx, pythonCode, "")
 	if err != nil {

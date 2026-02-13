@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Key, CheckCircle, AlertCircle, Loader2, Mail, ExternalLink } from 'lucide-react';
-import { ActivateLicense, GetActivationStatus, DeactivateLicense } from '../../wailsjs/go/main/App';
+import { ActivateLicense, GetActivationStatus, DeactivateLicense, GetConfig, SaveConfig } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { useLanguage } from '../i18n';
 
@@ -17,6 +17,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
     const { t } = useLanguage();
     const [serverURL, setServerURL] = useState('https://license.vantagedata.chat');
     const [sn, setSN] = useState('');
+    const [activationEmail, setActivationEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<any>(null);
@@ -62,6 +63,15 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
     };
 
     const handleActivate = async () => {
+        if (!activationEmail) {
+            setError(t('activation_email_required') || '请输入邮箱地址');
+            return;
+        }
+        const atIndex = activationEmail.indexOf('@');
+        if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
+            setError(t('please_enter_valid_email') || '请输入有效的邮箱地址');
+            return;
+        }
         if (!serverURL || !sn) {
             setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
             return;
@@ -73,6 +83,14 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
         try {
             const result = await ActivateLicense(serverURL, sn);
             if (result.success) {
+                // Save email to config
+                try {
+                    const cfg = await GetConfig();
+                    cfg.licenseEmail = activationEmail;
+                    await SaveConfig(cfg);
+                } catch (e) {
+                    console.warn('Failed to save license email:', e);
+                }
                 await loadStatus();
                 onActivated?.();
             } else {
@@ -119,6 +137,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
             
             if (result.success) {
                 setSN(result.sn);
+                setActivationEmail(email);
                 setShowRequestForm(false);
                 setRequestMessage({ type: 'success', text: t('sn_request_success') || '序列号申请成功！' });
             } else {
@@ -278,6 +297,21 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                                     <p className="mt-1 text-xs text-green-600">{requestMessage.text}</p>
                                 )}
                             </div>
+
+                            {!showRequestForm && (
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        {t('activation_email_label') || '邮箱'}
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={activationEmail}
+                                        onChange={(e) => setActivationEmail(e.target.value)}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                        placeholder={t('activation_email_placeholder') || '请输入您的邮箱地址'}
+                                    />
+                                </div>
+                            )}
 
                             <button
                                 onClick={handleActivate}

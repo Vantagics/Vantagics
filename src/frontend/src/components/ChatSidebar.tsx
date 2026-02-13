@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, ExportSessionHTML, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack } from '../../wailsjs/go/main/App';
+import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import * as echarts from 'echarts';
@@ -12,6 +12,7 @@ import ChatThreadContextMenu from './ChatThreadContextMenu';
 import MemoryViewModal from './MemoryViewModal';
 import CancelConfirmationModal from './CancelConfirmationModal';
 import ExportPackDialog from './ExportPackDialog';
+import RenameSessionModal from './RenameSessionModal';
 import Toast, { ToastType } from './Toast';
 import { createLogger } from '../utils/systemLog';
 import { loadingStateManager } from '../managers/LoadingStateManager';
@@ -50,11 +51,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [dataSources, setDataSources] = useState<any[]>([]);
     const [deleteThreadTarget, setDeleteThreadTarget] = useState<{ id: string, title: string } | null>(null);
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
-    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number, y: number, threadId: string, isReplaySession?: boolean } | null>(null);
     const [blankAreaContextMenu, setBlankAreaContextMenu] = useState<{ x: number, y: number } | null>(null);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
     const [exportPackThreadId, setExportPackThreadId] = useState<string | null>(null);
+    const [renameSessionTarget, setRenameSessionTarget] = useState<{ id: string; title: string; dataSourceId: string; dataSourceName?: string } | null>(null);
     const [suggestionButtonSessions, setSuggestionButtonSessions] = useState<Set<string>>(new Set()); // 跟踪哪些会话需要显示建议按钮
     const [isSearching, setIsSearching] = useState(false); // 跟踪是否正在进行网络搜索
     const [isStreaming, setIsStreaming] = useState(false); // 跟踪Free Chat是否正在流式响应
@@ -93,6 +95,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [qapProgress, setQapProgress] = useState<{ threadId: string; currentStep: number; totalSteps: number; description: string } | null>(null);
     const [qapCompleteThreads, setQapCompleteThreads] = useState<Set<string>>(new Set());
     const [qapReExecuting, setQapReExecuting] = useState(false);
+    const [qapShowingResults, setQapShowingResults] = useState(false);
 
     // Broadcast comprehensive report generation state to other components (e.g. Sidebar context menu)
     useEffect(() => {
@@ -822,11 +825,39 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
         });
 
-        const unsubscribeQapComplete = EventsOn('qap-complete', (data: any) => {
+        const unsubscribeQapComplete = EventsOn('qap-complete', async (data: any) => {
             if (data && data.threadId) {
                 setQapProgress(null);
                 setQapCompleteThreads(prev => new Set(prev).add(data.threadId));
                 setQapReExecuting(false);
+
+                // Call ShowAllSessionResults from the frontend context.
+                // Calling from within the backend RPC doesn't work reliably because
+                // Wails events emitted during a long-running RPC may not be processed
+                // by the frontend until after the RPC returns and the dialog closes.
+                try {
+                    await ShowAllSessionResults(data.threadId);
+                } catch (err) {
+                    console.error('[ChatSidebar] qap-complete ShowAllSessionResults failed:', err);
+                }
+            }
+        });
+
+        // QAP session created by backend — add to thread list and switch to it
+        const unsubscribeQapSessionCreated = EventsOn('qap-session-created', (data: any) => {
+            if (data && data.threadId) {
+                systemLog.info(`qap-session-created: threadId=${data.threadId}, title=${data.title}`);
+                const newThread = new main.ChatThread({
+                    id: data.threadId,
+                    title: data.title || '',
+                    data_source_id: data.dataSourceId || '',
+                    created_at: Math.floor(Date.now() / 1000),
+                    messages: [],
+                    is_replay_session: true,
+                });
+                setThreads(prev => [newThread, ...(prev || [])]);
+                setActiveThreadId(data.threadId);
+                EventsEmit('session-switched', data.threadId);
             }
         });
 
@@ -847,6 +878,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeComprehensiveReport) unsubscribeComprehensiveReport();
             if (unsubscribeQapProgress) unsubscribeQapProgress();
             if (unsubscribeQapComplete) unsubscribeQapComplete();
+            if (unsubscribeQapSessionCreated) unsubscribeQapSessionCreated();
         };
     }, [threads]);
 
@@ -875,6 +907,28 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
 
             const activeThread = threads.find(t => t.id === activeThreadId);
+
+            // Replay_Session 检测逻辑 (Requirements: 3.1, 3.2, 3.3, 3.4)
+            if (activeThread?.is_replay_session) {
+                // 已完成的 Replay_Session：调用 ShowAllSessionResults 合并显示所有结果
+                if (qapCompleteThreads.has(activeThreadId)) {
+                    ShowAllSessionResults(activeThreadId).catch(err => {
+                        console.error('[ChatSidebar] Auto load replay session results failed:', err);
+                    });
+                    return;
+                }
+
+                // 正在执行中的 Replay_Session：保留 AnalysisResultManager 中的实时数据（由上方检查处理）
+                // 尚未执行或无成功步骤的 Replay_Session：清空 Dashboard
+                const hasSuccessfulSteps = activeThread.messages?.some(
+                    msg => msg.role === 'assistant' && msg.content?.includes('✅')
+                );
+                if (!hasSuccessfulSteps) {
+                    EventsEmit('clear-dashboard');
+                    return;
+                }
+            }
+
             if (activeThread && activeThread.messages) {
                 // 找到第一个有分析结果的用户消息
                 // 判断标准：用户消息后有助手回复，或者有分析数据
@@ -975,6 +1029,29 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setThreads(history);
             if (history && history.length > 0 && !activeThreadId) {
                 setActiveThreadId(history[0].id);
+            }
+
+            // Restore qapCompleteThreads for replay sessions that were completed
+            // before the app was closed. Without this, the re-execute and show-all-results
+            // buttons won't appear for historical replay sessions after restart.
+            if (history) {
+                const completedIds: string[] = [];
+                for (const t of history) {
+                    if (t.is_replay_session && t.messages?.some(
+                        m => m.role === 'assistant' && m.content?.includes('执行完成')
+                    )) {
+                        completedIds.push(t.id);
+                    }
+                }
+                if (completedIds.length > 0) {
+                    setQapCompleteThreads(prev => {
+                        const next = new Set(prev);
+                        for (const id of completedIds) {
+                            next.add(id);
+                        }
+                        return next;
+                    });
+                }
             }
         } catch (err) {
             console.error('Failed to load chat history:', err);
@@ -1121,7 +1198,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     const handleContextMenu = (e: React.MouseEvent, threadId: string) => {
         e.preventDefault();
-        setContextMenu({ x: e.clientX, y: e.clientY, threadId });
+        const thread = threads.find(t => t.id === threadId);
+        setContextMenu({ x: e.clientX, y: e.clientY, threadId, isReplaySession: thread?.is_replay_session });
     };
 
     const handleBlankAreaContextMenu = (e: React.MouseEvent) => {
@@ -1178,16 +1256,22 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setBlankAreaContextMenu(null);
     };
 
-    const handleContextAction = async (action: 'export' | 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'start_free_chat' | 'comprehensive_report' | 'export_quick_analysis_pack', threadId: string) => {
+    const handleContextAction = async (action: 'view_memory' | 'view_results_directory' | 'toggle_intent_understanding' | 'clear_messages' | 'start_free_chat' | 'comprehensive_report' | 'export_quick_analysis_pack' | 'rename', threadId: string) => {
         console.log(`Action ${action} on thread ${threadId}`);
-        if (action === 'view_memory') {
-            setMemoryModalTarget(threadId);
-        } else if (action === 'export') {
-            try {
-                await ExportSessionHTML(threadId);
-            } catch (e) {
-                console.error("Export failed:", e);
+        if (action === 'rename') {
+            const thread = threads.find(t => t.id === threadId);
+            if (thread) {
+                const dsName = dataSources?.find((s: any) => s.id === thread.data_source_id)?.name;
+                setRenameSessionTarget({
+                    id: thread.id,
+                    title: thread.title,
+                    dataSourceId: thread.data_source_id,
+                    dataSourceName: dsName,
+                });
             }
+            setContextMenu(null);
+        } else if (action === 'view_memory') {
+            setMemoryModalTarget(threadId);
         } else if (action === 'view_results_directory') {
             try {
                 await OpenSessionResultsDirectory(threadId);
@@ -1260,6 +1344,20 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
+    const handleRenameSession = async (newTitle: string) => {
+        if (!renameSessionTarget) return;
+        const targetId = renameSessionTarget.id;
+        setRenameSessionTarget(null);
+        try {
+            await UpdateThreadTitle(targetId, newTitle);
+            const history = await GetChatHistory();
+            setThreads(history || []);
+            EventsEmit('chat-thread-updated', targetId);
+        } catch (err) {
+            console.error('Failed to rename session:', err);
+        }
+    };
+
     // 处理"生成建议分析"按钮点击
     const handleGenerateSuggestions = async () => {
         systemLog.info(`[LOADING-DEBUG] handleGenerateSuggestions ENTRY: activeThreadId=${activeThreadId}, hasActiveThread=${!!activeThread}`);
@@ -1291,6 +1389,17 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // 发送分析建议请求
         handleSendMessage(prompt, activeThreadId, activeThread);
+    };
+
+    // 处理"显示步骤结果到仪表盘"按钮点击
+    const handleShowStepResult = async (messageId: string) => {
+        if (!activeThreadId) return;
+        try {
+            await ShowStepResultOnDashboard(activeThreadId, messageId);
+            setToast({ message: t('show_result_success'), type: 'success' });
+        } catch (err: any) {
+            setToast({ message: (t('show_result_failed') || '推送结果失败') + ': ' + (err?.message || err), type: 'error' });
+        }
     };
 
     // 处理"生成综合报告"按钮点击
@@ -3094,7 +3203,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 )}
                             </div>
                             {/* Inline Comprehensive Report Progress / Export Button */}
-                            {activeDataSource && activeThread && activeThread.data_source_id && (
+                            {/* Show for normal sessions (activeDataSource) and replay sessions (is_replay_session) */}
+                            {activeThread && activeThread.data_source_id && (activeDataSource || activeThread.is_replay_session) && (
                                 <div className="ml-auto flex items-center gap-2 comprehensive-report-dropdown-container">
                                     {isGeneratingComprehensiveReport ? (
                                         /* Inline progress indicator */
@@ -3270,11 +3380,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                             {/* Re-execute button after completion (Requirement 6.4) */}
                             {activeThreadId && qapCompleteThreads.has(activeThreadId) && !(qapProgress && qapProgress.threadId === activeThreadId) && (
-                                <div className="mt-3 flex items-center gap-3">
+                                <div className="mt-3 flex items-center gap-3 flex-wrap">
                                     <span className="text-[11px] text-green-600 dark:text-green-400 font-medium">✅ {t('replay_session_complete')}</span>
                                     <button
                                         onClick={async () => {
-                                            if (!activeThread.qap_file_path || !activeThread.data_source_id) return;
+                                            if (!activeThreadId) return;
                                             setQapReExecuting(true);
                                             setQapCompleteThreads(prev => {
                                                 const next = new Set(prev);
@@ -3282,7 +3392,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                                 return next;
                                             });
                                             try {
-                                                await ExecuteQuickAnalysisPack(activeThread.qap_file_path, activeThread.data_source_id, '');
+                                                await ReExecuteQuickAnalysisPack(activeThreadId);
                                             } catch (err: any) {
                                                 setQapReExecuting(false);
                                                 setToast({ message: err?.message || 'Re-execution failed', type: 'error' });
@@ -3298,6 +3408,30 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         )}
                                         {t('replay_session_re_execute')}
                                     </button>
+                                    <button
+                                        onClick={async () => {
+                                            if (!activeThreadId) return;
+                                            setQapShowingResults(true);
+                                            try {
+                                                await ShowAllSessionResults(activeThreadId);
+                                                setToast({ message: t('show_result_success'), type: 'success' });
+                                            } catch (err: any) {
+                                                setToast({ message: err?.message || t('show_result_failed'), type: 'error' });
+                                            } finally {
+                                                setQapShowingResults(false);
+                                            }
+                                        }}
+                                        disabled={qapShowingResults}
+                                        className="flex items-center gap-1.5 px-3 py-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {qapShowingResults ? (
+                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                            <BarChart3 className="w-3 h-3" />
+                                        )}
+                                        {t('show_all_results')}
+                                    </button>
+
                                 </div>
                             )}
                         </div>
@@ -3544,6 +3678,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     isDisabled={msg.role === 'user' && !isUserMessageCompleted && !isUserMessageCancelled}
                                     isCancelled={isUserMessageCancelled}
                                     timingData={msg.role === 'user' ? timingDataForUser : (msg as any).timing_data}
+                                    isReplaySession={activeThread?.is_replay_session}
+                                    onShowResult={handleShowStepResult}
                                 />
                             );
                         })}
@@ -3724,6 +3860,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     onClose={() => setContextMenu(null)}
                     onAction={handleContextAction}
                     autoIntentUnderstanding={autoIntentUnderstanding}
+                    isReplaySession={contextMenu.isReplaySession}
                     isGeneratingComprehensiveReport={isGeneratingComprehensiveReport}
                 />
             )}
@@ -3781,6 +3918,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 isOpen={showCancelConfirm}
                 onClose={cancelCancelAnalysis}
                 onConfirm={confirmCancelAnalysis}
+            />
+
+            <RenameSessionModal
+                isOpen={!!renameSessionTarget}
+                currentTitle={renameSessionTarget?.title || ''}
+                threadId={renameSessionTarget?.id || ''}
+                dataSourceId={renameSessionTarget?.dataSourceId || ''}
+                dataSourceName={renameSessionTarget?.dataSourceName}
+                onClose={() => setRenameSessionTarget(null)}
+                onConfirm={handleRenameSession}
             />
 
         </>

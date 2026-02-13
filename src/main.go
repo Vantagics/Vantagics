@@ -197,7 +197,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 		// Add Help menu for macOS
 		helpMenuMac := newMenu.AddSubmenu(texts.Help)
 		helpMenuMac.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat")
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat/?vantagedata")
 		})
 	} else {
 		// Non-macOS: Keep Settings in File menu
@@ -225,7 +225,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.EventsEmit(app.ctx, "open-about")
 		})
 		helpMenu.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat")
+			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat/?vantagedata")
 		})
 	}
 

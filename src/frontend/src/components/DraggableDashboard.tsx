@@ -78,6 +78,7 @@ interface LayoutItem {
     w: number;
     h: number;
     data: any;
+    columns?: string[];
 }
 
 const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
@@ -122,7 +123,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     charts: [
                         ...dashboardData.allEChartsData.map(d => ({ type: 'echarts', data: typeof d === 'string' ? d : JSON.stringify(d) })),
                         ...dashboardData.images.map(img => ({ type: 'image', data: img })),
-                        ...dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows }))
+                        ...dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
                     ]
                 }
             };
@@ -141,7 +142,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 type: 'table' as const,
                 data: dashboardData.tableData.rows,
                 chartData: {
-                    charts: dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows }))
+                    charts: dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
                 }
             };
         }
@@ -1182,7 +1183,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     return null;
                 case 'table':
                     if (Array.isArray(item.data)) {
-                        return <DataTable data={item.data} />;
+                        return <DataTable data={item.data} columns={item.columns} />;
                     }
                     return null;
                 default:
@@ -1414,20 +1415,25 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             return <div key={index} className="text-red-500 p-4">{t('chart_error')}</div>;
                         }
                         try {
+                            const chartStepDescription = dashboardData.allEChartsMetadata?.[index]?.step_description;
                             
                             return (
-                                <div 
-                                    key={index}
-                                    className="cursor-zoom-in group relative"
-                                    onDoubleClick={() => {
-                                        setModalChartOptions(options);
-                                        setChartModalOpen(true);
-                                    }}
-                                    title={t('double_click_to_zoom')}
-                                >
-                                    <Chart options={options} height="300px" />
-                                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
-                                        {t('double_click_to_zoom')}
+                                <div key={index}>
+                                    {chartStepDescription && (
+                                        <div className="px-3 py-1.5 text-xs text-slate-500 dark:text-[#999]">📋 {chartStepDescription}</div>
+                                    )}
+                                    <div 
+                                        className="cursor-zoom-in group relative"
+                                        onDoubleClick={() => {
+                                            setModalChartOptions(options);
+                                            setChartModalOpen(true);
+                                        }}
+                                        title={t('double_click_to_zoom')}
+                                    >
+                                        <Chart options={options} height="300px" />
+                                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 text-white text-xs px-2 py-1 rounded">
+                                            {t('double_click_to_zoom')}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -1448,13 +1454,16 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 return <div className="p-4 text-center text-slate-400 text-sm">{t('no_data_available')}</div>;
             }
 
-            const validTables = dashboardData.allTableData.filter(t => t.rows && t.rows.length > 0);
+            const validTables: { data: typeof dashboardData.allTableData[0]; originalIndex: number }[] = [];
+            dashboardData.allTableData.forEach((t, i) => {
+                if (t.rows && t.rows.length > 0) validTables.push({ data: t, originalIndex: i });
+            });
             const totalTables = validTables.length;
             
             // 渲染所有表格，每个表格都显示标题
             return (
                 <div className="space-y-4">
-                    {validTables.map((tableData, index) => {
+                    {validTables.map(({ data: tableData, originalIndex }, index) => {
                         // 优先使用后端提供的标题，否则从列名生成
                         const cols = tableData.columns || Object.keys(tableData.rows[0] || {});
                         const titleHint = cols.slice(0, 3).join(' / ') + (cols.length > 3 ? ' ...' : '');
@@ -1474,19 +1483,27 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 : `${t('area_table')}${titleHint ? ` — ${titleHint}` : ''}`;
                         }
                         
-                        // 显示标题栏的条件：多表格时总是显示，单表格时如果有后端提供的标题也显示
-                        const showTitleBar = totalTables > 1 || hasBackendTitle;
+                        // 从 metadata 中读取 step_description
+                        const stepDescription = dashboardData.allTableMetadata?.[originalIndex]?.step_description;
+                        
+                        // 显示标题栏的条件：多表格时总是显示，单表格时如果有后端提供的标题或 step_description 也显示
+                        const showTitleBar = totalTables > 1 || hasBackendTitle || !!stepDescription;
                         
                         return (
                             <div key={index} className="border border-slate-200 dark:border-[#3c3c3c] rounded-lg overflow-hidden">
                                 {/* 表格标题栏 */}
                                 {showTitleBar && (
-                                    <div className="px-3 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-slate-50 dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c] flex items-center gap-2">
-                                        <span className="flex-1">{renderInlineMarkdown(tableTitle)}</span>
-                                        <span className="text-xs text-slate-400 dark:text-[#808080]">{tableData.rows.length} {t('rows') || '行'}</span>
+                                    <div className="px-3 py-2 bg-slate-50 dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c]">
+                                        <div className="flex items-center gap-2">
+                                            <span className="flex-1 text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{renderInlineMarkdown(tableTitle)}</span>
+                                            <span className="text-xs text-slate-400 dark:text-[#808080]">{tableData.rows.length} {t('rows') || '行'}</span>
+                                        </div>
+                                        {stepDescription && (
+                                            <div className="mt-1 text-xs text-slate-500 dark:text-[#999]">📋 {stepDescription}</div>
+                                        )}
                                     </div>
                                 )}
-                                <DataTable data={tableData.rows} />
+                                <DataTable data={tableData.rows} columns={tableData.columns} />
                             </div>
                         );
                     })}

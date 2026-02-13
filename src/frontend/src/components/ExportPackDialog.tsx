@@ -23,6 +23,7 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [successPath, setSuccessPath] = useState<string | null>(null);
 
     // Reset form when dialog opens
     useEffect(() => {
@@ -32,6 +33,7 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
             setConfirmPassword('');
             setIsExporting(false);
             setError(null);
+            setSuccessPath(null);
         }
     }, [isOpen]);
 
@@ -47,10 +49,11 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
 
         setIsExporting(true);
         setError(null);
+        setSuccessPath(null);
         try {
-            await ExportQuickAnalysisPack(threadId, authorTrimmed, password);
+            const savedPath = await ExportQuickAnalysisPack(threadId, authorTrimmed, password);
+            setSuccessPath(savedPath);
             onConfirm(authorTrimmed, password);
-            onClose();
         } catch (err: any) {
             setError(err?.message || err?.toString() || 'Export failed');
         } finally {
@@ -135,6 +138,13 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                             </p>
                         )}
                     </div>
+                )}
+
+                {/* Success message */}
+                {successPath && (
+                    <p className="mb-4 text-sm text-green-600 dark:text-green-400 break-all">
+                        {t('export_pack_success')}{successPath}
+                    </p>
                 )}
 
                 {/* Error message */}

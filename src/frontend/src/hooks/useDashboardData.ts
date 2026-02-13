@@ -54,6 +54,7 @@ export interface DashboardDataSource {
   hasECharts: boolean;
   echartsData: any | null;
   allEChartsData: any[];
+  allEChartsMetadata: import('../types/AnalysisResult').ResultMetadata[];
   
   // 图片数据
   hasImages: boolean;
@@ -63,6 +64,7 @@ export interface DashboardDataSource {
   hasTables: boolean;
   tableData: NormalizedTableData | null;
   allTableData: NormalizedTableData[];
+  allTableMetadata: import('../types/AnalysisResult').ResultMetadata[];
   
   // 指标数据
   hasMetrics: boolean;
@@ -405,6 +407,7 @@ export function useDashboardData(): DashboardDataSource {
     const hasECharts = echartsItems.length > 0;
     const echartsData = hasECharts ? echartsItems[0].data : null;
     const allEChartsData = echartsItems.map(item => item.data);
+    const allEChartsMetadata = echartsItems.map(item => item.metadata);
     
     // Images
     const imageItems = analysisResults.images;
@@ -416,6 +419,7 @@ export function useDashboardData(): DashboardDataSource {
     const hasTables = tableItems.length > 0;
     const tableData = hasTables ? (tableItems[0].data as NormalizedTableData) : null;
     const allTableData = tableItems.map(item => item.data as NormalizedTableData);
+    const allTableMetadata = tableItems.map(item => item.metadata);
     
     // 使用已计算的 hasAnyAnalysisResults（在 useMemo 外部计算以支持条件加载逻辑）
     
@@ -504,11 +508,13 @@ export function useDashboardData(): DashboardDataSource {
       hasECharts,
       echartsData,
       allEChartsData,
+      allEChartsMetadata,
       hasImages,
       images,
       hasTables,
       tableData,
       allTableData,
+      allTableMetadata,
       hasMetrics,
       metrics: allMetrics,
       hasInsights,

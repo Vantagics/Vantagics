@@ -20,6 +20,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -56,13 +57,13 @@ type captchaEntry struct {
 
 // MarketplaceUser 市场用户
 type MarketplaceUser struct {
-	ID              int64   `json:"id"`
-	OAuthProvider   string  `json:"oauth_provider"`
-	OAuthProviderID string  `json:"oauth_provider_id"`
-	DisplayName     string  `json:"display_name"`
-	Email           string  `json:"email"`
-	CreditsBalance  float64 `json:"credits_balance"`
-	CreatedAt       string  `json:"created_at"`
+	ID             int64   `json:"id"`
+	AuthType       string  `json:"auth_type"`
+	AuthID         string  `json:"auth_id"`
+	DisplayName    string  `json:"display_name"`
+	Email          string  `json:"email"`
+	CreditsBalance float64 `json:"credits_balance"`
+	CreatedAt      string  `json:"created_at"`
 }
 
 // PackCategory 分析包分类
@@ -86,6 +87,8 @@ type PackListingInfo struct {
 	AuthorName      string           `json:"author_name"`
 	ShareMode       string           `json:"share_mode"`
 	CreditsPrice    int              `json:"credits_price"`
+	ValidDays       int              `json:"valid_days"`
+	BillingCycle    string           `json:"billing_cycle"`
 	DownloadCount   int              `json:"download_count"`
 	Status          string           `json:"status"`
 	RejectReason    string           `json:"reject_reason,omitempty"`
@@ -94,6 +97,7 @@ type PackListingInfo struct {
 	MetaInfo        json.RawMessage  `json:"meta_info"`
 	CreatedAt       string           `json:"created_at"`
 }
+
 
 
 // CreditsTransaction Credits 交易记录
@@ -120,21 +124,58 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
-	// Create users table
+	// Create users table (new schema with auth_type/auth_id)
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			oauth_provider TEXT NOT NULL,
-			oauth_provider_id TEXT NOT NULL,
+			auth_type TEXT NOT NULL,
+			auth_id TEXT NOT NULL,
 			display_name TEXT NOT NULL,
 			email TEXT,
 			credits_balance REAL DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(oauth_provider, oauth_provider_id)
+			UNIQUE(auth_type, auth_id)
 		)
 	`); err != nil {
 		database.Close()
 		return nil, fmt.Errorf("failed to create users table: %w", err)
+	}
+
+	// Migrate users table: rename oauth_provider/oauth_provider_id to auth_type/auth_id
+	var usersTableSQL string
+	err = database.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").Scan(&usersTableSQL)
+	if err == nil && strings.Contains(usersTableSQL, "oauth_provider") {
+		if _, err := database.Exec(`
+			CREATE TABLE users_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				auth_type TEXT NOT NULL,
+				auth_id TEXT NOT NULL,
+				display_name TEXT NOT NULL,
+				email TEXT,
+				credits_balance REAL DEFAULT 0,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(auth_type, auth_id)
+			)
+		`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to create users_new table: %w", err)
+		}
+		if _, err := database.Exec(`
+			INSERT INTO users_new (id, auth_type, auth_id, display_name, email, credits_balance, created_at)
+			SELECT id, oauth_provider, oauth_provider_id, display_name, email, credits_balance, created_at FROM users
+		`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to migrate users data: %w", err)
+		}
+		if _, err := database.Exec(`DROP TABLE users`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to drop old users table: %w", err)
+		}
+		if _, err := database.Exec(`ALTER TABLE users_new RENAME TO users`); err != nil {
+			database.Close()
+			return nil, fmt.Errorf("failed to rename users_new table: %w", err)
+		}
+		log.Println("Migrated users table: oauth_provider/oauth_provider_id → auth_type/auth_id")
 	}
 
 	// Create categories table
@@ -164,7 +205,7 @@ func initDB(dbPath string) (*sql.DB, error) {
 			author_name TEXT,
 			share_mode TEXT NOT NULL,
 			credits_price INTEGER DEFAULT 0,
-			status TEXT DEFAULT 'published',
+			status TEXT DEFAULT 'pending',
 			download_count INTEGER DEFAULT 0,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (user_id) REFERENCES users(id),
@@ -181,6 +222,9 @@ func initDB(dbPath string) (*sql.DB, error) {
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN reviewed_at DATETIME")
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN meta_info TEXT DEFAULT '{}'")
 
+	// Add billing-related columns to pack_listings (ignore error if already exists)
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN valid_days INTEGER DEFAULT 0")
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN billing_cycle TEXT DEFAULT ''")
 	// Create credits_transactions table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS credits_transactions (
@@ -306,7 +350,13 @@ func notImplementedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // jwtSecret is the HMAC-SHA256 signing key for JWT tokens.
-var jwtSecret = []byte("marketplace-server-jwt-secret-key-2024")
+// In production, override via MARKETPLACE_JWT_SECRET environment variable.
+var jwtSecret = func() []byte {
+	if s := os.Getenv("MARKETPLACE_JWT_SECRET"); s != "" {
+		return []byte(s)
+	}
+	return []byte("marketplace-server-jwt-secret-key-2024")
+}()
 
 // jwtHeader is the pre-encoded JWT header for HS256.
 var jwtHeaderEncoded = base64URLEncode([]byte(`{"alg":"HS256","typ":"JWT"}`))
@@ -991,9 +1041,9 @@ func handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Check if user already exists
 	var user MarketplaceUser
 	err := db.QueryRow(
-		"SELECT id, oauth_provider, oauth_provider_id, display_name, email, credits_balance, created_at FROM users WHERE oauth_provider = ? AND oauth_provider_id = ?",
+		"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE auth_type = ? AND auth_id = ?",
 		req.Provider, req.ProviderUserID,
-	).Scan(&user.ID, &user.OAuthProvider, &user.OAuthProviderID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
+	).Scan(&user.ID, &user.AuthType, &user.AuthID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		// First-time login: create new user with initial credits
@@ -1004,7 +1054,7 @@ func handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		}
 
 		result, err := db.Exec(
-			"INSERT INTO users (oauth_provider, oauth_provider_id, display_name, email, credits_balance) VALUES (?, ?, ?, ?, ?)",
+			"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES (?, ?, ?, ?, ?)",
 			req.Provider, req.ProviderUserID, req.DisplayName, req.Email, initialBalance,
 		)
 		if err != nil {
@@ -1040,9 +1090,9 @@ func handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 		// Read back the created user
 		err = db.QueryRow(
-			"SELECT id, oauth_provider, oauth_provider_id, display_name, email, credits_balance, created_at FROM users WHERE id = ?",
+			"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE id = ?",
 			userID,
-		).Scan(&user.ID, &user.OAuthProvider, &user.OAuthProviderID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
+		).Scan(&user.ID, &user.AuthType, &user.AuthID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
 		if err != nil {
 			log.Printf("Failed to read back created user: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
@@ -1077,6 +1127,229 @@ func handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"user":    user,
 	})
 }
+
+// licenseServerURL returns the License server base URL from environment variable.
+var licenseServerURL = func() string {
+	if u := os.Getenv("LICENSE_SERVER_URL"); u != "" {
+		return u
+	}
+	return "https://license.vantagedata.chat"
+}()
+
+// snLoginRequest represents the JSON body for SN login.
+type snLoginRequest struct {
+	LicenseToken string `json:"license_token"`
+}
+
+// licenseVerifyRequest is the request body sent to License server's /api/marketplace-verify.
+type licenseVerifyRequest struct {
+	Token string `json:"token"`
+}
+
+// licenseVerifyResponse is the response from License server's /api/marketplace-verify.
+type licenseVerifyResponse struct {
+	Success bool   `json:"success"`
+	SN      string `json:"sn"`
+	Email   string `json:"email"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// handleSNLogin handles POST /api/auth/sn-login.
+// It verifies the license_token with the License server, then finds or creates a marketplace user.
+func handleSNLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{
+			"success": false,
+			"error":   "method not allowed",
+		})
+		return
+	}
+
+	var req snLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "invalid request body",
+		})
+		return
+	}
+
+	if req.LicenseToken == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "license_token is required",
+		})
+		return
+	}
+
+	// Step 1: Verify the license token with the License server
+	verifyReqBody, err := json.Marshal(licenseVerifyRequest{Token: req.LicenseToken})
+	if err != nil {
+		log.Printf("Failed to marshal verify request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "internal_error",
+		})
+		return
+	}
+
+	verifyURL := licenseServerURL + "/api/marketplace-verify"
+	httpResp, err := http.Post(verifyURL, "application/json", bytes.NewReader(verifyReqBody))
+	if err != nil {
+		log.Printf("Failed to contact license server at %s: %v", verifyURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{
+			"success": false,
+			"error":   "LICENSE_SERVER_ERROR",
+			"message": "Failed to contact license server",
+		})
+		return
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		log.Printf("Failed to read license server response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{
+			"success": false,
+			"error":   "LICENSE_SERVER_ERROR",
+			"message": "Failed to read license server response",
+		})
+		return
+	}
+
+	var verifyResp licenseVerifyResponse
+	if err := json.Unmarshal(respBody, &verifyResp); err != nil {
+		log.Printf("Failed to parse license server response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{
+			"success": false,
+			"error":   "LICENSE_SERVER_ERROR",
+			"message": "Invalid license server response",
+		})
+		return
+	}
+
+	if !verifyResp.Success {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{
+			"success": false,
+			"error":   "AUTH_FAILED",
+			"message": verifyResp.Message,
+			"code":    verifyResp.Code,
+		})
+		return
+	}
+
+	sn := verifyResp.SN
+	email := verifyResp.Email
+
+	if sn == "" {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{
+			"success": false,
+			"error":   "AUTH_FAILED",
+			"message": "License server returned empty SN",
+		})
+		return
+	}
+
+	// Step 2: Find or create marketplace user using SN as auth_id
+	var user MarketplaceUser
+	err = db.QueryRow(
+		"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE auth_type = ? AND auth_id = ?",
+		"sn", sn,
+	).Scan(&user.ID, &user.AuthType, &user.AuthID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		// New user: create with display_name = email prefix
+		displayName := email
+		if idx := strings.Index(email, "@"); idx > 0 {
+			displayName = email[:idx]
+		}
+
+		initialBalanceStr := getSetting("initial_credits_balance")
+		var initialBalance float64
+		if initialBalanceStr != "" {
+			fmt.Sscanf(initialBalanceStr, "%f", &initialBalance)
+		}
+
+		result, err := db.Exec(
+			"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES (?, ?, ?, ?, ?)",
+			"sn", sn, displayName, email, initialBalance,
+		)
+		if err != nil {
+			log.Printf("Failed to create user: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "internal_error",
+			})
+			return
+		}
+
+		userID, err := result.LastInsertId()
+		if err != nil {
+			log.Printf("Failed to get last insert ID: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "internal_error",
+			})
+			return
+		}
+
+		// Record initial credits transaction if balance > 0
+		if initialBalance > 0 {
+			_, err = db.Exec(
+				"INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'initial', ?, 'Initial credits balance')",
+				userID, initialBalance,
+			)
+			if err != nil {
+				log.Printf("Failed to record initial credits transaction: %v", err)
+			}
+		}
+
+		// Read back the created user
+		err = db.QueryRow(
+			"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE id = ?",
+			userID,
+		).Scan(&user.ID, &user.AuthType, &user.AuthID, &user.DisplayName, &user.Email, &user.CreditsBalance, &user.CreatedAt)
+		if err != nil {
+			log.Printf("Failed to read back created user: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "internal_error",
+			})
+			return
+		}
+	} else if err != nil {
+		log.Printf("Failed to query user: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "internal_error",
+		})
+		return
+	}
+
+	// Step 3: Generate marketplace JWT
+	token, err := generateJWT(user.ID, user.DisplayName)
+	if err != nil {
+		log.Printf("Failed to generate JWT: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "internal_error",
+		})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"token":   token,
+		"user": map[string]interface{}{
+			"id":              user.ID,
+			"display_name":    user.DisplayName,
+			"email":           user.Email,
+			"credits_balance": user.CreditsBalance,
+		},
+	})
+}
+
 
 // handleListCategories handles GET /api/categories.
 // Returns all categories with pack_count (number of published pack_listings per category).
@@ -1118,7 +1391,7 @@ func handleListCategories(w http.ResponseWriter, r *http.Request) {
 		categories = append(categories, cat)
 	}
 
-	jsonResponse(w, http.StatusOK, categories)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"categories": categories})
 }
 
 // handleCreateCategory handles POST /api/admin/categories.
@@ -1341,6 +1614,38 @@ type PackMetaTable struct {
 	Columns   []string `json:"columns"`
 }
 
+// validatePricingParams validates the pricing parameters based on the share_mode (pricing model).
+// Returns an error message string if validation fails, or empty string if valid.
+func validatePricingParams(shareMode string, creditsPrice int, validDays int, billingCycle string) string {
+	switch shareMode {
+	case "free":
+		return ""
+	case "per_use":
+		if creditsPrice <= 0 {
+			return "credits_price must be a positive integer for per_use mode"
+		}
+		return ""
+	case "time_limited":
+		if creditsPrice <= 0 {
+			return "credits_price must be a positive integer for time_limited mode"
+		}
+		if validDays <= 0 {
+			return "valid_days must be a positive integer for time_limited mode"
+		}
+		return ""
+	case "subscription":
+		if creditsPrice <= 0 {
+			return "credits_price must be a positive integer for subscription mode"
+		}
+		if billingCycle != "monthly" && billingCycle != "yearly" {
+			return "billing_cycle must be 'monthly' or 'yearly' for subscription mode"
+		}
+		return ""
+	default:
+		return "share_mode must be 'free', 'per_use', 'time_limited', or 'subscription'"
+	}
+}
+
 // handleUploadPack handles POST /api/packs/upload.
 // Accepts a multipart form with a .qap file and sharing settings.
 func handleUploadPack(w http.ResponseWriter, r *http.Request) {
@@ -1349,8 +1654,8 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form (max 50MB)
-	if err := r.ParseMultipartForm(50 << 20); err != nil {
+	// Parse multipart form (max 500MB to match client limit)
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form"})
 		return
 	}
@@ -1363,26 +1668,42 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate share_mode
+	// Validate share_mode (pricing model)
 	shareMode := r.FormValue("share_mode")
-	if shareMode != "free" && shareMode != "paid" {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "share_mode must be 'free' or 'paid'"})
+	if shareMode != "free" && shareMode != "per_use" && shareMode != "time_limited" && shareMode != "subscription" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "share_mode must be 'free', 'per_use', 'time_limited', or 'subscription'"})
 		return
 	}
 
-	// Validate credits_price for paid mode
+	// Parse credits_price
 	var creditsPrice int
-	if shareMode == "paid" {
-		creditsPriceStr := r.FormValue("credits_price")
-		if creditsPriceStr == "" {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "credits_price is required for paid share_mode"})
-			return
-		}
+	creditsPriceStr := r.FormValue("credits_price")
+	if creditsPriceStr != "" {
 		creditsPrice, err = strconv.Atoi(creditsPriceStr)
-		if err != nil || creditsPrice <= 0 {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "credits_price must be a positive integer"})
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "credits_price must be a valid integer"})
 			return
 		}
+	}
+
+	// Parse valid_days
+	var validDays int
+	validDaysStr := r.FormValue("valid_days")
+	if validDaysStr != "" {
+		validDays, err = strconv.Atoi(validDaysStr)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "valid_days must be a valid integer"})
+			return
+		}
+	}
+
+	// Parse billing_cycle
+	billingCycle := r.FormValue("billing_cycle")
+
+	// Validate pricing parameters
+	if errMsg := validatePricingParams(shareMode, creditsPrice, validDays, billingCycle); errMsg != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
 	}
 
 	// Validate category_id
@@ -1417,10 +1738,14 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	fileData, err := io.ReadAll(file)
+	fileData, err := io.ReadAll(io.LimitReader(file, 500*1024*1024+1))
 	if err != nil {
 		log.Printf("Failed to read uploaded file: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if int64(len(fileData)) > 500*1024*1024 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
 		return
 	}
 
@@ -1488,10 +1813,10 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	// Insert pack_listing record
 	result, err := db.Exec(
-		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, valid_days, billing_cycle, status, meta_info)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
 		userID, categoryID, fileData, packName, qapContent.Metadata.Description,
-		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, metaInfoJSON,
+		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, validDays, billingCycle, metaInfoJSON,
 	)
 	if err != nil {
 		log.Printf("Failed to insert pack listing: %v", err)
@@ -1511,13 +1836,13 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	var metaInfoReadBack sql.NullString
 	err = db.QueryRow(
 		`SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.status, pl.meta_info, pl.created_at
 		 FROM pack_listings pl
 		 JOIN categories c ON c.id = pl.category_id
 		 WHERE pl.id = ?`, listingID,
 	).Scan(&listing.ID, &listing.UserID, &listing.CategoryID, &listing.CategoryName,
 		&listing.PackName, &listing.PackDescription, &listing.SourceName, &listing.AuthorName,
-		&listing.ShareMode, &listing.CreditsPrice, &listing.DownloadCount, &listing.Status, &metaInfoReadBack, &listing.CreatedAt)
+		&listing.ShareMode, &listing.CreditsPrice, &listing.ValidDays, &listing.BillingCycle, &listing.DownloadCount, &listing.Status, &metaInfoReadBack, &listing.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to read back listing: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -1542,7 +1867,7 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.meta_info, pl.created_at
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.meta_info, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.status = 'published'`
@@ -1575,7 +1900,7 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 		var desc, sourceName, authorName, metaInfoStr sql.NullString
 		if err := rows.Scan(&l.ID, &l.UserID, &l.CategoryID, &l.CategoryName,
 			&l.PackName, &desc, &sourceName, &authorName,
-			&l.ShareMode, &l.CreditsPrice, &l.DownloadCount, &metaInfoStr, &l.CreatedAt); err != nil {
+			&l.ShareMode, &l.CreditsPrice, &l.ValidDays, &l.BillingCycle, &l.DownloadCount, &metaInfoStr, &l.CreatedAt); err != nil {
 			log.Printf("Failed to scan pack listing: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
@@ -1597,12 +1922,13 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 		listings = append(listings, l)
 	}
 
-	jsonResponse(w, http.StatusOK, listings)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"packs": listings})
 }
 
 // handleDownloadPack handles GET /api/packs/{id}/download.
 // Free packs return file data directly. Paid packs check credits balance,
 // deduct if sufficient, and return file data; otherwise return 402.
+
 func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -1629,13 +1955,15 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	// Look up the pack listing (must be published)
 	var shareMode string
 	var creditsPrice int
+	var validDays int
+	var billingCycle string
 	var fileData []byte
 	var packName string
 	var metaInfoStr sql.NullString
 	err = db.QueryRow(
-		`SELECT share_mode, credits_price, file_data, pack_name, meta_info FROM pack_listings WHERE id = ? AND status = 'published'`,
+		`SELECT share_mode, credits_price, valid_days, billing_cycle, file_data, pack_name, meta_info FROM pack_listings WHERE id = ? AND status = 'published'`,
 		packID,
-	).Scan(&shareMode, &creditsPrice, &fileData, &packName, &metaInfoStr)
+	).Scan(&shareMode, &creditsPrice, &validDays, &billingCycle, &fileData, &packName, &metaInfoStr)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
 		return
@@ -1645,7 +1973,18 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if shareMode == "paid" {
+	// Handle billing based on pricing model
+	switch shareMode {
+	case "free":
+		// Free pack: just increment download count, no credits deduction
+		_, err = db.Exec("UPDATE pack_listings SET download_count = download_count + 1 WHERE id = ?", packID)
+		if err != nil {
+			log.Printf("Failed to increment download count: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+	case "per_use", "time_limited", "subscription":
 		// Check user's credits balance
 		var balance float64
 		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
@@ -1657,7 +1996,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 
 		if balance < float64(creditsPrice) {
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
-				"error":    "insufficient_credits",
+				"error":    "INSUFFICIENT_CREDITS",
 				"required": creditsPrice,
 				"balance":  balance,
 			})
@@ -1687,7 +2026,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		if rowsAffected == 0 {
 			// Race condition: balance changed between check and update
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
-				"error":    "insufficient_credits",
+				"error":    "INSUFFICIENT_CREDITS",
 				"required": creditsPrice,
 				"balance":  balance,
 			})
@@ -1697,8 +2036,8 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		// Record credits transaction
 		_, err = tx.Exec(
 			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
-			 VALUES (?, 'consume', ?, ?, ?)`,
-			userID, float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName),
+			 VALUES (?, 'download', ?, ?, ?)`,
+			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName),
 		)
 		if err != nil {
 			log.Printf("Failed to record transaction: %v", err)
@@ -1719,11 +2058,110 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
-	} else {
-		// Free pack: just increment download count
-		_, err = db.Exec("UPDATE pack_listings SET download_count = download_count + 1 WHERE id = ?", packID)
+
+		// Build X-Usage-License header based on pricing model
+		usageLicense := map[string]interface{}{
+			"listing_id":    packID,
+			"pricing_model": shareMode,
+			"remaining_uses": 0,
+			"expires_at":    "",
+			"billing_cycle": "",
+		}
+
+		now := time.Now().UTC()
+		switch shareMode {
+		case "per_use":
+			usageLicense["remaining_uses"] = 1
+		case "time_limited":
+			expiresAt := now.AddDate(0, 0, validDays)
+			usageLicense["expires_at"] = expiresAt.Format(time.RFC3339)
+		case "subscription":
+			var cycleDays int
+			switch billingCycle {
+			case "monthly":
+				cycleDays = 30
+			case "yearly":
+				cycleDays = 365
+			}
+			expiresAt := now.AddDate(0, 0, cycleDays)
+			usageLicense["expires_at"] = expiresAt.Format(time.RFC3339)
+			usageLicense["billing_cycle"] = billingCycle
+		}
+
+		licenseJSON, err := json.Marshal(usageLicense)
+		if err != nil {
+			log.Printf("Failed to marshal usage license: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		w.Header().Set("X-Usage-License", string(licenseJSON))
+
+	default:
+		// Legacy "paid" mode or unknown: treat as paid with basic deduction
+		var balance float64
+		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+		if err != nil {
+			log.Printf("Failed to query user balance: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if balance < float64(creditsPrice) {
+			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+				"error":    "INSUFFICIENT_CREDITS",
+				"required": creditsPrice,
+				"balance":  balance,
+			})
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			log.Printf("Failed to begin transaction: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		defer tx.Rollback()
+
+		result, err := tx.Exec(
+			"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+			creditsPrice, userID, creditsPrice,
+		)
+		if err != nil {
+			log.Printf("Failed to deduct credits: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+				"error":    "INSUFFICIENT_CREDITS",
+				"required": creditsPrice,
+				"balance":  balance,
+			})
+			return
+		}
+
+		_, err = tx.Exec(
+			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
+			 VALUES (?, 'download', ?, ?, ?)`,
+			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName),
+		)
+		if err != nil {
+			log.Printf("Failed to record transaction: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		_, err = tx.Exec("UPDATE pack_listings SET download_count = download_count + 1 WHERE id = ?", packID)
 		if err != nil {
 			log.Printf("Failed to increment download count: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Printf("Failed to commit transaction: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
@@ -1741,6 +2179,277 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(fileData)
 }
+
+// handlePurchaseAdditionalUses handles POST /api/packs/{id}/purchase-uses
+// Deducts credits for additional uses of a per_use pack.
+func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Extract pack ID from URL: /api/packs/{id}/purchase-uses
+	path := strings.TrimPrefix(r.URL.Path, "/api/packs/")
+	path = strings.TrimSuffix(path, "/purchase-uses")
+	packID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid pack id"})
+		return
+	}
+
+	// Get user ID from auth middleware
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Parse request body for quantity
+	var req struct {
+		Quantity int `json:"quantity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// Default quantity is 1 if body is empty or invalid
+		req.Quantity = 1
+	}
+	if req.Quantity <= 0 {
+		req.Quantity = 1
+	}
+
+	// Look up the pack listing
+	var shareMode string
+	var creditsPrice int
+	var packName string
+	err = db.QueryRow(
+		`SELECT share_mode, credits_price, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		packID,
+	).Scan(&shareMode, &creditsPrice, &packName)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
+		return
+	} else if err != nil {
+		log.Printf("Failed to query pack listing: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Verify share_mode is per_use
+	if shareMode != "per_use" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack is not per_use type"})
+		return
+	}
+
+	totalCost := creditsPrice * req.Quantity
+
+	// Check user's credits balance
+	var balance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	if err != nil {
+		log.Printf("Failed to query user balance: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if balance < float64(totalCost) {
+		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+			"error":    "INSUFFICIENT_CREDITS",
+			"required": totalCost,
+			"balance":  balance,
+		})
+		return
+	}
+
+	// Use a database transaction for atomic credits deduction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Failed to begin transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Deduct credits
+	result, err := tx.Exec(
+		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+		totalCost, userID, totalCost,
+	)
+	if err != nil {
+		log.Printf("Failed to deduct credits: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+			"error":    "INSUFFICIENT_CREDITS",
+			"required": totalCost,
+			"balance":  balance,
+		})
+		return
+	}
+
+	// Record credits transaction
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
+		 VALUES (?, 'purchase_uses', ?, ?, ?)`,
+		userID, -float64(totalCost), packID, fmt.Sprintf("Purchase %d additional uses: %s", req.Quantity, packName),
+	)
+	if err != nil {
+		log.Printf("Failed to record transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":         true,
+		"remaining_uses":  req.Quantity,
+		"credits_deducted": totalCost,
+	})
+}
+
+// handleRenewSubscription handles POST /api/packs/{id}/renew
+// Deducts one billing cycle of credits and returns new expiration date.
+func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Extract pack ID from URL: /api/packs/{id}/renew
+	path := strings.TrimPrefix(r.URL.Path, "/api/packs/")
+	path = strings.TrimSuffix(path, "/renew")
+	packID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid pack id"})
+		return
+	}
+
+	// Get user ID from auth middleware
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Look up the pack listing
+	var shareMode string
+	var creditsPrice int
+	var billingCycle string
+	var packName string
+	err = db.QueryRow(
+		`SELECT share_mode, credits_price, billing_cycle, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		packID,
+	).Scan(&shareMode, &creditsPrice, &billingCycle, &packName)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
+		return
+	} else if err != nil {
+		log.Printf("Failed to query pack listing: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Verify share_mode is subscription
+	if shareMode != "subscription" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack is not subscription type"})
+		return
+	}
+
+	// Check user's credits balance
+	var balance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	if err != nil {
+		log.Printf("Failed to query user balance: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if balance < float64(creditsPrice) {
+		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+			"error":    "INSUFFICIENT_CREDITS",
+			"required": creditsPrice,
+			"balance":  balance,
+		})
+		return
+	}
+
+	// Use a database transaction for atomic credits deduction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Failed to begin transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Deduct credits
+	result, err := tx.Exec(
+		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+		creditsPrice, userID, creditsPrice,
+	)
+	if err != nil {
+		log.Printf("Failed to deduct credits: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+			"error":    "INSUFFICIENT_CREDITS",
+			"required": creditsPrice,
+			"balance":  balance,
+		})
+		return
+	}
+
+	// Calculate new expires_at based on billing_cycle
+	now := time.Now().UTC()
+	var cycleDays int
+	switch billingCycle {
+	case "monthly":
+		cycleDays = 30
+	case "yearly":
+		cycleDays = 365
+	default:
+		cycleDays = 30 // fallback to monthly
+	}
+	expiresAt := now.AddDate(0, 0, cycleDays)
+
+	// Record credits transaction
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
+		 VALUES (?, 'renew', ?, ?, ?)`,
+		userID, -float64(creditsPrice), packID, fmt.Sprintf("Renew subscription (%s): %s", billingCycle, packName),
+	)
+	if err != nil {
+		log.Printf("Failed to record transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":         true,
+		"expires_at":      expiresAt.Format(time.RFC3339),
+		"credits_deducted": creditsPrice,
+	})
+}
+
+
+
 
 // handleGetBalance returns the authenticated user's current credits balance.
 // GET /api/credits/balance
@@ -2078,7 +2787,7 @@ func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 func handlePendingList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.status, pl.meta_info, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.status = 'pending'
@@ -2092,14 +2801,24 @@ func handlePendingList(w http.ResponseWriter, r *http.Request) {
 	var listings []PackListingInfo
 	for rows.Next() {
 		var p PackListingInfo
-		var categoryName, metaInfoStr sql.NullString
-		err := rows.Scan(&p.ID, &p.UserID, &p.CategoryID, &categoryName, &p.PackName, &p.PackDescription,
-			&p.SourceName, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.Status, &metaInfoStr, &p.CreatedAt)
+		var categoryName, desc, sourceName, authorName, metaInfoStr sql.NullString
+		err := rows.Scan(&p.ID, &p.UserID, &p.CategoryID, &categoryName, &p.PackName, &desc,
+			&sourceName, &authorName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.BillingCycle, &p.DownloadCount, &p.Status, &metaInfoStr, &p.CreatedAt)
 		if err != nil {
+			log.Printf("Failed to scan pending listing: %v", err)
 			continue
 		}
 		if categoryName.Valid {
 			p.CategoryName = categoryName.String
+		}
+		if desc.Valid {
+			p.PackDescription = desc.String
+		}
+		if sourceName.Valid {
+			p.SourceName = sourceName.String
+		}
+		if authorName.Valid {
+			p.AuthorName = authorName.String
 		}
 		if metaInfoStr.Valid && metaInfoStr.String != "" {
 			p.MetaInfo = json.RawMessage(metaInfoStr.String)
@@ -2291,8 +3010,32 @@ func main() {
 	}
 	defer db.Close()
 
+	// Start background goroutine to clean up expired sessions and captchas
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			sessionsMu.Lock()
+			for id, entry := range sessions {
+				if now.After(entry.Expiry) {
+					delete(sessions, id)
+				}
+			}
+			sessionsMu.Unlock()
+			captchasMu.Lock()
+			for id, entry := range captchas {
+				if now.After(entry.Expiry) {
+					delete(captchas, id)
+				}
+			}
+			captchasMu.Unlock()
+		}
+	}()
+
 	// Auth routes
-	http.HandleFunc("/api/auth/oauth", handleOAuthCallback)
+	http.HandleFunc("/api/auth/sn-login", handleSNLogin)
+	http.HandleFunc("/api/auth/oauth", handleOAuthCallback) // kept for backward compatibility
 
 	// Category routes (listing is public, admin requires auth)
 	http.HandleFunc("/api/categories", handleListCategories)
@@ -2302,7 +3045,17 @@ func main() {
 	// Pack routes (upload and download require auth, listing is public)
 	http.HandleFunc("/api/packs/upload", authMiddleware(handleUploadPack))
 	http.HandleFunc("/api/packs", handleListPacks)
-	http.HandleFunc("/api/packs/", authMiddleware(handleDownloadPack))
+	http.HandleFunc("/api/packs/", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		// Dispatch based on URL suffix
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/purchase-uses"):
+			handlePurchaseAdditionalUses(w, r)
+		case strings.HasSuffix(r.URL.Path, "/renew"):
+			handleRenewSubscription(w, r)
+		default:
+			handleDownloadPack(w, r)
+		}
+	}))
 
 	// Credits routes (all require auth)
 	http.HandleFunc("/api/credits/balance", authMiddleware(handleGetBalance))

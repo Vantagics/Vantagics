@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// testUserCounter is used to generate unique oauth_provider_id values in tests.
+// testUserCounter is used to generate unique auth_id values in tests.
 var testUserCounter int64
 
 // createTestUserWithBalance inserts a test user with a specific credits balance and returns the user ID.
@@ -17,7 +17,7 @@ func createTestUserWithBalance(t *testing.T, balance float64) int64 {
 	t.Helper()
 	testUserCounter++
 	result, err := db.Exec(
-		"INSERT INTO users (oauth_provider, oauth_provider_id, display_name, email, credits_balance) VALUES ('google', ?, 'Downloader', 'dl@test.com', ?)",
+		"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES ('google', ?, 'Downloader', 'dl@test.com', ?)",
 		fmt.Sprintf("dl-user-%d-%f", testUserCounter, balance), balance,
 	)
 	if err != nil {
@@ -163,8 +163,8 @@ func TestDownloadPack_PaidPack_InsufficientBalance(t *testing.T) {
 	var resp map[string]interface{}
 	json.Unmarshal(rr.Body.Bytes(), &resp)
 
-	if resp["error"] != "insufficient_credits" {
-		t.Errorf("expected error='insufficient_credits', got %v", resp["error"])
+	if resp["error"] != "INSUFFICIENT_CREDITS" {
+		t.Errorf("expected error='INSUFFICIENT_CREDITS', got %v", resp["error"])
 	}
 	if resp["required"] != float64(100) {
 		t.Errorf("expected required=100, got %v", resp["required"])
@@ -265,11 +265,11 @@ func TestDownloadPack_PaidPack_TransactionRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to query transaction: %v", err)
 	}
-	if txType != "consume" {
-		t.Errorf("expected transaction_type='consume', got %q", txType)
+	if txType != "download" {
+		t.Errorf("expected transaction_type='download', got %q", txType)
 	}
-	if amount != 100 {
-		t.Errorf("expected amount=100, got %v", amount)
+	if amount != -100 {
+		t.Errorf("expected amount=-100, got %v", amount)
 	}
 }
 

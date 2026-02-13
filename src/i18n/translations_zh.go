@@ -345,4 +345,8 @@ var chineseTranslations = map[string]string{
 	"comprehensive_report.insight":            "洞察",
 	"comprehensive_report.key_metric":         "关键指标",
 	"comprehensive_report.table":              "数据表",
+	"comprehensive_report.pack_info_header":   "## 分析包信息",
+	"comprehensive_report.pack_author":        "作者：",
+	"comprehensive_report.pack_description":   "描述：",
+	"comprehensive_report.pack_source_name":   "原始数据源：",
 }

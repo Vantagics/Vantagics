@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import ReactECharts from 'echarts-for-react';
 
@@ -86,7 +87,7 @@ const ChartModal: React.FC<ChartModalProps> = ({ isOpen, options, onClose }) => 
 
     if (!isVisible) return null;
 
-    return (
+    return createPortal(
         <div 
             className={`fixed inset-0 z-[200] flex items-center justify-center transition-opacity duration-200 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
             onClick={onClose}
@@ -121,7 +122,8 @@ const ChartModal: React.FC<ChartModalProps> = ({ isOpen, options, onClose }) => 
                     }}
                 />
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 

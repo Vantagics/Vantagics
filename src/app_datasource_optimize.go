@@ -195,6 +195,16 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 	// Apply suggestions
 	appliedCount := 0
 	for i := range suggestions {
+		// Validate that the SQL command is a CREATE INDEX statement (defense in depth)
+		sqlCmd := strings.TrimSpace(suggestions[i].SQLCommand)
+		sqlUpper := strings.ToUpper(sqlCmd)
+		if !strings.HasPrefix(sqlUpper, "CREATE INDEX") && !strings.HasPrefix(sqlUpper, "CREATE UNIQUE INDEX") {
+			suggestions[i].Applied = false
+			suggestions[i].Error = "rejected: only CREATE INDEX statements are allowed"
+			a.Log(fmt.Sprintf("[OPTIMIZE] Rejected non-index SQL: %s", sqlCmd[:min(len(sqlCmd), 80)]))
+			continue
+		}
+
 		// Execute SQL
 		_, err := db.Exec(suggestions[i].SQLCommand)
 		if err != nil {

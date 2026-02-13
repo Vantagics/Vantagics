@@ -31,7 +31,7 @@ describe('ExportPackDialog', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        mockExport.mockResolvedValue(undefined as any);
+        mockExport.mockResolvedValue('/path/to/qap/analysis_20250101_120000.qap');
     });
 
     it('should not render when isOpen is false', () => {
@@ -115,7 +115,7 @@ describe('ExportPackDialog', () => {
         });
     });
 
-    it('should call onConfirm and onClose on successful export', async () => {
+    it('should call onConfirm and show success path on successful export', async () => {
         render(<ExportPackDialog {...defaultProps} />);
         const authorInput = screen.getByPlaceholderText('export_pack_author_placeholder');
         fireEvent.change(authorInput, { target: { value: 'Bob' } });
@@ -125,7 +125,8 @@ describe('ExportPackDialog', () => {
 
         await waitFor(() => {
             expect(defaultProps.onConfirm).toHaveBeenCalledWith('Bob', '');
-            expect(defaultProps.onClose).toHaveBeenCalled();
+            expect(screen.getByText(/export_pack_success/)).toBeInTheDocument();
+            expect(screen.getByText(/analysis_20250101_120000\.qap/)).toBeInTheDocument();
         });
     });
 

@@ -309,3 +309,70 @@ func TestValidateSchema_AllTablesMissing(t *testing.T) {
 		t.Errorf("expected 2 extra tables, got %d", len(result.ExtraTables))
 	}
 }
+
+func TestValidateSchema_CaseInsensitive(t *testing.T) {
+	source := []PackTableSchema{
+		{
+			TableName: "Orders",
+			Columns: []PackColumnInfo{
+				{Name: "ID", Type: "INTEGER"},
+				{Name: "Amount", Type: "REAL"},
+			},
+		},
+	}
+
+	target := []PackTableSchema{
+		{
+			TableName: "orders",
+			Columns: []PackColumnInfo{
+				{Name: "id", Type: "INTEGER"},
+				{Name: "amount", Type: "REAL"},
+			},
+		},
+	}
+
+	result := ValidateSchema(source, target)
+
+	if !result.Compatible {
+		t.Error("expected Compatible to be true (case-insensitive matching)")
+	}
+	if len(result.MissingTables) != 0 {
+		t.Errorf("expected no missing tables, got %v", result.MissingTables)
+	}
+	if len(result.MissingColumns) != 0 {
+		t.Errorf("expected no missing columns, got %v", result.MissingColumns)
+	}
+}
+
+func TestValidateSchema_CaseInsensitiveMixedCase(t *testing.T) {
+	source := []PackTableSchema{
+		{
+			TableName: "CUSTOMER_ORDERS",
+			Columns: []PackColumnInfo{
+				{Name: "Order_ID", Type: "INTEGER"},
+				{Name: "CUSTOMER_NAME", Type: "TEXT"},
+				{Name: "total_amount", Type: "REAL"},
+			},
+		},
+	}
+
+	target := []PackTableSchema{
+		{
+			TableName: "customer_orders",
+			Columns: []PackColumnInfo{
+				{Name: "order_id", Type: "INTEGER"},
+				{Name: "customer_name", Type: "TEXT"},
+				{Name: "Total_Amount", Type: "REAL"},
+			},
+		},
+	}
+
+	result := ValidateSchema(source, target)
+
+	if !result.Compatible {
+		t.Error("expected Compatible to be true (case-insensitive matching)")
+	}
+	if len(result.MissingColumns) != 0 {
+		t.Errorf("expected no missing columns, got %v", result.MissingColumns)
+	}
+}

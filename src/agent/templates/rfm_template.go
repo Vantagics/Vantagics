@@ -2,6 +2,7 @@ package templates
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -135,8 +136,10 @@ func (t *RFMTemplate) Execute(ctx context.Context, executor DataExecutor, dataSo
 	}
 
 	dataJSON, _ := json.Marshal(data)
+	encodedData := base64.StdEncoding.EncodeToString(dataJSON)
 	pythonCode := fmt.Sprintf(`
 import json
+import base64
 import pandas as pd
 import numpy as np
 import matplotlib
@@ -147,7 +150,7 @@ plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans', '
 plt.rcParams['axes.unicode_minus'] = False  # Fix minus sign display
 
 # Load data
-data = json.loads('''%s''')
+data = json.loads(base64.b64decode("%s").decode("utf-8"))
 df = pd.DataFrame(data)
 
 # Convert date column
@@ -230,7 +233,7 @@ print("\nVisualization saved to chart.png")
 # Save CSV
 rfm.to_csv('rfm_results.csv', index=False)
 print("Detailed results saved to rfm_results.csv")
-`, string(dataJSON))
+`, encodedData)
 
 	output, err := executor.ExecutePython(ctx, pythonCode, "")
 	if err != nil {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -179,21 +180,21 @@ func (t *QueryAndChartTool) InvokableRun(ctx context.Context, argumentsInJSON st
 
 // buildChartPythonCode wraps the user's chart code with DataFrame loading from SQL results
 func buildChartPythonCode(sqlResultJSON string, chartCode string) string {
-	// Escape the JSON for embedding in Python string
-	escapedJSON := strings.ReplaceAll(sqlResultJSON, `\`, `\\`)
-	escapedJSON = strings.ReplaceAll(escapedJSON, `"`, `\"`)
-	escapedJSON = strings.ReplaceAll(escapedJSON, "\n", `\n`)
-	escapedJSON = strings.ReplaceAll(escapedJSON, "\r", `\r`)
+	// Use base64 encoding to safely embed JSON in Python code, avoiding string escaping issues
+	encoded := base64.StdEncoding.EncodeToString([]byte(sqlResultJSON))
 
 	return fmt.Sprintf(`import pandas as pd
 import json
+import base64
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # Load SQL query results into DataFrame
-_sql_result = json.loads("%s")
-if "rows" in _sql_result and _sql_result["rows"]:
+_sql_result = json.loads(base64.b64decode("%s").decode("utf-8"))
+if isinstance(_sql_result, list):
+    df = pd.DataFrame(_sql_result)
+elif "rows" in _sql_result and _sql_result["rows"]:
     df = pd.DataFrame(_sql_result["rows"])
 elif "data" in _sql_result:
     df = pd.DataFrame(_sql_result["data"])
@@ -207,5 +208,5 @@ if len(df) > 0:
 
 # User chart code
 %s
-`, escapedJSON, chartCode)
+`, encoded, chartCode)
 }

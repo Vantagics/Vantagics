@@ -42,6 +42,23 @@ type DataSourceService struct {
 	cacheMu      sync.RWMutex
 }
 
+// validateIdentifier validates a SQL identifier (table name or column name) to prevent SQL injection.
+// It rejects identifiers containing dangerous characters that could break out of backtick quoting.
+// This is a defense-in-depth measure applied consistently across all functions that interpolate
+// identifiers into SQL queries.
+func validateIdentifier(name string, identifierType string) error {
+	if name == "" {
+		return fmt.Errorf("%s cannot be empty", identifierType)
+	}
+	invalidChars := []string{"'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
+	for _, char := range invalidChars {
+		if strings.Contains(name, char) {
+			return fmt.Errorf("%s contains invalid character: %q", identifierType, char)
+		}
+	}
+	return nil
+}
+
 // NewDataSourceService creates a new service instance
 func NewDataSourceService(dataCacheDir string, logFunc func(string)) *DataSourceService {
 	return &DataSourceService{
@@ -1429,6 +1446,11 @@ func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string
 
 // GetDataSourceTableData returns preview data for a table
 func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, limit int) ([]map[string]interface{}, error) {
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return nil, err
+	}
+
 	// Only cache small sample requests (≤10 rows) to avoid memory bloat
 	const sampleCacheLimit = 10
 	useCache := limit > 0 && limit <= sampleCacheLimit
@@ -1554,6 +1576,11 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 
 // GetDataSourceTableCount returns the total number of rows in a table
 func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string) (int, error) {
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return 0, err
+	}
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return 0, err
@@ -1606,6 +1633,11 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 
 // GetDataSourceTableColumns returns the column names for a table
 func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName string) ([]string, error) {
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return nil, err
+	}
+
 	// Check cache first
 	if cache := s.getSchemaFromCache(id); cache != nil {
 		if cols, exists := cache.Columns[tableName]; exists && len(cols) > 0 {
@@ -1742,8 +1774,13 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 	}
 
 	for _, tableName := range tableNames {
-		// Output file path for this table
-		filePath := filepath.Join(exportDir, fmt.Sprintf("%s.csv", tableName))
+		// Validate table name to prevent SQL injection and path traversal
+		if err := validateIdentifier(tableName, "table name"); err != nil {
+			return err
+		}
+		// Output file path for this table (sanitize for filesystem safety)
+		safeFileName := s.sanitizeName(tableName)
+		filePath := filepath.Join(exportDir, fmt.Sprintf("%s.csv", safeFileName))
 
 		// Export this table
 		if err := s.exportSingleTableToCSV(db, tableName, filePath); err != nil {
@@ -1909,6 +1946,11 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 
 	// 3. Export each table to a sheet
 	for sheetIdx, tableName := range tableNames {
+		// Validate table name to prevent SQL injection
+		if err := validateIdentifier(tableName, "table name"); err != nil {
+			return err
+		}
+
 		// Query table data
 		rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
 		if err != nil {
@@ -2074,6 +2116,10 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 
 	// 3. Export each table
 	for _, tableName := range tableNames {
+		// Validate table name to prevent SQL injection
+		if err := validateIdentifier(tableName, "table name"); err != nil {
+			return err
+		}
 		if err := s.exportSingleTableToSQL(db, tableName, f); err != nil {
 			return fmt.Errorf("failed to export table %s: %v", tableName, err)
 		}
@@ -2263,6 +2309,10 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 
 	// 3. Export each table
 	for _, tableName := range tableNames {
+		// Validate table name to prevent SQL injection
+		if err := validateIdentifier(tableName, "table name"); err != nil {
+			return err
+		}
 		s.log(fmt.Sprintf("Exporting table: %s", tableName))
 		if err := s.exportSingleTableToMySQL(sourceDB, mysqlDB, tableName); err != nil {
 			s.log(fmt.Sprintf("Export failed for table %s: %v", tableName, err))
@@ -2531,15 +2581,9 @@ func (s *DataSourceService) RenameDataSource(id string, newName string) error {
 func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	s.log(fmt.Sprintf("DeleteTable: DataSource=%s, Table=%s", id, tableName))
 	
-	// Validate table name for defense in depth
-	if tableName == "" {
-		return fmt.Errorf("table name cannot be empty")
-	}
-	invalidChars := []string{"'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
-	for _, char := range invalidChars {
-		if strings.Contains(tableName, char) {
-			return fmt.Errorf("table name contains invalid character")
-		}
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return err
 	}
 	
 	sources, err := s.LoadDataSources()
@@ -2880,19 +2924,15 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 		return fmt.Errorf("column name cannot be empty")
 	}
 
-	// Check for invalid characters in column name (applies to both old and new names)
-	invalidChars := []string{" ", "'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
-	for _, char := range invalidChars {
-		if strings.Contains(newColumnName, char) {
-			return fmt.Errorf("column name contains invalid character: %s", char)
-		}
-		// Also validate oldColumnName and tableName for defense in depth
-		if strings.Contains(oldColumnName, char) {
-			return fmt.Errorf("old column name contains invalid character")
-		}
-		if strings.Contains(tableName, char) {
-			return fmt.Errorf("table name contains invalid character")
-		}
+	// Validate all identifiers using centralized validation
+	if err := validateIdentifier(newColumnName, "new column name"); err != nil {
+		return err
+	}
+	if err := validateIdentifier(oldColumnName, "old column name"); err != nil {
+		return err
+	}
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return err
 	}
 
 	// Check if column name starts with a number
@@ -2964,8 +3004,8 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 	if !isSQLite && (target.Type == "mysql" || target.Type == "doris") {
 		// For MySQL/Doris, we need to get the column type first
 		var colType string
-		query := fmt.Sprintf("SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", tableName, oldColumnName)
-		err = db.QueryRow(query).Scan(&colType)
+		query := "SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND COLUMN_NAME = ?"
+		err = db.QueryRow(query, tableName, oldColumnName).Scan(&colType)
 		if err != nil {
 			return fmt.Errorf("failed to get column type: %v", err)
 		}
@@ -3018,15 +3058,12 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 		return fmt.Errorf("column name cannot be empty")
 	}
 
-	// Validate column name and table name for defense in depth
-	invalidChars := []string{"'", "\"", ";", "--", "/*", "*/", "\t", "\n", "\r", "`", "\\"}
-	for _, char := range invalidChars {
-		if strings.Contains(columnName, char) {
-			return fmt.Errorf("column name contains invalid character")
-		}
-		if strings.Contains(tableName, char) {
-			return fmt.Errorf("table name contains invalid character")
-		}
+	// Validate identifiers using centralized validation
+	if err := validateIdentifier(columnName, "column name"); err != nil {
+		return err
+	}
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return err
 	}
 
 	sources, err := s.LoadDataSources()
@@ -3206,6 +3243,11 @@ type ColumnInfoWithType struct {
 
 // GetDataSourceTableColumnsWithTypes returns column names and types for a table
 func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableName string) ([]ColumnInfoWithType, error) {
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return nil, err
+	}
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return nil, err
@@ -3298,6 +3340,11 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 
 // GetTableRowCount returns the number of rows in a table
 func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, error) {
+	// Validate table name to prevent SQL injection
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return 0, err
+	}
+
 	sources, err := s.LoadDataSources()
 	if err != nil {
 		return 0, err

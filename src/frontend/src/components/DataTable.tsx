@@ -4,6 +4,7 @@ import { useLanguage } from '../i18n';
 interface DataTableProps {
     data: any[];
     title?: string;
+    columns?: string[];
 }
 
 // Render cell content with basic markdown support (bold text)
@@ -35,12 +36,12 @@ const renderCellContent = (value: any): React.ReactNode => {
     return str;
 };
 
-const DataTable: React.FC<DataTableProps> = ({ data, title }) => {
+const DataTable: React.FC<DataTableProps> = ({ data, title, columns: columnsProp }) => {
     const { t } = useLanguage();
     if (!data || data.length === 0) return null;
 
-    // Extract columns from first item
-    const columns = Object.keys(data[0]);
+    // Use provided columns to preserve order, fallback to Object.keys
+    const columns = columnsProp && columnsProp.length > 0 ? columnsProp : Object.keys(data[0]);
     
     // Limit displayed rows to prevent UI freeze with large datasets
     const MAX_DISPLAY_ROWS = 200;

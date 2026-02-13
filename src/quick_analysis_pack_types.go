@@ -12,11 +12,13 @@ type QuickAnalysisPack struct {
 
 // PackMetadata contains descriptive information about the quick analysis pack.
 type PackMetadata struct {
-	Author      string `json:"author"`      // Creator name (user input)
-	CreatedAt   string `json:"created_at"`  // RFC3339 formatted timestamp
-	SourceName  string `json:"source_name"` // Original data source name
-	Description string `json:"description"` // Optional description
+	Author      string `json:"author"`                    // Creator name (user input)
+	CreatedAt   string `json:"created_at"`                // RFC3339 formatted timestamp
+	SourceName  string `json:"source_name"`               // Original data source name
+	Description string `json:"description"`               // Optional description
+	ListingID   int64  `json:"listing_id,omitempty"`      // Marketplace listing ID (0 for local packs)
 }
+
 
 // PackTableSchema represents the schema of a single table in the data source.
 type PackTableSchema struct {
@@ -33,10 +35,14 @@ type PackColumnInfo struct {
 // PackStep represents a single executable step (SQL query or Python code) in the analysis pack.
 type PackStep struct {
 	StepID      int    `json:"step_id"`
-	StepType    string `json:"step_type"`            // "sql_query" or "python_code"
+	StepType    string `json:"step_type"`                       // "sql_query" or "python_code"
 	Code        string `json:"code"`
 	Description string `json:"description"`
+	UserRequest string `json:"user_request,omitempty"`          // Original user request that triggered this step (for display as "分析请求")
 	DependsOn   []int  `json:"depends_on,omitempty"`
+	SourceTool  string `json:"source_tool,omitempty"`           // "query_and_chart" if chart code needs DataFrame injection
+	PairedSQLStepID int `json:"paired_sql_step_id,omitempty"`  // StepID of the paired SQL step (for query_and_chart chart code)
+	EChartsConfigs []string `json:"echarts_configs,omitempty"`  // ECharts JSON configs from original LLM response (for replay)
 }
 
 // SchemaValidationResult contains the result of comparing pack schema requirements against a target data source.
@@ -59,9 +65,11 @@ type MissingColumnInfo struct {
 // PackLoadResult contains the result of loading a quick analysis pack file, including the parsed pack,
 // schema validation result, and encryption status.
 type PackLoadResult struct {
-	Pack          *QuickAnalysisPack      `json:"pack"`
-	Validation    *SchemaValidationResult `json:"validation"`
-	IsEncrypted   bool                    `json:"is_encrypted"`
-	NeedsPassword bool                    `json:"needs_password"`
-	FilePath      string                  `json:"file_path"`
+	Pack             *QuickAnalysisPack      `json:"pack"`
+	Validation       *SchemaValidationResult  `json:"validation"`
+	IsEncrypted      bool                     `json:"is_encrypted"`
+	NeedsPassword    bool                     `json:"needs_password"`
+	FilePath         string                   `json:"file_path"`
+	HasPythonSteps   bool                     `json:"has_python_steps"`
+	PythonConfigured bool                     `json:"python_configured"`
 }

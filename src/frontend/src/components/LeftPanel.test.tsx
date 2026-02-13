@@ -9,11 +9,33 @@ import { main } from '../../wailsjs/go/models';
 // Mock the Wails functions
 vi.mock('../../wailsjs/go/main/App', () => ({
     GetChatHistory: vi.fn(),
+    GetConfig: vi.fn(() => Promise.resolve({ language: 'English' })),
 }));
 
 // Mock EventsOn
 vi.mock('../../wailsjs/runtime/runtime', () => ({
     EventsOn: vi.fn(() => vi.fn()),
+}));
+
+// Mock i18n
+vi.mock('../i18n', () => ({
+    useLanguage: () => ({
+        language: 'English',
+        t: (key: string) => {
+            const translations: Record<string, string> = {
+                'historical_sessions': 'Historical Sessions',
+                'no_historical_sessions': 'No historical sessions',
+                'new_session': 'New Session',
+                'loading_sessions': 'Loading sessions...',
+                'data_sources_panel': 'Data Sources Panel',
+                'delete_session': 'Delete session',
+                'context_menu_rename': 'Rename',
+                'context_menu_delete': 'Delete',
+                'context_menu_export': 'Export',
+            };
+            return translations[key] || key;
+        },
+    }),
 }));
 
 // Mock logger
@@ -269,6 +291,70 @@ describe('LeftPanel Component', () => {
                 expect(screen.getByText('Delete')).toBeInTheDocument();
                 expect(screen.getByText('Export')).toBeInTheDocument();
             });
+        });
+    });
+
+    describe('QAP Event Subscription', () => {
+        it('should subscribe to qap-session-created event', async () => {
+            const { EventsOn } = await import('../../wailsjs/runtime/runtime');
+            (GetChatHistory as any).mockResolvedValue([]);
+
+            render(<LeftPanel {...mockProps} />);
+
+            // Verify EventsOn was called with 'qap-session-created'
+            const calls = (EventsOn as any).mock.calls;
+            const eventNames = calls.map((call: any[]) => call[0]);
+            expect(eventNames).toContain('qap-session-created');
+        });
+
+        it('should subscribe to all required session events', async () => {
+            const { EventsOn } = await import('../../wailsjs/runtime/runtime');
+            (GetChatHistory as any).mockResolvedValue([]);
+
+            render(<LeftPanel {...mockProps} />);
+
+            const calls = (EventsOn as any).mock.calls;
+            const eventNames = calls.map((call: any[]) => call[0]);
+            expect(eventNames).toContain('chat-thread-created');
+            expect(eventNames).toContain('chat-thread-deleted');
+            expect(eventNames).toContain('chat-thread-updated');
+            expect(eventNames).toContain('qap-session-created');
+        });
+
+        it('should pass is_replay_session to HistoricalSessionsSection', async () => {
+            const mockSessions = [
+                {
+                    id: 'qap1',
+                    title: 'QAP Session',
+                    data_source_id: 'ds1',
+                    created_at: Date.now() / 1000,
+                    messages: [],
+                    is_replay_session: true,
+                },
+                {
+                    id: 'normal1',
+                    title: 'Normal Session',
+                    data_source_id: 'ds1',
+                    created_at: Date.now() / 1000 - 3600,
+                    messages: [],
+                    is_replay_session: false,
+                },
+            ];
+
+            (GetChatHistory as any).mockResolvedValue(mockSessions);
+
+            const { container } = render(<LeftPanel {...mockProps} />);
+
+            await waitFor(() => {
+                expect(screen.getByText('QAP Session')).toBeInTheDocument();
+                expect(screen.getByText('Normal Session')).toBeInTheDocument();
+            });
+
+            // QAP session should have amber icon, normal should have blue
+            const amberIcons = container.querySelectorAll('.text-amber-500');
+            const blueIcons = container.querySelectorAll('.session-title .text-blue-400');
+            expect(amberIcons).toHaveLength(1);
+            expect(blueIcons).toHaveLength(1);
         });
     });
 });

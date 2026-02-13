@@ -25,14 +25,39 @@ interface PackListingInfo {
     pack_description: string;
     source_name: string;
     author_name: string;
-    share_mode: 'free' | 'paid';
+    share_mode: string;  // 'free', 'per_use', 'time_limited', 'subscription'
     credits_price: number;
+    valid_days: number;
+    billing_cycle: string;  // 'monthly' or 'yearly'
     download_count: number;
     created_at: string;
 }
 
 interface MarketBrowsePageProps {
     onClose: () => void;
+}
+
+function formatBillingInfo(pack: PackListingInfo, t: (key: string) => string): { label: string; variant: 'free' | 'paid' } {
+    switch (pack.share_mode) {
+        case 'free':
+            return { label: t('market_browse_free'), variant: 'free' };
+        case 'per_use':
+            return { label: t('market_browse_per_use').replace('{price}', String(pack.credits_price)), variant: 'paid' };
+        case 'time_limited':
+            return {
+                label: t('market_browse_time_limited').replace('{price}', String(pack.credits_price)).replace('{days}', String(pack.valid_days)),
+                variant: 'paid',
+            };
+        case 'subscription': {
+            const cycleKey = pack.billing_cycle === 'yearly' ? 'market_browse_sub_yearly' : 'market_browse_sub_monthly';
+            return {
+                label: t(cycleKey).replace('{price}', String(pack.credits_price)),
+                variant: 'paid',
+            };
+        }
+        default:
+            return { label: t('market_browse_free'), variant: 'free' };
+    }
 }
 
 const MarketBrowsePage: React.FC<MarketBrowsePageProps> = ({ onClose }) => {
@@ -94,8 +119,8 @@ const MarketBrowsePage: React.FC<MarketBrowsePageProps> = ({ onClose }) => {
         setError(null);
         setSuccessMsg(null);
         try {
-            await DownloadMarketplacePack(pack.id);
-            setSuccessMsg(t('market_browse_download_success'));
+            const filePath = await DownloadMarketplacePack(pack.id);
+            setSuccessMsg(`${t('market_browse_download_success')}${filePath ? ': ' + filePath : ''}`);
             // Refresh balance after purchase
             fetchBalance();
             setTimeout(() => setSuccessMsg(null), 3000);
@@ -223,16 +248,18 @@ const MarketBrowsePage: React.FC<MarketBrowsePageProps> = ({ onClose }) => {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                            {pack.share_mode === 'paid' && (
-                                                <span className="px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-full">
-                                                    {pack.credits_price} {t('market_browse_credits')}
-                                                </span>
-                                            )}
-                                            {pack.share_mode === 'free' && (
-                                                <span className="px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20 rounded-full">
-                                                    {t('market_browse_free')}
-                                                </span>
-                                            )}
+                                            {(() => {
+                                                const billing = formatBillingInfo(pack, t);
+                                                return (
+                                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                                        billing.variant === 'free'
+                                                            ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+                                                            : 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20'
+                                                    }`}>
+                                                        {billing.label}
+                                                    </span>
+                                                );
+                                            })()}
                                             <button
                                                 onClick={() => handleDownload(pack)}
                                                 disabled={downloadingID !== null}
@@ -243,7 +270,7 @@ const MarketBrowsePage: React.FC<MarketBrowsePageProps> = ({ onClose }) => {
                                                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                                         {t('market_browse_downloading')}
                                                     </>
-                                                ) : pack.share_mode === 'paid' ? (
+                                                ) : pack.share_mode !== 'free' ? (
                                                     <>
                                                         <ShoppingCart className="w-3.5 h-3.5" />
                                                         {t('market_browse_buy_download')}

@@ -49,6 +49,16 @@ func listCategories(t *testing.T) *httptest.ResponseRecorder {
 	return rr
 }
 
+// parseCategoriesResponse extracts the categories array from the JSON response.
+func parseCategoriesResponse(t *testing.T, rr *httptest.ResponseRecorder) []PackCategory {
+	t.Helper()
+	var result struct {
+		Categories []PackCategory `json:"categories"`
+	}
+	json.Unmarshal(rr.Body.Bytes(), &result)
+	return result.Categories
+}
+
 func TestListCategories_ReturnsPresets(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()
@@ -58,15 +68,17 @@ func TestListCategories_ReturnsPresets(t *testing.T) {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 
-	var categories []PackCategory
-	json.Unmarshal(rr.Body.Bytes(), &categories)
+	var result struct {
+		Categories []PackCategory `json:"categories"`
+	}
+	json.Unmarshal(rr.Body.Bytes(), &result)
 
-	if len(categories) != 4 {
-		t.Fatalf("expected 4 preset categories, got %d", len(categories))
+	if len(result.Categories) != 4 {
+		t.Fatalf("expected 4 preset categories, got %d", len(result.Categories))
 	}
 
 	expectedNames := map[string]bool{"Shopify": true, "BigCommerce": true, "eBay": true, "Etsy": true}
-	for _, cat := range categories {
+	for _, cat := range result.Categories {
 		if !expectedNames[cat.Name] {
 			t.Errorf("unexpected category: %s", cat.Name)
 		}
@@ -227,8 +239,7 @@ func TestDeleteCategory_Success(t *testing.T) {
 
 	// Verify it's gone from the list
 	rr3 := listCategories(t)
-	var categories []PackCategory
-	json.Unmarshal(rr3.Body.Bytes(), &categories)
+	categories := parseCategoriesResponse(t, rr3)
 	for _, cat := range categories {
 		if cat.ID == created.ID {
 			t.Error("deleted category still appears in list")
@@ -252,8 +263,7 @@ func TestDeleteCategory_PresetForbidden(t *testing.T) {
 
 	// Get preset categories
 	rr := listCategories(t)
-	var categories []PackCategory
-	json.Unmarshal(rr.Body.Bytes(), &categories)
+	categories := parseCategoriesResponse(t, rr)
 
 	// Find a preset category
 	var presetID int64
@@ -291,7 +301,7 @@ func TestDeleteCategory_HasListings(t *testing.T) {
 
 	// Create a user and a pack_listing referencing this category
 	result, err := db.Exec(
-		"INSERT INTO users (oauth_provider, oauth_provider_id, display_name, email) VALUES ('google', 'test-user', 'Test', 'test@test.com')",
+		"INSERT INTO users (auth_type, auth_id, display_name, email) VALUES ('google', 'test-user', 'Test', 'test@test.com')",
 	)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)
@@ -333,7 +343,7 @@ func TestListCategories_PackCount(t *testing.T) {
 
 	// Create a user
 	result, _ := db.Exec(
-		"INSERT INTO users (oauth_provider, oauth_provider_id, display_name) VALUES ('google', 'count-user', 'Counter')",
+		"INSERT INTO users (auth_type, auth_id, display_name) VALUES ('google', 'count-user', 'Counter')",
 	)
 	userID, _ := result.LastInsertId()
 
@@ -352,8 +362,7 @@ func TestListCategories_PackCount(t *testing.T) {
 
 	// List categories and check count
 	rr2 := listCategories(t)
-	var categories []PackCategory
-	json.Unmarshal(rr2.Body.Bytes(), &categories)
+	categories := parseCategoriesResponse(t, rr2)
 
 	for _, cat := range categories {
 		if cat.ID == created.ID {
@@ -407,8 +416,7 @@ func TestCRUD_RoundTrip(t *testing.T) {
 
 	// Read (via list)
 	rr2 := listCategories(t)
-	var categories []PackCategory
-	json.Unmarshal(rr2.Body.Bytes(), &categories)
+	categories := parseCategoriesResponse(t, rr2)
 	found := false
 	for _, cat := range categories {
 		if cat.ID == created.ID {
@@ -430,8 +438,7 @@ func TestCRUD_RoundTrip(t *testing.T) {
 
 	// Read again
 	rr4 := listCategories(t)
-	var categories2 []PackCategory
-	json.Unmarshal(rr4.Body.Bytes(), &categories2)
+	categories2 := parseCategoriesResponse(t, rr4)
 	for _, cat := range categories2 {
 		if cat.ID == created.ID {
 			if cat.Name != "RoundTrip2" || cat.Description != "Updated" {
@@ -448,8 +455,7 @@ func TestCRUD_RoundTrip(t *testing.T) {
 
 	// Verify gone
 	rr6 := listCategories(t)
-	var categories3 []PackCategory
-	json.Unmarshal(rr6.Body.Bytes(), &categories3)
+	categories3 := parseCategoriesResponse(t, rr6)
 	for _, cat := range categories3 {
 		if cat.ID == created.ID {
 			t.Error("deleted category still in list")

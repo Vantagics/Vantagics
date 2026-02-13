@@ -601,6 +601,7 @@ func (c *LicenseClient) IncrementAnalysis() {
 		// TotalCredits == 0 means unlimited, no need to deduct
 		if c.data.TotalCredits > 0 {
 			c.data.UsedCredits += CreditsPerAnalysis
+			shouldReport := c.data.TrustLevel == "low"
 			if c.log != nil {
 				c.log(fmt.Sprintf("[LICENSE] Credits used: %.1f/%.1f", c.data.UsedCredits, c.data.TotalCredits))
 			}
@@ -610,6 +611,23 @@ func (c *LicenseClient) IncrementAnalysis() {
 			if err := c.SaveActivationData(); err != nil {
 				if c.log != nil {
 					c.log(fmt.Sprintf("[LICENSE] Failed to persist credits data: %v", err))
+				}
+			}
+
+			// Report usage to server immediately after credits consumption (async, non-blocking)
+			// Throttle: only report if at least 30 seconds since last report
+			if shouldReport {
+				c.mu.RLock()
+				timeSinceLastReport := time.Since(c.lastReportAt)
+				c.mu.RUnlock()
+				if timeSinceLastReport >= 30*time.Second {
+					go func() {
+						if err := c.ReportUsage(); err != nil {
+							if c.log != nil {
+								c.log(fmt.Sprintf("[LICENSE] Immediate usage report after analysis failed: %v", err))
+							}
+						}
+					}()
 				}
 			}
 		} else {

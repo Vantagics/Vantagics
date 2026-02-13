@@ -126,6 +126,27 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
     }
   }, []);
 
+  // Keyboard support for accessibility (arrow keys to resize)
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 20 : 5; // Shift for larger steps
+    let delta = 0;
+
+    if (orientationRef.current === 'vertical') {
+      if (e.key === 'ArrowLeft') delta = -step;
+      else if (e.key === 'ArrowRight') delta = step;
+    } else {
+      if (e.key === 'ArrowUp') delta = -step;
+      else if (e.key === 'ArrowDown') delta = step;
+    }
+
+    if (delta !== 0) {
+      e.preventDefault();
+      onDragStartRef.current();
+      onDragRef.current(delta);
+      onDragEndRef.current();
+    }
+  }, []);
+
   // Determine cursor style based on orientation
   const cursorStyle = orientation === 'vertical' ? 'col-resize' : 'row-resize';
 
@@ -140,6 +161,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
       onMouseDown={handleMouseDown}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onKeyDown={handleKeyDown}
       style={{
         ...dimensionStyles,
         cursor: cursorStyle,

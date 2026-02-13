@@ -109,6 +109,9 @@ function loadLicenses(page, search) {
             html += '<button onclick="extendLicense(\'' + l.sn + '\', \'' + l.expires_at + '\')" class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">展期</button>';
             html += '<button onclick="setDailyAnalysis(\'' + l.sn + '\', ' + l.daily_analysis + ')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">分析次数</button>';
             html += '<button onclick="setCredits(\'' + l.sn + '\', ' + (l.total_credits || 0) + ')" class="px-2 py-1 bg-teal-100 text-teal-700 rounded text-xs">Credits</button>';
+            if (l.credits_mode) {
+                html += '<button onclick="showUsageLog(\'' + l.sn + '\')" class="px-2 py-1 bg-cyan-100 text-cyan-700 rounded text-xs">使用记录</button>';
+            }
             html += '<button onclick="toggleLicense(\'' + l.sn + '\')" class="px-2 py-1 ' + (l.is_active ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700') + ' rounded text-xs">' + (l.is_active ? '禁用' : '启用') + '</button>';
             html += '</div>';
             html += '</div>';

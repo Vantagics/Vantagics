@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -88,6 +89,9 @@ const (
 	CodeEmailLimitExceeded = "EMAIL_LIMIT_EXCEEDED"
 	CodeInternalError     = "INTERNAL_ERROR"
 	CodeInvalidValue      = "INVALID_VALUE"
+	CodeEmailMismatch     = "EMAIL_MISMATCH"
+	CodeInvalidToken      = "INVALID_TOKEN"
+	CodeTokenExpired      = "TOKEN_EXPIRED"
 )
 
 
@@ -160,6 +164,7 @@ type License struct {
 	DailyAnalysis  int       `json:"daily_analysis"`  // Daily analysis limit, 0 = unlimited
 	TotalCredits   float64   `json:"total_credits"`   // Credits total, 0 = unlimited in credits mode
 	CreditsMode    bool      `json:"credits_mode"`    // true = credits mode, false = daily limit mode
+	UsedCredits    float64   `json:"used_credits"`    // Server-tracked used credits
 	LLMGroupID     string    `json:"llm_group_id"`    // Bound LLM group
 	LicenseGroupID string    `json:"license_group_id"` // License group for organization
 	SearchGroupID  string    `json:"search_group_id"` // Bound Search group
@@ -2050,7 +2055,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow(countQuery, args...).Scan(&total)
 	
 	// Get paginated results
-	selectQuery := `SELECT sn, created_at, expires_at, COALESCE(valid_days, 365), description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0) 
+	selectQuery := `SELECT sn, created_at, expires_at, COALESCE(valid_days, 365), description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, ''), COALESCE(product_id, 0), COALESCE(total_credits, 0), COALESCE(credits_mode, 0), COALESCE(used_credits, 0) 
 		FROM licenses` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, pageSize, (page-1)*pageSize)
 	rows, err = db.Query(selectQuery, args...)
@@ -2066,7 +2071,7 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 		var l License
 		var lastUsed sql.NullTime
 		var expiresAt sql.NullTime
-		rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID, &l.TotalCredits, &l.CreditsMode)
+		rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID, &l.TotalCredits, &l.CreditsMode, &l.UsedCredits)
 		if lastUsed.Valid {
 			l.LastUsedAt = lastUsed.Time
 		}
@@ -4103,6 +4108,8 @@ func startAuthServer() {
 	mux.HandleFunc("/api/bind-license", handleBindLicenseAPI)
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/report-usage", handleReportUsage)
+	mux.HandleFunc("/api/marketplace-auth", handleMarketplaceAuth)
+	mux.HandleFunc("/api/marketplace-verify", handleMarketplaceVerify)
 
 	addr := fmt.Sprintf(":%d", authPort)
 	if useSSL && sslCert != "" && sslKey != "" {
@@ -4116,6 +4123,271 @@ func startAuthServer() {
 			log.Fatalf("Auth server failed: %v", err)
 		}
 	}
+}
+
+func getMarketplaceSecret() string {
+	return os.Getenv("LICENSE_MARKETPLACE_SECRET")
+}
+
+func handleMarketplaceAuth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SN    string `json:"sn"`
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidRequest, "message": "无效的请求格式",
+		})
+		return
+	}
+
+	sn := strings.ToUpper(strings.TrimSpace(req.SN))
+	email := strings.TrimSpace(req.Email)
+
+	if sn == "" || email == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidRequest, "message": "SN 和 Email 不能为空",
+		})
+		return
+	}
+
+	// Verify SN exists, is active, and not expired
+	var license License
+	err := db.QueryRow("SELECT sn, is_active, expires_at FROM licenses WHERE sn=?", sn).
+		Scan(&license.SN, &license.IsActive, &license.ExpiresAt)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidSN, "message": "序列号无效",
+		})
+		return
+	}
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInternalError, "message": "内部错误",
+		})
+		return
+	}
+	if !license.IsActive {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeSNDisabled, "message": "序列号已被禁用",
+		})
+		return
+	}
+	if time.Now().After(license.ExpiresAt) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeSNExpired, "message": "序列号已过期",
+		})
+		return
+	}
+
+	// Verify email matches the SN in email_records
+	var recordEmail string
+	err = db.QueryRow("SELECT email FROM email_records WHERE sn=?", sn).Scan(&recordEmail)
+	if err != nil || !strings.EqualFold(recordEmail, email) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeEmailMismatch, "message": "邮箱与序列号不匹配",
+		})
+		return
+	}
+
+	// Sign JWT token with HMAC-SHA256
+	secret := getMarketplaceSecret()
+	if secret == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInternalError, "message": "服务器未配置 marketplace 签名密钥",
+		})
+		return
+	}
+
+	token, err := signMarketplaceToken(sn, email, secret)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInternalError, "message": "令牌签发失败",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true, "token": token,
+	})
+}
+
+// signMarketplaceToken creates a JWT-like token: base64url(header).base64url(payload).base64url(signature)
+func signMarketplaceToken(sn, email, secret string) (string, error) {
+	header := map[string]string{"alg": "HS256", "typ": "JWT"}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return "", err
+	}
+
+	payload := map[string]interface{}{
+		"sn":      sn,
+		"email":   email,
+		"purpose": "marketplace_auth",
+		"exp":     time.Now().Add(5 * time.Minute).Unix(),
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+
+	signingInput := headerB64 + "." + payloadB64
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signingInput))
+	signature := mac.Sum(nil)
+	signatureB64 := base64.RawURLEncoding.EncodeToString(signature)
+
+	return signingInput + "." + signatureB64, nil
+}
+
+func handleMarketplaceVerify(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidRequest, "message": "无效的请求格式",
+		})
+		return
+	}
+
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidRequest, "message": "token 不能为空",
+		})
+		return
+	}
+
+	// Split token into 3 parts: header.payload.signature
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidToken, "message": "令牌格式无效",
+		})
+		return
+	}
+
+	secret := getMarketplaceSecret()
+	if secret == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInternalError, "message": "服务器未配置 marketplace 签名密钥",
+		})
+		return
+	}
+
+	// Recompute HMAC-SHA256 of header.payload and compare with signature
+	signingInput := parts[0] + "." + parts[1]
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signingInput))
+	expectedSig := mac.Sum(nil)
+
+	actualSig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || !hmac.Equal(expectedSig, actualSig) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidToken, "message": "令牌签名无效",
+		})
+		return
+	}
+
+	// Decode payload and check expiration
+	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidToken, "message": "令牌载荷解码失败",
+		})
+		return
+	}
+
+	var payload struct {
+		SN    string  `json:"sn"`
+		Email string  `json:"email"`
+		Exp   float64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidToken, "message": "令牌载荷解析失败",
+		})
+		return
+	}
+
+	// Check expiration
+	if time.Now().Unix() > int64(payload.Exp) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeTokenExpired, "message": "令牌已过期",
+		})
+		return
+	}
+
+	// Success - return sn and email
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"sn":      payload.SN,
+		"email":   payload.Email,
+	})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -5109,7 +5381,7 @@ func saveBackupHistory(record BackupHistory) {
 	setSetting("backup_history", string(newHistoryJSON))
 }
 
-// handleCreditsUsageLog returns the credits usage log for a given SN
+// handleCreditsUsageLog returns the credits usage log for a given SN with pagination
 func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -5119,15 +5391,44 @@ func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
 	sn := r.URL.Query().Get("sn")
 	if sn == "" {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+		json.NewEncoder(w).Encode(map[string]interface{}{"records": []interface{}{}, "total": 0, "page": 1, "pageSize": 20, "totalPages": 0})
 		return
 	}
 
-	rows, err := db.Query("SELECT sn, used_credits, reported_at, COALESCE(client_ip, '') FROM credits_usage_log WHERE sn=? ORDER BY reported_at DESC", sn)
+	// Parse pagination params
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// Get total count
+	var total int
+	db.QueryRow("SELECT COUNT(*) FROM credits_usage_log WHERE sn=?", sn).Scan(&total)
+
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	// Get license info for summary
+	var totalCredits, usedCredits float64
+	var creditsMode int
+	db.QueryRow("SELECT COALESCE(total_credits, 0), COALESCE(used_credits, 0), COALESCE(credits_mode, 0) FROM licenses WHERE sn=?", sn).Scan(&totalCredits, &usedCredits, &creditsMode)
+
+	// Query with pagination
+	offset := (page - 1) * pageSize
+	rows, err := db.Query("SELECT sn, used_credits, reported_at, COALESCE(client_ip, '') FROM credits_usage_log WHERE sn=? ORDER BY reported_at DESC LIMIT ? OFFSET ?", sn, pageSize, offset)
 	if err != nil {
 		log.Printf("Failed to query credits usage log: %v", err)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]interface{}{})
+		json.NewEncoder(w).Encode(map[string]interface{}{"records": []interface{}{}, "total": 0, "page": page, "pageSize": pageSize, "totalPages": 0})
 		return
 	}
 	defer rows.Close()
@@ -5153,5 +5454,14 @@ func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(logs)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"records":       logs,
+		"total":         total,
+		"page":          page,
+		"pageSize":      pageSize,
+		"totalPages":    totalPages,
+		"total_credits": totalCredits,
+		"used_credits":  usedCredits,
+		"credits_mode":  creditsMode == 1,
+	})
 }

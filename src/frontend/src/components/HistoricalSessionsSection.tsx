@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trash2, BarChart3, History, Loader2 } from 'lucide-react';
+import { Trash2, BarChart3, History, Loader2, Zap } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
 /**
@@ -13,6 +13,7 @@ export interface SessionItem {
     data_source_id: string;
     created_at: number;
     dataSourceName?: string;
+    is_replay_session?: boolean;
 }
 
 /**
@@ -110,6 +111,8 @@ const HistoricalSessionsSection: React.FC<HistoricalSessionsSectionProps> = ({
                                 <div className="session-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     {isSessionLoading?.(session.id) ? (
                                         <Loader2 className="flex-shrink-0 w-3.5 h-3.5 text-blue-500 animate-spin" />
+                                    ) : session.is_replay_session ? (
+                                        <Zap className="flex-shrink-0 w-3.5 h-3.5 text-amber-500" />
                                     ) : (
                                         <BarChart3 className="flex-shrink-0 w-3.5 h-3.5 text-blue-400" />
                                     )}

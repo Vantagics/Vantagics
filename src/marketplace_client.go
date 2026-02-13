@@ -2,28 +2,38 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"time"
 )
 
 // DefaultMarketplaceServerURL is the default marketplace server address.
-const DefaultMarketplaceServerURL = "http://localhost:8090"
+// In production, this should be overridden via configuration.
+const DefaultMarketplaceServerURL = "https://market.vantagedata.chat"
+
+// DefaultLicenseServerURL is the default license server address.
+const DefaultLicenseServerURL = "https://license.vantagedata.chat"
+
+// maxErrorBodySize limits how much of an error response body we read to prevent memory exhaustion.
+const maxErrorBodySize = 4096
+
+// readErrorBody reads a limited amount of the response body for error messages.
+func readErrorBody(body io.Reader) string {
+	data, _ := io.ReadAll(io.LimitReader(body, maxErrorBodySize))
+	return string(data)
+}
 
 // MarketplaceClient is the HTTP client for communicating with the marketplace server.
 type MarketplaceClient struct {
-	ServerURL string
-	Token     string // JWT token
-	client    *http.Client
+	ServerURL        string
+	LicenseServerURL string
+	Token            string // JWT token
+	client           *http.Client
 }
 
 // NewMarketplaceClient creates a new MarketplaceClient with the given server URL.
@@ -32,7 +42,8 @@ func NewMarketplaceClient(serverURL string) *MarketplaceClient {
 		serverURL = DefaultMarketplaceServerURL
 	}
 	return &MarketplaceClient{
-		ServerURL: serverURL,
+		ServerURL:        serverURL,
+		LicenseServerURL: DefaultLicenseServerURL,
 		client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
@@ -60,6 +71,8 @@ type PackListingInfo struct {
 	AuthorName      string `json:"author_name"`
 	ShareMode       string `json:"share_mode"`
 	CreditsPrice    int    `json:"credits_price"`
+	ValidDays       int    `json:"valid_days"`
+	BillingCycle    string `json:"billing_cycle"`
 	DownloadCount   int    `json:"download_count"`
 	CreatedAt       string `json:"created_at"`
 }
@@ -71,81 +84,96 @@ func (a *App) ensureMarketplaceClient() {
 	}
 }
 
-// openBrowser opens the given URL in the system's default browser.
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", url)
-	default: // linux, freebsd, etc.
-		cmd = exec.Command("xdg-open", url)
-	}
-	return cmd.Start()
-}
-
-// MarketplaceLogin starts the OAuth login flow by opening the system browser
-// and waiting for the callback with a JWT token.
-func (a *App) MarketplaceLogin(provider string) error {
+// MarketplaceLoginWithSN performs automatic login using the locally saved SN and Email.
+// Two-step flow: first get a license_token from the License server, then exchange it for a market JWT.
+func (a *App) MarketplaceLoginWithSN() error {
 	a.ensureMarketplaceClient()
 	mc := a.marketplaceClient
 
-	// Start a temporary local HTTP server to receive the OAuth callback
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// Step 1: Get SN and Email from the app's config/license info
+	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+		return fmt.Errorf("license not activated, cannot login to marketplace")
+	}
+	sn := a.licenseClient.GetSN()
+	if sn == "" {
+		return fmt.Errorf("SN not available, cannot login to marketplace")
+	}
+
+	cfg, err := a.GetConfig()
 	if err != nil {
-		return fmt.Errorf("failed to start local callback server: %w", err)
+		return fmt.Errorf("failed to get config: %w", err)
 	}
-	callbackPort := listener.Addr().(*net.TCPAddr).Port
-	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback", callbackPort)
+	email := cfg.LicenseEmail
+	if email == "" {
+		return fmt.Errorf("email not available, cannot login to marketplace")
+	}
 
-	tokenCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-
-	// Set up the callback handler
-	mux := http.NewServeMux()
-	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		token := r.URL.Query().Get("token")
-		if token == "" {
-			http.Error(w, "missing token", http.StatusBadRequest)
-			errCh <- fmt.Errorf("OAuth callback missing token")
-			return
-		}
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte("<html><body><h2>Login successful! You can close this window.</h2></body></html>"))
-		tokenCh <- token
+	// Step 2: POST to License server /api/marketplace-auth with {sn, email}
+	authPayload, _ := json.Marshal(map[string]string{
+		"sn":    sn,
+		"email": email,
 	})
+	authResp, err := mc.client.Post(
+		mc.LicenseServerURL+"/api/marketplace-auth",
+		"application/json",
+		bytes.NewReader(authPayload),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to contact license server: %w", err)
+	}
+	defer authResp.Body.Close()
 
-	server := &http.Server{Handler: mux}
-	go func() {
-		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
-			errCh <- fmt.Errorf("callback server error: %w", err)
-		}
-	}()
-
-	// Ensure server is always shut down gracefully
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		server.Shutdown(shutdownCtx)
-	}()
-
-	// Open the browser to the marketplace OAuth page
-	oauthURL := fmt.Sprintf("%s/api/auth/oauth?provider=%s&callback=%s", mc.ServerURL, provider, callbackURL)
-	if err := openBrowser(oauthURL); err != nil {
-		return fmt.Errorf("failed to open browser: %w", err)
+	var authResult struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(authResp.Body).Decode(&authResult); err != nil {
+		return fmt.Errorf("failed to decode license server response: %w", err)
+	}
+	if !authResult.Success {
+		return fmt.Errorf("license authentication failed: %s (%s)", authResult.Message, authResult.Code)
 	}
 
-	// Wait for the token or timeout
-	select {
-	case token := <-tokenCh:
-		mc.Token = token
+	// Step 3: POST to Market server /api/auth/sn-login with {license_token}
+	loginPayload, _ := json.Marshal(map[string]string{
+		"license_token": authResult.Token,
+	})
+	loginResp, err := mc.client.Post(
+		mc.ServerURL+"/api/auth/sn-login",
+		"application/json",
+		bytes.NewReader(loginPayload),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to contact marketplace server: %w", err)
+	}
+	defer loginResp.Body.Close()
+
+	var loginResult struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(loginResp.Body).Decode(&loginResult); err != nil {
+		return fmt.Errorf("failed to decode marketplace login response: %w", err)
+	}
+	if !loginResult.Success {
+		return fmt.Errorf("marketplace login failed: %s", loginResult.Message)
+	}
+
+	// Step 4: Store JWT in marketplaceClient.Token
+	mc.Token = loginResult.Token
+	return nil
+}
+
+// EnsureMarketplaceAuth checks if the marketplace token is valid, and if not, performs automatic SN+Email login.
+func (a *App) EnsureMarketplaceAuth() error {
+	a.ensureMarketplaceClient()
+	if a.marketplaceClient.Token != "" {
 		return nil
-	case err := <-errCh:
-		return err
-	case <-time.After(5 * time.Minute):
-		return fmt.Errorf("OAuth login timed out")
 	}
+	return a.MarketplaceLoginWithSN()
 }
 
 // IsMarketplaceLoggedIn returns true if the marketplace client has a valid token.
@@ -168,8 +196,7 @@ func (a *App) GetMarketplaceCategories() ([]PackCategory, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
 	var result struct {
@@ -182,7 +209,7 @@ func (a *App) GetMarketplaceCategories() ([]PackCategory, error) {
 }
 
 // SharePackToMarketplace uploads a .qap file to the marketplace server.
-func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, shareMode string, creditsPrice int) error {
+func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, pricingModel string, creditsPrice int, detailedDescription string, validDays int, billingCycle string) error {
 	a.ensureMarketplaceClient()
 	mc := a.marketplaceClient
 
@@ -200,35 +227,49 @@ func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, shar
 		return fmt.Errorf("pack file too large (%dMB), maximum is %dMB", fileInfo.Size()/1024/1024, maxUploadSize/1024/1024)
 	}
 
-	// Read the .qap file
-	fileData, err := os.ReadFile(packFilePath)
+	// Open the file for streaming (avoid reading entire file into memory)
+	file, err := os.Open(packFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to read pack file: %w", err)
+		return fmt.Errorf("failed to open pack file: %w", err)
 	}
+	defer file.Close()
 
-	// Build multipart form request
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
+	// Build multipart form request using pipe to avoid buffering entire file
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	// Add the file field
-	part, err := writer.CreateFormFile("file", filepath.Base(packFilePath))
-	if err != nil {
-		return fmt.Errorf("failed to create form file: %w", err)
-	}
-	if _, err := part.Write(fileData); err != nil {
-		return fmt.Errorf("failed to write file data: %w", err)
-	}
+	// Write multipart form in a goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		defer pw.Close()
 
-	// Add form fields
-	writer.WriteField("category_id", fmt.Sprintf("%d", categoryID))
-	writer.WriteField("share_mode", shareMode)
-	writer.WriteField("credits_price", fmt.Sprintf("%d", creditsPrice))
+		// Add the file field
+		part, err := writer.CreateFormFile("file", filepath.Base(packFilePath))
+		if err != nil {
+			errCh <- fmt.Errorf("failed to create form file: %w", err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			errCh <- fmt.Errorf("failed to write file data: %w", err)
+			return
+		}
 
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("failed to close multipart writer: %w", err)
-	}
+		// Add form fields
+		writer.WriteField("category_id", fmt.Sprintf("%d", categoryID))
+		writer.WriteField("pricing_model", pricingModel)
+		writer.WriteField("credits_price", fmt.Sprintf("%d", creditsPrice))
+		writer.WriteField("detailed_description", detailedDescription)
+		writer.WriteField("valid_days", fmt.Sprintf("%d", validDays))
+		writer.WriteField("billing_cycle", billingCycle)
 
-	req, err := http.NewRequest("POST", mc.ServerURL+"/api/packs/upload", &buf)
+		if err := writer.Close(); err != nil {
+			errCh <- fmt.Errorf("failed to close multipart writer: %w", err)
+			return
+		}
+		errCh <- nil
+	}()
+
+	req, err := http.NewRequest("POST", mc.ServerURL+"/api/packs/upload", pr)
 	if err != nil {
 		return fmt.Errorf("failed to create upload request: %w", err)
 	}
@@ -241,9 +282,13 @@ func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, shar
 	}
 	defer resp.Body.Close()
 
+	// Check for errors from the multipart writer goroutine
+	if writeErr := <-errCh; writeErr != nil {
+		return writeErr
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("upload failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
 	return nil
@@ -266,8 +311,7 @@ func (a *App) BrowseMarketplacePacks(categoryID int64) ([]PackListingInfo, error
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
 	var result struct {
@@ -303,27 +347,42 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("download failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
-	// Save to temp directory with size limit to prevent memory exhaustion
+	// Save to temp directory with size limit, streaming to disk to avoid memory exhaustion
 	tmpDir := os.TempDir()
 	fileName := fmt.Sprintf("marketplace_pack_%d_%d.qap", listingID, time.Now().UnixMilli())
 	filePath := filepath.Join(tmpDir, fileName)
 
-	const maxDownloadSize = 500 * 1024 * 1024 // 500MB limit
+	const maxDownloadSize int64 = 500 * 1024 * 1024 // 500MB limit
 	limitedReader := io.LimitReader(resp.Body, maxDownloadSize+1)
-	fileData, err := io.ReadAll(limitedReader)
+
+	outFile, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return "", fmt.Errorf("failed to read download response: %w", err)
+		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
-	if int64(len(fileData)) > maxDownloadSize {
+
+	written, err := io.Copy(outFile, limitedReader)
+	outFile.Close()
+	if err != nil {
+		os.Remove(filePath) // Clean up partial file
+		return "", fmt.Errorf("failed to write download to disk: %w", err)
+	}
+	if written > maxDownloadSize {
+		os.Remove(filePath) // Clean up oversized file
 		return "", fmt.Errorf("downloaded file exceeds maximum size limit (%dMB)", maxDownloadSize/1024/1024)
 	}
 
-	if err := os.WriteFile(filePath, fileData, 0600); err != nil {
-		return "", fmt.Errorf("failed to save downloaded pack: %w", err)
+	// Parse X-Usage-License header if present and save to local store
+	if licenseHeader := resp.Header.Get("X-Usage-License"); licenseHeader != "" {
+		var usageLicense UsageLicense
+		if err := json.Unmarshal([]byte(licenseHeader), &usageLicense); err == nil {
+			if a.usageLicenseStore != nil {
+				a.usageLicenseStore.SetLicense(&usageLicense)
+				_ = a.usageLicenseStore.Save()
+			}
+		}
 	}
 
 	return filePath, nil
@@ -351,15 +410,120 @@ func (a *App) GetMarketplaceCreditsBalance() (float64, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return 0, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		return 0, fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
 	var result struct {
-		Balance float64 `json:"balance"`
+		Balance float64 `json:"credits_balance"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0, fmt.Errorf("failed to decode balance response: %w", err)
 	}
 	return result.Balance, nil
+}
+
+// PurchaseAdditionalUses purchases additional uses for a per_use pack listing.
+// It POSTs to /api/packs/{id}/purchase-uses and updates the local UsageLicenseStore.
+func (a *App) PurchaseAdditionalUses(listingID int64, quantity int) error {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return fmt.Errorf("not logged in to marketplace")
+	}
+
+	payload, _ := json.Marshal(map[string]int{"quantity": quantity})
+	url := fmt.Sprintf("%s/api/packs/%d/purchase-uses", mc.ServerURL, listingID)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to create purchase request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to purchase additional uses: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("purchase failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	var result struct {
+		RemainingUses int `json:"remaining_uses"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode purchase response: %w", err)
+	}
+
+	// Update local UsageLicenseStore
+	if a.usageLicenseStore != nil {
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic != nil {
+			lic.RemainingUses += result.RemainingUses
+			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			a.usageLicenseStore.SetLicense(lic)
+			_ = a.usageLicenseStore.Save()
+		}
+	}
+
+	return nil
+}
+
+// RenewSubscription renews a subscription pack listing.
+// It POSTs to /api/packs/{id}/renew and updates the local UsageLicenseStore.
+func (a *App) RenewSubscription(listingID int64) error {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return fmt.Errorf("not logged in to marketplace")
+	}
+
+	url := fmt.Sprintf("%s/api/packs/%d/renew", mc.ServerURL, listingID)
+	req, err := http.NewRequest("POST", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create renew request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to renew subscription: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("renew failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	var result struct {
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode renew response: %w", err)
+	}
+
+	// Update local UsageLicenseStore
+	if a.usageLicenseStore != nil {
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic != nil {
+			lic.ExpiresAt = result.ExpiresAt
+			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			a.usageLicenseStore.SetLicense(lic)
+			_ = a.usageLicenseStore.Save()
+		}
+	}
+
+	return nil
+}
+
+// GetUsageLicenses returns all local usage licenses for display in the PackManagerPage.
+func (a *App) GetUsageLicenses() []*UsageLicense {
+	if a.usageLicenseStore == nil {
+		return nil
+	}
+	return a.usageLicenseStore.GetAllLicenses()
 }
