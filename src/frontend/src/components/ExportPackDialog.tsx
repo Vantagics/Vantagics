@@ -18,16 +18,19 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
     threadId,
 }) => {
     const { t } = useLanguage();
+    const [packName, setPackName] = useState('');
     const [author, setAuthor] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successPath, setSuccessPath] = useState<string | null>(null);
+    const backdropMouseDown = React.useRef(false);
 
     // Reset form when dialog opens
     useEffect(() => {
         if (isOpen) {
+            setPackName('');
             setAuthor('');
             setPassword('');
             setConfirmPassword('');
@@ -39,10 +42,12 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
 
     if (!isOpen) return null;
 
+    const packNameTrimmed = packName.trim();
     const authorTrimmed = author.trim();
     const hasPasswordMismatch = password !== '' && confirmPassword !== '' && password !== confirmPassword;
+    const isPackNameEmpty = packNameTrimmed === '';
     const isAuthorEmpty = authorTrimmed === '';
-    const canSubmit = !isAuthorEmpty && !hasPasswordMismatch && !isExporting;
+    const canSubmit = !isPackNameEmpty && !isAuthorEmpty && !hasPasswordMismatch && !isExporting;
 
     const handleConfirm = async () => {
         if (!canSubmit) return;
@@ -51,7 +56,7 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
         setError(null);
         setSuccessPath(null);
         try {
-            const savedPath = await ExportQuickAnalysisPack(threadId, authorTrimmed, password);
+            const savedPath = await ExportQuickAnalysisPack(threadId, packNameTrimmed, authorTrimmed, password);
             setSuccessPath(savedPath);
             onConfirm(authorTrimmed, password);
         } catch (err: any) {
@@ -72,7 +77,15 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={isExporting ? undefined : onClose}
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+            }}
+            onMouseUp={(e) => {
+                if (e.target === e.currentTarget && backdropMouseDown.current && !isExporting) {
+                    onClose();
+                }
+                backdropMouseDown.current = false;
+            }}
         >
             <div
                 className="bg-white dark:bg-[#252526] w-[420px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6"
@@ -82,6 +95,22 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                 <h3 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4] mb-4">
                     {t('export_pack_title')}
                 </h3>
+
+                {/* Pack name input (required) */}
+                <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
+                        {t('export_pack_name')} <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                        type="text"
+                        value={packName}
+                        onChange={e => setPackName(e.target.value)}
+                        placeholder={t('export_pack_name_placeholder')}
+                        disabled={isExporting}
+                        autoFocus
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-[#3e3e42] rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                    />
+                </div>
 
                 {/* Author input (required) */}
                 <div className="mb-4">
@@ -94,7 +123,6 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                         onChange={e => setAuthor(e.target.value)}
                         placeholder={t('export_pack_author_placeholder')}
                         disabled={isExporting}
-                        autoFocus
                         className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-[#3e3e42] rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                     />
                 </div>

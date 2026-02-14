@@ -57,6 +57,8 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
     // Edit metadata dialog state
     const [editTarget, setEditTarget] = useState<LocalPackInfo | null>(null);
 
+    const backdropMouseDown = useRef(false);
+
     // Install flow state
     const [installTarget, setInstallTarget] = useState<LocalPackInfo | null>(null);
     const [dataSources, setDataSources] = useState<DataSourceInfo[]>([]);
@@ -309,7 +311,15 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={onClose}
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+            }}
+            onMouseUp={(e) => {
+                if (e.target === e.currentTarget && backdropMouseDown.current) {
+                    onClose();
+                }
+                backdropMouseDown.current = false;
+            }}
         >
             <div
                 className="bg-white dark:bg-[#252526] w-[560px] max-h-[70vh] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] flex flex-col"
@@ -535,7 +545,15 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
             {deleteTarget && (
                 <div
                     className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50"
-                    onClick={isDeleting ? undefined : () => setDeleteTarget(null)}
+                    onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) backdropMouseDown.current = true;
+                    }}
+                    onMouseUp={(e) => {
+                        if (e.target === e.currentTarget && backdropMouseDown.current && !isDeleting) {
+                            setDeleteTarget(null);
+                        }
+                        backdropMouseDown.current = false;
+                    }}
                 >
                     <div
                         className="bg-white dark:bg-[#252526] w-[400px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6"
@@ -572,7 +590,15 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
             {installTarget && (
                 <div
                     className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50"
-                    onClick={installPhase === 'loading' || installPhase === 'installing' ? undefined : () => setInstallTarget(null)}
+                    onMouseDown={(e) => {
+                        if (e.target === e.currentTarget) backdropMouseDown.current = true;
+                    }}
+                    onMouseUp={(e) => {
+                        if (e.target === e.currentTarget && backdropMouseDown.current && installPhase !== 'loading' && installPhase !== 'installing') {
+                            setInstallTarget(null);
+                        }
+                        backdropMouseDown.current = false;
+                    }}
                 >
                     <div
                         className="bg-white dark:bg-[#252526] w-[500px] max-h-[70vh] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] flex flex-col"

@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,13 +16,14 @@ import (
 )
 
 const (
-	packJSONFileName = "pack.json"
-	encryptionMagic  = "QAPENC" // 6-byte magic header indicating encrypted content
-	scryptN          = 32768
-	scryptR          = 8
-	scryptP          = 1
-	scryptKeyLen     = 32 // AES-256
-	saltLen          = 32
+	packJSONFileName     = "pack.json"
+	metadataJSONFileName = "metadata.json"
+	encryptionMagic      = "QAPENC" // 6-byte magic header indicating encrypted content
+	scryptN              = 32768
+	scryptR              = 8
+	scryptP              = 1
+	scryptKeyLen         = 32 // AES-256
+	saltLen              = 32
 )
 
 var (
@@ -37,6 +39,7 @@ func deriveKey(password string, salt []byte) ([]byte, error) {
 
 // PackToZip writes jsonData into a ZIP file at outputPath with an internal entry named "pack.json".
 // If password is non-empty, the data is encrypted using AES-256-GCM before being stored.
+// It also extracts and stores metadata unencrypted as "metadata.json" for display in lists.
 func PackToZip(jsonData []byte, outputPath string, password string) error {
 	f, err := os.Create(outputPath)
 	if err != nil {
@@ -47,6 +50,7 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 	zw := zip.NewWriter(f)
 	defer zw.Close()
 
+	// 1. Create pack.json (encrypted if password set)
 	w, err := zw.Create(packJSONFileName)
 	if err != nil {
 		return fmt.Errorf("create zip entry: %w", err)
@@ -64,6 +68,18 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 
 	if _, err := w.Write(payload); err != nil {
 		return fmt.Errorf("write zip entry: %w", err)
+	}
+
+	// 2. Create metadata.json (always unencrypted)
+	var meta struct {
+		Metadata PackMetadata `json:"metadata"`
+	}
+	if err := json.Unmarshal(jsonData, &meta); err == nil {
+		mw, err := zw.Create(metadataJSONFileName)
+		if err == nil {
+			metaBytes, _ := json.MarshalIndent(meta.Metadata, "", "  ")
+			mw.Write(metaBytes)
+		}
 	}
 
 	return nil
@@ -91,6 +107,90 @@ func UnpackFromZip(zipPath string, password string) ([]byte, error) {
 
 	// Not encrypted — if a password was provided, that's fine, just ignore it.
 	return data, nil
+}
+
+// ReadMetadataFromZip attempts to read metadata from the ZIP file at zipPath.
+// It first tries "metadata.json" (unencrypted), and falls back to "pack.json"
+// if it's not encrypted.
+func ReadMetadataFromZip(zipPath string) (PackMetadata, bool, error) {
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return PackMetadata{}, false, fmt.Errorf("open zip: %w", err)
+	}
+	defer zr.Close()
+
+	var metadata PackMetadata
+	foundMetadata := false
+
+	// Try metadata.json first
+	for _, f := range zr.File {
+		if f.Name == metadataJSONFileName {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(rc)
+			rc.Close()
+			if err == nil {
+				if err := json.Unmarshal(data, &metadata); err == nil {
+					foundMetadata = true
+					break
+				}
+			}
+		}
+	}
+
+	// Fallback to pack.json if metadata.json not found or failed
+	isEncrypted := false
+	if !foundMetadata {
+		for _, f := range zr.File {
+			if f.Name == packJSONFileName {
+				rc, err := f.Open()
+				if err != nil {
+					continue
+				}
+				data, err := io.ReadAll(rc)
+				rc.Close()
+				if err == nil {
+					if isDataEncrypted(data) {
+						isEncrypted = true
+					} else {
+						var pack struct {
+							Metadata PackMetadata `json:"metadata"`
+						}
+						if err := json.Unmarshal(data, &pack); err == nil {
+							metadata = pack.Metadata
+							foundMetadata = true
+						}
+					}
+				}
+				break
+			}
+		}
+	} else {
+		// If we found metadata.json, we still need to know if pack.json is encrypted
+		for _, f := range zr.File {
+			if f.Name == packJSONFileName {
+				rc, err := f.Open()
+				if err != nil {
+					continue
+				}
+				header := make([]byte, len(encryptionMagic))
+				io.ReadFull(rc, header)
+				rc.Close()
+				if string(header) == encryptionMagic {
+					isEncrypted = true
+				}
+				break
+			}
+		}
+	}
+
+	if !foundMetadata {
+		return PackMetadata{}, isEncrypted, fmt.Errorf("metadata not found or encrypted")
+	}
+
+	return metadata, isEncrypted, nil
 }
 
 // IsEncrypted checks whether the ZIP file at zipPath contains encrypted data.

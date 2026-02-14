@@ -89,7 +89,7 @@ export function ExportDashboardToWord(arg1:main.DashboardExportData):Promise<voi
 
 export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
-export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<string>;
+export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function ExportReport(arg1:string,arg2:string):Promise<void>;
 
@@ -367,7 +367,7 @@ export function UpdateDeviceLocation(arg1:number,arg2:number,arg3:number,arg4:nu
 
 export function UpdateMySQLExportConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 
-export function UpdatePackMetadata(arg1:string,arg2:string,arg3:string):Promise<void>;
+export function UpdatePackMetadata(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function UpdateThreadTitle(arg1:string,arg2:string):Promise<string>;
 

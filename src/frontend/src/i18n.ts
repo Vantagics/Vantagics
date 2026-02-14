@@ -736,6 +736,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'username': 'Username',
         // ExportPackDialog
         'export_pack_title': 'Export Quick Analysis Pack',
+        'export_pack_name': 'Analysis Scenario Name',
+        'export_pack_name_placeholder': 'e.g. Weekly Sales Trends',
         'export_pack_author': 'Author',
         'export_pack_author_placeholder': 'Enter author name',
         'export_pack_author_required': 'Author name is required',
@@ -801,6 +803,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'pack_manager_repurchase': 'Repurchase',
         'pack_manager_renew': 'Renew',
         'edit_metadata_title': 'Edit Metadata',
+        'edit_metadata_pack_name': 'Analysis Scenario Name',
         'edit_metadata_description': 'Description',
         'edit_metadata_author': 'Author',
         // SN Auth Error
@@ -1923,6 +1926,8 @@ export const translations: Record<Language, Record<string, string>> = {
         'username': '用户名',
         // ExportPackDialog
         'export_pack_title': '导出快捷分析包',
+        'export_pack_name': '分析场景名称',
+        'export_pack_name_placeholder': '例如：周度销售趋势分析',
         'export_pack_author': '创作人',
         'export_pack_author_placeholder': '请输入创作人名称',
         'export_pack_author_required': '创作人名称为必填项',
@@ -1988,6 +1993,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'pack_manager_repurchase': '重新购买',
         'pack_manager_renew': '续费',
         'edit_metadata_title': '编辑元信息',
+        'edit_metadata_pack_name': '分析场景名称',
         'edit_metadata_description': '描述',
         'edit_metadata_author': '作者',
         // SN 认证错误

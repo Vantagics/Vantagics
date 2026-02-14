@@ -13,16 +13,18 @@ interface EditPackMetadataDialogProps {
 
 const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, onClose, onSaved }) => {
     const { t } = useLanguage();
+    const [packName, setPackName] = useState(pack.pack_name);
     const [description, setDescription] = useState(pack.description);
     const [author, setAuthor] = useState(pack.author);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const backdropMouseDown = React.useRef(false);
 
     const handleSave = async () => {
         setSaving(true);
         setError(null);
         try {
-            await UpdatePackMetadata(pack.file_path, description, author);
+            await UpdatePackMetadata(pack.file_path, packName, description, author);
             onSaved();
         } catch (err: any) {
             setError(err?.message || err?.toString() || 'Failed to save metadata');
@@ -40,7 +42,15 @@ const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, o
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50"
-            onClick={saving ? undefined : onClose}
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+            }}
+            onMouseUp={(e) => {
+                if (e.target === e.currentTarget && backdropMouseDown.current && !saving) {
+                    onClose();
+                }
+                backdropMouseDown.current = false;
+            }}
             onKeyDown={handleKeyDown}
         >
             <div
@@ -55,6 +65,17 @@ const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, o
                 </p>
 
                 <div className="space-y-3">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
+                            {t('edit_metadata_pack_name')}
+                        </label>
+                        <input
+                            type="text"
+                            value={packName}
+                            onChange={e => setPackName(e.target.value)}
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-[#3c3c3c] rounded-md text-sm bg-white dark:bg-[#1e1e1e] text-slate-800 dark:text-[#d4d4d4] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
                             {t('edit_metadata_description')}

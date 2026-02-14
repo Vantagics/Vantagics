@@ -66,45 +66,32 @@ if errorlevel 1 (
 )
 echo      Done: %REMOTE_DIR%/marketplace_server
 
-REM Step 4: Create startup script and restart
+REM Step 4: Restart service
 echo.
 echo [4/4] Deploying and restarting service...
 
-REM Create startup script on server
-sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cat > %REMOTE_DIR%/run.sh << 'SCRIPT'
-#!/bin/bash
-# Kill existing marketplace_server process
-pkill -f 'marketplace_server.*-port' 2>/dev/null || true
-sleep 1
-
-cd /root/marketplace_server
-nohup ./marketplace_server -port 8088 -db /root/marketplace_server/marketplace.db > /root/marketplace_server/server.log 2>&1 &
-
-sleep 2
-if pgrep -f 'marketplace_server.*-port' > /dev/null; then
-    echo 'Marketplace server started on port 8088'
-else
-    echo 'ERROR: Server failed to start. Check server.log'
-    tail -20 /root/marketplace_server/server.log
-fi
-SCRIPT
-chmod +x %REMOTE_DIR%/run.sh && %REMOTE_DIR%/run.sh" 2>NUL
+echo      Stopping existing server...
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "pkill -f 'marketplace_server' || true" 2>NUL
 if errorlevel 1 (
-    ssh %SSH_OPTS% %USER%@%SERVER% "cat > %REMOTE_DIR%/run.sh << 'SCRIPT'
-#!/bin/bash
-pkill -f 'marketplace_server.*-port' 2>/dev/null || true
-sleep 1
-cd /root/marketplace_server
-nohup ./marketplace_server -port 8088 -db /root/marketplace_server/marketplace.db > /root/marketplace_server/server.log 2>&1 &
-sleep 2
-if pgrep -f 'marketplace_server.*-port' > /dev/null; then
-    echo 'Marketplace server started on port 8088'
-else
-    echo 'ERROR: Server failed to start. Check server.log'
-    tail -20 /root/marketplace_server/server.log
-fi
-SCRIPT
-chmod +x %REMOTE_DIR%/run.sh && %REMOTE_DIR%/run.sh"
+    ssh %SSH_OPTS% %USER%@%SERVER% "pkill -f 'marketplace_server' || true"
+)
+
+echo      Uploading start script...
+sshpass -p "%PASS%" scp %SSH_OPTS% start.sh %USER%@%SERVER%:%REMOTE_DIR%/ 2>NUL
+if errorlevel 1 (
+    scp %SSH_OPTS% start.sh %USER%@%SERVER%:%REMOTE_DIR%/
+)
+
+echo      Starting new server...
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && chmod +x start.sh && ./start.sh" 2>NUL
+if errorlevel 1 (
+    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && chmod +x start.sh && ./start.sh"
+)
+
+echo      Checking server status...
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "sleep 2 && pgrep -f 'marketplace_server' > /dev/null && echo 'Server started successfully on port %PORT%' || (echo 'ERROR: Server failed to start' && tail -20 %REMOTE_DIR%/server.log)" 2>NUL
+if errorlevel 1 (
+    ssh %SSH_OPTS% %USER%@%SERVER% "sleep 2 && pgrep -f 'marketplace_server' > /dev/null && echo 'Server started successfully on port %PORT%' || (echo 'ERROR: Server failed to start' && tail -20 %REMOTE_DIR%/server.log)"
 )
 
 echo.

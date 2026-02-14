@@ -22,6 +22,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Sensitive information (credentials, passwords)
+server.md
+
 # Deployment scripts
 deploy/
 

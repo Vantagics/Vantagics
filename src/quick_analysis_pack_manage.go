@@ -27,9 +27,9 @@ func (a *App) DeleteLocalPack(filePath string) error {
 	return nil
 }
 
-// UpdatePackMetadata updates the description and author fields in a .qap file's metadata.
+// UpdatePackMetadata updates the name, description and author fields in a .qap file's metadata.
 // Encrypted files cannot be edited and will return an error.
-func (a *App) UpdatePackMetadata(filePath, description, author string) error {
+func (a *App) UpdatePackMetadata(filePath, packName, description, author string) error {
 	qapDir, err := a.getQAPDir()
 	if err != nil {
 		return fmt.Errorf("get QAP directory: %w", err)
@@ -53,6 +53,7 @@ func (a *App) UpdatePackMetadata(filePath, description, author string) error {
 		return fmt.Errorf("parse pack JSON: %w", err)
 	}
 
+	pack.Metadata.PackName = packName
 	pack.Metadata.Description = description
 	pack.Metadata.Author = author
 

@@ -54,6 +54,7 @@ const ImportPackDialog: React.FC<ImportPackDialogProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [loadResult, setLoadResult] = useState<main.PackLoadResult | null>(null);
     const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+    const backdropMouseDown = React.useRef(false);
 
     // Load pack list when dialog opens
     useEffect(() => {
@@ -194,7 +195,15 @@ const ImportPackDialog: React.FC<ImportPackDialogProps> = ({
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={isLoading ? undefined : onClose}
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+            }}
+            onMouseUp={(e) => {
+                if (e.target === e.currentTarget && backdropMouseDown.current && !isLoading) {
+                    onClose();
+                }
+                backdropMouseDown.current = false;
+            }}
         >
             <div
                 className="bg-white dark:bg-[#252526] w-[600px] max-h-[80vh] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6 flex flex-col"

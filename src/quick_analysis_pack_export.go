@@ -19,12 +19,13 @@ import (
 //
 // Parameters:
 //   - threadID: the chat thread/session ID
+//   - packName: analysis scenario name (user input)
 //   - author: creator name (user input)
 //   - password: optional encryption password (empty string = no encryption)
 //
 // Returns the saved file path and any error.
-func (a *App) ExportQuickAnalysisPack(threadID string, author string, password string) (string, error) {
-	a.Log(fmt.Sprintf("[QAP-EXPORT] Starting export for thread: %s, author: %s", threadID, author))
+func (a *App) ExportQuickAnalysisPack(threadID string, packName string, author string, password string) (string, error) {
+	a.Log(fmt.Sprintf("[QAP-EXPORT] Starting export for thread: %s, packName: %s, author: %s", threadID, packName, author))
 
 	// 1. Load the thread to get data source ID
 	thread, err := a.chatService.LoadThread(threadID)
@@ -84,6 +85,7 @@ func (a *App) ExportQuickAnalysisPack(threadID string, author string, password s
 		FileType:      "VantageData_QuickAnalysisPack",
 		FormatVersion: "1.0",
 		Metadata: PackMetadata{
+			PackName:   packName,
 			Author:     author,
 			CreatedAt:  time.Now().Format(time.RFC3339),
 			SourceName: dsInfo.Name,

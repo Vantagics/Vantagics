@@ -24,15 +24,14 @@ echo "=========================================="
 # Remove old host key if exists (in case server was reinstalled)
 ssh-keygen -R "$SERVER" 2>/dev/null || true
 
-# Build macOS version locally
+# Build Windows version locally (skip macOS on Windows)
 echo ""
-echo "[1/2] Building for macOS..."
-CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o "$BUILD_DIR/license_server_macos" .
-echo "      Done: $BUILD_DIR/license_server_macos"
+echo "[1/3] Building for Windows..."
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o "$BUILD_DIR/license_server.exe" . || echo "      [WARN] Windows build skipped"
 
 # Build Linux version on remote server
 echo ""
-echo "[2/2] Building for Linux on $SERVER..."
+echo "[2/3] Building for Linux on $SERVER..."
 
 echo "      Creating remote directory..."
 sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "mkdir -p $REMOTE_DIR"
@@ -48,16 +47,31 @@ sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "cd $REMOTE_DIR && go mod tidy 
 echo "      Done: $REMOTE_DIR/license_server"
 
 echo ""
-echo "[3/3] Restarting server..."
-sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "/root/runsrv.sh"
-echo "      Server restarted"
+echo "[3/3] Deploying start script and restarting service..."
+
+echo "      Uploading start script..."
+sshpass -p "$PASS" scp $SSH_OPTS start.sh "$USER@$SERVER:$REMOTE_DIR/"
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "chmod +x $REMOTE_DIR/start.sh"
+
+echo "      Stopping existing server..."
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "pkill -f 'license_server' || true"
+sleep 2
+
+echo "      Starting server..."
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "$REMOTE_DIR/start.sh"
+
+echo "      Checking server status..."
+sleep 3
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "curl -s http://localhost:8080/api/health && echo 'Server started successfully' || (echo 'ERROR: Server failed to start' && tail -20 $REMOTE_DIR/server.log)"
 
 echo ""
 echo "=========================================="
 echo "Build & Deploy Complete"
 echo "=========================================="
 echo ""
-echo "macOS: $BUILD_DIR/license_server_macos"
-echo "Linux: $USER@$SERVER:$REMOTE_DIR/license_server"
+echo "Windows: $BUILD_DIR/license_server.exe"
+echo "Linux:   $USER@$SERVER:$REMOTE_DIR/license_server"
 echo ""
-echo "Server is running on $SERVER"
+echo "Service: http://$SERVER:8080"
+echo "Admin:   http://$SERVER:8080/admin/"
+echo "API:     http://$SERVER:8080/api/health"

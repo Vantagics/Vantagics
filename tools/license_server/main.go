@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mutecomm/go-sqlcipher/v4"
+	_ "modernc.org/sqlite"
 	"license_server/templates"
 )
 
@@ -4138,7 +4138,11 @@ func handleMarketplaceAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false, "code": CodeInvalidRequest, "message": "Method not allowed",
+		})
 		return
 	}
 

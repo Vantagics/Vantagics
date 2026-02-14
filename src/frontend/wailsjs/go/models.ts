@@ -1610,6 +1610,7 @@ export namespace main {
 		}
 	}
 	export class PackMetadata {
+	    pack_name: string;
 	    author: string;
 	    created_at: string;
 	    source_name: string;
@@ -1622,6 +1623,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pack_name = source["pack_name"];
 	        this.author = source["author"];
 	        this.created_at = source["created_at"];
 	        this.source_name = source["source_name"];

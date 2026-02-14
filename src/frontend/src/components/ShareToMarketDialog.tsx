@@ -54,6 +54,7 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
     const [isSharing, setIsSharing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [loadingCategories, setLoadingCategories] = useState(true);
+    const backdropMouseDown = React.useRef(false);
 
     useEffect(() => {
         const fetchCategories = async () => {
@@ -114,7 +115,15 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={isSharing ? undefined : onClose}
+            onMouseDown={(e) => {
+                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+            }}
+            onMouseUp={(e) => {
+                if (e.target === e.currentTarget && backdropMouseDown.current && !isSharing) {
+                    onClose();
+                }
+                backdropMouseDown.current = false;
+            }}
         >
             <div
                 className="bg-white dark:bg-[#252526] w-[420px] rounded-xl shadow-2xl overflow-hidden text-slate-900 dark:text-[#d4d4d4] p-6 max-h-[90vh] overflow-y-auto"

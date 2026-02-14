@@ -14,10 +14,12 @@ import (
 
 // DefaultMarketplaceServerURL is the default marketplace server address.
 // In production, this should be overridden via configuration.
-const DefaultMarketplaceServerURL = "https://market.vantagedata.chat"
+// TODO: Change back to https://market.vantagedata.chat when server is fixed
+const DefaultMarketplaceServerURL = "http://localhost:8088"
 
 // DefaultLicenseServerURL is the default license server address.
-const DefaultLicenseServerURL = "https://license.vantagedata.chat"
+// TODO: Change back to https://license.vantagedata.chat when server is fixed
+const DefaultLicenseServerURL = "http://localhost:8080"
 
 // maxErrorBodySize limits how much of an error response body we read to prevent memory exhaustion.
 const maxErrorBodySize = 4096
@@ -123,14 +125,35 @@ func (a *App) MarketplaceLoginWithSN() error {
 	}
 	defer authResp.Body.Close()
 
+	// Check response status first
+	if authResp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(authResp.Body)
+		bodyStr := string(bodyBytes)
+		// If body looks like HTML (starts with <), provide a clearer error
+		if len(bodyStr) > 0 && bodyStr[0] == '<' {
+			return fmt.Errorf("license server returned HTML instead of JSON (status %d). The license server may be unavailable or misconfigured at %s", authResp.StatusCode, mc.LicenseServerURL)
+		}
+		return fmt.Errorf("license server returned status %d: %s", authResp.StatusCode, bodyStr)
+	}
+
+	// Read response body first to provide better error messages
+	bodyBytes, readErr := io.ReadAll(authResp.Body)
+	if readErr != nil {
+		return fmt.Errorf("failed to read license server response: %w", readErr)
+	}
+
 	var authResult struct {
 		Success bool   `json:"success"`
 		Token   string `json:"token"`
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	}
-	if err := json.NewDecoder(authResp.Body).Decode(&authResult); err != nil {
-		return fmt.Errorf("failed to decode license server response: %w", err)
+	if err := json.Unmarshal(bodyBytes, &authResult); err != nil {
+		bodyStr := string(bodyBytes)
+		if len(bodyStr) > 0 && bodyStr[0] == '<' {
+			return fmt.Errorf("license server returned HTML instead of JSON. The license server may be unavailable or misconfigured at %s. Response preview: %.200s", mc.LicenseServerURL, bodyStr)
+		}
+		return fmt.Errorf("failed to decode license server response: %w. Response body: %s", err, bodyStr)
 	}
 	if !authResult.Success {
 		return fmt.Errorf("license authentication failed: %s (%s)", authResult.Message, authResult.Code)

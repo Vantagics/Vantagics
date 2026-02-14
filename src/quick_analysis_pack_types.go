@@ -12,6 +12,7 @@ type QuickAnalysisPack struct {
 
 // PackMetadata contains descriptive information about the quick analysis pack.
 type PackMetadata struct {
+	PackName    string `json:"pack_name"`                 // Analysis scenario name (user input)
 	Author      string `json:"author"`                    // Creator name (user input)
 	CreatedAt   string `json:"created_at"`                // RFC3339 formatted timestamp
 	SourceName  string `json:"source_name"`               // Original data source name

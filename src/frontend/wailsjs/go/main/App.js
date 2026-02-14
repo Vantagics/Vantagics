@@ -170,8 +170,8 @@ export function ExportMessageToPDF(arg1, arg2) {
   return window['go']['main']['App']['ExportMessageToPDF'](arg1, arg2);
 }
 
-export function ExportQuickAnalysisPack(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ExportQuickAnalysisPack'](arg1, arg2, arg3);
+export function ExportQuickAnalysisPack(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ExportQuickAnalysisPack'](arg1, arg2, arg3, arg4);
 }
 
 export function ExportReport(arg1, arg2) {
@@ -726,8 +726,8 @@ export function UpdateMySQLExportConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['UpdateMySQLExportConfig'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
-export function UpdatePackMetadata(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdatePackMetadata'](arg1, arg2, arg3);
+export function UpdatePackMetadata(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdatePackMetadata'](arg1, arg2, arg3, arg4);
 }
 
 export function UpdateThreadTitle(arg1, arg2) {

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,37 +46,33 @@ func (a *App) ListLocalQuickAnalysisPacks() ([]LocalPackInfo, error) {
 
 		filePath := filepath.Join(qapDir, entry.Name())
 
-		// Try to unpack with empty password
-		jsonData, err := UnpackFromZip(filePath, "")
+		metadata, isEncrypted, err := ReadMetadataFromZip(filePath)
 		if err != nil {
-			if errors.Is(err, ErrPasswordRequired) {
-				// Encrypted file — add with IsEncrypted flag, minimal info
-				packs = append(packs, LocalPackInfo{
-					FileName:    entry.Name(),
-					FilePath:    filePath,
-					PackName:    entry.Name(),
-					IsEncrypted: true,
-				})
-			}
-			// Corrupted or other error — skip
+			// If we can't even read metadata, it might be an old corrupted file or something else
+			// We still try to show it as encrypted if it's indeed encrypted but metadata is missing
+			packs = append(packs, LocalPackInfo{
+				FileName:    entry.Name(),
+				FilePath:    filePath,
+				PackName:    entry.Name(),
+				IsEncrypted: isEncrypted,
+			})
 			continue
 		}
 
-		var pack QuickAnalysisPack
-		if err := json.Unmarshal(jsonData, &pack); err != nil {
-			// Invalid JSON — skip
-			continue
+		packName := metadata.PackName
+		if packName == "" {
+			packName = metadata.SourceName
 		}
 
 		packs = append(packs, LocalPackInfo{
 			FileName:    entry.Name(),
 			FilePath:    filePath,
-			PackName:    pack.Metadata.SourceName,
-			Description: pack.Metadata.Description,
-			SourceName:  pack.Metadata.SourceName,
-			Author:      pack.Metadata.Author,
-			CreatedAt:   pack.Metadata.CreatedAt,
-			IsEncrypted: false,
+			PackName:    packName,
+			Description: metadata.Description,
+			SourceName:  metadata.SourceName,
+			Author:      metadata.Author,
+			CreatedAt:   metadata.CreatedAt,
+			IsEncrypted: isEncrypted,
 		})
 	}
 
