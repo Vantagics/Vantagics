@@ -518,12 +518,10 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 
 // GetMarketplaceCreditsBalance fetches the current user's credits balance from the marketplace.
 func (a *App) GetMarketplaceCreditsBalance() (float64, error) {
-	a.ensureMarketplaceClient()
-	mc := a.marketplaceClient
-
-	if mc.Token == "" {
-		return 0, fmt.Errorf("not logged in to marketplace")
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		return 0, fmt.Errorf("marketplace auth failed: %w", err)
 	}
+	mc := a.marketplaceClient
 
 	req, err := http.NewRequest("GET", mc.ServerURL+"/api/credits/balance", nil)
 	if err != nil {
