@@ -56,7 +56,7 @@ func getMenuTexts(language string) MenuTexts {
 			Market:         "市场",
 			PackManager:    "快捷包管理",
 			BrowseMarket:   "分析包市场",
-			VisitMarket:    "访问市场",
+			VisitMarket:    "个人账户",
 			ProductService: "产品服务",
 		}
 	}
@@ -70,7 +70,7 @@ func getMenuTexts(language string) MenuTexts {
 		Market:         "Market",
 		PackManager:    "Pack Manager",
 		BrowseMarket:   "Browse Market",
-		VisitMarket:    "Visit Market",
+		VisitMarket:    "My Account",
 		ProductService: "Product Service",
 	}
 }
@@ -200,7 +200,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.EventsEmit(app.ctx, "open-market-browse")
 		})
 		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
+			wailsRuntime.EventsEmit(app.ctx, "marketplace-portal-login")
 		})
 
 		// Add Help menu for macOS
@@ -228,7 +228,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.EventsEmit(app.ctx, "open-market-browse")
 		})
 		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
+			wailsRuntime.EventsEmit(app.ctx, "marketplace-portal-login")
 		})
 
 		// Add Help Menu for non-macOS

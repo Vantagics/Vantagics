@@ -658,6 +658,10 @@ export function ServicePortalLogin() {
   return window['go']['main']['App']['ServicePortalLogin']();
 }
 
+export function MarketplacePortalLogin() {
+  return window['go']['main']['App']['MarketplacePortalLogin']();
+}
+
 export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
 }

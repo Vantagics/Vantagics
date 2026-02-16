@@ -333,6 +333,8 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Pro
 
 export function ServicePortalLogin():Promise<string>;
 
+export function MarketplacePortalLogin():Promise<string>;
+
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
 export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number,arg5:string):Promise<void>;

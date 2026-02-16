@@ -604,6 +604,39 @@ type userSessionEntry struct {
 	Expiry time.Time
 }
 
+// Login ticket store for one-time ticket-based login (SSO from desktop client)
+var (
+	loginTickets   = make(map[string]loginTicketEntry)
+	loginTicketsMu sync.RWMutex
+)
+
+type loginTicketEntry struct {
+	UserID int64
+	Expiry time.Time
+}
+
+// createLoginTicket creates a one-time login ticket for the given user ID.
+func createLoginTicket(userID int64) string {
+	id := generateSessionID()
+	loginTicketsMu.Lock()
+	loginTickets[id] = loginTicketEntry{UserID: userID, Expiry: time.Now().Add(5 * time.Minute)}
+	loginTicketsMu.Unlock()
+	return id
+}
+
+// consumeLoginTicket validates and consumes a one-time login ticket. Returns userID or 0.
+func consumeLoginTicket(ticket string) int64 {
+	loginTicketsMu.Lock()
+	defer loginTicketsMu.Unlock()
+	entry, ok := loginTickets[ticket]
+	if !ok || time.Now().After(entry.Expiry) {
+		delete(loginTickets, ticket)
+		return 0
+	}
+	delete(loginTickets, ticket)
+	return entry.UserID
+}
+
 // createUserSession creates a new user session and returns the session ID.
 func createUserSession(userID int64) string {
 	id := generateSessionID()
@@ -2117,8 +2150,9 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"token":   token,
+		"success":      true,
+		"token":        token,
+		"login_ticket": createLoginTicket(user.ID),
 		"user": map[string]interface{}{
 			"id":              user.ID,
 			"display_name":    user.DisplayName,
@@ -2128,6 +2162,131 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+
+// handleTicketLogin handles GET /user/ticket-login?ticket=xxx.
+// It consumes a one-time login ticket, creates a user session, and redirects.
+// If the user has no password set, redirects to the set-password page.
+func handleTicketLogin(w http.ResponseWriter, r *http.Request) {
+	ticket := r.URL.Query().Get("ticket")
+	if ticket == "" {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	userID := consumeLoginTicket(ticket)
+	if userID == 0 {
+		log.Printf("[TICKET-LOGIN] invalid or expired ticket")
+		http.Redirect(w, r, "/user/login?error=ticket_expired", http.StatusFound)
+		return
+	}
+
+	// Check if user is blocked
+	var isBlocked int
+	if err := db.QueryRow("SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?", userID).Scan(&isBlocked); err == nil && isBlocked == 1 {
+		http.Redirect(w, r, "/user/login?error=blocked", http.StatusFound)
+		return
+	}
+
+	// Create session
+	sid := createUserSession(userID)
+	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
+
+	// Check if user has a password set
+	var passwordHash sql.NullString
+	err := db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
+	if err != nil {
+		log.Printf("[TICKET-LOGIN] failed to check password for user %d: %v", userID, err)
+		http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+		return
+	}
+
+	if !passwordHash.Valid || passwordHash.String == "" {
+		// First time: redirect to set-password page
+		log.Printf("[TICKET-LOGIN] user %d has no password, redirecting to set-password", userID)
+		http.Redirect(w, r, "/user/set-password", http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
+// handleUserSetPassword handles GET/POST /user/set-password.
+// Shows a form for users to set their password (first-time login via SSO).
+func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
+	// Get user from session (protected by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Check if user already has a password
+	var passwordHash sql.NullString
+	var email string
+	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
+	if err != nil {
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if passwordHash.Valid && passwordHash.String != "" {
+		// Already has password, go to dashboard
+		http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+			"Email": email,
+			"Error": "",
+		})
+		return
+	}
+
+	// POST: set password
+	password := r.FormValue("password")
+	password2 := r.FormValue("password2")
+
+	errMsg := ""
+	if len(password) < 6 {
+		errMsg = "密码至少6个字符"
+	} else if password != password2 {
+		errMsg = "两次密码不一致"
+	}
+
+	if errMsg != "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+			"Email": email,
+			"Error": errMsg,
+		})
+		return
+	}
+
+	// Set password and username (use email prefix as username)
+	hashed := hashPassword(password)
+	username := email
+	if idx := strings.Index(email, "@"); idx > 0 {
+		username = email[:idx]
+	}
+
+	_, err = db.Exec("UPDATE users SET password_hash = ?, username = ? WHERE id = ? AND (password_hash IS NULL OR password_hash = '')",
+		hashed, username, userID)
+	if err != nil {
+		log.Printf("[SET-PASSWORD] failed to update password for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+			"Email": email,
+			"Error": "设置密码失败，请重试",
+		})
+		return
+	}
+
+	log.Printf("[SET-PASSWORD] user %d set password successfully, username=%q", userID, username)
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
 
 // handleListCategories handles GET /api/categories.
 // Returns all categories with pack_count (number of published pack_listings per category).
@@ -4623,6 +4782,14 @@ func main() {
 				}
 			}
 			mathCaptchaExpressionsMu.Unlock()
+			// Clean up expired login tickets
+			loginTicketsMu.Lock()
+			for id, entry := range loginTickets {
+				if now.After(entry.Expiry) {
+					delete(loginTickets, id)
+				}
+			}
+			loginTicketsMu.Unlock()
 		}
 	}()
 
@@ -4689,6 +4856,8 @@ func main() {
 	http.HandleFunc("/user/login", handleUserLogin)
 	http.HandleFunc("/user/register", handleUserRegister)
 	http.HandleFunc("/user/logout", handleUserLogout)
+	http.HandleFunc("/user/ticket-login", handleTicketLogin)
+	http.HandleFunc("/user/set-password", userAuth(handleUserSetPassword))
 	http.HandleFunc("/user/captcha", handleUserCaptchaImage)
 	http.HandleFunc("/user/captcha/refresh", handleUserCaptchaRefresh)
 	http.HandleFunc("/user/", userAuth(handleUserDashboard))

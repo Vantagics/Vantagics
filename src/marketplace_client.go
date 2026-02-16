@@ -202,6 +202,110 @@ func (a *App) IsMarketplaceLoggedIn() bool {
 	return a.marketplaceClient.Token != ""
 }
 
+// MarketplacePortalLogin performs SSO login to the marketplace user portal.
+// It uses the same SN+Email flow as MarketplaceLoginWithSN, but returns a
+// ticket-login URL for opening in the browser (like ServicePortalLogin).
+func (a *App) MarketplacePortalLogin() (string, error) {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	// Check license activation
+	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+		return "", fmt.Errorf("license not activated")
+	}
+	sn := a.licenseClient.GetSN()
+	if sn == "" {
+		return "", fmt.Errorf("SN not available")
+	}
+
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return "", fmt.Errorf("failed to get config: %w", err)
+	}
+	email := cfg.LicenseEmail
+	if email == "" {
+		return "", fmt.Errorf("email not available")
+	}
+
+	// Step 1: POST to License Server /api/marketplace-auth to get auth_token
+	authPayload, _ := json.Marshal(map[string]string{
+		"sn":    sn,
+		"email": email,
+	})
+	authResp, err := mc.client.Post(
+		mc.LicenseServerURL+"/api/marketplace-auth",
+		"application/json",
+		bytes.NewReader(authPayload),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact license server: %w", err)
+	}
+	defer authResp.Body.Close()
+
+	if authResp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(authResp.Body)
+		return "", fmt.Errorf("license server returned status %d: %s", authResp.StatusCode, string(bodyBytes))
+	}
+
+	bodyBytes, err := io.ReadAll(authResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read license server response: %w", err)
+	}
+
+	var authResult struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(bodyBytes, &authResult); err != nil {
+		return "", fmt.Errorf("failed to decode license server response: %w", err)
+	}
+	if !authResult.Success {
+		return "", fmt.Errorf("license authentication failed: %s (%s)", authResult.Message, authResult.Code)
+	}
+
+	// Step 2: POST to Marketplace Server /api/auth/sn-login to get login_ticket
+	loginPayload, _ := json.Marshal(map[string]string{
+		"license_token": authResult.Token,
+	})
+	loginResp, err := mc.client.Post(
+		mc.ServerURL+"/api/auth/sn-login",
+		"application/json",
+		bytes.NewReader(loginPayload),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to contact marketplace server: %w", err)
+	}
+	defer loginResp.Body.Close()
+
+	loginBodyBytes, err := io.ReadAll(loginResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read marketplace response: %w", err)
+	}
+
+	var loginResult struct {
+		Success     bool   `json:"success"`
+		Token       string `json:"token"`
+		LoginTicket string `json:"login_ticket"`
+		Message     string `json:"message"`
+	}
+	if err := json.Unmarshal(loginBodyBytes, &loginResult); err != nil {
+		return "", fmt.Errorf("failed to decode marketplace response: %w", err)
+	}
+	if !loginResult.Success {
+		return "", fmt.Errorf("marketplace login failed: %s", loginResult.Message)
+	}
+
+	// Also store the JWT for API calls
+	if loginResult.Token != "" {
+		mc.Token = loginResult.Token
+	}
+
+	// Step 3: Construct ticket-login URL
+	return mc.ServerURL + "/user/ticket-login?ticket=" + loginResult.LoginTicket, nil
+}
+
 // GetMarketplaceCategories fetches the list of pack categories from the marketplace server.
 func (a *App) GetMarketplaceCategories() ([]PackCategory, error) {
 	a.ensureMarketplaceClient()

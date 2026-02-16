@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread, UpdateThreadTitle, ServicePortalLogin } from '../../wailsjs/go/main/App';
+import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread, UpdateThreadTitle, ServicePortalLogin, MarketplacePortalLogin } from '../../wailsjs/go/main/App';
 import { EventsEmit, EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import AddDataSourceModal from './AddDataSourceModal';
@@ -96,6 +96,26 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     useEffect(() => {
         const cleanup = EventsOn("service-portal-login", () => {
             handleServicePortalLogin();
+        });
+        return () => { cleanup(); };
+    }, []);
+
+    // Marketplace portal SSO login handler
+    const handleMarketplacePortalLogin = async () => {
+        try {
+            const url = await MarketplacePortalLogin();
+            BrowserOpenURL(url);
+        } catch (err: any) {
+            const msg = typeof err === 'string' ? err : err?.message || 'Unknown error';
+            setServiceErrorMessage(msg);
+            setShowServiceError(true);
+        }
+    };
+
+    // Listen for "marketplace-portal-login" event from menu item
+    useEffect(() => {
+        const cleanup = EventsOn("marketplace-portal-login", () => {
+            handleMarketplacePortalLogin();
         });
         return () => { cleanup(); };
     }, []);
