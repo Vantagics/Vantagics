@@ -140,6 +140,8 @@ type App struct {
 	marketplaceClient *MarketplaceClient
 	// Usage license store for local billing enforcement
 	usageLicenseStore *UsageLicenseStore
+	// Pending usage queue for offline usage report retry
+	pendingUsageQueue *PendingUsageQueue
 	// Pack passwords from marketplace downloads (filePath -> encryption password)
 	packPasswords map[string]string
 }
@@ -149,14 +151,6 @@ type AgentMemoryView struct {
 	LongTerm   []string `json:"long_term"`
 	MediumTerm []string `json:"medium_term"`
 	ShortTerm  []string `json:"short_term"`
-}
-
-// min returns the smaller of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // NewApp creates a new App application struct
@@ -496,7 +490,14 @@ func (a *App) startup(ctx context.Context) {
 				a.Log(fmt.Sprintf("[STARTUP] ShouldReportOnStartup=%v", shouldReport))
 				if shouldReport {
 					a.Log("[STARTUP] Reporting credits usage on startup (overdue)")
-					go a.licenseClient.ReportUsage()
+					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								a.Log(fmt.Sprintf("[STARTUP] ReportUsage goroutine recovered from panic: %v", r))
+							}
+						}()
+						a.licenseClient.ReportUsage()
+					}()
 				}
 			}
 			a.licenseClient.StartUsageReporting()
@@ -574,6 +575,26 @@ func (a *App) startup(ctx context.Context) {
 			a.usageLicenseStore = uls
 			a.Log("[STARTUP] UsageLicenseStore initialized successfully")
 		}
+
+		// Initialize pending usage queue for offline usage report retry
+		puq, err := NewPendingUsageQueue()
+		if err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to create PendingUsageQueue: %v", err))
+		} else {
+			if err := puq.Load(); err != nil {
+				a.Log(fmt.Sprintf("[STARTUP] Failed to load pending usage queue: %v", err))
+			}
+			a.pendingUsageQueue = puq
+			a.Log("[STARTUP] PendingUsageQueue initialized successfully")
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						a.Log(fmt.Sprintf("[STARTUP] FlushPendingUsageReports goroutine recovered from panic: %v", r))
+					}
+				}()
+				a.FlushPendingUsageReports()
+			}()
+		}
 	}
 
 	// Always initialize logger directory for log management (compression, cleanup)
@@ -594,7 +615,14 @@ func (a *App) startup(ctx context.Context) {
 
 	// Auto-detect location on startup if not configured
 	// This runs in background to avoid blocking startup
-	go a.autoDetectLocation(&cfg)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.Log(fmt.Sprintf("[STARTUP] autoDetectLocation goroutine recovered from panic: %v", r))
+			}
+		}()
+		a.autoDetectLocation(&cfg)
+	}()
 }
 
 // UpdateWorkingContext updates the working context from frontend events
@@ -6504,6 +6532,7 @@ func (a *App) OpenSessionResultsDirectory(threadID string) error {
 	switch gort.GOOS {
 	case "windows":
 		cmd = exec.Command("cmd", "/c", "start", "", sessionDir)
+		cmd.SysProcAttr = hiddenProcAttr()
 	case "darwin":
 		cmd = exec.Command("open", sessionDir)
 	case "linux":

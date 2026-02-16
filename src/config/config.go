@@ -171,6 +171,13 @@ func (c *Config) Validate() {
 		if c.ProxyConfig.Host == "" {
 			c.ProxyConfig.Enabled = false
 		}
+		// Validate proxy protocol
+		switch c.ProxyConfig.Protocol {
+		case "http", "https", "socks5":
+			// valid
+		default:
+			c.ProxyConfig.Protocol = "http"
+		}
 	}
 
 	// IntentEnhancement: validate sub-config if present

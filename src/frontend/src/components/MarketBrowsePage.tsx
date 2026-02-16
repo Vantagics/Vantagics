@@ -34,6 +34,22 @@ interface MarketBrowseDialogProps {
 
 const TOPUP_URL = 'https://market.vantagedata.chat/user/credits';
 
+/**
+ * Determines whether the purchased badge should be visible for a pack listing.
+ */
+export function shouldShowPurchasedBadge(purchased: boolean): boolean {
+    return purchased;
+}
+
+/**
+ * Determines the action button type for a pack listing.
+ * Returns 'download' for free packs, 'add_to_cart' for paid packs.
+ * The action button is always present regardless of purchased status.
+ */
+export function getActionButtonType(shareMode: string): 'download' | 'add_to_cart' {
+    return shareMode === 'free' ? 'download' : 'add_to_cart';
+}
+
 function formatBillingInfo(pack: PackListingInfo, t: (key: string) => string): { label: string; variant: 'free' | 'paid' } {
     switch (pack.share_mode) {
         case 'free':
@@ -384,6 +400,11 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                                         <div className="flex-1 min-w-0">
                                             <p className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4] truncate">
                                                 {pack.pack_name}
+                                                {pack.purchased && (
+                                                    <span className="ml-1.5 px-1.5 py-0.5 text-xs font-medium rounded-full text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20">
+                                                        {t('market_browse_purchased')}
+                                                    </span>
+                                                )}
                                             </p>
                                             {pack.pack_description && (
                                                 <p className="text-xs text-slate-500 dark:text-[#8e8e8e] mt-0.5 line-clamp-2">

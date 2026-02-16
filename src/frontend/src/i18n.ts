@@ -874,6 +874,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'market_browse_checkout': 'Checkout',
         'market_browse_checkout_success': 'Purchase completed successfully!',
         'market_browse_checking_out': 'Processing...',
+        'market_browse_purchased': 'Purchased',
         // Filter / Sort / Search
         'filter_all': 'All',
         'filter_free': 'Free',
@@ -2116,6 +2117,7 @@ export const translations: Record<Language, Record<string, string>> = {
         'market_browse_checkout': '结算',
         'market_browse_checkout_success': '购买成功！',
         'market_browse_checking_out': '处理中...',
+        'market_browse_purchased': '已购买',
         // 筛选 / 排序 / 搜索
         'filter_all': '全部',
         'filter_free': '免费',

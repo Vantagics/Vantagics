@@ -2262,6 +2262,7 @@ export namespace main {
 	    credits_price: number;
 	    download_count: number;
 	    created_at: string;
+	    purchased: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new PackListingInfo(source);
@@ -2281,6 +2282,7 @@ export namespace main {
 	        this.credits_price = source["credits_price"];
 	        this.download_count = source["download_count"];
 	        this.created_at = source["created_at"];
+	        this.purchased = source["purchased"];
 	    }
 	}
 	export class SchemaValidationResult {

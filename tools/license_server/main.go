@@ -292,6 +292,11 @@ func initDB() {
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
+
+	// Set connection pool limits
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 	
 	// Enable WAL mode for better concurrent read/write performance
 	_, err = db.Exec("PRAGMA journal_mode=WAL")
@@ -835,9 +840,8 @@ func generateSN() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback: use math/rand with time seed if crypto/rand fails
+		// Fallback: use math/rand (auto-seeded in Go 1.20+)
 		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
-		mrand.Seed(time.Now().UnixNano())
 		for i := range b {
 			b[i] = charset[mrand.Intn(len(charset))]
 		}
@@ -852,9 +856,8 @@ func generateSN() string {
 func generateShortID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback: use math/rand with time seed if crypto/rand fails
+		// Fallback: use math/rand (auto-seeded in Go 1.20+)
 		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
-		mrand.Seed(time.Now().UnixNano())
 		for i := range b {
 			b[i] = byte(mrand.Intn(256))
 		}
@@ -989,9 +992,8 @@ var captchaLock sync.RWMutex
 func createSession() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// Fallback: use math/rand with time seed if crypto/rand fails
+		// Fallback: use math/rand (auto-seeded in Go 1.20+)
 		log.Printf("Warning: crypto/rand failed for session token: %v, using fallback", err)
-		mrand.Seed(time.Now().UnixNano())
 		for i := range b {
 			b[i] = byte(mrand.Intn(256))
 		}
@@ -1035,7 +1037,7 @@ var digitPatterns = map[rune][]string{
 
 // Generate math expression captcha - returns captchaID and base64 image
 func generateCaptcha() (string, string) {
-	mrand.Seed(time.Now().UnixNano())
+	// math/rand is auto-seeded in Go 1.20+
 	
 	// Generate a math expression: one-digit op two-digit or two-digit op one-digit
 	var num1, num2, result int
@@ -1076,9 +1078,8 @@ func generateCaptcha() (string, string) {
 	// Generate captcha ID
 	idBytes := make([]byte, 16)
 	if _, err := rand.Read(idBytes); err != nil {
-		// Fallback: use math/rand with time seed if crypto/rand fails
+		// Fallback: use math/rand (auto-seeded in Go 1.20+)
 		log.Printf("Warning: crypto/rand failed for captcha ID: %v, using fallback", err)
-		mrand.Seed(time.Now().UnixNano())
 		for i := range idBytes {
 			idBytes[i] = byte(mrand.Intn(256))
 		}
@@ -3360,7 +3361,6 @@ func generateAPIKey() string {
 	b := make([]byte, 61) // 64 - 3 (for "sk-")
 	if _, err := rand.Read(b); err != nil {
 		log.Printf("Warning: crypto/rand failed: %v, using fallback", err)
-		mrand.Seed(time.Now().UnixNano())
 		for i := range b {
 			b[i] = charset[mrand.Intn(len(charset))]
 		}

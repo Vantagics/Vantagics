@@ -28,6 +28,8 @@ import (
 
 	_ "modernc.org/sqlite"
 	"marketplace_server/templates"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Global database connection
@@ -94,6 +96,7 @@ type PackListingInfo struct {
 	ReviewedAt      string           `json:"reviewed_at,omitempty"`
 	MetaInfo        json.RawMessage  `json:"meta_info"`
 	CreatedAt       string           `json:"created_at"`
+	Purchased       bool             `json:"purchased"`
 }
 
 
@@ -115,6 +118,11 @@ func initDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// Set connection pool limits
+	database.SetMaxOpenConns(25)
+	database.SetMaxIdleConns(5)
+	database.SetConnMaxLifetime(5 * time.Minute)
 
 	// Enable WAL mode
 	if _, err := database.Exec("PRAGMA journal_mode=WAL"); err != nil {
@@ -269,6 +277,59 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create credits_transactions table: %w", err)
 	}
 
+	// Create user_purchased_packs table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS user_purchased_packs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			listing_id INTEGER NOT NULL,
+			is_hidden INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (listing_id) REFERENCES pack_listings(id),
+			UNIQUE(user_id, listing_id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create user_purchased_packs table: %w", err)
+	}
+
+	// Create pack_usage_records table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS pack_usage_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			listing_id INTEGER NOT NULL,
+			used_count INTEGER NOT NULL DEFAULT 0,
+			total_purchased INTEGER NOT NULL DEFAULT 0,
+			last_used_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (listing_id) REFERENCES pack_listings(id),
+			UNIQUE(user_id, listing_id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create pack_usage_records table: %w", err)
+	}
+
+	// Create pack_usage_log table (deduplication via UNIQUE constraint)
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS pack_usage_log (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			listing_id INTEGER NOT NULL,
+			used_at TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id, listing_id, used_at)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create pack_usage_log table: %w", err)
+	}
+
 	// Create settings table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS settings (
@@ -364,6 +425,31 @@ func initDB(dbPath string) (*sql.DB, error) {
 	return database, nil
 }
 
+// upsertUserPurchasedPack inserts or updates a user_purchased_packs record,
+// ensuring is_hidden is set to 0 (visible). If the record already exists
+// (same user_id + listing_id), it updates is_hidden to 0 and refreshes updated_at.
+func upsertUserPurchasedPack(userID int64, listingID int64) error {
+	_, err := db.Exec(`
+		INSERT INTO user_purchased_packs (user_id, listing_id, is_hidden, updated_at)
+		VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, listing_id) DO UPDATE SET is_hidden = 0, updated_at = CURRENT_TIMESTAMP`,
+		userID, listingID,
+	)
+	return err
+}
+
+// softDeleteUserPurchasedPack marks the specified (user_id, listing_id) record
+// as hidden by setting is_hidden to 1 and refreshing updated_at.
+func softDeleteUserPurchasedPack(userID int64, listingID int64) error {
+	_, err := db.Exec(`
+		UPDATE user_purchased_packs SET is_hidden = 1, updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND listing_id = ?`,
+		userID, listingID,
+	)
+	return err
+}
+
+
 // jsonResponse writes a JSON response with the given status code.
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -379,12 +465,13 @@ func notImplementedHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // jwtSecret is the HMAC-SHA256 signing key for JWT tokens.
-// In production, override via MARKETPLACE_JWT_SECRET environment variable.
+// MUST be set via MARKETPLACE_JWT_SECRET environment variable in production.
 var jwtSecret = func() []byte {
 	if s := os.Getenv("MARKETPLACE_JWT_SECRET"); s != "" {
 		return []byte(s)
 	}
-	return []byte("marketplace-server-jwt-secret-key-2024")
+	log.Println("[WARN] MARKETPLACE_JWT_SECRET not set, using insecure default. Set this in production!")
+	return []byte("marketplace-server-jwt-secret-key-2024-dev-only")
 }()
 
 // jwtHeader is the pre-encoded JWT header for HS256.
@@ -462,6 +549,55 @@ func parseJWT(tokenString string) (int64, string, error) {
 	return payload.UserID, payload.DisplayName, nil
 }
 
+// optionalUserID attempts to extract userID from the Authorization header.
+// Returns 0 if the header is missing, malformed, or JWT parsing fails.
+// This allows public endpoints to optionally identify logged-in users.
+func optionalUserID(r *http.Request) int64 {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		return 0
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	userID, _, err := parseJWT(token)
+	if err != nil {
+		return 0
+	}
+	return userID
+}
+
+// getUserPurchasedListingIDs queries user_downloads and credits_transactions
+// to return the set of listing IDs that the given user has purchased or downloaded.
+func getUserPurchasedListingIDs(userID int64) map[int64]bool {
+	purchased := make(map[int64]bool)
+	// Query user_downloads table
+	rows, err := db.Query("SELECT listing_id FROM user_downloads WHERE user_id = ?", userID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var lid int64
+			if rows.Scan(&lid) == nil {
+				purchased[lid] = true
+			}
+		}
+	}
+	// Query credits_transactions table (purchase-type transactions)
+	rows2, err := db.Query(
+		"SELECT DISTINCT listing_id FROM credits_transactions WHERE user_id = ? AND listing_id IS NOT NULL",
+		userID)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var lid int64
+			if rows2.Scan(&lid) == nil {
+				purchased[lid] = true
+			}
+		}
+	}
+	return purchased
+}
+
+
+
 // authMiddleware validates the JWT token from the Authorization header.
 // Returns 401 for missing/invalid tokens.
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -512,18 +648,31 @@ func isAdminSetup() bool {
 	return err == nil && count > 0
 }
 
-// hashPassword hashes a password using SHA-256 with a random salt.
+// hashPassword hashes a password using bcrypt (cost 12).
 func hashPassword(password string) string {
-	salt := make([]byte, 16)
-	rand.Read(salt)
-	h := sha256.New()
-	h.Write(salt)
-	h.Write([]byte(password))
-	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		// Fallback should never happen with valid input, but log and use SHA-256 as last resort
+		log.Printf("[WARN] bcrypt failed, falling back to SHA-256: %v", err)
+		salt := make([]byte, 16)
+		rand.Read(salt)
+		h := sha256.New()
+		h.Write(salt)
+		h.Write([]byte(password))
+		return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+	}
+	return "bcrypt:" + string(hash)
 }
 
 // checkPassword verifies a password against a stored hash.
+// Supports both bcrypt (new) and legacy SHA-256 (old) formats.
 func checkPassword(password, stored string) bool {
+	// New bcrypt format
+	if strings.HasPrefix(stored, "bcrypt:") {
+		hash := strings.TrimPrefix(stored, "bcrypt:")
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+	}
+	// Legacy SHA-256 format for backward compatibility
 	parts := strings.SplitN(stored, ":", 2)
 	if len(parts) != 2 {
 		return false
@@ -1144,6 +1293,7 @@ func makeSessionCookie(name, value string, maxAge int) *http.Cookie {
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   maxAge,
 	}
@@ -1251,6 +1401,8 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 		errMsg = "用户名至少3个字符"
 	} else if password == "" || len(password) < 6 {
 		errMsg = "密码至少6个字符"
+	} else if len(password) > 72 {
+		errMsg = "密码最多72个字符"
 	} else if password != password2 {
 		errMsg = "两次输入的密码不一致"
 	} else if !verifyCaptcha(captchaID, captchaAns) {
@@ -1459,7 +1611,13 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 2: Verify password consistency and length
+	// Step 2: Validate email format
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") || len(email) > 254 {
+		renderError("请输入有效的邮箱地址")
+		return
+	}
+
+	// Step 3: Verify password consistency and length
 	if password != password2 {
 		log.Printf("[USER-REGISTER] password mismatch for email=%q", email)
 		renderError("两次密码不一致")
@@ -1470,8 +1628,13 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		renderError("密码至少6个字符")
 		return
 	}
+	if len(password) > 72 {
+		log.Printf("[USER-REGISTER] password too long for email=%q", email)
+		renderError("密码最多72个字符")
+		return
+	}
 
-	// Step 3: Call License_Server /api/marketplace-auth to verify SN+Email
+	// Step 4: Call License_Server /api/marketplace-auth to verify SN+Email
 	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to marshal auth request: %v", err)
@@ -1588,14 +1751,26 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 
 // PurchasedPackInfo holds info about a purchased/downloaded pack for the user dashboard.
 type PurchasedPackInfo struct {
-	ListingID    int64
-	PackName     string
-	CategoryName string
-	ShareMode    string
-	CreditsPrice int
-	ValidDays    int
-	PurchaseDate string
-	ExpiresAt    string
+	ListingID      int64
+	PackName       string
+	CategoryName   string
+	ShareMode      string
+	CreditsPrice   int
+	ValidDays      int
+	PurchaseDate   string
+	ExpiresAt      string
+	UsedCount      int
+	TotalPurchased int
+}
+
+// BillingRecord holds a single billing/transaction record for the user billing page.
+type BillingRecord struct {
+	ID              int64
+	TransactionType string
+	Amount          float64
+	PackName        string
+	Description     string
+	CreatedAt       string
 }
 
 // handleUserDashboard renders the user dashboard page showing account info and purchased packs.
@@ -1623,11 +1798,15 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	// Query paid purchased packs (from credits_transactions)
 	paidRows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
-		       COALESCE(c.name, '') as category_name, ct.created_at as purchase_date
+		       COALESCE(c.name, '') as category_name, ct.created_at as purchase_date,
+		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
 		FROM credits_transactions ct
 		JOIN pack_listings pl ON ct.listing_id = pl.id
 		LEFT JOIN categories c ON pl.category_id = c.id
-		WHERE ct.user_id = ? AND ct.transaction_type = 'purchase'
+		LEFT JOIN user_purchased_packs upp ON upp.user_id = ct.user_id AND upp.listing_id = ct.listing_id
+		LEFT JOIN pack_usage_records pur ON pur.user_id = ct.user_id AND pur.listing_id = ct.listing_id
+		WHERE ct.user_id = ? AND ct.transaction_type IN ('purchase', 'download')
+		  AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
 		ORDER BY ct.created_at DESC
 	`, userID)
 	if err != nil {
@@ -1644,7 +1823,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	for paidRows.Next() {
 		var p PurchasedPackInfo
 		var purchaseDateStr string
-		if err := paidRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr); err != nil {
+		if err := paidRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
 			log.Printf("[USER-DASHBOARD] failed to scan paid pack row: %v", err)
 			continue
 		}
@@ -1669,11 +1848,15 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	// Query free downloaded packs (from user_downloads)
 	freeRows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
-		       COALESCE(c.name, '') as category_name, ud.downloaded_at as purchase_date
+		       COALESCE(c.name, '') as category_name, ud.downloaded_at as purchase_date,
+		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
 		FROM user_downloads ud
 		JOIN pack_listings pl ON ud.listing_id = pl.id
 		LEFT JOIN categories c ON pl.category_id = c.id
+		LEFT JOIN user_purchased_packs upp ON upp.user_id = ud.user_id AND upp.listing_id = ud.listing_id
+		LEFT JOIN pack_usage_records pur ON pur.user_id = ud.user_id AND pur.listing_id = ud.listing_id
 		WHERE ud.user_id = ?
+		  AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
 		ORDER BY ud.downloaded_at DESC
 	`, userID)
 	if err != nil {
@@ -1684,7 +1867,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		for freeRows.Next() {
 			var p PurchasedPackInfo
 			var purchaseDateStr string
-			if err := freeRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr); err != nil {
+			if err := freeRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
 				log.Printf("[USER-DASHBOARD] failed to scan free pack row: %v", err)
 				continue
 			}
@@ -1707,14 +1890,360 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d", userID, user.Email, user.CreditsBalance, len(packs))
+	// Query password_hash to determine if user has a password set
+	var passwordHash sql.NullString
+	db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
+	hasPassword := passwordHash.Valid && passwordHash.String != ""
+
+	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d, hasPassword=%v", userID, user.Email, user.CreditsBalance, len(packs), hasPassword)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
 		"User":           user,
 		"PurchasedPacks": packs,
+		"HasPassword":    hasPassword,
 	})
 }
+
+// handleUserBilling renders the billing page showing all transaction records for the user.
+func handleUserBilling(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[USER-BILLING] invalid X-User-ID header: %q", userIDStr)
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT ct.id, ct.transaction_type, ct.amount, ct.description, ct.created_at,
+		       COALESCE(pl.pack_name, '') as pack_name
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		WHERE ct.user_id = ?
+		ORDER BY ct.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[USER-BILLING] failed to query transactions for user %d: %v", userID, err)
+		http.Error(w, "加载帐单数据失败", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var records []BillingRecord
+	for rows.Next() {
+		var rec BillingRecord
+		var desc sql.NullString
+		if err := rows.Scan(&rec.ID, &rec.TransactionType, &rec.Amount, &desc, &rec.CreatedAt, &rec.PackName); err != nil {
+			log.Printf("[USER-BILLING] failed to scan transaction row: %v", err)
+			continue
+		}
+		if desc.Valid {
+			rec.Description = desc.String
+		}
+		records = append(records, rec)
+	}
+
+	log.Printf("[USER-BILLING] user %d: %d transaction records", userID, len(records))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.UserBillingTmpl.Execute(w, struct{ Records []BillingRecord }{Records: records})
+}
+
+// handleUserRenewPerUse handles per_use pack renewal from the user portal.
+// POST /user/pack/renew-uses
+// Form params: listing_id, quantity
+func handleUserRenewPerUse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	quantityStr := r.FormValue("quantity")
+	quantity, err := strconv.Atoi(quantityStr)
+	if err != nil || quantity < 1 {
+		http.Redirect(w, r, "/user/?error=invalid_quantity", http.StatusFound)
+		return
+	}
+
+	// Query pack listing info and verify share_mode
+	var shareMode string
+	var creditsPrice int
+	var packName string
+	err = db.QueryRow(
+		`SELECT share_mode, credits_price, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		listingID,
+	).Scan(&shareMode, &creditsPrice, &packName)
+	if err == sql.ErrNoRows {
+		http.Redirect(w, r, "/user/?error=pack_not_found", http.StatusFound)
+		return
+	} else if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to query pack listing %d: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if shareMode != "per_use" {
+		http.Redirect(w, r, "/user/?error=not_per_use", http.StatusFound)
+		return
+	}
+
+	totalCost := creditsPrice * quantity
+
+	// Check user balance
+	var balance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to query balance for user %d: %v", userID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if balance < float64(totalCost) {
+		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
+		return
+	}
+
+	// Transaction: deduct credits + record transaction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to begin transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
+		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+		totalCost, userID, totalCost,
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to deduct credits: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
+		return
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
+		 VALUES (?, 'purchase_uses', ?, ?, ?)`,
+		userID, -float64(totalCost), listingID, fmt.Sprintf("Purchase %d additional uses: %s", quantity, packName),
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to record transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[USER-RENEW-USES] failed to commit transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	// Record/restore user purchased pack
+	if err := upsertUserPurchasedPack(userID, listingID); err != nil {
+		log.Printf("[USER-RENEW-USES] failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, listingID, err)
+	}
+
+	// Sync pack_usage_records.total_purchased after successful renewal
+	_, err = db.Exec(
+		`INSERT OR IGNORE INTO pack_usage_records (user_id, listing_id, used_count, total_purchased) VALUES (?, ?, 0, 0)`,
+		userID, listingID,
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to insert pack_usage_records (user=%d, listing=%d): %v", userID, listingID, err)
+	}
+	_, err = db.Exec(
+		`UPDATE pack_usage_records SET total_purchased = total_purchased + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND listing_id = ?`,
+		quantity, userID, listingID,
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-USES] failed to update total_purchased (user=%d, listing=%d): %v", userID, listingID, err)
+	}
+
+	log.Printf("[USER-RENEW-USES] user %d renewed %d uses for pack %d (%s), cost=%d", userID, quantity, listingID, packName, totalCost)
+	http.Redirect(w, r, "/user/?success=renew_uses", http.StatusFound)
+}
+
+// handleUserRenewSubscription handles subscription pack renewal from the user portal.
+// POST /user/pack/renew-subscription
+// Form params: listing_id, months (1 or 12)
+func handleUserRenewSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	monthsStr := r.FormValue("months")
+	months, err := strconv.Atoi(monthsStr)
+	if err != nil || (months != 1 && months != 12) {
+		http.Redirect(w, r, "/user/?error=invalid_months", http.StatusFound)
+		return
+	}
+
+	// Query pack listing info and verify share_mode
+	var shareMode string
+	var creditsPrice int
+	var packName string
+	err = db.QueryRow(
+		`SELECT share_mode, credits_price, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		listingID,
+	).Scan(&shareMode, &creditsPrice, &packName)
+	if err == sql.ErrNoRows {
+		http.Redirect(w, r, "/user/?error=pack_not_found", http.StatusFound)
+		return
+	} else if err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to query pack listing %d: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if shareMode != "subscription" {
+		http.Redirect(w, r, "/user/?error=not_subscription", http.StatusFound)
+		return
+	}
+
+	// Calculate cost: monthly = credits_price * months, yearly = credits_price * 12 (grants 14 months)
+	totalCost := creditsPrice * months
+
+	// Check user balance
+	var balance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	if err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to query balance for user %d: %v", userID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if balance < float64(totalCost) {
+		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
+		return
+	}
+
+	// Transaction: deduct credits + record transaction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to begin transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
+		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+		totalCost, userID, totalCost,
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to deduct credits: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
+		return
+	}
+
+	// Build description based on months
+	var description string
+	if months == 12 {
+		description = fmt.Sprintf("Renew subscription (yearly, 14 months): %s", packName)
+	} else {
+		description = fmt.Sprintf("Renew subscription (%d month): %s", months, packName)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
+		 VALUES (?, 'renew', ?, ?, ?)`,
+		userID, -float64(totalCost), listingID, description,
+	)
+	if err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to record transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to commit transaction: %v", err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	// Record/restore user purchased pack
+	if err := upsertUserPurchasedPack(userID, listingID); err != nil {
+		log.Printf("[USER-RENEW-SUB] failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, listingID, err)
+	}
+
+	log.Printf("[USER-RENEW-SUB] user %d renewed subscription for pack %d (%s), months=%d, cost=%d", userID, listingID, packName, months, totalCost)
+	http.Redirect(w, r, "/user/?success=renew_subscription", http.StatusFound)
+}
+
+// handleSoftDeletePack handles soft-deleting a purchased pack.
+// POST /user/pack/delete
+// Form params: listing_id
+func handleSoftDeletePack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	if err := softDeleteUserPurchasedPack(userID, listingID); err != nil {
+		log.Printf("[USER-SOFT-DELETE] failed to soft delete pack (user=%d, listing=%d): %v", userID, listingID, err)
+		http.Redirect(w, r, "/user/?error=delete_failed", http.StatusFound)
+		return
+	}
+
+	log.Printf("[USER-SOFT-DELETE] user %d soft-deleted pack %d", userID, listingID)
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
 
 // handleUserLogout logs out the user by deleting the session and clearing the cookie.
 func handleUserLogout(w http.ResponseWriter, r *http.Request) {
@@ -1977,6 +2506,9 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Limit request body size to prevent abuse
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
+
 	var req snLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{
@@ -2210,6 +2742,112 @@ func handleTicketLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
 
+// handleUserChangePassword handles GET/POST /user/change-password.
+// Allows users who already have a password to change it.
+// Users without a password are redirected to /user/set-password.
+func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Query user info
+	var passwordHash sql.NullString
+	var email string
+	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
+	if err != nil {
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	// If user has no password, redirect to set-password page (Requirement 3.7)
+	if !passwordHash.Valid || passwordHash.String == "" {
+		http.Redirect(w, r, "/user/set-password", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "",
+			"Success": "",
+		})
+		return
+	}
+
+	// POST: change password
+	currentPassword := r.FormValue("current_password")
+	newPassword := r.FormValue("new_password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	// Validate current password (Requirement 3.4)
+	if !checkPassword(currentPassword, passwordHash.String) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "当前密码错误",
+			"Success": "",
+		})
+		return
+	}
+
+	// Validate new password length (Requirement 3.5)
+	if len(newPassword) < 6 {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "密码至少6个字符",
+			"Success": "",
+		})
+		return
+	}
+	if len(newPassword) > 72 {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "密码最多72个字符",
+			"Success": "",
+		})
+		return
+	}
+
+	// Validate password confirmation (Requirement 3.6)
+	if newPassword != confirmPassword {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "两次密码不一致",
+			"Success": "",
+		})
+		return
+	}
+
+	// Update password (Requirement 3.3)
+	hashed := hashPassword(newPassword)
+	_, err = db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", hashed, userID)
+	if err != nil {
+		log.Printf("[CHANGE-PASSWORD] failed to update password for user %d: %v", userID, err)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+			"Email":   email,
+			"Error":   "修改密码失败，请重试",
+			"Success": "",
+		})
+		return
+	}
+
+	log.Printf("[CHANGE-PASSWORD] user %d changed password successfully", userID)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+		"Email":   email,
+		"Error":   "",
+		"Success": "密码修改成功",
+	})
+}
+
 // handleUserSetPassword handles GET/POST /user/set-password.
 // Shows a form for users to set their password (first-time login via SSO).
 func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
@@ -2252,6 +2890,8 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 	errMsg := ""
 	if len(password) < 6 {
 		errMsg = "密码至少6个字符"
+	} else if len(password) > 72 {
+		errMsg = "密码最多72个字符"
 	} else if password != password2 {
 		errMsg = "两次密码不一致"
 	}
@@ -2881,6 +3521,118 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusCreated, listing)
 }
+
+func handleReportPackUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Get user ID from auth middleware
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		ListingID int64  `json:"listing_id"`
+		UsedAt    string `json:"used_at"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	// Validate fields
+	if req.ListingID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "listing_id must be positive"})
+		return
+	}
+	if req.UsedAt == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "used_at is required"})
+		return
+	}
+	if _, err := time.Parse(time.RFC3339, req.UsedAt); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "used_at must be valid RFC3339 format"})
+		return
+	}
+
+	// Verify listing exists and is per_use
+	var shareMode string
+	err = db.QueryRow(
+		`SELECT share_mode FROM pack_listings WHERE id = ?`,
+		req.ListingID,
+	).Scan(&shareMode)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack not found"})
+		return
+	} else if err != nil {
+		log.Printf("Failed to query pack listing: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if shareMode != "per_use" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack is not per_use type"})
+		return
+	}
+
+	// INSERT OR IGNORE into pack_usage_log for idempotent dedup
+	result, err := db.Exec(
+		`INSERT OR IGNORE INTO pack_usage_log (user_id, listing_id, used_at) VALUES (?, ?, ?)`,
+		userID, req.ListingID, req.UsedAt,
+	)
+	if err != nil {
+		log.Printf("Failed to insert usage log: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		// New usage record — ensure pack_usage_records row exists, then increment
+		_, err = db.Exec(
+			`INSERT OR IGNORE INTO pack_usage_records (user_id, listing_id, used_count, total_purchased) VALUES (?, ?, 0, 0)`,
+			userID, req.ListingID,
+		)
+		if err != nil {
+			log.Printf("Failed to init pack_usage_records: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		_, err = db.Exec(
+			`UPDATE pack_usage_records SET used_count = used_count + 1, last_used_at = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND listing_id = ?`,
+			req.UsedAt, userID, req.ListingID,
+		)
+		if err != nil {
+			log.Printf("Failed to update pack_usage_records: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+	// If rowsAffected == 0, it's a duplicate — no increment needed
+
+	// Query current counts to return
+	var usedCount, totalPurchased int
+	err = db.QueryRow(
+		`SELECT used_count, total_purchased FROM pack_usage_records WHERE user_id = ? AND listing_id = ?`,
+		userID, req.ListingID,
+	).Scan(&usedCount, &totalPurchased)
+	if err != nil {
+		log.Printf("Failed to query pack_usage_records: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":         true,
+		"used_count":      usedCount,
+		"total_purchased": totalPurchased,
+	})
+}
+
 // handleListPacks handles GET /api/packs.
 // Returns a list of published PackListingInfo (without file_data).
 // Supports optional category_id query parameter for filtering.
@@ -2945,6 +3697,15 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 			l.MetaInfo = json.RawMessage("{}")
 		}
 		listings = append(listings, l)
+	}
+
+	// Optionally resolve user identity from Authorization header
+	userID := optionalUserID(r)
+	if userID > 0 {
+		purchasedSet := getUserPurchasedListingIDs(userID)
+		for i := range listings {
+			listings[i].Purchased = purchasedSet[listings[i].ID]
+		}
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"packs": listings})
@@ -3190,6 +3951,11 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to record user download: %v", err)
 	}
 
+	// Record/restore user purchased pack (non-critical for download, used for display)
+	if err := upsertUserPurchasedPack(userID, packID); err != nil {
+		log.Printf("Failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, packID, err)
+	}
+
 	// Return file data as binary response with meta_info header
 	metaInfoValue := "{}"
 	if metaInfoStr.Valid && metaInfoStr.String != "" {
@@ -3204,6 +3970,17 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Meta-Info", metaInfoValue)
 	w.WriteHeader(http.StatusOK)
 	w.Write(fileData)
+
+	// For per_use packs, initialize pack_usage_records on first download (non-critical)
+	if shareMode == "per_use" {
+		_, err := db.Exec(
+			`INSERT OR IGNORE INTO pack_usage_records (user_id, listing_id, used_count, total_purchased) VALUES (?, ?, 0, 1)`,
+			userID, packID,
+		)
+		if err != nil {
+			log.Printf("Failed to initialize pack_usage_records for per_use pack (user=%d, listing=%d): %v", userID, packID, err)
+		}
+	}
 }
 
 // handlePurchaseAdditionalUses handles POST /api/packs/{id}/purchase-uses
@@ -3331,6 +4108,27 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to commit transaction: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Record/restore user purchased pack (non-critical, used for display)
+	if err := upsertUserPurchasedPack(userID, packID); err != nil {
+		log.Printf("Failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, packID, err)
+	}
+
+	// Sync pack_usage_records.total_purchased after successful purchase
+	_, err = db.Exec(
+		`INSERT OR IGNORE INTO pack_usage_records (user_id, listing_id, used_count, total_purchased) VALUES (?, ?, 0, 0)`,
+		userID, packID,
+	)
+	if err != nil {
+		log.Printf("[PURCHASE-USES] failed to insert pack_usage_records (user=%d, listing=%d): %v", userID, packID, err)
+	}
+	_, err = db.Exec(
+		`UPDATE pack_usage_records SET total_purchased = total_purchased + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND listing_id = ?`,
+		req.Quantity, userID, packID,
+	)
+	if err != nil {
+		log.Printf("[PURCHASE-USES] failed to update total_purchased (user=%d, listing=%d): %v", userID, packID, err)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -3482,6 +4280,11 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to commit transaction: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Record/restore user purchased pack (non-critical, used for display)
+	if err := upsertUserPurchasedPack(userID, packID); err != nil {
+		log.Printf("Failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, packID, err)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -4744,6 +5547,17 @@ func handleAdminCustomerRoutes(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 }
 
+// securityHeaders adds standard security headers to all responses.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	port := flag.Int("port", 8088, "Server port")
 	dbPath := flag.String("db", "marketplace.db", "SQLite database path")
@@ -4809,6 +5623,7 @@ func main() {
 
 	// Pack routes (upload and download require auth, listing is public)
 	http.HandleFunc("/api/packs/upload", authMiddleware(handleUploadPack))
+	http.HandleFunc("/api/packs/report-usage", authMiddleware(handleReportPackUsage))
 	http.HandleFunc("/api/packs", handleListPacks)
 	http.HandleFunc("/api/packs/", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		// Dispatch based on URL suffix
@@ -4862,9 +5677,14 @@ func main() {
 	http.HandleFunc("/user/register", handleUserRegister)
 	http.HandleFunc("/user/logout", handleUserLogout)
 	http.HandleFunc("/user/ticket-login", handleTicketLogin)
+	http.HandleFunc("/user/change-password", userAuth(handleUserChangePassword))
 	http.HandleFunc("/user/set-password", userAuth(handleUserSetPassword))
 	http.HandleFunc("/user/captcha", handleUserCaptchaImage)
 	http.HandleFunc("/user/captcha/refresh", handleUserCaptchaRefresh)
+	http.HandleFunc("/user/billing", userAuth(handleUserBilling))
+	http.HandleFunc("/user/pack/renew-uses", userAuth(handleUserRenewPerUse))
+	http.HandleFunc("/user/pack/renew-subscription", userAuth(handleUserRenewSubscription))
+	http.HandleFunc("/user/pack/delete", userAuth(handleSoftDeletePack))
 	http.HandleFunc("/user/", userAuth(handleUserDashboard))
 
 	// Root redirect to user portal
@@ -4878,7 +5698,10 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("Marketplace server starting on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+
+	// Wrap with security headers middleware
+	handler := securityHeaders(http.DefaultServeMux)
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

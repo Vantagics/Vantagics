@@ -20,6 +20,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 	wailsLogger "github.com/wailsapp/wails/v2/pkg/logger"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -107,7 +108,9 @@ func getSystemLanguage() string {
 	// On Windows, check system locale
 	if runtime.GOOS == "windows" && locale == "" {
 		// Try PowerShell to get culture
-		if out, err := exec.Command("powershell", "-Command", "(Get-Culture).Name").Output(); err == nil {
+		cmd := exec.Command("powershell", "-Command", "(Get-Culture).Name")
+		cmd.SysProcAttr = hiddenProcAttr()
+		if out, err := cmd.Output(); err == nil {
 			locale = strings.TrimSpace(string(out))
 		}
 	}
@@ -291,6 +294,11 @@ func main() {
 				Title:   "VantageData (观界)",
 				Message: "See Beyond Data. Master Your Vantage.\n观数据之界，见商业全貌。",
 			},
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			DisableWindowIcon:    false,
 		},
 	})
 

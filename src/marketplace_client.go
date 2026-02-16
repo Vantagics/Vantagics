@@ -72,6 +72,7 @@ type PackListingInfo struct {
 	CreditsPrice    int    `json:"credits_price"`
 	DownloadCount   int    `json:"download_count"`
 	CreatedAt       string `json:"created_at"`
+	Purchased       bool   `json:"purchased"`
 }
 
 // ensureMarketplaceClient initializes the marketplace client on the App if not already set.
@@ -424,7 +425,15 @@ func (a *App) BrowseMarketplacePacks(categoryID int64) ([]PackListingInfo, error
 		url = fmt.Sprintf("%s?category_id=%d", url, categoryID)
 	}
 
-	resp, err := mc.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	if mc.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+mc.Token)
+	}
+
+	resp, err := mc.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to browse packs: %w", err)
 	}
@@ -494,12 +503,35 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 		return "", fmt.Errorf("downloaded file exceeds maximum size limit (%dMB)", maxDownloadSize/1024/1024)
 	}
 
+	// Move downloaded file from temp directory to {DataCacheDir}/qap/
+	cfg, err := a.GetConfig()
+	if err != nil {
+		// Cannot get config; return temp path as fallback (Requirement 2.4)
+		return filePath, fmt.Errorf("downloaded to temp but failed to get config for QAP directory: %w", err)
+	}
+	qapDir := filepath.Join(cfg.DataCacheDir, "qap")
+	if err := os.MkdirAll(qapDir, 0755); err != nil {
+		// Cannot create QAP directory; return temp path (Requirement 2.4)
+		return filePath, fmt.Errorf("downloaded to temp but failed to create QAP directory: %w", err)
+	}
+	finalPath := filepath.Join(qapDir, fileName)
+
+	// Try os.Rename first; fallback to copy+delete for cross-filesystem moves
+	if err := os.Rename(filePath, finalPath); err != nil {
+		if copyErr := copyFile(filePath, finalPath); copyErr != nil {
+			// Copy failed; preserve temp file (Requirement 2.4)
+			return filePath, fmt.Errorf("downloaded to temp but failed to move to QAP directory: %w", copyErr)
+		}
+		// Copy succeeded; clean up temp file (Requirement 2.2)
+		os.Remove(filePath)
+	}
+
 	// Extract encryption password from response header (for paid packs)
 	if encPassword := resp.Header.Get("X-Encryption-Password"); encPassword != "" {
 		if a.packPasswords == nil {
 			a.packPasswords = make(map[string]string)
 		}
-		a.packPasswords[filePath] = encPassword
+		a.packPasswords[finalPath] = encPassword
 	}
 
 	// Parse X-Usage-License header if present and save to local store
@@ -513,7 +545,27 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 		}
 	}
 
-	return filePath, nil
+	return finalPath, nil
+}
+
+// copyFile copies src to dst, used as fallback when os.Rename fails across filesystems.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 // GetMarketplaceCreditsBalance fetches the current user's credits balance from the marketplace.
@@ -658,4 +710,141 @@ func (a *App) GetUsageLicenses() []*UsageLicense {
 		return nil
 	}
 	return a.usageLicenseStore.GetAllLicenses()
+}
+
+// ReportPackUsageResponse 服务器上报响应
+type ReportPackUsageResponse struct {
+	Success        bool `json:"success"`
+	UsedCount      int  `json:"used_count"`
+	TotalPurchased int  `json:"total_purchased"`
+}
+
+// FlushPendingUsageReports processes all pending usage records in the queue.
+// For each record, it dequeues first then calls ReportPackUsage. If ReportPackUsage
+// fails, it will automatically re-enqueue the record. After processing all records,
+// the queue is persisted to disk via Save.
+func (a *App) FlushPendingUsageReports() {
+	if a.pendingUsageQueue == nil {
+		return
+	}
+
+	records := a.pendingUsageQueue.GetAll()
+	for _, rec := range records {
+		// Dequeue before calling ReportPackUsage to avoid duplicates.
+		// If ReportPackUsage fails, it will re-enqueue automatically.
+		_ = a.pendingUsageQueue.Dequeue(rec.ListingID, rec.UsedAt)
+
+		_, err := a.ReportPackUsage(rec.ListingID, rec.UsedAt)
+		if err != nil {
+			fmt.Printf("[FlushPendingUsageReports] failed to report listing %d at %s: %v\n", rec.ListingID, rec.UsedAt, err)
+		}
+	}
+
+	_ = a.pendingUsageQueue.Save()
+}
+
+
+// ReportPackUsage reports a per_use pack usage to the marketplace server.
+// On success, it updates the local UsageLicenseStore with the server's used_count.
+// On network error or non-2xx (except 400), it enqueues the record to PendingUsageQueue.
+// On HTTP 400 (invalid request), it logs a warning but does NOT enqueue.
+func (a *App) ReportPackUsage(listingID int64, usedAt string) (*ReportPackUsageResponse, error) {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		// No JWT token — enqueue for later retry
+		if a.pendingUsageQueue != nil {
+			_ = a.pendingUsageQueue.Enqueue(PendingUsageRecord{ListingID: listingID, UsedAt: usedAt})
+		}
+		return nil, fmt.Errorf("not logged in to marketplace")
+	}
+
+	payload, _ := json.Marshal(map[string]interface{}{
+		"listing_id": listingID,
+		"used_at":    usedAt,
+	})
+	url := fmt.Sprintf("%s/api/packs/report-usage", mc.ServerURL)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		if a.pendingUsageQueue != nil {
+			_ = a.pendingUsageQueue.Enqueue(PendingUsageRecord{ListingID: listingID, UsedAt: usedAt})
+		}
+		return nil, fmt.Errorf("failed to create report-usage request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		// Network error — enqueue for retry
+		if a.pendingUsageQueue != nil {
+			_ = a.pendingUsageQueue.Enqueue(PendingUsageRecord{ListingID: listingID, UsedAt: usedAt})
+		}
+		return nil, fmt.Errorf("failed to report pack usage: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusBadRequest {
+		// HTTP 400: invalid request — log but do NOT enqueue (retrying won't help)
+		errMsg := readErrorBody(resp.Body)
+		fmt.Printf("[ReportPackUsage] warning: server returned 400 for listing %d: %s\n", listingID, errMsg)
+		return nil, fmt.Errorf("invalid usage report (400): %s", errMsg)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// Non-2xx (5xx, etc.) — enqueue for retry
+		errMsg := readErrorBody(resp.Body)
+		if a.pendingUsageQueue != nil {
+			_ = a.pendingUsageQueue.Enqueue(PendingUsageRecord{ListingID: listingID, UsedAt: usedAt})
+		}
+		return nil, fmt.Errorf("report-usage failed with status %d: %s", resp.StatusCode, errMsg)
+	}
+
+	// Success — parse response
+	var result ReportPackUsageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode report-usage response: %w", err)
+	}
+
+	// Update local UsageLicenseStore with server's used_count
+	if a.usageLicenseStore != nil {
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic != nil && lic.PricingModel == "per_use" {
+			lic.RemainingUses = lic.TotalUses - result.UsedCount
+			if lic.RemainingUses < 0 {
+				lic.RemainingUses = 0
+			}
+			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			a.usageLicenseStore.SetLicense(lic)
+			_ = a.usageLicenseStore.Save()
+		}
+	}
+
+	return &result, nil
+}
+
+
+// FlushPendingUsageReports processes all pending usage records in the queue.
+// For each record, it dequeues first then calls ReportPackUsage. If ReportPackUsage
+// fails, it will automatically re-enqueue the record. After processing all records,
+// the queue is persisted to disk via Save.
+func (a *App) FlushPendingUsageReports() {
+	if a.pendingUsageQueue == nil {
+		return
+	}
+
+	records := a.pendingUsageQueue.GetAll()
+	for _, rec := range records {
+		// Dequeue before calling ReportPackUsage to avoid duplicates.
+		// If ReportPackUsage fails, it will re-enqueue automatically.
+		_ = a.pendingUsageQueue.Dequeue(rec.ListingID, rec.UsedAt)
+
+		_, err := a.ReportPackUsage(rec.ListingID, rec.UsedAt)
+		if err != nil {
+			fmt.Printf("[FlushPendingUsageReports] failed to report listing %d at %s: %v\n", rec.ListingID, rec.UsedAt, err)
+		}
+	}
+
+	_ = a.pendingUsageQueue.Save()
 }

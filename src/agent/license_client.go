@@ -622,6 +622,13 @@ func (c *LicenseClient) IncrementAnalysis() {
 				c.mu.RUnlock()
 				if timeSinceLastReport >= 30*time.Second {
 					go func() {
+						defer func() {
+							if r := recover(); r != nil {
+								if c.log != nil {
+									c.log(fmt.Sprintf("[LICENSE] Usage report goroutine recovered from panic: %v", r))
+								}
+							}
+						}()
 						if err := c.ReportUsage(); err != nil {
 							if c.log != nil {
 								c.log(fmt.Sprintf("[LICENSE] Immediate usage report after analysis failed: %v", err))
@@ -1014,6 +1021,13 @@ func (c *LicenseClient) StartUsageReporting() {
 	c.mu.Unlock()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				if c.log != nil {
+					c.log(fmt.Sprintf("[LICENSE] Usage reporting goroutine recovered from panic: %v", r))
+				}
+			}
+		}()
 		for {
 			select {
 			case <-ticker.C:

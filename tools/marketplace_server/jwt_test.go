@@ -182,3 +182,70 @@ func TestAuthMiddleware_ExpiredToken(t *testing.T) {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
 }
+
+// --- optionalUserID tests ---
+
+func TestOptionalUserID_NoHeader(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	got := optionalUserID(req)
+	if got != 0 {
+		t.Errorf("expected 0 for no auth header, got %d", got)
+	}
+}
+
+func TestOptionalUserID_EmptyHeader(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	req.Header.Set("Authorization", "")
+	got := optionalUserID(req)
+	if got != 0 {
+		t.Errorf("expected 0 for empty auth header, got %d", got)
+	}
+}
+
+func TestOptionalUserID_NoBearerPrefix(t *testing.T) {
+	token, _ := generateJWT(42, "Alice")
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	req.Header.Set("Authorization", token) // missing "Bearer " prefix
+	got := optionalUserID(req)
+	if got != 0 {
+		t.Errorf("expected 0 for missing Bearer prefix, got %d", got)
+	}
+}
+
+func TestOptionalUserID_InvalidToken(t *testing.T) {
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	req.Header.Set("Authorization", "Bearer not-a-valid-jwt")
+	got := optionalUserID(req)
+	if got != 0 {
+		t.Errorf("expected 0 for invalid token, got %d", got)
+	}
+}
+
+func TestOptionalUserID_ExpiredToken(t *testing.T) {
+	// Build an expired token
+	payload := jwtPayload{UserID: 7, DisplayName: "Expired", Exp: time.Now().Add(-1 * time.Hour).Unix()}
+	payloadJSON, _ := json.Marshal(payload)
+	payloadEncoded := base64URLEncode(payloadJSON)
+	signingInput := jwtHeaderEncoded + "." + payloadEncoded
+	mac := hmac.New(sha256.New, jwtSecret)
+	mac.Write([]byte(signingInput))
+	signature := base64URLEncode(mac.Sum(nil))
+	token := signingInput + "." + signature
+
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	got := optionalUserID(req)
+	if got != 0 {
+		t.Errorf("expected 0 for expired token, got %d", got)
+	}
+}
+
+func TestOptionalUserID_ValidToken(t *testing.T) {
+	token, _ := generateJWT(99, "Charlie")
+	req := httptest.NewRequest("GET", "/api/packs", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	got := optionalUserID(req)
+	if got != 99 {
+		t.Errorf("expected 99 for valid token, got %d", got)
+	}
+}

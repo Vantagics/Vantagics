@@ -328,6 +328,7 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 			a.Log(fmt.Sprintf("[QAP-EXECUTE] Failed to consume use for listing %d: %v", listingID, err))
 		} else {
 			_ = a.usageLicenseStore.Save()
+			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
 		}
 	}
 
@@ -470,6 +471,7 @@ func (a *App) ReExecuteQuickAnalysisPack(threadID string) error {
 			a.Log(fmt.Sprintf("[QAP-REEXECUTE] Failed to consume use for listing %d: %v", listingID, err))
 		} else {
 			_ = a.usageLicenseStore.Save()
+			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
 		}
 	}
 
