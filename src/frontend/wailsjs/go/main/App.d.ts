@@ -155,7 +155,7 @@ export function GetDataSourceTableCount(arg1:string,arg2:string):Promise<number>
 
 export function GetDataSourceTableData(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 
-export function GetDataSourceTableDataWithCount(arg1:string,arg2:string):Promise<{data: Array<Record<string, any>>, rowCount: number}>;
+export function GetDataSourceTableDataWithCount(arg1:string,arg2:string):Promise<main.TableDataWithCount>;
 
 export function GetDataSourceTables(arg1:string):Promise<Array<string>>;
 
@@ -257,8 +257,6 @@ export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>
 
 export function MarketplaceLoginWithSN():Promise<void>;
 
-export function ServicePortalLogin():Promise<string>;
-
 export function OpenDevTools():Promise<void>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
@@ -332,6 +330,8 @@ export function SemanticOptimizeDataSource(arg1:string):Promise<void>;
 export function SendFreeChatMessage(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
+
+export function ServicePortalLogin():Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 

@@ -182,25 +182,28 @@ VantageData 是一款基于人工智能的数据分析平台，采用现代化�
 
 ### 6.1 快捷分析包市场
 
-- OAuth 社交登录（Google, Apple, Facebook, Amazon）
-- 分类浏览（Shopify, BigCommerce, eBay, Etsy）
+- SN + Email 自动登录（基于 License 服务器认证）
+- 分类浏览（Shopify, BigCommerce, eBay, Etsy 及自定义分类）
 - 积分购买/下载
+- 本地使用权限管理
 
 ### 6.2 定价模式
 
-- 免费 (Free)
-- 按次付费 (Per Use)
-- 限时 (Time Limited)
-- 订阅 (Subscription)
+- **免费 (Free)**: 无需积分，直接下载使用
+- **按次付费 (Per Use)**: 每次执行消耗一次使用权，支持追加购买
+- **限时 (Time Limited)**: 购买后在指定天数内无限次使用
+- **订阅 (Subscription)**: 按月/年订阅，到期前可续费
 
 ### 6.3 市场 API 功能
 
-- SN 登录市场
-- 浏览市场包
-- 下载市场包
-- 分享包到市场
+- SN + Email 自动认证登录
+- 浏览市场包（按分类筛选）
+- 下载市场包（自动扣除积分）
+- 分享包到市场（支持四种定价模式）
 - 获取市场分类
 - 获取积分余额
+- 追加购买使用次数
+- 订阅续费
 
 ---
 

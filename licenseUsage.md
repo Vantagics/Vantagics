@@ -6,8 +6,9 @@ ReferenceError: Can't find variable: showTab# VantageData 授权服务器使用�
 2. [快速开始](#快速开始)
 3. [管理界面使用](#管理界面使用)
 4. [客户端激活](#客户端激活)
-5. [API 接口说明](#api-接口说明)
-6. [常见问题](#常见问题)
+5. [市场认证集成](#市场认证集成)
+6. [API 接口说明](#api-接口说明)
+7. [常见问题](#常见问题)
 
 ---
 
@@ -285,6 +286,118 @@ Auth server starting on :6699 (HTTP)
 
 ---
 
+## 市场认证集成
+
+### 5.1 市场认证流程
+
+VantageData 快捷分析包市场使用 License 服务器进行用户认证，实现与授权系统的统一管理。
+
+#### 认证流程
+
+1. 用户在客户端激活序列号时，同时提供邮箱地址
+2. 当用户访问市场功能时，客户端自动使用 SN + Email 向 License 服务器请求认证
+3. License 服务器验证 SN 和 Email 的有效性和关联关系
+4. 验证通过后，License 服务器签发短期认证令牌（5 分钟有效）
+5. 客户端使用该令牌向 Marketplace 服务器请求登录
+6. Marketplace 服务器验证令牌后签发市场 JWT，用于后续 API 调用
+
+#### 认证优势
+
+- **无缝体验**：用户无需额外注册或登录，激活后自动可用市场功能
+- **统一管理**：市场用户身份与授权系统绑定，便于管理和追踪
+- **安全可靠**：使用双重验证（License 服务器 + Marketplace 服务器），确保身份真实性
+
+### 5.2 市场认证 API
+
+#### 请求认证令牌
+
+**接口**：`POST /api/marketplace-auth`
+
+**请求**：
+```json
+{
+  "sn": "XXXX-XXXX-XXXX-XXXX",
+  "email": "user@example.com"
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "message": "认证成功"
+}
+```
+
+**错误响应**：
+```json
+{
+  "success": false,
+  "code": "INVALID_SN",  // 或 SN_DISABLED, SN_EXPIRED, EMAIL_MISMATCH
+  "message": "序列号无效"
+}
+```
+
+**错误代码说明**：
+- `INVALID_SN`: 序列号不存在
+- `SN_DISABLED`: 序列号已被禁用
+- `SN_EXPIRED`: 序列号已过期
+- `EMAIL_MISMATCH`: 邮箱与序列号不匹配
+
+#### 验证认证令牌
+
+**接口**：`POST /api/marketplace-verify`
+
+**请求**：
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**成功响应**：
+```json
+{
+  "success": true,
+  "sn": "XXXX-XXXX-XXXX-XXXX",
+  "email": "user@example.com"
+}
+```
+
+**错误响应**：
+```json
+{
+  "success": false,
+  "message": "令牌无效或已过期"
+}
+```
+
+### 5.3 配置市场认证
+
+#### 设置共享密钥
+
+市场认证使用 HMAC-SHA256 签名，需要在 License 服务器和 Marketplace 服务器之间配置相同的共享密钥。
+
+**License 服务器配置**：
+```bash
+export LICENSE_MARKETPLACE_SECRET="your-secret-key-here"
+```
+
+**Marketplace 服务器配置**：
+```bash
+export MARKETPLACE_JWT_SECRET="your-secret-key-here"
+```
+
+> ⚠️ **安全提示**：共享密钥应使用强随机字符串，长度至少 32 字符，并妥善保管。
+
+#### 令牌有效期
+
+- 认证令牌有效期：5 分钟（仅用于一次性登录验证）
+- 市场 JWT 有效期：由 Marketplace 服务器配置（通常为 24 小时）
+
+---
+
 ## API 接口说明
 
 ### 5.1 授权服务 API（端口 6699）
@@ -346,6 +459,18 @@ Auth server starting on :6699 (HTTP)
   "code": "rate_limit"  // 可选的错误代码
 }
 ```
+
+#### 市场认证
+
+**接口**：`POST /api/marketplace-auth`
+
+详见"市场认证集成"章节。
+
+#### 市场令牌验证
+
+**接口**：`POST /api/marketplace-verify`
+
+详见"市场认证集成"章节。
 
 #### 健康检查
 

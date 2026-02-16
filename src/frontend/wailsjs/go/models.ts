@@ -2586,6 +2586,20 @@ export namespace main {
 	}
 	
 	
+	export class TableDataWithCount {
+	    data: any[];
+	    rowCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TableDataWithCount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data = source["data"];
+	        this.rowCount = source["rowCount"];
+	    }
+	}
 	
 	export class UsageLicense {
 	    listing_id: number;
