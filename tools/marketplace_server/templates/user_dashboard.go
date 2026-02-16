@@ -15,9 +15,9 @@ const userDashboardHTML = `<!DOCTYPE html>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #0f172a;
+            background: linear-gradient(135deg, #f0f4ff 0%, #e8f5e9 50%, #f3e8ff 100%);
             min-height: 100vh;
-            color: #f1f5f9;
+            color: #1e293b;
         }
         .dashboard-wrap {
             max-width: 960px;
@@ -36,18 +36,18 @@ const userDashboardHTML = `<!DOCTYPE html>
             gap: 10px;
         }
         .header-title .logo { font-size: 28px; }
-        .header-title h1 { font-size: 20px; font-weight: 700; color: #f1f5f9; }
+        .header-title h1 { font-size: 20px; font-weight: 700; color: #1e293b; }
         /* User info bar */
         .user-info {
-            background: #1e293b;
-            border-radius: 12px;
+            background: #fff;
+            border-radius: 16px;
             padding: 24px 28px;
             margin-bottom: 28px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-            border: 1px solid rgba(255,255,255,0.06);
+            box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+            border: 1px solid #e2e8f0;
             flex-wrap: wrap;
             gap: 16px;
         }
@@ -59,26 +59,26 @@ const userDashboardHTML = `<!DOCTYPE html>
         }
         .user-email {
             font-size: 15px;
-            color: #e2e8f0;
+            color: #334155;
         }
         .user-email .label {
             font-size: 12px;
-            color: #94a3b8;
+            color: #64748b;
             display: block;
             margin-bottom: 2px;
         }
         .credits-info {
             font-size: 15px;
-            color: #e2e8f0;
+            color: #334155;
         }
         .credits-info .label {
             font-size: 12px;
-            color: #94a3b8;
+            color: #64748b;
             display: block;
             margin-bottom: 2px;
         }
         .credits-info .balance {
-            color: #fbbf24;
+            color: #d97706;
             font-weight: 700;
             font-size: 18px;
         }
@@ -89,33 +89,33 @@ const userDashboardHTML = `<!DOCTYPE html>
         }
         .btn-recharge {
             padding: 8px 16px;
-            background: #3b82f6;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
             color: #fff;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: opacity 0.2s;
         }
-        .btn-recharge:hover { background: #2563eb; }
+        .btn-recharge:hover { opacity: 0.9; }
         .btn-logout {
             padding: 8px 16px;
             background: none;
             color: #ef4444;
-            border: 1px solid rgba(239,68,68,0.3);
-            border-radius: 6px;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
             font-size: 13px;
             cursor: pointer;
             text-decoration: none;
             transition: all 0.2s;
         }
-        .btn-logout:hover { background: rgba(239,68,68,0.1); border-color: #ef4444; }
+        .btn-logout:hover { background: #fef2f2; border-color: #ef4444; }
         /* Section title */
         .section-title {
             font-size: 16px;
             font-weight: 600;
-            color: #f1f5f9;
+            color: #1e293b;
             margin-bottom: 16px;
         }
 
@@ -126,23 +126,23 @@ const userDashboardHTML = `<!DOCTYPE html>
             gap: 16px;
         }
         .pack-card {
-            background: #1e293b;
-            border-radius: 10px;
+            background: #fff;
+            border-radius: 12px;
             padding: 20px;
-            border: 1px solid rgba(255,255,255,0.06);
-            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
-            transition: border-color 0.2s;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .pack-card:hover { border-color: rgba(255,255,255,0.12); }
+        .pack-card:hover { border-color: #c7d2fe; box-shadow: 0 4px 16px rgba(99,102,241,0.08); }
         .pack-card .pack-name {
             font-size: 15px;
             font-weight: 600;
-            color: #f1f5f9;
+            color: #1e293b;
             margin-bottom: 8px;
         }
         .pack-card .pack-category {
             font-size: 12px;
-            color: #94a3b8;
+            color: #64748b;
             margin-bottom: 10px;
         }
         .pack-card .pack-meta {
@@ -159,17 +159,17 @@ const userDashboardHTML = `<!DOCTYPE html>
             font-size: 11px;
             font-weight: 500;
         }
-        .tag-free { background: rgba(34,197,94,0.15); color: #4ade80; }
-        .tag-per-use { background: rgba(59,130,246,0.15); color: #60a5fa; }
-        .tag-time-limited { background: rgba(251,191,36,0.15); color: #fbbf24; }
-        .tag-subscription { background: rgba(168,85,247,0.15); color: #c084fc; }
+        .tag-free { background: #ecfdf5; color: #059669; }
+        .tag-per-use { background: #eff6ff; color: #2563eb; }
+        .tag-time-limited { background: #fffbeb; color: #d97706; }
+        .tag-subscription { background: #faf5ff; color: #7c3aed; }
         .pack-card .pack-date {
             font-size: 12px;
-            color: #64748b;
+            color: #94a3b8;
         }
         .pack-card .pack-expires {
             font-size: 12px;
-            color: #94a3b8;
+            color: #64748b;
             margin-top: 4px;
         }
 
@@ -177,7 +177,7 @@ const userDashboardHTML = `<!DOCTYPE html>
         .empty-state {
             text-align: center;
             padding: 60px 20px;
-            color: #64748b;
+            color: #94a3b8;
         }
         .empty-state .icon { font-size: 48px; margin-bottom: 16px; }
         .empty-state p { font-size: 15px; }

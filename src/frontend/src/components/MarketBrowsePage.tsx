@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
-import { Loader2, Package, X, Download, ShoppingCart, Search, Trash2, CreditCard } from 'lucide-react';
+import { Loader2, Package, X, Download, ShoppingCart, Search, Trash2, CreditCard, RefreshCw } from 'lucide-react';
 import {
     GetMarketplaceCategories,
     BrowseMarketplacePacks,
@@ -60,6 +60,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
     const [creditsBalance, setCreditsBalance] = useState<number>(0);
     const [downloadingID, setDownloadingID] = useState<number | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [refreshingBalance, setRefreshingBalance] = useState(false);
 
     // Filter / Sort / Search state
     const [shareModeFilter, setShareModeFilter] = useState<ShareModeFilter>('all');
@@ -186,6 +187,18 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
         OpenExternalURL(TOPUP_URL);
     };
 
+    const handleRefreshBalance = async () => {
+        setRefreshingBalance(true);
+        try {
+            const bal = await GetMarketplaceCreditsBalance();
+            setCreditsBalance(bal);
+        } catch (_) {
+            // best-effort
+        } finally {
+            setRefreshingBalance(false);
+        }
+    };
+
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -224,6 +237,14 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                         <span className="text-xs text-slate-500 dark:text-[#8e8e8e]">
                             {t('market_browse_balance')}: {creditsBalance} {t('market_browse_credits')}
                         </span>
+                        <button
+                            onClick={handleRefreshBalance}
+                            disabled={refreshingBalance}
+                            className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors disabled:opacity-50"
+                            title={t('market_browse_refresh_balance')}
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 dark:text-[#8e8e8e] ${refreshingBalance ? 'animate-spin' : ''}`} />
+                        </button>
                         <button
                             onClick={handleTopUp}
                             className="px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 border border-blue-300 dark:border-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors"
