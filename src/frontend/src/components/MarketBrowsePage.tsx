@@ -201,11 +201,13 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            // Don't close market page if a sub-dialog (e.g. AddToCartDialog) is open
+            if (addToCartTarget || showInsufficientBalance) return;
             if (e.key === 'Escape') onClose();
         };
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
+    }, [onClose, addToCartTarget, showInsufficientBalance]);
 
     const sortOptions = [
         { field: 'created_at' as SortField, direction: 'desc' as SortDirection, label: t('sort_time_desc') },

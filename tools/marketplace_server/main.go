@@ -2532,6 +2532,7 @@ type qapFileContent struct {
 	FileType      string `json:"file_type"`
 	FormatVersion string `json:"format_version"`
 	Metadata      struct {
+		PackName    string `json:"pack_name"`
 		Author      string `json:"author"`
 		CreatedAt   string `json:"created_at"`
 		SourceName  string `json:"source_name"`
@@ -2686,6 +2687,7 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 			}
 			// metadata.json contains only the metadata object directly
 			var meta struct {
+				PackName    string `json:"pack_name"`
 				Author      string `json:"author"`
 				CreatedAt   string `json:"created_at"`
 				SourceName  string `json:"source_name"`
@@ -2805,8 +2807,11 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		encryptionPassword = pwd
 	}
 
-	// Use source_name as pack_name, fall back to "Untitled"
-	packName := qapContent.Metadata.SourceName
+	// Use pack_name from metadata, fall back to source_name, then "Untitled"
+	packName := qapContent.Metadata.PackName
+	if packName == "" {
+		packName = qapContent.Metadata.SourceName
+	}
 	if packName == "" {
 		packName = "Untitled"
 	}

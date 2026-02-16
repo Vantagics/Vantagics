@@ -38,6 +38,8 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
     return ReactDOM.createPortal(
         <div
             className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => e.stopPropagation()}
             onMouseDown={(e) => {
                 if (e.target === e.currentTarget) {
                     backdropMouseDown.current = true;
