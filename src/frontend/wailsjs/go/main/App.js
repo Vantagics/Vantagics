@@ -506,6 +506,10 @@ export function MarketplaceLoginWithSN() {
   return window['go']['main']['App']['MarketplaceLoginWithSN']();
 }
 
+export function MarketplacePortalLogin() {
+  return window['go']['main']['App']['MarketplacePortalLogin']();
+}
+
 export function OpenDevTools() {
   return window['go']['main']['App']['OpenDevTools']();
 }
@@ -656,10 +660,6 @@ export function SendMessage(arg1, arg2, arg3, arg4) {
 
 export function ServicePortalLogin() {
   return window['go']['main']['App']['ServicePortalLogin']();
-}
-
-export function MarketplacePortalLogin() {
-  return window['go']['main']['App']['MarketplacePortalLogin']();
 }
 
 export function SetChatOpen(arg1) {

@@ -257,6 +257,8 @@ export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>
 
 export function MarketplaceLoginWithSN():Promise<void>;
 
+export function MarketplacePortalLogin():Promise<string>;
+
 export function OpenDevTools():Promise<void>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
@@ -332,8 +334,6 @@ export function SendFreeChatMessage(arg1:string,arg2:string,arg3:string):Promise
 export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
 export function ServicePortalLogin():Promise<string>;
-
-export function MarketplacePortalLogin():Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
