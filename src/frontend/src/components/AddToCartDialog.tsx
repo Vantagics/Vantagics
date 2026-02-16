@@ -17,11 +17,12 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
     const isSubscription = pack.share_mode === 'subscription';
 
     const [quantity, setQuantity] = useState<number>(1);
+    const [quantityStr, setQuantityStr] = useState<string>('1');
     const [isYearly, setIsYearly] = useState(false);
     const backdropMouseDown = React.useRef(false);
 
     const handleConfirm = () => {
-        onConfirm(quantity, isYearly);
+        onConfirm(quantity >= 1 ? quantity : 1, isYearly);
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -38,7 +39,11 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
         <div
             className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 backdrop-blur-sm"
             onMouseDown={(e) => {
-                if (e.target === e.currentTarget) backdropMouseDown.current = true;
+                if (e.target === e.currentTarget) {
+                    backdropMouseDown.current = true;
+                } else {
+                    backdropMouseDown.current = false;
+                }
             }}
             onMouseUp={(e) => {
                 if (e.target === e.currentTarget && backdropMouseDown.current) {
@@ -72,10 +77,16 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
                             type="number"
                             min={1}
                             step={1}
-                            value={quantity}
+                            value={quantityStr}
                             onChange={e => {
-                                const v = parseInt(e.target.value, 10);
+                                const raw = e.target.value;
+                                setQuantityStr(raw);
+                                const v = parseInt(raw, 10);
                                 if (!isNaN(v) && v >= 1) setQuantity(v);
+                            }}
+                            onBlur={() => {
+                                if (quantity >= 1) setQuantityStr(String(quantity));
+                                else { setQuantity(1); setQuantityStr('1'); }
                             }}
                             className={inputClass}
                         />
@@ -88,7 +99,7 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
                         <div className="mb-4">
                             <div className="flex gap-2 mb-3">
                                 <button
-                                    onClick={() => { setIsYearly(false); setQuantity(1); }}
+                                    onClick={() => { setIsYearly(false); setQuantity(1); setQuantityStr('1'); }}
                                     className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                                         !isYearly
                                             ? 'bg-blue-600 text-white'
@@ -98,7 +109,7 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
                                     {t('purchase_mode_monthly')}
                                 </button>
                                 <button
-                                    onClick={() => { setIsYearly(true); setQuantity(1); }}
+                                    onClick={() => { setIsYearly(true); setQuantity(1); setQuantityStr('1'); }}
                                     className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                                         isYearly
                                             ? 'bg-blue-600 text-white'
@@ -119,11 +130,17 @@ const AddToCartDialog: React.FC<AddToCartDialogProps> = ({ pack, onConfirm, onCl
                                 min={1}
                                 max={isYearly ? 3 : 12}
                                 step={1}
-                                value={quantity}
+                                value={quantityStr}
                                 onChange={e => {
-                                    const v = parseInt(e.target.value, 10);
+                                    const raw = e.target.value;
+                                    setQuantityStr(raw);
+                                    const v = parseInt(raw, 10);
                                     const max = isYearly ? 3 : 12;
                                     if (!isNaN(v) && v >= 1 && v <= max) setQuantity(v);
+                                }}
+                                onBlur={() => {
+                                    if (quantity >= 1) setQuantityStr(String(quantity));
+                                    else { setQuantity(1); setQuantityStr('1'); }
                                 }}
                                 className={inputClass}
                             />
