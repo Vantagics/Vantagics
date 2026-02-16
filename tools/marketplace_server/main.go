@@ -230,6 +230,9 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add username and password_hash columns to users table (ignore error if already exists)
 	database.Exec("ALTER TABLE users ADD COLUMN username TEXT")
 	database.Exec("ALTER TABLE users ADD COLUMN password_hash TEXT")
+
+	// Add is_blocked column to users table (ignore error if already exists)
+	database.Exec("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
 	// Create unique index on username (ALTER TABLE ADD COLUMN does not support UNIQUE in SQLite)
 	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL")
 
@@ -488,6 +491,14 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Store user info in request headers for downstream handlers
 		r.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
 		r.Header.Set("X-Display-Name", displayName)
+
+		// Check if user is blocked
+		var isBlocked int
+		if err := db.QueryRow("SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?", userID).Scan(&isBlocked); err == nil && isBlocked == 1 {
+			jsonResponse(w, http.StatusForbidden, map[string]string{"error": "account_blocked", "message": "Your account has been blocked"})
+			return
+		}
+
 		next(w, r)
 	}
 }
@@ -642,7 +653,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings"}
+var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.
@@ -754,6 +765,16 @@ func userAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		userID := getUserSessionUserID(cookie.Value)
+
+		// Check if user is blocked
+		var isBlocked int
+		if err := db.QueryRow("SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?", userID).Scan(&isBlocked); err == nil && isBlocked == 1 {
+			// Clear session and redirect to login with error
+			http.SetCookie(w, makeSessionCookie("user_session", "", -1))
+			http.Redirect(w, r, "/user/login?error=blocked", http.StatusFound)
+			return
+		}
+
 		r.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
 		next(w, r)
 	}
@@ -3550,7 +3571,7 @@ func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate permissions
-	validPerms := map[string]bool{"categories": true, "marketplace": true, "authors": true, "review": true, "settings": true}
+	validPerms := map[string]bool{"categories": true, "marketplace": true, "authors": true, "review": true, "settings": true, "customers": true}
 	var filteredPerms []string
 	for _, p := range req.Permissions {
 		if validPerms[p] {
@@ -4272,6 +4293,293 @@ func handleAdminAuthorRoutes(w http.ResponseWriter, r *http.Request) {
 	handleAdminAuthorDetail(w, r)
 }
 
+// --- Customer Management ---
+
+// handleAdminCustomerList lists all marketplace users (customers).
+// GET /api/admin/customers?search=&sort=created_at&order=desc
+func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	query := `
+		SELECT u.id, u.auth_type, u.auth_id, u.display_name, COALESCE(u.email, ''),
+		       u.credits_balance, COALESCE(u.is_blocked, 0), u.created_at,
+		       COUNT(DISTINCT ud.listing_id) as download_count,
+		       COALESCE(SUM(CASE WHEN ct.transaction_type = 'download' THEN ABS(ct.amount) ELSE 0 END), 0) as total_spent
+		FROM users u
+		LEFT JOIN user_downloads ud ON ud.user_id = u.id
+		LEFT JOIN credits_transactions ct ON ct.user_id = u.id
+		GROUP BY u.id`
+
+	args := []interface{}{}
+
+	// Search by email or display_name
+	if search := r.URL.Query().Get("search"); search != "" {
+		query = `
+		SELECT u.id, u.auth_type, u.auth_id, u.display_name, COALESCE(u.email, ''),
+		       u.credits_balance, COALESCE(u.is_blocked, 0), u.created_at,
+		       COUNT(DISTINCT ud.listing_id) as download_count,
+		       COALESCE(SUM(CASE WHEN ct.transaction_type = 'download' THEN ABS(ct.amount) ELSE 0 END), 0) as total_spent
+		FROM users u
+		LEFT JOIN user_downloads ud ON ud.user_id = u.id
+		LEFT JOIN credits_transactions ct ON ct.user_id = u.id
+		WHERE u.email LIKE ? OR u.display_name LIKE ? OR u.auth_id LIKE ?
+		GROUP BY u.id`
+		like := "%" + search + "%"
+		args = append(args, like, like, like)
+	}
+
+	// Sort
+	sortField := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "asc" {
+		order = "desc"
+	}
+	switch sortField {
+	case "credits":
+		query += " ORDER BY u.credits_balance " + order
+	case "downloads":
+		query += " ORDER BY download_count " + order
+	case "spent":
+		query += " ORDER BY total_spent " + order
+	case "name":
+		query += " ORDER BY u.display_name " + order
+	default:
+		query += " ORDER BY u.created_at " + order
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("Failed to query customers: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	type CustomerInfo struct {
+		ID             int64   `json:"id"`
+		AuthType       string  `json:"auth_type"`
+		AuthID         string  `json:"auth_id"`
+		DisplayName    string  `json:"display_name"`
+		Email          string  `json:"email"`
+		CreditsBalance float64 `json:"credits_balance"`
+		IsBlocked      bool    `json:"is_blocked"`
+		CreatedAt      string  `json:"created_at"`
+		DownloadCount  int     `json:"download_count"`
+		TotalSpent     float64 `json:"total_spent"`
+	}
+
+	customers := []CustomerInfo{}
+	for rows.Next() {
+		var c CustomerInfo
+		var blocked int
+		if err := rows.Scan(&c.ID, &c.AuthType, &c.AuthID, &c.DisplayName, &c.Email,
+			&c.CreditsBalance, &blocked, &c.CreatedAt, &c.DownloadCount, &c.TotalSpent); err != nil {
+			log.Printf("Failed to scan customer: %v", err)
+			continue
+		}
+		c.IsBlocked = blocked == 1
+		customers = append(customers, c)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"customers": customers})
+}
+
+// handleAdminCustomerTopup adds credits to a customer's balance.
+// POST /api/admin/customers/{id}/topup  body: {"amount": 100, "reason": "manual topup"}
+func handleAdminCustomerTopup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse user ID from URL: /api/admin/customers/{id}/topup
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/customers/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "topup" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var req struct {
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if req.Amount <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "amount must be positive"})
+		return
+	}
+
+	// Check user exists
+	var currentBalance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&currentBalance)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	// Update balance
+	newBalance := currentBalance + req.Amount
+	_, err = db.Exec("UPDATE users SET credits_balance = ? WHERE id = ?", newBalance, userID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	// Record transaction
+	desc := "Admin topup"
+	if req.Reason != "" {
+		desc = "Admin topup: " + req.Reason
+	}
+	_, err = db.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
+		userID, req.Amount, desc)
+	if err != nil {
+		log.Printf("Failed to record topup transaction: %v", err)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status":      "ok",
+		"new_balance": newBalance,
+	})
+}
+
+// handleAdminCustomerToggleBlock blocks or unblocks a customer.
+// POST /api/admin/customers/{id}/toggle-block
+func handleAdminCustomerToggleBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse user ID from URL: /api/admin/customers/{id}/toggle-block
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/customers/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "toggle-block" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	// Get current blocked status
+	var isBlocked int
+	err = db.QueryRow("SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?", userID).Scan(&isBlocked)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	newBlocked := 0
+	if isBlocked == 0 {
+		newBlocked = 1
+	}
+
+	_, err = db.Exec("UPDATE users SET is_blocked = ? WHERE id = ?", newBlocked, userID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	status := "unblocked"
+	if newBlocked == 1 {
+		status = "blocked"
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
+}
+
+// handleAdminCustomerTransactions returns credits transaction history for a customer.
+// GET /api/admin/customers/{id}/transactions
+func handleAdminCustomerTransactions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse user ID from URL: /api/admin/customers/{id}/transactions
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/customers/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "transactions" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	userID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT id, transaction_type, amount, COALESCE(listing_id, 0), COALESCE(description, ''), created_at
+		FROM credits_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`, userID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	type TxInfo struct {
+		ID              int64   `json:"id"`
+		TransactionType string  `json:"transaction_type"`
+		Amount          float64 `json:"amount"`
+		ListingID       int64   `json:"listing_id,omitempty"`
+		Description     string  `json:"description"`
+		CreatedAt       string  `json:"created_at"`
+	}
+
+	txns := []TxInfo{}
+	for rows.Next() {
+		var t TxInfo
+		if err := rows.Scan(&t.ID, &t.TransactionType, &t.Amount, &t.ListingID, &t.Description, &t.CreatedAt); err != nil {
+			continue
+		}
+		txns = append(txns, t)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"transactions": txns})
+}
+
+// handleAdminCustomerRoutes dispatches customer admin API requests.
+func handleAdminCustomerRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/customers")
+	if path == "" || path == "/" {
+		handleAdminCustomerList(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/topup") {
+		handleAdminCustomerTopup(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/toggle-block") {
+		handleAdminCustomerToggleBlock(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/transactions") {
+		handleAdminCustomerTransactions(w, r)
+		return
+	}
+	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
 func main() {
 	port := flag.Int("port", 8088, "Server port")
 	dbPath := flag.String("db", "marketplace.db", "SQLite database path")
@@ -4365,6 +4673,10 @@ func main() {
 	// Author management API routes (permission-based)
 	http.HandleFunc("/api/admin/authors", permissionAuth("authors")(handleAdminAuthorRoutes))
 	http.HandleFunc("/api/admin/authors/", permissionAuth("authors")(handleAdminAuthorRoutes))
+
+	// Customer management API routes (permission-based)
+	http.HandleFunc("/api/admin/customers", permissionAuth("customers")(handleAdminCustomerRoutes))
+	http.HandleFunc("/api/admin/customers/", permissionAuth("customers")(handleAdminCustomerRoutes))
 
 	// Review API routes (permission-based)
 	http.HandleFunc("/api/admin/review/", permissionAuth("review")(handleReviewRoutes))

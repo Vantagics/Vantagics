@@ -102,9 +102,10 @@ const AdminHTML = `<!DOCTYPE html>
         <a href="#categories" data-perm="categories" onclick="showSection('categories')" style="display:none;"><span class="nav-icon">📂</span>分类管理</a>
         <a href="#marketplace" data-perm="marketplace" onclick="showSection('marketplace')" style="display:none;"><span class="nav-icon">🏪</span>市场管理</a>
         <a href="#authors" data-perm="authors" onclick="showSection('authors')" style="display:none;"><span class="nav-icon">✍️</span>作者管理</a>
+        <a href="#customers" data-perm="customers" onclick="showSection('customers')" style="display:none;"><span class="nav-icon">👥</span>客户管理</a>
         <a href="#review" data-perm="review" onclick="showSection('review')" style="display:none;"><span class="nav-icon">📋</span>审核管理</a>
         <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span>系统设置</a>
-        <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">👥</span>管理员管理</a>
+        <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span>管理员管理</a>
         <div class="nav-divider"></div>
         <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span>修改资料</a>
     </nav>
@@ -261,6 +262,74 @@ const AdminHTML = `<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- Customer Management Section -->
+    <div id="section-customers" style="display:none;">
+        <div class="card">
+            <div class="card-header">
+                <h2>客户管理</h2>
+                <button class="btn btn-secondary" onclick="loadCustomers()">↻ 刷新</button>
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="customer-search" placeholder="搜索邮箱/名称/SN..." style="width:260px;" onkeydown="if(event.key==='Enter')loadCustomers()" />
+                <button class="btn btn-primary btn-sm" onclick="loadCustomers()">搜索</button>
+                <select id="customer-sort" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                    <option value="created_at">按注册时间</option>
+                    <option value="credits">按余额</option>
+                    <option value="downloads">按下载量</option>
+                    <option value="spent">按消费额</option>
+                    <option value="name">按名称</option>
+                </select>
+                <select id="customer-order" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                    <option value="desc">降序</option>
+                    <option value="asc">升序</option>
+                </select>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>ID</th><th>名称</th><th>邮箱</th><th>SN</th><th>余额</th><th>下载数</th><th>消费额</th><th>状态</th><th>注册时间</th><th>操作</th></tr>
+                </thead>
+                <tbody id="customer-list"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Customer Topup Modal -->
+    <div id="topup-modal" class="modal-overlay">
+        <div class="modal">
+            <h3>充值 Credits</h3>
+            <input type="hidden" id="topup-user-id" value="" />
+            <div id="topup-user-info" style="margin-bottom:16px;font-size:13px;color:#6b7280;"></div>
+            <div class="form-group">
+                <label for="topup-amount">充值数量</label>
+                <input type="number" id="topup-amount" min="1" step="1" placeholder="输入充值 Credits 数量" />
+            </div>
+            <div class="form-group">
+                <label for="topup-reason">备注（可选）</label>
+                <input type="text" id="topup-reason" placeholder="充值原因" />
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideTopupModal()">取消</button>
+                <button class="btn btn-primary" onclick="submitTopup()">确认充值</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Transactions Modal -->
+    <div id="customer-tx-modal" class="modal-overlay">
+        <div class="modal" style="width:640px;">
+            <h3 id="customer-tx-title">交易记录</h3>
+            <table>
+                <thead>
+                    <tr><th>ID</th><th>类型</th><th>金额</th><th>描述</th><th>时间</th></tr>
+                </thead>
+                <tbody id="customer-tx-list"></tbody>
+            </table>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideCustomerTxModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Admin Management Section (id=1 only) -->
     <div id="section-admins" style="display:none;">
         <div class="card">
@@ -350,6 +419,9 @@ const AdminHTML = `<!DOCTYPE html>
                     <input type="checkbox" value="authors" class="new-admin-perm" /> 作者管理
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
+                    <input type="checkbox" value="customers" class="new-admin-perm" /> 客户管理
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
                     <input type="checkbox" value="review" class="new-admin-perm" /> 审核管理
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
@@ -388,7 +460,7 @@ const AdminHTML = `<!DOCTYPE html>
 // Permission system
 var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
-var permLabels = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', review: '审核管理', settings: '系统设置' };
+var permLabels = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', customers: '客户管理', review: '审核管理', settings: '系统设置' };
 
 function hasPerm(p) { return permissions.indexOf(p) !== -1; }
 function isSuperAdmin() { return adminID === 1; }
@@ -407,8 +479,8 @@ function isSuperAdmin() { return adminID === 1; }
 })();
 
 function showSection(name) {
-    var sections = ['categories', 'marketplace', 'authors', 'settings', 'admins', 'review', 'profile'];
-    var titles = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', settings: '系统设置', admins: '管理员管理', review: '审核管理', profile: '修改资料' };
+    var sections = ['categories', 'marketplace', 'authors', 'customers', 'settings', 'admins', 'review', 'profile'];
+    var titles = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', customers: '客户管理', settings: '系统设置', admins: '管理员管理', review: '审核管理', profile: '修改资料' };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
         if (el) el.style.display = sections[i] === name ? '' : 'none';
@@ -422,6 +494,7 @@ function showSection(name) {
     if (name === 'categories') loadCategories();
     if (name === 'marketplace') loadMarketplacePacks();
     if (name === 'authors') loadAuthors();
+    if (name === 'customers') loadCustomers();
     if (name === 'admins') loadAdmins();
     if (name === 'review') loadPendingPacks();
 }
@@ -840,6 +913,132 @@ function hideAuthorDetailModal() {
     document.getElementById('author-detail-modal').className = 'modal-overlay';
 }
 
+// --- Customer Management ---
+function loadCustomers() {
+    var search = document.getElementById('customer-search').value.trim();
+    var sort = document.getElementById('customer-sort').value;
+    var order = document.getElementById('customer-order').value;
+    var url = '/api/admin/customers?sort=' + sort + '&order=' + order;
+    if (search) url += '&search=' + encodeURIComponent(search);
+    apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
+        var customers = data.customers || [];
+        var tbody = document.getElementById('customer-list');
+        if (customers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无客户数据</td></tr>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < customers.length; i++) {
+            var c = customers[i];
+            var statusBadge = c.is_blocked
+                ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">已禁用</span>'
+                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">正常</span>';
+            var blockBtn = c.is_blocked
+                ? '<button class="btn btn-primary btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',true)">解禁</button>'
+                : '<button class="btn btn-danger btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',false)">禁用</button>';
+            html += '<tr>';
+            html += '<td>' + c.id + '</td>';
+            html += '<td>' + escHtml(c.display_name) + '</td>';
+            html += '<td>' + escHtml(c.email || '-') + '</td>';
+            html += '<td>' + escHtml(c.auth_id || '-') + '</td>';
+            html += '<td>' + c.credits_balance.toFixed(0) + '</td>';
+            html += '<td>' + c.download_count + '</td>';
+            html += '<td>' + c.total_spent.toFixed(0) + '</td>';
+            html += '<td>' + statusBadge + '</td>';
+            html += '<td>' + c.created_at + '</td>';
+            html += '<td class="actions" style="white-space:nowrap;">';
+            html += '<button class="btn btn-primary btn-sm" onclick="showTopupModal(' + c.id + ',\'' + escAttr(c.display_name) + '\',' + c.credits_balance + ')">充值</button> ';
+            html += '<button class="btn btn-secondary btn-sm" onclick="showCustomerTx(' + c.id + ',\'' + escAttr(c.display_name) + '\')">记录</button> ';
+            html += blockBtn;
+            html += '</td></tr>';
+        }
+        tbody.innerHTML = html;
+    }).catch(function(err) { showMsg('加载客户列表失败: ' + err, true); });
+}
+
+function showTopupModal(userId, name, balance) {
+    document.getElementById('topup-user-id').value = userId;
+    document.getElementById('topup-user-info').textContent = '客户: ' + name + '  |  当前余额: ' + balance.toFixed(0) + ' Credits';
+    document.getElementById('topup-amount').value = '';
+    document.getElementById('topup-reason').value = '';
+    document.getElementById('topup-modal').className = 'modal-overlay show';
+}
+
+function hideTopupModal() {
+    document.getElementById('topup-modal').className = 'modal-overlay';
+}
+
+function submitTopup() {
+    var userId = document.getElementById('topup-user-id').value;
+    var amount = parseFloat(document.getElementById('topup-amount').value);
+    var reason = document.getElementById('topup-reason').value.trim();
+    if (!amount || amount <= 0) { alert('请输入有效的充值数量'); return; }
+    apiFetch('/api/admin/customers/' + userId + '/topup', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({amount: amount, reason: reason})
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) {
+            hideTopupModal();
+            showMsg('充值成功，新余额: ' + res.data.new_balance, false);
+            loadCustomers();
+        } else {
+            showMsg(res.data.error || '充值失败', true);
+        }
+    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+}
+
+function toggleBlock(userId, name, isCurrentlyBlocked) {
+    var action = isCurrentlyBlocked ? '解禁' : '禁用';
+    if (!confirm('确定要' + action + '客户 "' + name + '" 吗？')) return;
+    apiFetch('/api/admin/customers/' + userId + '/toggle-block', { method: 'POST' })
+        .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+        .then(function(res) {
+            if (res.ok) {
+                showMsg('已' + (res.data.status === 'blocked' ? '禁用' : '解禁'), false);
+                loadCustomers();
+            } else {
+                showMsg(res.data.error || '操作失败', true);
+            }
+        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+}
+
+function showCustomerTx(userId, name) {
+    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' 的交易记录';
+    var tbody = document.getElementById('customer-tx-list');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">加载中...</td></tr>';
+    document.getElementById('customer-tx-modal').className = 'modal-overlay show';
+    apiFetch('/api/admin/customers/' + userId + '/transactions').then(function(r) { return r.json(); }).then(function(data) {
+        var txns = data.transactions || [];
+        if (txns.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无交易记录</td></tr>';
+            return;
+        }
+        var typeLabels = { download: '下载扣费', admin_topup: '管理员充值', initial: '注册赠送', purchase: '购买' };
+        var html = '';
+        for (var i = 0; i < txns.length; i++) {
+            var t = txns[i];
+            var amountStyle = t.amount >= 0 ? 'color:#065f46;' : 'color:#991b1b;';
+            var amountText = t.amount >= 0 ? '+' + t.amount : '' + t.amount;
+            html += '<tr>';
+            html += '<td>' + t.id + '</td>';
+            html += '<td>' + (typeLabels[t.transaction_type] || t.transaction_type) + '</td>';
+            html += '<td style="' + amountStyle + 'font-weight:600;">' + amountText + '</td>';
+            html += '<td>' + escHtml(t.description || '-') + '</td>';
+            html += '<td>' + t.created_at + '</td>';
+            html += '</tr>';
+        }
+        tbody.innerHTML = html;
+    }).catch(function(err) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">加载失败</td></tr>';
+    });
+}
+
+function hideCustomerTxModal() {
+    document.getElementById('customer-tx-modal').className = 'modal-overlay';
+}
+
 // --- Profile ---
 function saveProfile() {
     var username = document.getElementById('profile-username').value.trim();
@@ -873,7 +1072,7 @@ function saveProfile() {
 
 // Init: show first available section based on permissions
 (function initDefaultSection() {
-    var order = ['categories', 'marketplace', 'authors', 'review', 'settings'];
+    var order = ['categories', 'marketplace', 'authors', 'customers', 'review', 'settings'];
     for (var i = 0; i < order.length; i++) {
         if (hasPerm(order[i])) {
             showSection(order[i]);
