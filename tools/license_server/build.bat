@@ -88,10 +88,18 @@ if errorlevel 1 (
 echo      Done: %REMOTE_DIR%/license_server
 
 echo.
-echo [3/3] Restarting server...
-sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "/root/runsrv.sh" 2>NUL
+echo [3/3] Uploading start script and restarting server...
+
+echo      Uploading start.sh...
+sshpass -p "%PASS%" scp %SSH_OPTS% start.sh %USER%@%SERVER%:%REMOTE_DIR%/ 2>NUL
 if errorlevel 1 (
-    ssh %SSH_OPTS% %USER%@%SERVER% "/root/runsrv.sh"
+    scp %SSH_OPTS% start.sh %USER%@%SERVER%:%REMOTE_DIR%/
+)
+
+echo      Starting server...
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && sed -i 's/\r$//' start.sh && chmod +x start.sh && ./start.sh" 2>NUL
+if errorlevel 1 (
+    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && sed -i 's/\r$//' start.sh && chmod +x start.sh && ./start.sh"
 )
 echo      Server restarted
 

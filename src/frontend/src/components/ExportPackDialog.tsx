@@ -7,7 +7,7 @@ import { ExportQuickAnalysisPack } from '../../wailsjs/go/main/App';
 interface ExportPackDialogProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (author: string, password: string) => void;
+    onConfirm: (author: string) => void;
     threadId: string;
 }
 
@@ -20,8 +20,6 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
     const { t } = useLanguage();
     const [packName, setPackName] = useState('');
     const [author, setAuthor] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [successPath, setSuccessPath] = useState<string | null>(null);
@@ -32,8 +30,6 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
         if (isOpen) {
             setPackName('');
             setAuthor('');
-            setPassword('');
-            setConfirmPassword('');
             setIsExporting(false);
             setError(null);
             setSuccessPath(null);
@@ -44,10 +40,9 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
 
     const packNameTrimmed = packName.trim();
     const authorTrimmed = author.trim();
-    const hasPasswordMismatch = password !== '' && confirmPassword !== '' && password !== confirmPassword;
     const isPackNameEmpty = packNameTrimmed === '';
     const isAuthorEmpty = authorTrimmed === '';
-    const canSubmit = !isPackNameEmpty && !isAuthorEmpty && !hasPasswordMismatch && !isExporting;
+    const canSubmit = !isPackNameEmpty && !isAuthorEmpty && !isExporting;
 
     const handleConfirm = async () => {
         if (!canSubmit) return;
@@ -56,9 +51,9 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
         setError(null);
         setSuccessPath(null);
         try {
-            const savedPath = await ExportQuickAnalysisPack(threadId, packNameTrimmed, authorTrimmed, password);
+            const savedPath = await ExportQuickAnalysisPack(threadId, packNameTrimmed, authorTrimmed, '');
             setSuccessPath(savedPath);
-            onConfirm(authorTrimmed, password);
+            onConfirm(authorTrimmed);
         } catch (err: any) {
             setError(err?.message || err?.toString() || 'Export failed');
         } finally {
@@ -126,47 +121,6 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                         className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-[#3e3e42] rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                     />
                 </div>
-
-                {/* Password input (optional) */}
-                <div className="mb-4">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
-                        {t('export_pack_password')}
-                    </label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={e => setPassword(e.target.value)}
-                        placeholder={t('export_pack_password_placeholder')}
-                        disabled={isExporting}
-                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-[#3e3e42] rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-                    />
-                </div>
-
-                {/* Confirm password input (shown when password is entered) */}
-                {password !== '' && (
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
-                            {t('export_pack_confirm_password')}
-                        </label>
-                        <input
-                            type="password"
-                            value={confirmPassword}
-                            onChange={e => setConfirmPassword(e.target.value)}
-                            placeholder={t('export_pack_confirm_password_placeholder')}
-                            disabled={isExporting}
-                            className={`w-full px-3 py-2 text-sm border rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 ${
-                                hasPasswordMismatch
-                                    ? 'border-red-400 dark:border-red-500'
-                                    : 'border-slate-300 dark:border-[#3e3e42]'
-                            }`}
-                        />
-                        {hasPasswordMismatch && (
-                            <p className="mt-1 text-xs text-red-500">
-                                {t('export_pack_password_mismatch')}
-                            </p>
-                        )}
-                    </div>
-                )}
 
                 {/* Success message */}
                 {successPath && (

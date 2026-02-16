@@ -27,7 +27,7 @@ type ValidationResult struct {
 func NewCodeValidator() *CodeValidator {
 	cv := &CodeValidator{
 		allowedImports: []string{
-			"sqlite3", "pandas", "numpy", "matplotlib", "seaborn",
+			"duckdb", "sqlite3", "pandas", "numpy", "matplotlib", "seaborn",
 			"json", "os", "datetime", "math", "re", "collections",
 			"itertools", "functools", "csv", "io", "warnings",
 		},
@@ -142,7 +142,7 @@ func (v *CodeValidator) ValidateCode(code string) *ValidationResult {
 	}
 
 	// Check for database connection cleanup
-	if strings.Contains(code, "sqlite3.connect") || strings.Contains(code, "conn =") {
+	if strings.Contains(code, "duckdb.connect") || strings.Contains(code, "sqlite3.connect") || strings.Contains(code, "conn =") {
 		if !strings.Contains(code, "conn.close()") && !strings.Contains(code, "finally:") {
 			result.Warnings = append(result.Warnings, "代码可能缺少数据库连接清理")
 		}

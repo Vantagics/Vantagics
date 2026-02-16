@@ -9,7 +9,7 @@ import (
 	"vantagedata/agent"
 	"strings"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/marcboeker/go-duckdb"
 )
 
 // IndexSuggestion represents a suggested index
@@ -103,7 +103,7 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
 	// Open database
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -186,7 +186,7 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
 	// Open database
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -319,7 +319,7 @@ func (a *App) generateOptimizeSuggestions(db *sql.DB, dataSourceID string) ([]In
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	prompt := fmt.Sprintf(`You are a database optimization expert. Analyze the following SQLite database schema and suggest indexes to improve query performance.
+	prompt := fmt.Sprintf(`You are a database optimization expert. Analyze the following DuckDB database schema and suggest indexes to improve query performance.
 
 %s
 
@@ -422,7 +422,7 @@ func getMapKeys(m map[string]bool) []string {
 	return keys
 }// getColumnTypes retrieves column types for a table
 func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, error) {
-	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+	query := fmt.Sprintf("DESCRIBE %s", tableName)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -431,16 +431,13 @@ func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, e
 
 	columnTypes := make(map[string]string)
 	for rows.Next() {
-		var cid int
-		var name, colType string
-		var notNull, pk int
-		var dfltValue interface{}
+		var name, colType, nullable, key, defaultValue, extra sql.NullString
 
-		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+		if err := rows.Scan(&name, &colType, &nullable, &key, &defaultValue, &extra); err != nil {
 			continue
 		}
 
-		columnTypes[name] = colType
+		columnTypes[name.String] = colType.String
 	}
 
 	return columnTypes, nil
@@ -448,10 +445,11 @@ func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, e
 
 // getExistingIndexes retrieves existing indexes
 func (a *App) getExistingIndexes(db *sql.DB) ([]string, error) {
-	query := "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
+	query := "SELECT index_name FROM duckdb_indexes()"
 	rows, err := db.Query(query)
 	if err != nil {
-		return nil, err
+		// Fallback for older versions or if duckdb_indexes() fails
+		return []string{}, nil
 	}
 	defer rows.Close()
 

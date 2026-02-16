@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { X, Database, Search, ChevronLeft, ChevronRight, Table2, Columns3, AlertCircle, Loader2, Hash, Trash2, Check, Pencil } from 'lucide-react';
-import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, RenameColumn, DeleteColumn, DeleteDataSource, DeleteTable, GetConfig } from '../../wailsjs/go/main/App';
+import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, GetDataSourceTableDataWithCount, RenameColumn, DeleteColumn, DeleteDataSource, DeleteTable, GetConfig } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import DeleteColumnConfirmationModal from './DeleteColumnConfirmationModal';
 import { useLanguage } from '../i18n';
@@ -239,12 +239,10 @@ const DataBrowser: React.FC<DataBrowserProps> = ({
         setIsLoadingData(true);
         setError(null);
         try {
-            const [data, rowCount] = await Promise.all([
-                GetDataSourceTableData(sourceId, tableName),
-                GetDataSourceTableCount(sourceId, tableName),
-            ]);
-            setTableData(data || []);
-            setTableRowCount(rowCount || 0);
+            // Single API call to avoid DuckDB concurrent access lock conflicts
+            const result = await GetDataSourceTableDataWithCount(sourceId, tableName);
+            setTableData(result.data || []);
+            setTableRowCount(result.rowCount || 0);
             setCurrentPage(1);
         } catch (err) {
             console.error('Failed to load table data:', err);

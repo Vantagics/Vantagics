@@ -48,11 +48,11 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 	defer f.Close()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
 
 	// 1. Create pack.json (encrypted if password set)
 	w, err := zw.Create(packJSONFileName)
 	if err != nil {
+		zw.Close()
 		return fmt.Errorf("create zip entry: %w", err)
 	}
 
@@ -60,6 +60,7 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 	if password != "" {
 		payload, err = encryptData(jsonData, password)
 		if err != nil {
+			zw.Close()
 			return fmt.Errorf("encrypt data: %w", err)
 		}
 	} else {
@@ -67,6 +68,7 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 	}
 
 	if _, err := w.Write(payload); err != nil {
+		zw.Close()
 		return fmt.Errorf("write zip entry: %w", err)
 	}
 
@@ -78,10 +80,17 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 		mw, err := zw.Create(metadataJSONFileName)
 		if err == nil {
 			metaBytes, _ := json.MarshalIndent(meta.Metadata, "", "  ")
-			mw.Write(metaBytes)
+			if _, err := mw.Write(metaBytes); err != nil {
+				zw.Close()
+				return fmt.Errorf("write metadata entry: %w", err)
+			}
 		}
 	}
 
+	// Explicitly close zip writer to flush central directory — defer would swallow errors
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("finalize zip: %w", err)
+	}
 	return nil
 }
 

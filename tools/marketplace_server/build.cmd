@@ -83,9 +83,9 @@ if errorlevel 1 (
 )
 
 echo      Starting new server...
-sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && chmod +x start.sh && ./start.sh" 2>NUL
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && sed -i 's/\r$//' start.sh && chmod +x start.sh && ./start.sh" 2>NUL
 if errorlevel 1 (
-    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && chmod +x start.sh && ./start.sh"
+    ssh %SSH_OPTS% %USER%@%SERVER% "cd %REMOTE_DIR% && sed -i 's/\r$//' start.sh && chmod +x start.sh && ./start.sh"
 )
 
 echo      Checking server status...

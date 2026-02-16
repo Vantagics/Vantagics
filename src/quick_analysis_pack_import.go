@@ -30,6 +30,16 @@ func (a *App) LoadQuickAnalysisPackByPath(filePath string, dataSourceID string) 
 	}
 
 	if encrypted {
+		// Check if we have a stored password from marketplace download
+		if storedPwd, ok := a.packPasswords[filePath]; ok && storedPwd != "" {
+			a.Log("[QAP-IMPORT] Found stored password for encrypted pack, attempting auto-decrypt")
+			result, err := a.loadAndValidatePack(filePath, dataSourceID, storedPwd)
+			if err == nil {
+				return result, nil
+			}
+			// Auto-decrypt failed, fall back to manual password input
+			a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with stored password failed: %v, falling back to manual input", err))
+		}
 		return &PackLoadResult{
 			IsEncrypted:   true,
 			NeedsPassword: true,
@@ -64,6 +74,16 @@ func (a *App) LoadQuickAnalysisPack(dataSourceID string) (*PackLoadResult, error
 	}
 
 	if encrypted {
+		// Check if we have a stored password from marketplace download
+		if storedPwd, ok := a.packPasswords[filePath]; ok && storedPwd != "" {
+			a.Log("[QAP-IMPORT] Found stored password for encrypted pack, attempting auto-decrypt")
+			result, err := a.loadAndValidatePack(filePath, dataSourceID, storedPwd)
+			if err == nil {
+				return result, nil
+			}
+			// Auto-decrypt failed, fall back to manual password input
+			a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with stored password failed: %v, falling back to manual input", err))
+		}
 		a.Log("[QAP-IMPORT] File is encrypted, requesting password")
 		return &PackLoadResult{
 			IsEncrypted:   true,
@@ -85,6 +105,14 @@ func (a *App) LoadQuickAnalysisPackWithPassword(filePath string, dataSourceID st
 
 // loadAndValidatePack is the shared logic for loading, parsing, and validating a .qap file.
 func (a *App) loadAndValidatePack(filePath string, dataSourceID string, password string) (*PackLoadResult, error) {
+	// If no password provided, check if we have a stored password from marketplace download
+	if password == "" {
+		if storedPwd, ok := a.packPasswords[filePath]; ok && storedPwd != "" {
+			a.Log("[QAP-IMPORT] Using stored marketplace password for auto-decrypt")
+			password = storedPwd
+		}
+	}
+
 	// 1. Unpack from ZIP
 	jsonData, err := UnpackFromZip(filePath, password)
 	if err != nil {

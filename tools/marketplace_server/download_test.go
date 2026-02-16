@@ -317,3 +317,84 @@ func TestDownloadPack_ContentDispositionHeader(t *testing.T) {
 		t.Errorf("expected Content-Disposition=%q, got %q", expected, disposition)
 	}
 }
+
+
+// createTestPackListingWithPassword inserts a pack listing with an encryption_password and returns the listing ID.
+func createTestPackListingWithPassword(t *testing.T, userID, categoryID int64, shareMode string, creditsPrice int, fileData []byte, encryptionPassword string) int64 {
+	t.Helper()
+	result, err := db.Exec(
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, encryption_password)
+		 VALUES (?, ?, ?, 'TestPack', 'A test pack', 'TestSource', 'TestAuthor', ?, ?, 'published', ?)`,
+		userID, categoryID, fileData, shareMode, creditsPrice, encryptionPassword,
+	)
+	if err != nil {
+		t.Fatalf("failed to create test pack listing with password: %v", err)
+	}
+	id, _ := result.LastInsertId()
+	return id
+}
+
+func TestDownloadPack_PaidPack_ReturnsEncryptionPasswordHeader(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	userID := createTestUserWithBalance(t, 500)
+	catID := getCategoryID(t)
+	qapData := createTestQAPFile(t, "Author", "Desc", "Source")
+	password := "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
+	packID := createTestPackListingWithPassword(t, userID, catID, "per_use", 100, qapData, password)
+
+	rr := makeDownloadRequest(t, packID, userID)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	got := rr.Header().Get("X-Encryption-Password")
+	if got != password {
+		t.Errorf("expected X-Encryption-Password=%q, got %q", password, got)
+	}
+}
+
+func TestDownloadPack_FreePack_NoEncryptionPasswordHeader(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	userID := createTestUserWithBalance(t, 0)
+	catID := getCategoryID(t)
+	qapData := createTestQAPFile(t, "Author", "Desc", "Source")
+	packID := createTestPackListingWithPassword(t, userID, catID, "free", 0, qapData, "")
+
+	rr := makeDownloadRequest(t, packID, userID)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	got := rr.Header().Get("X-Encryption-Password")
+	if got != "" {
+		t.Errorf("expected no X-Encryption-Password header for free pack, got %q", got)
+	}
+}
+
+func TestDownloadPack_SubscriptionPack_ReturnsEncryptionPasswordHeader(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	userID := createTestUserWithBalance(t, 500)
+	catID := getCategoryID(t)
+	qapData := createTestQAPFile(t, "Author", "Desc", "Source")
+	password := "ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00ff00"
+	packID := createTestPackListingWithPassword(t, userID, catID, "subscription", 50, qapData, password)
+
+	rr := makeDownloadRequest(t, packID, userID)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	got := rr.Header().Get("X-Encryption-Password")
+	if got != password {
+		t.Errorf("expected X-Encryption-Password=%q, got %q", password, got)
+	}
+}

@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,16 +8,14 @@ import (
 
 // DataService provides methods for checking component data availability
 type DataService struct {
-	db             *sql.DB
 	dataCacheDir   string
 	fileService    *FileService
 	dataSourceSvc  interface{} // Will be set to agent.DataSourceService to avoid circular dependency
 }
 
 // NewDataService creates a new DataService instance
-func NewDataService(db *sql.DB, dataCacheDir string, fileService *FileService) *DataService {
+func NewDataService(dataCacheDir string, fileService *FileService) *DataService {
 	return &DataService{
-		db:           db,
 		dataCacheDir: dataCacheDir,
 		fileService:  fileService,
 	}

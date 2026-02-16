@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,7 +20,7 @@ import (
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/snowflakedb/gosnowflake"
-	_ "modernc.org/sqlite"
+	_ "github.com/marcboeker/go-duckdb"
 )
 
 // SchemaCache holds cached schema information for a data source
@@ -363,11 +364,11 @@ func (s *DataSourceService) ImportRemoteDataSource(name string, driverType strin
 			return nil, fmt.Errorf("failed to create data directory: %v", err)
 		}
 
-		dbName := "data.db"
+		dbName := "data.duckdb"
 		relDBPath := filepath.Join(relDBDir, dbName)
 		absDBPath := filepath.Join(absDBDir, dbName)
 
-		localDB, err := sql.Open("sqlite", absDBPath)
+		localDB, err := sql.Open("duckdb", absDBPath)
 		if err != nil {
 			_ = os.RemoveAll(absDBDir)
 			return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -858,12 +859,12 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 		return nil, fmt.Errorf("failed to create data directory: %v", err)
 	}
 
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	// Create SQLite DB
-	db, err := sql.Open("sqlite", absDBPath)
+	// Create DuckDB DB
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -969,12 +970,12 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 		return nil, fmt.Errorf("failed to create data directory: %v", err)
 	}
 
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	// Create SQLite DB
-	db, err := sql.Open("sqlite", absDBPath)
+	// Create DuckDB DB
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -1132,12 +1133,12 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 		return nil, fmt.Errorf("failed to create data directory: %v", err)
 	}
 
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	// 4. Create SQLite DB
-	db, err := sql.Open("sqlite", absDBPath)
+	// 4. Create DuckDB DB
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -1246,16 +1247,16 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 
 	var tables []string
 
-	// If DBPath exists, use local SQLite
+	// If DBPath exists, use local DuckDB
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err := sql.Open("sqlite", dbPath)
+		db, err := sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
 		defer db.Close()
 
-		rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+		rows, err := db.Query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
 		if err != nil {
 			return nil, err
 		}
@@ -1353,15 +1354,15 @@ func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string
 	}
 
 	var db *sql.DB
-	isSQLite := false
+	isDuckDB := false
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
-		isSQLite = true
+		isDuckDB = true
 	} else if target.Type == "mysql" || target.Type == "doris" {
 		cfg := target.Config
 		if cfg.Port == "" {
@@ -1379,8 +1380,8 @@ func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string
 
 	// Get all table names
 	var tables []string
-	if isSQLite {
-		rows, err := db.Query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+	if isDuckDB {
+		rows, err := db.Query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
 		if err != nil {
 			return nil, err
 		}
@@ -1491,7 +1492,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1574,6 +1575,103 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 	return data, nil
 }
 
+// GetDataSourceTableDataWithCount returns preview data and total row count in a single DB connection.
+// This avoids DuckDB concurrent access lock conflicts that occur when opening the same file twice.
+func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName string, limit int) ([]map[string]interface{}, int, error) {
+	if err := validateIdentifier(tableName, "table name"); err != nil {
+		return nil, 0, err
+	}
+
+	sources, err := s.LoadDataSources()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var target *DataSource
+	for _, ds := range sources {
+		if ds.ID == id {
+			target = &ds
+			break
+		}
+	}
+	if target == nil {
+		return nil, 0, fmt.Errorf("data source not found")
+	}
+
+	var db *sql.DB
+	if target.Config.DBPath != "" {
+		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		db, err = sql.Open("duckdb", dbPath)
+		if err != nil {
+			return nil, 0, err
+		}
+	} else if target.Type == "mysql" || target.Type == "doris" {
+		cfg := target.Config
+		if cfg.Port == "" {
+			cfg.Port = "3306"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true", cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, 0, err
+		}
+	} else {
+		return nil, 0, fmt.Errorf("unsupported data source type for direct query")
+	}
+	defer db.Close()
+
+	// Get row count
+	var count int
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
+	if err := db.QueryRow(countQuery).Scan(&count); err != nil {
+		return nil, 0, err
+	}
+
+	// Get data
+	if limit <= 0 {
+		limit = 100
+	}
+	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT %d", tableName, limit)
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var data []map[string]interface{}
+	for rows.Next() {
+		columns := make([]interface{}, len(cols))
+		columnPointers := make([]interface{}, len(cols))
+		for i := range columns {
+			columnPointers[i] = &columns[i]
+		}
+		if err := rows.Scan(columnPointers...); err != nil {
+			return nil, 0, err
+		}
+		rowMap := make(map[string]interface{})
+		for i, colName := range cols {
+			val := columnPointers[i].(*interface{})
+			if val != nil {
+				if b, ok := (*val).([]byte); ok {
+					rowMap[colName] = string(b)
+				} else {
+					rowMap[colName] = *val
+				}
+			} else {
+				rowMap[colName] = nil
+			}
+		}
+		data = append(data, rowMap)
+	}
+
+	return data, count, nil
+}
+
 // GetDataSourceTableCount returns the total number of rows in a table
 func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string) (int, error) {
 	// Validate table name to prevent SQL injection
@@ -1602,7 +1700,7 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return 0, err
 		}
@@ -1668,7 +1766,7 @@ func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName strin
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1744,7 +1842,7 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return err
 		}
@@ -1882,7 +1980,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return err
 		}
@@ -2088,7 +2186,7 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return err
 		}
@@ -2250,7 +2348,7 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		sourceDB, err = sql.Open("sqlite", dbPath)
+		sourceDB, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return err
 		}
@@ -2475,7 +2573,7 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -2494,7 +2592,20 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 	}
 	defer db.Close()
 
-	rows, err := db.Query(query)
+	// Determine if this is a DuckDB data source
+	isDuckDB := target.Config.DBPath != ""
+
+	// For DuckDB, auto-fix strftime with BIGINT columns by wrapping in to_timestamp()
+	execQuery := query
+	rows, err := db.Query(execQuery)
+	if err != nil && isDuckDB && strings.Contains(err.Error(), "strftime") && strings.Contains(err.Error(), "BIGINT") {
+		// Replace strftime('format', col) with strftime('format', to_timestamp(col))
+		// This handles the case where a date column is stored as a Unix timestamp (BIGINT)
+		strftimeFixRegex := regexp.MustCompile(`(?i)strftime\s*\(\s*('[^']+'),\s*([^)]+)\)`)
+		execQuery = strftimeFixRegex.ReplaceAllString(execQuery, "strftime($1, to_timestamp($2))")
+		s.log(fmt.Sprintf("[ExecuteSQL] Auto-fixed strftime BIGINT: %s", execQuery))
+		rows, err = db.Query(execQuery)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %v", err)
 	}
@@ -2608,7 +2719,7 @@ func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -2710,7 +2821,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	} else if isLocalSQLite {
 		// Local SQLite-backed data source (sqlite, excel, csv, json)
 		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-		db, err = sql.Open("sqlite", fullDBPath)
+		db, err = sql.Open("duckdb", fullDBPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
@@ -2722,8 +2833,10 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	// Query column information
 	var rows *sql.Rows
 	if isLocalSQLite {
-		// All local SQLite-backed sources use PRAGMA
-		rows, err = db.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+		// Local data sources are opened via DuckDB driver — use information_schema
+		rows, err = db.Query(
+			"SELECT column_name, data_type, CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable "+
+				"FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position", tableName)
 	} else if ds.Type == "mysql" || ds.Type == "doris" {
 		rows, err = db.Query(fmt.Sprintf("DESCRIBE `%s`", tableName))
 	} else {
@@ -2737,15 +2850,12 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 
 	var columns []ColumnSchema
 	if isLocalSQLite {
-		// All local SQLite-backed sources (sqlite, excel, csv, json) use PRAGMA format
+		// DuckDB information_schema format: column_name, data_type, nullable
 		for rows.Next() {
-			var cid int
 			var name, colType string
-			var notNull int
-			var dfltValue sql.NullString
-			var pk int
+			var nullable int
 
-			err = rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk)
+			err = rows.Scan(&name, &colType, &nullable)
 			if err != nil {
 				return nil, err
 			}
@@ -2753,7 +2863,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 			columns = append(columns, ColumnSchema{
 				Name:     name,
 				Type:     colType,
-				Nullable: notNull == 0,
+				Nullable: nullable == 1,
 			})
 		}
 	} else if ds.Type == "mysql" || ds.Type == "doris" {
@@ -2827,10 +2937,10 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 		if dbPath == "" {
 			return nil, fmt.Errorf("database path not found in config")
 		}
-		// Use full path by joining with dataCacheDir, and use "sqlite" driver (modernc.org/sqlite)
+		// Use full path by joining with dataCacheDir, and use "duckdb" driver
 		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
 		s.log(fmt.Sprintf("[GetConnection] Opening SQLite database: %s", fullDBPath))
-		db, err = sql.Open("sqlite", fullDBPath)
+		db, err = sql.Open("duckdb", fullDBPath)
 	}
 
 	if err != nil {
@@ -2860,12 +2970,12 @@ func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, 
 		return "", fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// 数据库文件名为 data.db
-	dbName := "data.db"
+	// 数据库文件名为 data.duckdb
+	dbName := "data.duckdb"
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// 创建空数据库
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create database: %w", err)
 	}
@@ -2978,7 +3088,7 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -3117,7 +3227,7 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -3269,7 +3379,7 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -3291,20 +3401,17 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 	var columns []ColumnInfoWithType
 
 	if target.Config.DBPath != "" {
-		// SQLite: use PRAGMA table_info
-		query := fmt.Sprintf("PRAGMA table_info(`%s`)", tableName)
-		rows, err := db.Query(query)
+		// DuckDB: use information_schema
+		query := "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position"
+		rows, err := db.Query(query, tableName)
 		if err != nil {
 			return nil, err
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var cid int
 			var name, colType string
-			var notNull, pk int
-			var dfltValue interface{}
-			if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			if err := rows.Scan(&name, &colType); err != nil {
 				return nil, err
 			}
 			columns = append(columns, ColumnInfoWithType{
@@ -3366,7 +3473,7 @@ func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, 
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return 0, err
 		}
@@ -3437,11 +3544,11 @@ func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) 
 	}
 
 	// Create SQLite database
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -3767,11 +3874,11 @@ func (s *DataSourceService) ImportBigCommerce(name string, config DataSourceConf
 	}
 
 	// Create SQLite database
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -4018,11 +4125,11 @@ func (s *DataSourceService) ImportEbay(name string, config DataSourceConfig) (*D
 	}
 
 	// Create SQLite database
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -4429,11 +4536,11 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 	}
 
 	// Create SQLite database
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -4943,7 +5050,7 @@ func (s *DataSourceService) refreshShopifyData(ds *DataSource) (*RefreshResult, 
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5169,7 +5276,7 @@ func (s *DataSourceService) refreshBigCommerceData(ds *DataSource) (*RefreshResu
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5301,7 +5408,7 @@ func (s *DataSourceService) refreshEbayData(ds *DataSource) (*RefreshResult, err
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5415,7 +5522,7 @@ func (s *DataSourceService) refreshEtsyData(ds *DataSource) (*RefreshResult, err
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5715,7 +5822,7 @@ func (s *DataSourceService) refreshJiraData(ds *DataSource) (*RefreshResult, err
 	}
 
 	dbPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -6100,7 +6207,7 @@ func (s *DataSourceService) upsertJiraWorklogs(db *sql.DB, worklogs []map[string
 
 	// Check if worklogs table exists
 	var tableName string
-	err := db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='worklogs'").Scan(&tableName)
+	err := db.QueryRow("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' AND table_name='worklogs'").Scan(&tableName)
 	if err == sql.ErrNoRows {
 		// Create table if it doesn't exist
 		return len(worklogs), s.createTableFromJSON(db, "worklogs", worklogs)
@@ -6347,11 +6454,11 @@ func (s *DataSourceService) ImportJira(name string, config DataSourceConfig) (*D
 	}
 
 	// Create SQLite database
-	dbName := "data.db"
+	dbName := "data.duckdb"
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("sqlite", absDBPath)
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -7194,7 +7301,7 @@ func (s *DataSourceService) ImportSnowflake(name string, config DataSourceConfig
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	localDB, err := sql.Open("sqlite", dbPath)
+	localDB, err := sql.Open("duckdb", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create local database: %w", err)
 	}

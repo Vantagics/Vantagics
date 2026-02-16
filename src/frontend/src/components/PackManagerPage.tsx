@@ -22,8 +22,9 @@ interface UsageLicenseInfo {
     pack_name: string;
     pricing_model: string;
     remaining_uses: number;
+    total_uses: number;
     expires_at: string;
-    billing_cycle: string;
+    subscription_months: number;
 }
 
 interface DataSourceInfo {
@@ -279,10 +280,10 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
         }
     };
 
-    const handleRenew = async (license: UsageLicenseInfo) => {
+    const handleRenew = async (license: UsageLicenseInfo, months: number = 1) => {
         setLicenseActionLoading(license.pack_name);
         try {
-            await RenewSubscription(license.listing_id);
+            await RenewSubscription(license.listing_id, months);
             await loadLicenses();
         } catch {
             // Error handled silently - user can retry
@@ -298,7 +299,7 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
         if (license.pricing_model === 'per_use') {
             return { license, isExpired: false, isExhausted: license.remaining_uses <= 0 };
         }
-        // time_limited or subscription
+        // subscription
         if (license.expires_at) {
             const isExpired = new Date(license.expires_at) <= new Date();
             return { license, isExpired, isExhausted: false };
@@ -424,15 +425,16 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                                                             </div>
                                                         );
                                                     }
+                                                    const usedCount = license.total_uses - license.remaining_uses;
                                                     return (
-                                                        <div className="mt-1.5">
+                                                        <div className="mt-1.5 flex items-center gap-2">
                                                             <span className="text-xs text-green-600 dark:text-green-400">
-                                                                {t('pack_manager_remaining_uses').replace('{0}', String(license.remaining_uses))}
+                                                                {t('pack_manager_uses_detail').replace('{0}', String(usedCount)).replace('{1}', String(license.total_uses))}
                                                             </span>
                                                         </div>
                                                     );
                                                 }
-                                                // time_limited or subscription
+                                                // subscription
                                                 if (isExpired) {
                                                     return (
                                                         <div className="flex items-center gap-2 mt-1.5">
@@ -441,22 +443,32 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                                                                 {t('pack_manager_expired')}
                                                             </span>
                                                             <button
-                                                                onClick={e => { e.stopPropagation(); handleRenew(license); }}
+                                                                onClick={e => { e.stopPropagation(); handleRenew(license, 1); }}
                                                                 disabled={isLoading}
                                                                 className="text-xs px-2 py-0.5 rounded bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50 flex items-center gap-1"
                                                             >
                                                                 {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                                                                {t('pack_manager_renew')}
+                                                                {t('pack_manager_renew_monthly')}
+                                                            </button>
+                                                            <button
+                                                                onClick={e => { e.stopPropagation(); handleRenew(license, 12); }}
+                                                                disabled={isLoading}
+                                                                className="text-xs px-2 py-0.5 rounded bg-green-500 hover:bg-green-600 text-white disabled:opacity-50 flex items-center gap-1"
+                                                            >
+                                                                {t('pack_manager_renew_yearly')}
                                                             </button>
                                                         </div>
                                                     );
                                                 }
                                                 const dateStr = license.expires_at ? new Date(license.expires_at).toLocaleDateString() : '';
+                                                const remainingDays = license.expires_at ? Math.max(0, Math.ceil((new Date(license.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
                                                 return (
                                                     <div className="mt-1.5">
                                                         <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                                                             <Clock className="w-3 h-3" />
-                                                            {t('pack_manager_valid_until').replace('{0}', dateStr)}
+                                                            {t('pack_manager_subscription_detail')
+                                                                .replace('{0}', String(license.subscription_months))
+                                                                .replace('{1}', String(remainingDays))}
                                                         </span>
                                                     </div>
                                                 );

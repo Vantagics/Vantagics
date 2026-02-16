@@ -3,7 +3,6 @@ package main
 import (
 	"archive/zip"
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -118,7 +117,6 @@ type App struct {
 	einoService                *agent.EinoService
 	skillService             *agent.SkillService
 	searchKeywordsManager    *agent.SearchKeywordsManager
-	db                       *sql.DB
 	storageDir               string
 	logger                   *logger.Logger
 	activeThreads            map[string]bool // Track active analysis sessions by thread ID
@@ -142,6 +140,8 @@ type App struct {
 	marketplaceClient *MarketplaceClient
 	// Usage license store for local billing enforcement
 	usageLicenseStore *UsageLicenseStore
+	// Pack passwords from marketplace downloads (filePath -> encryption password)
+	packPasswords map[string]string
 }
 
 // AgentMemoryView structure for frontend
@@ -166,6 +166,7 @@ func NewApp() *App {
 		logger:        logger.NewLogger(),
 		activeThreads: make(map[string]bool),
 		isChatOpen:    false,
+		packPasswords: make(map[string]string),
 	}
 }
 
@@ -317,7 +318,7 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 // shutdown is called when the application is closing to clean up resources
 func (a *App) shutdown(ctx context.Context) {
 	// Final credits usage report before shutdown (synchronous, with timeout)
-	if a.licenseClient != nil && a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" {
+	if a.licenseClient != nil && a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" && a.licenseClient.ShouldReportNow() {
 		done := make(chan struct{})
 		go func() {
 			if err := a.licenseClient.ReportUsage(); err != nil {
@@ -336,11 +337,6 @@ func (a *App) shutdown(ctx context.Context) {
 	// Stop credits usage reporting
 	if a.licenseClient != nil {
 		a.licenseClient.StopUsageReporting()
-	}
-	// Close database connection
-	if a.db != nil {
-		a.db.Close()
-		a.Log("[SHUTDOWN] Database connection closed")
 	}
 	// Close EinoService (which closes Python pool) with timeout
 	if a.einoService != nil {
@@ -404,15 +400,6 @@ func (a *App) startup(ctx context.Context) {
 		a.chatService = NewChatService(sessionsDir)
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
-
-		// Initialize database with migrations
-		db, err := database.InitDB(dataDir)
-		if err != nil {
-			a.Log(fmt.Sprintf("[STARTUP] Failed to initialize database: %v", err))
-		} else {
-			a.db = db
-			a.Log("[STARTUP] Database initialized successfully")
-		}
 
 		// Initialize working context manager for UI state tracking
 		a.workingContextManager = agent.NewWorkingContextManager(dataDir)
@@ -555,23 +542,21 @@ func (a *App) startup(ctx context.Context) {
 		}
 
 		// Initialize dashboard drag-drop layout services after all other services are ready
-		if a.db != nil {
-			a.fileService = database.NewFileService(a.db, dataDir)
-			a.Log("[STARTUP] FileService initialized successfully")
+		a.fileService = database.NewFileService(dataDir)
+		a.Log("[STARTUP] FileService initialized successfully")
 
-			a.dataService = database.NewDataService(a.db, dataDir, a.fileService)
-			// Set the data source service to avoid circular dependency
-			if a.dataSourceService != nil {
-				a.dataService.SetDataSourceService(a.dataSourceService)
-			}
-			a.Log("[STARTUP] DataService initialized successfully")
-
-			a.layoutService = database.NewLayoutService(a.db)
-			a.Log("[STARTUP] LayoutService initialized successfully")
-
-			a.exportService = database.NewExportService(a.dataService, a.layoutService)
-			a.Log("[STARTUP] ExportService initialized successfully")
+		a.dataService = database.NewDataService(dataDir, a.fileService)
+		// Set the data source service to avoid circular dependency
+		if a.dataSourceService != nil {
+			a.dataService.SetDataSourceService(a.dataSourceService)
 		}
+		a.Log("[STARTUP] DataService initialized successfully")
+
+		a.layoutService = database.NewLayoutService(dataDir)
+		a.Log("[STARTUP] LayoutService initialized successfully")
+
+		a.exportService = database.NewExportService(a.dataService, a.layoutService)
+		a.Log("[STARTUP] ExportService initialized successfully")
 
 		// Initialize event aggregator for analysis results
 		a.eventAggregator = NewEventAggregator(ctx)
@@ -6094,6 +6079,29 @@ func (a *App) GetDataSourceTableData(id string, tableName string) ([]map[string]
 // GetDataSourceTableCount returns the total number of rows in a table
 func (a *App) GetDataSourceTableCount(id string, tableName string) (int, error) {
 	return a.dataSourceService.GetDataSourceTableCount(id, tableName)
+}
+
+// TableDataWithCount holds table preview data and total row count
+type TableDataWithCount struct {
+	Data     []map[string]interface{} `json:"data"`
+	RowCount int                      `json:"rowCount"`
+}
+
+// GetDataSourceTableDataWithCount returns preview data and row count in a single DB connection.
+// This avoids DuckDB concurrent access lock conflicts.
+func (a *App) GetDataSourceTableDataWithCount(id string, tableName string) (*TableDataWithCount, error) {
+	if a.dataSourceService == nil {
+		return nil, fmt.Errorf("data source service not initialized")
+	}
+	cfg, err := a.GetConfig()
+	if err != nil {
+		return nil, err
+	}
+	data, count, err := a.dataSourceService.GetDataSourceTableDataWithCount(id, tableName, cfg.MaxPreviewRows)
+	if err != nil {
+		return nil, err
+	}
+	return &TableDataWithCount{Data: data, RowCount: count}, nil
 }
 
 // SelectExcelFile opens a file dialog to select an Excel file

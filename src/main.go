@@ -4,6 +4,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	wailsLogger "github.com/wailsapp/wails/v2/pkg/logger"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -36,6 +39,7 @@ type MenuTexts struct {
 	About          string
 	Market         string
 	PackManager    string
+	BrowseMarket   string
 	VisitMarket    string
 	ProductService string
 }
@@ -51,6 +55,7 @@ func getMenuTexts(language string) MenuTexts {
 			About:          "关于",
 			Market:         "市场",
 			PackManager:    "快捷包管理",
+			BrowseMarket:   "分析包市场",
 			VisitMarket:    "访问市场",
 			ProductService: "产品服务",
 		}
@@ -64,6 +69,7 @@ func getMenuTexts(language string) MenuTexts {
 		About:          "About",
 		Market:         "Market",
 		PackManager:    "Pack Manager",
+		BrowseMarket:   "Browse Market",
 		VisitMarket:    "Visit Market",
 		ProductService: "Product Service",
 	}
@@ -190,6 +196,9 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 		marketMenu.AddText(texts.PackManager, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.EventsEmit(app.ctx, "open-pack-manager")
 		})
+		marketMenu.AddText(texts.BrowseMarket, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.EventsEmit(app.ctx, "open-market-browse")
+		})
 		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
 		})
@@ -197,7 +206,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 		// Add Help menu for macOS
 		helpMenuMac := newMenu.AddSubmenu(texts.Help)
 		helpMenuMac.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat/?vantagedata")
+			wailsRuntime.EventsEmit(app.ctx, "service-portal-login")
 		})
 	} else {
 		// Non-macOS: Keep Settings in File menu
@@ -215,6 +224,9 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 		marketMenu.AddText(texts.PackManager, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.EventsEmit(app.ctx, "open-pack-manager")
 		})
+		marketMenu.AddText(texts.BrowseMarket, nil, func(_ *menu.CallbackData) {
+			wailsRuntime.EventsEmit(app.ctx, "open-market-browse")
+		})
 		marketMenu.AddText(texts.VisitMarket, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.BrowserOpenURL(app.ctx, "https://market.vantagedata.chat")
 		})
@@ -225,7 +237,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.EventsEmit(app.ctx, "open-about")
 		})
 		helpMenu.AddText(texts.ProductService, nil, func(_ *menu.CallbackData) {
-			wailsRuntime.BrowserOpenURL(app.ctx, "https://service.vantagedata.chat/?vantagedata")
+			wailsRuntime.EventsEmit(app.ctx, "service-portal-login")
 		})
 	}
 
@@ -233,6 +245,10 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 }
 
 func main() {
+	// Suppress internal log output (e.g. WebView2 init messages) to prevent
+	// console window flash on Windows GUI builds
+	log.SetOutput(io.Discard)
+
 	// Create an instance of the app structure
 	app := NewApp()
 
@@ -256,6 +272,7 @@ func main() {
 		OnShutdown:       app.shutdown,
 		OnBeforeClose:    app.onBeforeClose,
 		Menu:             appMenu,
+		LogLevel:         wailsLogger.ERROR,
 		// Enable default context menu (right-click) for text inputs on all platforms
 		// This enables Cut/Copy/Paste context menu in production builds
 		EnableDefaultContextMenu: true,
@@ -274,9 +291,6 @@ func main() {
 				Title:   "VantageData (观界)",
 				Message: "See Beyond Data. Master Your Vantage.\n观数据之界，见商业全貌。",
 			},
-		},
-		Debug: options.Debug{
-			OpenInspectorOnStartup: true, // Auto-open DevTools for debugging
 		},
 	})
 

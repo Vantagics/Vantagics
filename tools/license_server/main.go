@@ -288,7 +288,7 @@ func main() {
 func initDB() {
 	var err error
 	dsn := fmt.Sprintf("%s?_pragma_key=%s&_pragma_cipher_page_size=4096", dbPath, DBPassword)
-	db, err = sql.Open("sqlite3", dsn)
+	db, err = sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
@@ -4438,6 +4438,38 @@ func handleReportUsage(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "code": CodeInvalidValue})
 		return
 	}
+
+	// 间隔校验：检查该 SN 最近一次上报时间
+	var lastReportedAt sql.NullString
+	err = db.QueryRow(
+		"SELECT reported_at FROM credits_usage_log WHERE sn=? ORDER BY reported_at DESC LIMIT 1",
+		sn,
+	).Scan(&lastReportedAt)
+
+	if err == nil && lastReportedAt.Valid {
+		var parsedTime time.Time
+		var parsed bool
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", lastReportedAt.String); parseErr == nil {
+			parsedTime = t
+			parsed = true
+		} else if t, parseErr2 := time.Parse(time.RFC3339, lastReportedAt.String); parseErr2 == nil {
+			parsedTime = t.UTC()
+			parsed = true
+		} else {
+			log.Printf("Failed to parse reported_at for SN %s: %v", sn, parseErr)
+		}
+		if parsed && time.Now().UTC().Sub(parsedTime) < time.Hour {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"code":    "THROTTLED",
+			})
+			return
+		}
+	} else if err != nil && err != sql.ErrNoRows {
+		log.Printf("Failed to query last report time for SN %s: %v", sn, err)
+	}
+	// If sql.ErrNoRows or parse error, continue with normal processing (first report or error recovery)
 
 	// Insert into credits_usage_log
 	clientIP := getClientIP(r)

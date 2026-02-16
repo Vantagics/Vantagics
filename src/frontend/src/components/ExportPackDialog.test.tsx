@@ -49,39 +49,9 @@ describe('ExportPackDialog', () => {
         expect(screen.getByPlaceholderText('export_pack_author_placeholder')).toBeInTheDocument();
     });
 
-    it('should render password input field', () => {
+    it('should not render password input field', () => {
         render(<ExportPackDialog {...defaultProps} />);
-        expect(screen.getByPlaceholderText('export_pack_password_placeholder')).toBeInTheDocument();
-    });
-
-    it('should not show confirm password field when password is empty', () => {
-        render(<ExportPackDialog {...defaultProps} />);
-        expect(screen.queryByPlaceholderText('export_pack_confirm_password_placeholder')).not.toBeInTheDocument();
-    });
-
-    it('should show confirm password field when password is entered', () => {
-        render(<ExportPackDialog {...defaultProps} />);
-        const passwordInput = screen.getByPlaceholderText('export_pack_password_placeholder');
-        fireEvent.change(passwordInput, { target: { value: 'secret' } });
-        expect(screen.getByPlaceholderText('export_pack_confirm_password_placeholder')).toBeInTheDocument();
-    });
-
-    it('should show password mismatch error when passwords differ', () => {
-        render(<ExportPackDialog {...defaultProps} />);
-        const passwordInput = screen.getByPlaceholderText('export_pack_password_placeholder');
-        fireEvent.change(passwordInput, { target: { value: 'secret1' } });
-        const confirmInput = screen.getByPlaceholderText('export_pack_confirm_password_placeholder');
-        fireEvent.change(confirmInput, { target: { value: 'secret2' } });
-        expect(screen.getByText('export_pack_password_mismatch')).toBeInTheDocument();
-    });
-
-    it('should not show mismatch error when passwords match', () => {
-        render(<ExportPackDialog {...defaultProps} />);
-        const passwordInput = screen.getByPlaceholderText('export_pack_password_placeholder');
-        fireEvent.change(passwordInput, { target: { value: 'secret' } });
-        const confirmInput = screen.getByPlaceholderText('export_pack_confirm_password_placeholder');
-        fireEvent.change(confirmInput, { target: { value: 'secret' } });
-        expect(screen.queryByText('export_pack_password_mismatch')).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText('export_pack_password_placeholder')).not.toBeInTheDocument();
     });
 
     it('should disable export button when author is empty', () => {
@@ -90,33 +60,35 @@ describe('ExportPackDialog', () => {
         expect(exportBtn.closest('button')).toBeDisabled();
     });
 
-    it('should enable export button when author is filled and no password mismatch', () => {
+    it('should enable export button when pack name and author are filled', () => {
         render(<ExportPackDialog {...defaultProps} />);
+        const packNameInput = screen.getByPlaceholderText('export_pack_name_placeholder');
+        fireEvent.change(packNameInput, { target: { value: 'Test Pack' } });
         const authorInput = screen.getByPlaceholderText('export_pack_author_placeholder');
         fireEvent.change(authorInput, { target: { value: 'Test Author' } });
         const exportBtn = screen.getByText('export');
         expect(exportBtn.closest('button')).not.toBeDisabled();
     });
 
-    it('should call ExportQuickAnalysisPack with correct args on confirm', async () => {
+    it('should call ExportQuickAnalysisPack with empty password on confirm', async () => {
         render(<ExportPackDialog {...defaultProps} />);
+        const packNameInput = screen.getByPlaceholderText('export_pack_name_placeholder');
+        fireEvent.change(packNameInput, { target: { value: 'My Analysis' } });
         const authorInput = screen.getByPlaceholderText('export_pack_author_placeholder');
         fireEvent.change(authorInput, { target: { value: 'Alice' } });
-        const passwordInput = screen.getByPlaceholderText('export_pack_password_placeholder');
-        fireEvent.change(passwordInput, { target: { value: 'pass123' } });
-        const confirmInput = screen.getByPlaceholderText('export_pack_confirm_password_placeholder');
-        fireEvent.change(confirmInput, { target: { value: 'pass123' } });
 
         const exportBtn = screen.getByText('export');
         fireEvent.click(exportBtn);
 
         await waitFor(() => {
-            expect(mockExport).toHaveBeenCalledWith('test-thread-123', 'Alice', 'pass123');
+            expect(mockExport).toHaveBeenCalledWith('test-thread-123', 'My Analysis', 'Alice', '');
         });
     });
 
     it('should call onConfirm and show success path on successful export', async () => {
         render(<ExportPackDialog {...defaultProps} />);
+        const packNameInput = screen.getByPlaceholderText('export_pack_name_placeholder');
+        fireEvent.change(packNameInput, { target: { value: 'Test Pack' } });
         const authorInput = screen.getByPlaceholderText('export_pack_author_placeholder');
         fireEvent.change(authorInput, { target: { value: 'Bob' } });
 
@@ -124,7 +96,7 @@ describe('ExportPackDialog', () => {
         fireEvent.click(exportBtn);
 
         await waitFor(() => {
-            expect(defaultProps.onConfirm).toHaveBeenCalledWith('Bob', '');
+            expect(defaultProps.onConfirm).toHaveBeenCalledWith('Bob');
             expect(screen.getByText(/export_pack_success/)).toBeInTheDocument();
             expect(screen.getByText(/analysis_20250101_120000\.qap/)).toBeInTheDocument();
         });
@@ -133,6 +105,8 @@ describe('ExportPackDialog', () => {
     it('should show error message when export fails', async () => {
         mockExport.mockRejectedValue(new Error('Network error'));
         render(<ExportPackDialog {...defaultProps} />);
+        const packNameInput = screen.getByPlaceholderText('export_pack_name_placeholder');
+        fireEvent.change(packNameInput, { target: { value: 'Test Pack' } });
         const authorInput = screen.getByPlaceholderText('export_pack_author_placeholder');
         fireEvent.change(authorInput, { target: { value: 'Charlie' } });
 

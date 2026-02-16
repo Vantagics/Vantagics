@@ -13,13 +13,10 @@ import (
 )
 
 // DefaultMarketplaceServerURL is the default marketplace server address.
-// In production, this should be overridden via configuration.
-// TODO: Change back to https://market.vantagedata.chat when server is fixed
-const DefaultMarketplaceServerURL = "http://localhost:8088"
+const DefaultMarketplaceServerURL = "https://market.vantagedata.chat"
 
 // DefaultLicenseServerURL is the default license server address.
-// TODO: Change back to https://license.vantagedata.chat when server is fixed
-const DefaultLicenseServerURL = "http://localhost:8080"
+const DefaultLicenseServerURL = "https://license.vantagedata.chat"
 
 // maxErrorBodySize limits how much of an error response body we read to prevent memory exhaustion.
 const maxErrorBodySize = 4096
@@ -73,8 +70,6 @@ type PackListingInfo struct {
 	AuthorName      string `json:"author_name"`
 	ShareMode       string `json:"share_mode"`
 	CreditsPrice    int    `json:"credits_price"`
-	ValidDays       int    `json:"valid_days"`
-	BillingCycle    string `json:"billing_cycle"`
 	DownloadCount   int    `json:"download_count"`
 	CreatedAt       string `json:"created_at"`
 }
@@ -232,7 +227,7 @@ func (a *App) GetMarketplaceCategories() ([]PackCategory, error) {
 }
 
 // SharePackToMarketplace uploads a .qap file to the marketplace server.
-func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, pricingModel string, creditsPrice int, detailedDescription string, validDays int, billingCycle string) error {
+func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, pricingModel string, creditsPrice int, detailedDescription string) error {
 	a.ensureMarketplaceClient()
 	mc := a.marketplaceClient
 
@@ -279,11 +274,9 @@ func (a *App) SharePackToMarketplace(packFilePath string, categoryID int64, pric
 
 		// Add form fields
 		writer.WriteField("category_id", fmt.Sprintf("%d", categoryID))
-		writer.WriteField("pricing_model", pricingModel)
+		writer.WriteField("share_mode", pricingModel)
 		writer.WriteField("credits_price", fmt.Sprintf("%d", creditsPrice))
 		writer.WriteField("detailed_description", detailedDescription)
-		writer.WriteField("valid_days", fmt.Sprintf("%d", validDays))
-		writer.WriteField("billing_cycle", billingCycle)
 
 		if err := writer.Close(); err != nil {
 			errCh <- fmt.Errorf("failed to close multipart writer: %w", err)
@@ -397,6 +390,14 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 		return "", fmt.Errorf("downloaded file exceeds maximum size limit (%dMB)", maxDownloadSize/1024/1024)
 	}
 
+	// Extract encryption password from response header (for paid packs)
+	if encPassword := resp.Header.Get("X-Encryption-Password"); encPassword != "" {
+		if a.packPasswords == nil {
+			a.packPasswords = make(map[string]string)
+		}
+		a.packPasswords[filePath] = encPassword
+	}
+
 	// Parse X-Usage-License header if present and save to local store
 	if licenseHeader := resp.Header.Get("X-Usage-License"); licenseHeader != "" {
 		var usageLicense UsageLicense
@@ -486,6 +487,7 @@ func (a *App) PurchaseAdditionalUses(listingID int64, quantity int) error {
 		lic := a.usageLicenseStore.GetLicense(listingID)
 		if lic != nil {
 			lic.RemainingUses += result.RemainingUses
+			lic.TotalUses += quantity
 			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			a.usageLicenseStore.SetLicense(lic)
 			_ = a.usageLicenseStore.Save()
@@ -497,7 +499,8 @@ func (a *App) PurchaseAdditionalUses(listingID int64, quantity int) error {
 
 // RenewSubscription renews a subscription pack listing.
 // It POSTs to /api/packs/{id}/renew and updates the local UsageLicenseStore.
-func (a *App) RenewSubscription(listingID int64) error {
+// months: 1 for monthly, 12 for yearly (pays 12 months, gets 14 months).
+func (a *App) RenewSubscription(listingID int64, months int) error {
 	a.ensureMarketplaceClient()
 	mc := a.marketplaceClient
 
@@ -505,11 +508,13 @@ func (a *App) RenewSubscription(listingID int64) error {
 		return fmt.Errorf("not logged in to marketplace")
 	}
 
+	payload, _ := json.Marshal(map[string]int{"months": months})
 	url := fmt.Sprintf("%s/api/packs/%d/renew", mc.ServerURL, listingID)
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create renew request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+mc.Token)
 
 	resp, err := mc.client.Do(req)
@@ -523,7 +528,8 @@ func (a *App) RenewSubscription(listingID int64) error {
 	}
 
 	var result struct {
-		ExpiresAt string `json:"expires_at"`
+		ExpiresAt          string `json:"expires_at"`
+		SubscriptionMonths int    `json:"subscription_months"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("failed to decode renew response: %w", err)
@@ -534,6 +540,7 @@ func (a *App) RenewSubscription(listingID int64) error {
 		lic := a.usageLicenseStore.GetLicense(listingID)
 		if lic != nil {
 			lic.ExpiresAt = result.ExpiresAt
+			lic.SubscriptionMonths = result.SubscriptionMonths
 			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			a.usageLicenseStore.SetLicense(lic)
 			_ = a.usageLicenseStore.Save()

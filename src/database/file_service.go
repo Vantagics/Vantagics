@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,14 +29,12 @@ type FileInfo struct {
 
 // FileService provides methods for managing downloadable files
 type FileService struct {
-	db      *sql.DB
 	dataDir string
 }
 
 // NewFileService creates a new FileService instance
-func NewFileService(db *sql.DB, dataDir string) *FileService {
+func NewFileService(dataDir string) *FileService {
 	return &FileService{
-		db:      db,
 		dataDir: dataDir,
 	}
 }

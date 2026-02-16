@@ -48,7 +48,7 @@ func (t *DataSourceContextTool) Info(ctx context.Context) (*schema.ToolInfo, err
 
 Returns:
 1. Exact column names (case-sensitive!) and data types
-2. SQL dialect hints (SQLite vs MySQL syntax differences)
+2. SQL dialect hints (DuckDB vs MySQL syntax differences)
 3. Table relationships for JOINs (auto-detected FK references)
 4. Sample data (3 rows) to understand value patterns and date formats
 5. Row counts for each table
@@ -110,9 +110,9 @@ func (t *DataSourceContextTool) InvokableRun(ctx context.Context, input string, 
 	}
 
 	// Determine database type
-	dbType := "sqlite"
+	dbType := "duckdb"
 	if target.Config.DBPath != "" {
-		dbType = "sqlite"
+		dbType = "duckdb"
 	} else if target.Type == "mysql" || target.Type == "doris" {
 		dbType = target.Type
 	}
@@ -356,18 +356,17 @@ func isNumeric(s string) bool {
 // getSQLDialectHints returns SQL syntax hints for the specific database type
 func (t *DataSourceContextTool) getSQLDialectHints(dbType string) string {
 	switch dbType {
-	case "sqlite":
+	case "duckdb":
 		return `
-⚠️ SQL Dialect: SQLite - Use these syntax rules:
-• Date functions: strftime('%Y', date_col), strftime('%m', date_col), strftime('%d', date_col)
-• Date format: strftime('%Y-%m', date_col) for YYYY-MM format
-• String concat: col1 || ' ' || col2 (NOT CONCAT())
-• INSTR(str, substr) - only 2 parameters!
-• COALESCE(a, b) instead of IFNULL()
-• No YEAR(), MONTH(), DAY() functions - use strftime()
-• SUBSTR(str, start, len) for substring
-• Current date: date('now'), datetime('now')
-• CAST(col AS INTEGER/REAL/TEXT) for type conversion
+⚠️ SQL Dialect: DuckDB (Local Storage) - Use these syntax rules:
+• Date functions: YEAR(date_col), MONTH(date_col), DAY(date_col) are natively supported
+• Date format: strftime(date_col, '%Y-%m') or format(date_col, 'yyyy-mm')
+• String concat: CONCAT(col1, ' ', col2) or col1 || ' ' || col2
+• Window functions: Fully supported (ROW_NUMBER, RANK, etc.)
+• Most MySQL and PostgreSQL functions are supported natively
+• SUBSTR(str, start, len) or SUBSTRING(str, start, len)
+• Current date: now(), today(), current_date
+• CAST(col AS INTEGER/DOUBLE/VARCHAR) for type conversion
 `
 	case "mysql", "doris":
 		return `

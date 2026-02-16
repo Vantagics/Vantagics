@@ -860,6 +860,7 @@ func (c *LicenseClient) ReportUsage() error {
 	c.mu.RLock()
 	serverURL := c.serverURL
 	sn := c.sn
+	lastReport := c.lastReportAt
 	var usedCredits float64
 	if c.data != nil {
 		usedCredits = c.data.UsedCredits
@@ -872,6 +873,14 @@ func (c *LicenseClient) ReportUsage() error {
 
 	if serverURL == "" || sn == "" {
 		return fmt.Errorf("not activated, cannot report usage")
+	}
+
+	// 间隔守卫：非首次上报时，距上次上报不足1小时则静默跳过
+	if !lastReport.IsZero() && time.Since(lastReport) < time.Hour {
+		if c.log != nil {
+			c.log(fmt.Sprintf("[LICENSE] ReportUsage: skipped, only %v since last report", time.Since(lastReport)))
+		}
+		return nil
 	}
 
 	// Build request body
@@ -970,6 +979,25 @@ func (c *LicenseClient) ShouldReportOnStartup() bool {
 	}
 	return elapsed >= time.Hour && changed
 }
+
+// ShouldReportNow 检查当前是否满足上报条件（间隔 + 变化量）
+func (c *LicenseClient) ShouldReportNow() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.data == nil {
+		return false
+	}
+
+	// 首次上报且有消耗
+	if c.lastReportAt.IsZero() {
+		return c.data.UsedCredits > 0
+	}
+
+	// 间隔已满且有变化
+	return time.Since(c.lastReportAt) >= time.Hour && c.data.UsedCredits != c.lastReportedCredits
+}
+
 
 // StartUsageReporting starts a background goroutine that reports usage every hour
 func (c *LicenseClient) StartUsageReporting() {

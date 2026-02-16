@@ -2,9 +2,9 @@
 /* Requirements: 4.1, 4.3 */
 
 .new-session-button-container {
-    padding: 16px;
-    border-top: 1px solid var(--border-color, #e0e0e0);
-    border-bottom: 1px solid var(--border-color, #e0e0e0);
+    padding: 12px 16px;
+    border-top: 1px solid rgba(226, 232, 240, 0.5);
+    border-bottom: 1px solid rgba(226, 232, 240, 0.5);
 }
 
 .new-session-button {
@@ -13,29 +13,30 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    padding: 12px;
+    padding: 10px;
     border: none;
-    border-radius: 6px;
-    background-color: var(--primary-color, #007bff);
+    border-radius: 8px;
+    background-color: #475569;
     color: white;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: all 0.2s ease;
+    letter-spacing: 0.01em;
 }
 
 .new-session-button:hover:not(:disabled) {
-    background-color: var(--primary-hover, #0056b3);
+    background-color: #334155;
 }
 
 .new-session-button:disabled {
-    background-color: var(--disabled-bg, #ccc);
+    background-color: var(--disabled-bg, #e2e8f0);
     cursor: not-allowed;
-    opacity: 0.6;
+    opacity: 0.5;
 }
 
 .new-session-icon {
-    font-size: 18px;
+    font-size: 16px;
     line-height: 1;
 }
 

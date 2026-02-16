@@ -2260,8 +2260,6 @@ export namespace main {
 	    author_name: string;
 	    share_mode: string;
 	    credits_price: number;
-	    valid_days: number;
-	    billing_cycle: string;
 	    download_count: number;
 	    created_at: string;
 	
@@ -2281,8 +2279,6 @@ export namespace main {
 	        this.author_name = source["author_name"];
 	        this.share_mode = source["share_mode"];
 	        this.credits_price = source["credits_price"];
-	        this.valid_days = source["valid_days"];
-	        this.billing_cycle = source["billing_cycle"];
 	        this.download_count = source["download_count"];
 	        this.created_at = source["created_at"];
 	    }
@@ -2596,8 +2592,9 @@ export namespace main {
 	    pack_name: string;
 	    pricing_model: string;
 	    remaining_uses: number;
+	    total_uses: number;
 	    expires_at: string;
-	    billing_cycle: string;
+	    subscription_months: number;
 	    created_at: string;
 	    updated_at: string;
 	
@@ -2611,8 +2608,9 @@ export namespace main {
 	        this.pack_name = source["pack_name"];
 	        this.pricing_model = source["pricing_model"];
 	        this.remaining_uses = source["remaining_uses"];
+	        this.total_uses = source["total_uses"];
 	        this.expires_at = source["expires_at"];
-	        this.billing_cycle = source["billing_cycle"];
+	        this.subscription_months = source["subscription_months"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	    }

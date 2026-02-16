@@ -62,7 +62,7 @@ sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "$REMOTE_DIR/start.sh"
 
 echo "      Checking server status..."
 sleep 3
-sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "curl -s http://localhost:8080/api/health && echo 'Server started successfully' || (echo 'ERROR: Server failed to start' && tail -20 $REMOTE_DIR/server.log)"
+sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$SERVER" "curl -s http://localhost:6699/health && echo 'Server started successfully' || (echo 'ERROR: Server failed to start' && tail -20 $REMOTE_DIR/server.log)"
 
 echo ""
 echo "=========================================="

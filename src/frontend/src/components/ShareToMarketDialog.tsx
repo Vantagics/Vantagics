@@ -12,7 +12,7 @@ interface PackCategory {
     pack_count: number;
 }
 
-type PricingModel = 'free' | 'per_use' | 'time_limited' | 'subscription';
+type PricingModel = 'free' | 'per_use' | 'subscription';
 
 interface ShareToMarketDialogProps {
     packFilePath: string;
@@ -25,16 +25,17 @@ export function validateShareForm(
     detailedDescription: string,
     pricingModel: PricingModel,
     creditsPrice: string,
-    validDays?: string,
-    billingCycle?: string,
-): { valid: boolean; descriptionError: boolean; priceError: boolean; validDaysError: boolean; billingCycleError: boolean } {
+): { valid: boolean; descriptionError: boolean; priceError: boolean; priceRangeError: boolean } {
     const descriptionError = detailedDescription.trim().length === 0;
     const priceNum = parseInt(creditsPrice, 10);
     const priceError = pricingModel !== 'free' && (!Number.isInteger(priceNum) || priceNum <= 0);
-    const daysNum = parseInt(validDays || '', 10);
-    const validDaysError = pricingModel === 'time_limited' && (!Number.isInteger(daysNum) || daysNum <= 0);
-    const billingCycleError = pricingModel === 'subscription' && billingCycle !== 'monthly' && billingCycle !== 'yearly';
-    return { valid: !descriptionError && !priceError && !validDaysError && !billingCycleError, descriptionError, priceError, validDaysError, billingCycleError };
+    let priceRangeError = false;
+    if (!priceError && pricingModel === 'per_use') {
+        priceRangeError = priceNum < 1 || priceNum > 100;
+    } else if (!priceError && pricingModel === 'subscription') {
+        priceRangeError = priceNum < 100 || priceNum > 1000;
+    }
+    return { valid: !descriptionError && !priceError && !priceRangeError, descriptionError, priceError, priceRangeError };
 }
 
 const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
@@ -48,8 +49,6 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
     const [categoryID, setCategoryID] = useState<number>(0);
     const [pricingModel, setPricingModel] = useState<PricingModel>('free');
     const [creditsPrice, setCreditsPrice] = useState<string>('');
-    const [validDays, setValidDays] = useState<string>('');
-    const [billingCycle, setBillingCycle] = useState<string>('monthly');
     const [detailedDescription, setDetailedDescription] = useState<string>('');
     const [isSharing, setIsSharing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -74,7 +73,7 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
         fetchCategories();
     }, []);
 
-    const { valid: formValid, descriptionError, priceError, validDaysError, billingCycleError } = validateShareForm(detailedDescription, pricingModel, creditsPrice, validDays, billingCycle);
+    const { valid: formValid, descriptionError, priceError, priceRangeError } = validateShareForm(detailedDescription, pricingModel, creditsPrice);
     const canSubmit = categoryID > 0 && formValid && !isSharing && !loadingCategories;
 
     const handleConfirm = async () => {
@@ -83,9 +82,7 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
         setError(null);
         try {
             const price = pricingModel !== 'free' ? parseInt(creditsPrice, 10) : 0;
-            const days = pricingModel === 'time_limited' ? parseInt(validDays, 10) : 0;
-            const cycle = pricingModel === 'subscription' ? billingCycle : '';
-            await SharePackToMarketplace(packFilePath, categoryID, pricingModel, price, detailedDescription, days, cycle);
+            await SharePackToMarketplace(packFilePath, categoryID, pricingModel, price, detailedDescription);
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -106,7 +103,6 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
     const pricingOptions: { value: PricingModel; labelKey: string }[] = [
         { value: 'free', labelKey: 'share_dialog_free' },
         { value: 'per_use', labelKey: 'share_dialog_per_use' },
-        { value: 'time_limited', labelKey: 'share_dialog_time_limited' },
         { value: 'subscription', labelKey: 'share_dialog_subscription' },
     ];
 
@@ -198,8 +194,6 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
                                     onChange={() => {
                                         setPricingModel(opt.value);
                                         if (opt.value === 'free') setCreditsPrice('');
-                                        if (opt.value !== 'time_limited') setValidDays('');
-                                        if (opt.value !== 'subscription') setBillingCycle('monthly');
                                     }}
                                     disabled={isSharing}
                                     className="accent-blue-600"
@@ -215,60 +209,31 @@ const ShareToMarketDialog: React.FC<ShareToMarketDialogProps> = ({
                     <div className="mb-4">
                         <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
                             {t('share_dialog_credits_price')} <span className="text-red-500">*</span>
+                            <span className="text-xs text-slate-400 dark:text-[#6e6e6e] ml-2">
+                                ({pricingModel === 'per_use' ? '1-100' : '100-1000'})
+                            </span>
                         </label>
                         <input
                             type="number"
-                            min="1"
+                            min={pricingModel === 'per_use' ? '1' : '100'}
+                            max={pricingModel === 'per_use' ? '100' : '1000'}
                             step="1"
                             value={creditsPrice}
                             onChange={e => setCreditsPrice(e.target.value)}
                             disabled={isSharing}
-                            placeholder="1"
+                            placeholder={pricingModel === 'per_use' ? '1' : '100'}
                             className={inputClass}
                         />
                         {priceError && creditsPrice !== '' && (
                             <p className="mt-1 text-xs text-red-500">{t('share_dialog_price_required')}</p>
                         )}
-                    </div>
-                )}
-
-                {/* Valid days input (shown when time_limited) */}
-                {pricingModel === 'time_limited' && (
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
-                            {t('share_dialog_valid_days')} <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={validDays}
-                            onChange={e => setValidDays(e.target.value)}
-                            disabled={isSharing}
-                            placeholder="30"
-                            className={inputClass}
-                        />
-                        {validDaysError && validDays !== '' && (
-                            <p className="mt-1 text-xs text-red-500">{t('share_dialog_valid_days_required')}</p>
+                        {priceRangeError && creditsPrice !== '' && !priceError && (
+                            <p className="mt-1 text-xs text-red-500">
+                                {pricingModel === 'per_use'
+                                    ? t('share_dialog_price_range_per_use')
+                                    : t('share_dialog_price_range_subscription')}
+                            </p>
                         )}
-                    </div>
-                )}
-
-                {/* Billing cycle selector (shown when subscription) */}
-                {pricingModel === 'subscription' && (
-                    <div className="mb-4">
-                        <label className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
-                            {t('share_dialog_billing_cycle')} <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                            value={billingCycle}
-                            onChange={e => setBillingCycle(e.target.value)}
-                            disabled={isSharing}
-                            className={inputClass}
-                        >
-                            <option value="monthly">{t('share_dialog_billing_monthly')}</option>
-                            <option value="yearly">{t('share_dialog_billing_yearly')}</option>
-                        </select>
                     </div>
                 )}
 

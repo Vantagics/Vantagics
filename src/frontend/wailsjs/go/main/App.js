@@ -302,6 +302,10 @@ export function GetDataSourceTableData(arg1, arg2) {
   return window['go']['main']['App']['GetDataSourceTableData'](arg1, arg2);
 }
 
+export function GetDataSourceTableDataWithCount(arg1, arg2) {
+  return window['go']['main']['App']['GetDataSourceTableDataWithCount'](arg1, arg2);
+}
+
 export function GetDataSourceTables(arg1) {
   return window['go']['main']['App']['GetDataSourceTables'](arg1);
 }
@@ -502,6 +506,10 @@ export function MarketplaceLoginWithSN() {
   return window['go']['main']['App']['MarketplaceLoginWithSN']();
 }
 
+export function ServicePortalLogin() {
+  return window['go']['main']['App']['ServicePortalLogin']();
+}
+
 export function OpenDevTools() {
   return window['go']['main']['App']['OpenDevTools']();
 }
@@ -574,8 +582,8 @@ export function RenameDataSource(arg1, arg2) {
   return window['go']['main']['App']['RenameDataSource'](arg1, arg2);
 }
 
-export function RenewSubscription(arg1) {
-  return window['go']['main']['App']['RenewSubscription'](arg1);
+export function RenewSubscription(arg1, arg2) {
+  return window['go']['main']['App']['RenewSubscription'](arg1, arg2);
 }
 
 export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
@@ -654,8 +662,8 @@ export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
 }
 
-export function SharePackToMarketplace(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
-  return window['go']['main']['App']['SharePackToMarketplace'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+export function SharePackToMarketplace(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SharePackToMarketplace'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ShowAbout() {

@@ -7,7 +7,7 @@ set "HTTPS_PROXY=socks5://127.0.0.1:10808"
 
 REM Ensure GOPATH\bin is in PATH for wails, makefat, etc.
 for /f "delims=" %%i in ('go env GOPATH') do set "GOPATH_DIR=%%i"
-set "PATH=%GOPATH_DIR%\bin;%PATH%"
+set "PATH=%~dp0bin;%GOPATH_DIR%\bin;%PATH%"
 
 REM Add NSIS to PATH (using short path name)
 set "PATH=C:\PROGRA~2\NSIS;C:\PROGRA~1\NSIS;%PATH%"
@@ -34,20 +34,31 @@ if errorlevel 1 exit /b 1
 exit /b 0
 
 :build_windows
-echo [Windows] Building...
+echo [Windows] Building (Dynamic Link - External DLL)...
+set "DUCKDB_LIB_DIR=%~dp0libduckDB\windows"
 cd /d "%SRC_DIR%"
 set CGO_ENABLED=1
-call wails build -clean -platform windows/amd64 -nsis
+set "CC=%~dp0bin\zcc.bat"
+set "CXX=%~dp0bin\zxx.bat"
+
+set "CGO_LDFLAGS=-L%DUCKDB_LIB_DIR% -lduckdb -lws2_32 -lbcrypt -lcrypt32 -lole32 -luser32 -lshell32 -ladvapi32 -lrstrtmgr -lpsapi -lstdc++"
+set "CGO_CFLAGS=-I%DUCKDB_LIB_DIR%"
+set "CGO_LDFLAGS_ALLOW=.*"
+
+REM Add DLL directory to PATH so wails can run the binary to generate bindings
+set "PATH=%DUCKDB_LIB_DIR%;%PATH%"
+
+call wails build -clean -platform windows/amd64 -ldflags="-H windowsgui" -nsis
 if errorlevel 1 (
     echo Error: Windows build failed!
-    pause
     exit /b 1
 )
 cd /d ..
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
     copy /y "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\" >nul
-    echo Windows build copied to %DIST_DIR%\%OUTPUT_NAME%.exe
+    copy /y "libduckDB\windows\duckdb.dll" "%DIST_DIR%\" >nul
+    echo Windows build and duckdb.dll copied to %DIST_DIR%\
 ) else (
     echo Warning: %BUILD_DIR%\%OUTPUT_NAME%.exe not found
 )
@@ -84,19 +95,17 @@ echo   appdata_manager built successfully.
 
 REM Build license_server for Windows
 echo   Building license_server (Windows)...
-cd /d "tools\license_server"
+pushd "tools\license_server"
 set GOOS=windows
 set GOARCH=amd64
 set CGO_ENABLED=1
-go build -o "..\..\%DIST_DIR%\tools\license_server.exe" -ldflags="-s -w" .
+go build -o "../../%DIST_DIR%/tools/license_server.exe" -ldflags="-s -w" .
 if errorlevel 1 (
     echo Error: license_server Windows build failed!
-    echo Note: go-sqlcipher requires GCC (MinGW-w64). Install via MSYS2:
-    echo   pacman -S mingw-w64-x86_64-gcc
-    cd /d ..\..
+    popd
     exit /b 1
 )
-cd /d ..\..
+popd
 echo   license_server built successfully.
 
 echo.

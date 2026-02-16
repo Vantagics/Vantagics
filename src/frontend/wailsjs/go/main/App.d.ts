@@ -155,6 +155,8 @@ export function GetDataSourceTableCount(arg1:string,arg2:string):Promise<number>
 
 export function GetDataSourceTableData(arg1:string,arg2:string):Promise<Array<Record<string, any>>>;
 
+export function GetDataSourceTableDataWithCount(arg1:string,arg2:string):Promise<{data: Array<Record<string, any>>, rowCount: number}>;
+
 export function GetDataSourceTables(arg1:string):Promise<Array<string>>;
 
 export function GetDataSources():Promise<Array<agent.DataSource>>;
@@ -255,6 +257,8 @@ export function MarkAsFinding(arg1:string,arg2:string,arg3:number):Promise<void>
 
 export function MarketplaceLoginWithSN():Promise<void>;
 
+export function ServicePortalLogin():Promise<string>;
+
 export function OpenDevTools():Promise<void>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
@@ -291,7 +295,7 @@ export function RenameColumn(arg1:string,arg2:string,arg3:string,arg4:string):Pr
 
 export function RenameDataSource(arg1:string,arg2:string):Promise<void>;
 
-export function RenewSubscription(arg1:number):Promise<void>;
+export function RenewSubscription(arg1:number,arg2:number):Promise<void>;
 
 export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<agent.ReplayResult>;
 
@@ -331,7 +335,7 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Pro
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
 
-export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number,arg5:string,arg6:number,arg7:string):Promise<void>;
+export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number,arg5:string):Promise<void>;
 
 export function ShowAbout():Promise<void>;
 

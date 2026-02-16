@@ -38,8 +38,8 @@ func TestAnalysisPipeline_DiagnosticTest(t *testing.T) {
 			t.Run(tc.request, func(t *testing.T) {
 				// 创建模拟的 schema context
 				schemaCtx := &UnifiedSchemaContext{
-					DatabaseType: "sqlite",
-					DatabasePath: "/test/db.sqlite",
+					DatabaseType: "duckdb",
+					DatabasePath: "/test/db.duckdb",
 					Tables: []UnifiedTableSchema{
 						{
 							Name:     "orders",
@@ -430,8 +430,8 @@ func TestSchemaContextBuilder_Integration(t *testing.T) {
 	// 这个测试需要实际的数据源服务，这里只测试基本逻辑
 	t.Run("ContextFormatting", func(t *testing.T) {
 		ctx := &UnifiedSchemaContext{
-			DatabaseType: "sqlite",
-			DatabasePath: "/test/db.sqlite",
+			DatabaseType: "duckdb",
+			DatabasePath: "/test/db.duckdb",
 			Tables: []UnifiedTableSchema{
 				{
 					Name:     "orders",
@@ -497,7 +497,7 @@ func TestEndToEnd_SimulatedAnalysis(t *testing.T) {
 		// 3. 构建提示词
 		builder := NewAnalysisPromptBuilder()
 		schemaCtx := &UnifiedSchemaContext{
-			DatabaseType: "sqlite",
+			DatabaseType: "duckdb",
 			Tables: []UnifiedTableSchema{
 				{Name: "sales", Columns: []UnifiedColumnInfo{{Name: "product", Type: "TEXT"}, {Name: "amount", Type: "REAL"}}},
 			},

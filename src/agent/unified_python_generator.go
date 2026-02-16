@@ -411,7 +411,9 @@ func (g *UnifiedPythonGenerator) postProcessCode(code string, dbPath string, ses
 	code = strings.ReplaceAll(code, `session_dir = ""`, fmt.Sprintf(`session_dir = "%s"`, filesDir))
 	code = strings.ReplaceAll(code, `db_path = ''`, fmt.Sprintf(`db_path = '%s'`, dbPath))
 	code = strings.ReplaceAll(code, `files_dir = ''`, fmt.Sprintf(`files_dir = '%s'`, filesDir))
-	code = strings.ReplaceAll(code, `session_dir = ''`, fmt.Sprintf(`session_dir = '%s'`, filesDir))
+	// Force duckdb if sqlite3 is somehow generated
+	code = strings.ReplaceAll(code, "import sqlite3", "import duckdb")
+	code = strings.ReplaceAll(code, "sqlite3.connect(", "duckdb.connect(")
 
 	return code
 }

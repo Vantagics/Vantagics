@@ -75,17 +75,17 @@ func (t *SQLExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 **IMPORTANT - Before Writing SQL:**
 - ALWAYS call get_data_source_context FIRST to learn exact column names and data types
 - Column names are CASE-SENSITIVE! Use exact names from schema
-- Check the SQL dialect (SQLite vs MySQL) from schema output
+- Check the SQL dialect (DuckDB vs MySQL) from schema output
 
 **Rules:**
 - Only SELECT/WITH statements allowed (read-only)
 - Results limited to 1000 rows (auto-applied if no LIMIT)
-- MySQL syntax auto-converted to SQLite when needed
+- MySQL syntax auto-converted to DuckDB when needed
 - Self-correction: if SQL fails, the tool will attempt automatic fix (up to 2 retries)
 
 **Common Mistakes to Avoid:**
-- ❌ Using YEAR()/MONTH() on SQLite → Use strftime('%Y', col)
-- ❌ Using CONCAT() on SQLite → Use col1 || col2
+- ❌ Using WRONG DIALECT → DuckDB is used for local data (Excel/CSV)
+- ❌ Using MySQL-only functions on local data → Most are auto-converted, but stick to standard SQL
 - ❌ Wrong column name case → Check schema first
 - ❌ Referencing subquery columns not in SELECT → Include all needed columns
 
@@ -109,8 +109,8 @@ func (t *SQLExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 	}, nil
 }
 
-// convertMySQLToSQLite converts common MySQL syntax to SQLite
-func (t *SQLExecutorTool) convertMySQLToSQLite(query string) string {
+// convertMySQLToDuckDB converts common MySQL syntax to DuckDB
+func (t *SQLExecutorTool) convertMySQLToDuckDB(query string) string {
 	// Convert YEAR(column) -> strftime('%Y', column)
 	// Use word boundary to avoid matching JULIANDAY, etc.
 	yearRegex := regexp.MustCompile(`(?i)\bYEAR\s*\(\s*([^)]+)\s*\)`)
@@ -227,7 +227,7 @@ func (t *SQLExecutorTool) getTableColumns(db *sql.DB, dbType string, tableName s
 	var rows *sql.Rows
 	var err error
 
-	if dbType == "sqlite" {
+	if dbType == "duckdb" {
 		rows, err = db.Query(fmt.Sprintf("PRAGMA table_info(`%s`)", tableName))
 		if err != nil {
 			return nil, err
@@ -302,9 +302,9 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 	var db *sql.DB
 	var dbType string
 	if target.Config.DBPath != "" {
-		dbType = "sqlite"
+		dbType = "duckdb"
 		dbPath := filepath.Join(t.dsService.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return "", dbType, fmt.Errorf("failed to open database: %v", err)
 		}
@@ -327,14 +327,14 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 
 	// Apply SQL dialect conversion if needed
 	processedQuery := query
-	if dbType == "sqlite" {
-		processedQuery = t.convertMySQLToSQLite(processedQuery)
+	if dbType == "duckdb" {
+		processedQuery = t.convertMySQLToDuckDB(processedQuery)
 	}
 
 	// Extract table name for column case fixing
 	fromRegex := regexp.MustCompile(`(?i)FROM\s+` + "`?" + `([a-zA-Z0-9_]+)` + "`?")
 	fromMatches := fromRegex.FindStringSubmatch(processedQuery)
-	if len(fromMatches) > 1 && dbType == "sqlite" {
+	if len(fromMatches) > 1 && dbType == "duckdb" {
 		tableName := fromMatches[1]
 		processedQuery = t.fixColumnCaseSensitivity(processedQuery, db, tableName)
 	}
@@ -451,9 +451,9 @@ func (t *SQLExecutorTool) buildErrorMessage(err error, query, dbType string) str
 		
 		errorMsg.WriteString("🔄 Please rewrite the query with the correct column references and try again.")
 	} else if strings.Contains(errStr, "syntax error") {
-		errorMsg.WriteString("💡 FIX: Check SQL syntax. If using SQLite, remember:\n")
-		errorMsg.WriteString("   - Use strftime('%Y', col) instead of YEAR(col)\n")
-		errorMsg.WriteString("   - Use col1 || col2 instead of CONCAT(col1, col2)\n")
+		errorMsg.WriteString("💡 FIX: Check SQL syntax. If using DuckDB, remember:\n")
+		errorMsg.WriteString("   - Most MySQL functions like YEAR(), MONTH(), CONCAT() are supported\n")
+		errorMsg.WriteString("   - Use standard SQL where possible\n")
 		errorMsg.WriteString("   - Use COALESCE instead of IFNULL\n")
 	} else {
 		errorMsg.WriteString(fmt.Sprintf("Original query:\n%s\n", query))

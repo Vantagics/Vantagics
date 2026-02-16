@@ -8,13 +8,15 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetDataSourceTables: vi.fn(),
     GetDataSourceTableData: vi.fn(),
     GetDataSourceTableCount: vi.fn(),
+    GetDataSourceTableDataWithCount: vi.fn(),
 }));
 
-import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount } from '../../wailsjs/go/main/App';
+import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, GetDataSourceTableDataWithCount } from '../../wailsjs/go/main/App';
 
 const mockGetDataSourceTables = vi.mocked(GetDataSourceTables);
 const mockGetDataSourceTableData = vi.mocked(GetDataSourceTableData);
 const mockGetDataSourceTableCount = vi.mocked(GetDataSourceTableCount);
+const mockGetDataSourceTableDataWithCount = vi.mocked(GetDataSourceTableDataWithCount);
 
 const defaultProps: DataBrowserProps = {
     isOpen: false,
@@ -38,6 +40,7 @@ describe('DataBrowser Component', () => {
         mockGetDataSourceTables.mockResolvedValue([]);
         mockGetDataSourceTableData.mockResolvedValue([]);
         mockGetDataSourceTableCount.mockResolvedValue(0);
+        mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: [], rowCount: 0 });
     });
 
     afterEach(() => {
@@ -326,8 +329,7 @@ describe('DataBrowser Component', () => {
 
         it('should display selected table name in header when a table is selected', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser
@@ -441,8 +443,7 @@ describe('DataBrowser Component', () => {
     describe('Table Selection (Requirement 8.3)', () => {
         it('should load table data when a table is selected', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -457,15 +458,13 @@ describe('DataBrowser Component', () => {
             });
 
             await waitFor(() => {
-                expect(mockGetDataSourceTableData).toHaveBeenCalledWith('src-1', 'users');
-                expect(mockGetDataSourceTableCount).toHaveBeenCalledWith('src-1', 'users');
+                expect(mockGetDataSourceTableDataWithCount).toHaveBeenCalledWith('src-1', 'users');
             });
         });
 
         it('should show back button when a table is selected', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -486,8 +485,7 @@ describe('DataBrowser Component', () => {
 
         it('should go back to table list when back button is clicked', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -518,8 +516,7 @@ describe('DataBrowser Component', () => {
     describe('Column and Data Type Display (Requirement 8.3)', () => {
         it('should display columns with data types', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -552,8 +549,7 @@ describe('DataBrowser Component', () => {
     describe('Sample Data Display (Requirement 8.4)', () => {
         it('should display sample data rows in a table', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -578,8 +574,7 @@ describe('DataBrowser Component', () => {
 
         it('should show no data message when table has no rows', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue([]);
-            mockGetDataSourceTableCount.mockResolvedValue(0);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: [], rowCount: 0 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -606,8 +601,7 @@ describe('DataBrowser Component', () => {
                 name: `User ${i + 1}`,
             }));
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(manyRows);
-            mockGetDataSourceTableCount.mockResolvedValue(30);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: manyRows, rowCount: 30 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -634,8 +628,7 @@ describe('DataBrowser Component', () => {
                 name: `User ${i + 1}`,
             }));
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(manyRows);
-            mockGetDataSourceTableCount.mockResolvedValue(30);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: manyRows, rowCount: 30 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -663,8 +656,7 @@ describe('DataBrowser Component', () => {
                 name: `User ${i + 1}`,
             }));
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(manyRows);
-            mockGetDataSourceTableCount.mockResolvedValue(30);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: manyRows, rowCount: 30 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -691,8 +683,7 @@ describe('DataBrowser Component', () => {
                 name: `User ${i + 1}`,
             }));
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(manyRows);
-            mockGetDataSourceTableCount.mockResolvedValue(30);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: manyRows, rowCount: 30 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -716,8 +707,7 @@ describe('DataBrowser Component', () => {
 
         it('should not show pagination when data fits in one page', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(3);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 3 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -742,8 +732,7 @@ describe('DataBrowser Component', () => {
     describe('Row Count and Column Statistics (Requirement 8.6)', () => {
         it('should display row count and column count', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(1500);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 1500 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -783,8 +772,7 @@ describe('DataBrowser Component', () => {
 
         it('should display error when table data loading fails', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockRejectedValue(new Error('Query failed'));
-            mockGetDataSourceTableCount.mockRejectedValue(new Error('Query failed'));
+            mockGetDataSourceTableDataWithCount.mockRejectedValue(new Error('Query failed'));
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -858,8 +846,7 @@ describe('DataBrowser Component', () => {
 
         it('should filter columns when a table is selected', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />
@@ -894,8 +881,7 @@ describe('DataBrowser Component', () => {
 
         it('should have correct placeholder text for table search vs column filter', async () => {
             mockGetDataSourceTables.mockResolvedValue(sampleTables);
-            mockGetDataSourceTableData.mockResolvedValue(sampleTableData);
-            mockGetDataSourceTableCount.mockResolvedValue(100);
+            mockGetDataSourceTableDataWithCount.mockResolvedValue({ data: sampleTableData, rowCount: 100 });
 
             render(
                 <DataBrowser {...defaultProps} isOpen={true} sourceId="src-1" />

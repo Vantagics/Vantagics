@@ -13,6 +13,7 @@ import CenterPanel from './components/CenterPanel';
 import PackManagerPage from './components/PackManagerPage';
 import SNAuthErrorDialog from './components/SNAuthErrorDialog';
 import ShareToMarketDialog from './components/ShareToMarketDialog';
+import MarketBrowseDialog from './components/MarketBrowsePage';
 import RightPanel from './components/RightPanel';
 import ResizeHandle from './components/ResizeHandle';
 import DataBrowser from './components/DataBrowser';
@@ -40,6 +41,7 @@ function AppContent() {
     const [isAboutOpen, setIsAboutOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [isPackManagerOpen, setIsPackManagerOpen] = useState(false);
+    const [isMarketBrowseOpen, setIsMarketBrowseOpen] = useState(false);
     // Sharing flow state (Task 11.1)
     const [sharePackInfo, setSharePackInfo] = useState<{ pack_name: string; file_path: string } | null>(null);
     const [showAuthError, setShowAuthError] = useState(false);
@@ -779,6 +781,11 @@ function AppContent() {
         // Listen for pack manager menu event
         const unsubscribePackManager = EventsOn("open-pack-manager", () => {
             setIsPackManagerOpen(true);
+        });
+
+        // Listen for market browse menu event
+        const unsubscribeMarketBrowse = EventsOn("open-market-browse", () => {
+            setIsMarketBrowseOpen(true);
         });
 
         // Listen for open startup mode modal event (from AboutModal when switching to commercial mode)
@@ -1576,6 +1583,7 @@ function AppContent() {
             if (unsubscribeSettings) unsubscribeSettings();
             if (unsubscribeAbout) unsubscribeAbout();
             if (unsubscribePackManager) unsubscribePackManager();
+            if (unsubscribeMarketBrowse) unsubscribeMarketBrowse();
             if (unsubscribeStartupMode) unsubscribeStartupMode();
             if (unsubscribeDashboardUpdate) unsubscribeDashboardUpdate();
             if (unsubscribeSessionSwitch) unsubscribeSessionSwitch();
@@ -1836,6 +1844,10 @@ function AppContent() {
                     onClose={() => setIsPackManagerOpen(false)}
                     onSharePack={handleSharePack}
                 />
+
+                {isMarketBrowseOpen && (
+                    <MarketBrowseDialog onClose={() => setIsMarketBrowseOpen(false)} />
+                )}
 
                 {showAuthError && (
                     <SNAuthErrorDialog

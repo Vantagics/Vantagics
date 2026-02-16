@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
-import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread, UpdateThreadTitle } from '../../wailsjs/go/main/App';
+import { GetDataSources, DeleteDataSource, RenameDataSource, GetChatHistory, DeleteThread, OpenSessionResultsDirectory, GetConfig, SaveConfig, ClearThreadMessages, CreateChatThread, UpdateThreadTitle, ServicePortalLogin } from '../../wailsjs/go/main/App';
 import { EventsEmit, EventsOn, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import AddDataSourceModal from './AddDataSourceModal';
@@ -20,6 +20,7 @@ import MemoryViewModal from './MemoryViewModal';
 import ExportPackDialog from './ExportPackDialog';
 import ImportPackDialog from './ImportPackDialog';
 import RenameSessionModal from './RenameSessionModal';
+import ServiceAuthErrorDialog from './ServiceAuthErrorDialog';
 import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History } from 'lucide-react';
 import { useLoadingState } from '../hooks/useLoadingState';
 import './LeftPanel.css';
@@ -67,6 +68,37 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [freeChatThreadId, setFreeChatThreadId] = useState<string | null>(null);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [renameSessionTarget, setRenameSessionTarget] = useState<{ id: string; title: string; dataSourceId: string; dataSourceName?: string } | null>(null);
+
+    // Service portal SSO login state
+    const [serviceLoginLoading, setServiceLoginLoading] = useState(false);
+    const [showServiceError, setShowServiceError] = useState(false);
+    const [serviceErrorMessage, setServiceErrorMessage] = useState('');
+
+    // Shared SSO login handler for both button click and menu event
+    const handleServicePortalLogin = async () => {
+        if (serviceLoginLoading) return;
+        setServiceLoginLoading(true);
+        setShowServiceError(false);
+        setServiceErrorMessage('');
+        try {
+            const url = await ServicePortalLogin();
+            BrowserOpenURL(url);
+        } catch (err: any) {
+            const msg = typeof err === 'string' ? err : err?.message || 'Unknown error';
+            setServiceErrorMessage(msg);
+            setShowServiceError(true);
+        } finally {
+            setServiceLoginLoading(false);
+        }
+    };
+
+    // Listen for "service-portal-login" event from menu item (Task 4.1)
+    useEffect(() => {
+        const cleanup = EventsOn("service-portal-login", () => {
+            handleServicePortalLogin();
+        });
+        return () => { cleanup(); };
+    }, []);
 
     const fetchSources = async () => {
         try {
@@ -399,17 +431,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
     return (
         <div
-            className="bg-slate-100 dark:bg-[#1e1e1e] border-r border-slate-200 dark:border-[#3c3c3c] flex flex-col h-full flex-shrink-0"
+            className="bg-gradient-to-b from-slate-50 to-slate-100/80 dark:from-[#1e1e1e] dark:to-[#1e1e1e] border-r border-slate-200/70 dark:border-[#3c3c3c] flex flex-col h-full flex-shrink-0"
             style={{ width: width }}
         >
             <div
-                className="p-4 pt-8 border-b border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#252526] flex items-center justify-between"
+                className="px-5 py-4 pt-8 border-b border-slate-200/60 dark:border-[#3c3c3c] bg-white/60 dark:bg-[#252526] flex items-center justify-between backdrop-blur-sm"
             >
-                <h2 className="text-lg font-semibold text-slate-700 dark:text-[#d4d4d4] flex items-center gap-2"><Database className="w-5 h-5 text-blue-500" />{t('data_sources')}</h2>
-                <div className="flex items-center gap-2">
+                <h2 className="text-[15px] font-semibold text-slate-600 dark:text-[#d4d4d4] flex items-center gap-2 tracking-wide"><Database className="w-4 h-4 text-slate-400 dark:text-slate-500" />{t('data_sources')}</h2>
+                <div className="flex items-center gap-1">
                     <button
                         onClick={() => setIsDataSourceExpanded(!isDataSourceExpanded)}
-                        className="p-1 hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-md text-slate-500 dark:text-[#808080] hover:text-blue-600 transition-colors"
+                        className="p-1.5 hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-lg text-slate-400 dark:text-[#808080] hover:text-slate-600 transition-all duration-200"
                         title={isDataSourceExpanded ? "折叠" : "展开"}
                     >
                         {isDataSourceExpanded ? '<<' : '>>'}
@@ -418,42 +450,42 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         onClick={() => {
                             setShowOnboardingWizard(true);
                         }}
-                        className="p-1 hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-md text-slate-500 dark:text-[#808080] hover:text-blue-600 transition-colors"
+                        className="p-1.5 hover:bg-slate-100 dark:hover:bg-[#2d2d30] rounded-lg text-slate-400 dark:text-[#808080] hover:text-slate-600 transition-all duration-200"
                         title={t('add_source')}
                     >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
                     </button>
                 </div>
             </div>
             {isDataSourceExpanded && (
                 <>
-                    <div className="overflow-y-auto p-2" style={{ maxHeight: '30vh' }}>
+                    <div className="overflow-y-auto px-3 py-2" style={{ maxHeight: '30vh' }}>
                         {!sources || sources.length === 0 ? (
-                            <div className="p-4 text-center text-xs text-slate-400 dark:text-[#808080] italic">
+                            <div className="p-4 text-center text-xs text-slate-400 dark:text-[#808080]">
                                 {t('no_data_sources_yet')}
                             </div>
                         ) : (
-                            <ul className="space-y-1">
+                            <ul className="space-y-0.5">
                                 {sources.map((source) => (
                                     <li
                                         key={source.id}
-                                        className={`group p-2 rounded-md text-sm flex items-center justify-between transition-colors relative ${selectedId === source.id ? 'bg-blue-200 dark:bg-[#264f78] text-blue-800 dark:text-[#569cd6]' : 'hover:bg-blue-100 dark:hover:bg-[#2d2d30] text-slate-600 dark:text-[#d4d4d4]'}`}
+                                        className={`group px-3 py-2 rounded-lg text-[13px] flex items-center justify-between transition-all duration-150 relative ${selectedId === source.id ? 'bg-slate-200/80 dark:bg-[#264f78] text-slate-700 dark:text-[#569cd6]' : 'hover:bg-slate-100 dark:hover:bg-[#2d2d30] text-slate-500 dark:text-[#d4d4d4]'}`}
                                         onContextMenu={(e) => handleContextMenu(e, source.id)}
                                     >
                                         <div
-                                            className="flex items-center gap-2 overflow-hidden flex-1 cursor-pointer"
+                                            className="flex items-center gap-2.5 overflow-hidden flex-1 cursor-pointer"
                                             onClick={() => handleSourceClick(source)}
                                         >
                                             {source.type === 'excel' ? (
-                                                <FileSpreadsheet className="flex-shrink-0 w-4 h-4 text-green-500" />
+                                                <FileSpreadsheet className="flex-shrink-0 w-3.5 h-3.5 text-emerald-400" />
                                             ) : (
-                                                <Database className="flex-shrink-0 w-4 h-4 text-blue-500" />
+                                                <Database className="flex-shrink-0 w-3.5 h-3.5 text-slate-400" />
                                             )}
                                             <span className="truncate" title={source.name}>{source.name}</span>
                                         </div>
                                         <button
                                             onClick={(e) => handleDelete(source, e)}
-                                            className={`p-1 hover:text-red-600 transition-opacity relative z-10 ${selectedId === source.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                                            className={`p-1 hover:text-red-400 transition-opacity relative z-10 ${selectedId === source.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
                                             title={t('delete_source')}
                                         >
                                             <Trash2 className="w-3 h-3" />
@@ -463,11 +495,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                             </ul>
                         )}
                     </div>
-                    <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] flex flex-col gap-2">
+                    <div className="px-4 py-3 border-t border-slate-200/60 dark:border-[#3c3c3c] flex flex-col gap-2">
                         <button
                             onClick={handleStartChatAnalysis}
                             aria-label={t('chat_analysis')}
-                            className="w-full py-2 px-4 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 bg-blue-100 dark:bg-[#1e3a5f] hover:bg-blue-200 dark:hover:bg-[#264f78] text-blue-700 dark:text-[#569cd6] ring-1 ring-blue-300 dark:ring-[#264f78] shadow-sm"
+                            className="w-full py-2.5 px-4 rounded-lg text-[13px] font-medium transition-all duration-200 flex items-center justify-center gap-2 bg-slate-700 dark:bg-[#1e3a5f] hover:bg-slate-800 dark:hover:bg-[#264f78] text-white dark:text-[#cdd6e4] shadow-sm"
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
@@ -475,7 +507,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         <div className="flex gap-2">
                             {freeChatThreadId && (
                                 <button
-                                    className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm ${selectedSessionId === freeChatThreadId ? 'bg-red-200 dark:bg-[#5f1e1e] text-red-800 dark:text-[#d69656] ring-red-400 dark:ring-[#783026]' : 'bg-red-50 dark:bg-[#3a1f1f] hover:bg-red-100 dark:hover:bg-[#4a2626] text-red-700 dark:text-[#d69656] ring-red-300 dark:ring-[#5f2e2e]'}`}
+                                    className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all duration-200 flex items-center justify-center gap-1.5 border ${selectedSessionId === freeChatThreadId ? 'bg-slate-200 dark:bg-[#5f1e1e] text-slate-700 dark:text-[#d69656] border-slate-300 dark:border-[#783026]' : 'bg-white/70 dark:bg-[#3a1f1f] hover:bg-slate-50 dark:hover:bg-[#4a2626] text-slate-500 dark:text-[#d69656] border-slate-200 dark:border-[#5f2e2e]'}`}
                                     onClick={() => {
                                         onSessionSelect(freeChatThreadId);
                                         if (!isChatOpen) {
@@ -492,11 +524,19 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                                 </button>
                             )}
                             <button
-                                className="flex-1 py-2 px-3 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2 ring-1 shadow-sm bg-green-50 dark:bg-[#1f3a2a] hover:bg-green-100 dark:hover:bg-[#264f3a] text-green-700 dark:text-[#56d6a0] ring-green-300 dark:ring-[#2e5f3e]"
-                                onClick={() => BrowserOpenURL('https://service.vantagedata.chat/?vantagedata')}
+                                className="flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all duration-200 flex items-center justify-center gap-1.5 border bg-white/70 dark:bg-[#1f3a2a] hover:bg-slate-50 dark:hover:bg-[#264f3a] text-slate-500 dark:text-[#56d6a0] border-slate-200 dark:border-[#2e5f3e]"
+                                onClick={handleServicePortalLogin}
+                                disabled={serviceLoginLoading}
                                 aria-label={t('customer_service')}
                             >
-                                <span>🎧</span> {t('customer_service')}
+                                {serviceLoginLoading ? (
+                                    <svg className="animate-spin w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                    </svg>
+                                ) : (
+                                    <span>🎧</span>
+                                )} {t('customer_service')}
                             </button>
                         </div>
                     </div>
@@ -746,6 +786,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 dataSourceName={renameSessionTarget?.dataSourceName}
                 onClose={() => setRenameSessionTarget(null)}
                 onConfirm={handleRenameSession}
+            />
+
+            <ServiceAuthErrorDialog
+                show={showServiceError}
+                errorMessage={serviceErrorMessage}
+                onRetry={() => {
+                    setShowServiceError(false);
+                    handleServicePortalLogin();
+                }}
+                onClose={() => setShowServiceError(false)}
             />
         </div>
     );

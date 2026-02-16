@@ -11,14 +11,15 @@ import (
 
 // UsageLicense 本地使用权限记录
 type UsageLicense struct {
-	ListingID     int64  `json:"listing_id"`
-	PackName      string `json:"pack_name"`
-	PricingModel  string `json:"pricing_model"`  // free, per_use, time_limited, subscription
-	RemainingUses int    `json:"remaining_uses"` // per_use 模式
-	ExpiresAt     string `json:"expires_at"`     // time_limited/subscription 模式，RFC3339
-	BillingCycle  string `json:"billing_cycle"`  // subscription 模式：monthly/yearly
-	CreatedAt     string `json:"created_at"`
-	UpdatedAt     string `json:"updated_at"`
+	ListingID          int64  `json:"listing_id"`
+	PackName           string `json:"pack_name"`
+	PricingModel       string `json:"pricing_model"`       // free, per_use, subscription
+	RemainingUses      int    `json:"remaining_uses"`      // per_use 模式：剩余次数
+	TotalUses          int    `json:"total_uses"`          // per_use 模式：总购买次数
+	ExpiresAt          string `json:"expires_at"`          // subscription 模式，RFC3339
+	SubscriptionMonths int    `json:"subscription_months"` // subscription 模式：订阅总月数
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 // usageLicenseFileData is the JSON file structure for persisting licenses.
@@ -166,10 +167,20 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 			return true, ""
 		}
 		return false, "使用次数已用完，请重新购买"
-	case "time_limited", "subscription":
+	case "subscription":
 		expiresAt, err := time.Parse(time.RFC3339, lic.ExpiresAt)
 		if err != nil {
 			// Cannot parse expiry — be permissive
+			return true, ""
+		}
+		if time.Now().Before(expiresAt) {
+			return true, ""
+		}
+		return false, "使用权限已过期，请续费"
+	case "time_limited":
+		// Legacy support: treat time_limited like subscription (check expiry)
+		expiresAt, err := time.Parse(time.RFC3339, lic.ExpiresAt)
+		if err != nil {
 			return true, ""
 		}
 		if time.Now().Before(expiresAt) {

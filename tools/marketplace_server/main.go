@@ -87,8 +87,6 @@ type PackListingInfo struct {
 	AuthorName      string           `json:"author_name"`
 	ShareMode       string           `json:"share_mode"`
 	CreditsPrice    int              `json:"credits_price"`
-	ValidDays       int              `json:"valid_days"`
-	BillingCycle    string           `json:"billing_cycle"`
 	DownloadCount   int              `json:"download_count"`
 	Status          string           `json:"status"`
 	RejectReason    string           `json:"reject_reason,omitempty"`
@@ -225,6 +223,31 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add billing-related columns to pack_listings (ignore error if already exists)
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN valid_days INTEGER DEFAULT 0")
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN billing_cycle TEXT DEFAULT ''")
+
+	// Add encryption_password column for paid pack encryption (ignore error if already exists)
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN encryption_password TEXT DEFAULT ''")
+
+	// Add username and password_hash columns to users table (ignore error if already exists)
+	database.Exec("ALTER TABLE users ADD COLUMN username TEXT")
+	database.Exec("ALTER TABLE users ADD COLUMN password_hash TEXT")
+	// Create unique index on username (ALTER TABLE ADD COLUMN does not support UNIQUE in SQLite)
+	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL")
+
+	// Create user_downloads table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS user_downloads (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			listing_id INTEGER NOT NULL,
+			downloaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (listing_id) REFERENCES pack_listings(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create user_downloads table: %w", err)
+	}
+
 	// Create credits_transactions table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS credits_transactions (
@@ -331,6 +354,9 @@ func initDB(dbPath string) (*sql.DB, error) {
 			return nil, fmt.Errorf("failed to create admin_credentials table: %w", err)
 		}
 	}
+
+	// Add permissions column to admin_credentials (ignore error if already exists)
+	database.Exec("ALTER TABLE admin_credentials ADD COLUMN permissions TEXT DEFAULT ''")
 
 	return database, nil
 }
@@ -556,6 +582,54 @@ func getSessionAdminID(r *http.Request) int64 {
 	return entry.AdminID
 }
 
+// User session store (independent from admin sessions)
+var (
+	userSessions   = make(map[string]userSessionEntry)
+	userSessionsMu sync.RWMutex
+)
+
+type userSessionEntry struct {
+	UserID int64
+	Expiry time.Time
+}
+
+// createUserSession creates a new user session and returns the session ID.
+func createUserSession(userID int64) string {
+	id := generateSessionID()
+	userSessionsMu.Lock()
+	userSessions[id] = userSessionEntry{UserID: userID, Expiry: time.Now().Add(24 * time.Hour)}
+	userSessionsMu.Unlock()
+	return id
+}
+
+// isValidUserSession checks if a user session ID is valid and not expired.
+func isValidUserSession(id string) bool {
+	userSessionsMu.RLock()
+	entry, ok := userSessions[id]
+	userSessionsMu.RUnlock()
+	if !ok {
+		return false
+	}
+	if time.Now().After(entry.Expiry) {
+		userSessionsMu.Lock()
+		delete(userSessions, id)
+		userSessionsMu.Unlock()
+		return false
+	}
+	return true
+}
+
+// getUserSessionUserID returns the user ID for a valid user session, or 0 if invalid.
+func getUserSessionUserID(id string) int64 {
+	userSessionsMu.RLock()
+	entry, ok := userSessions[id]
+	userSessionsMu.RUnlock()
+	if !ok || time.Now().After(entry.Expiry) {
+		return 0
+	}
+	return entry.UserID
+}
+
 // getAdminRole returns the role ("super" or "regular") for the given admin ID.
 // Returns "" if the admin is not found.
 func getAdminRole(adminID int64) string {
@@ -566,6 +640,125 @@ func getAdminRole(adminID int64) string {
 	}
 	return role
 }
+
+// allPermissions is the complete list of assignable permission keys.
+var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings"}
+
+// getAdminPermissions returns the permission list for the given admin ID.
+// id=1 always gets all permissions. Others get what's stored in the DB.
+func getAdminPermissions(adminID int64) []string {
+	if adminID == 1 {
+		return allPermissions
+	}
+	var perms string
+	err := db.QueryRow("SELECT COALESCE(permissions, '') FROM admin_credentials WHERE id = ?", adminID).Scan(&perms)
+	if err != nil || perms == "" {
+		return []string{}
+	}
+	return strings.Split(perms, ",")
+}
+
+// hasPermission checks if the given admin has a specific permission.
+func hasPermission(adminID int64, perm string) bool {
+	if adminID == 1 {
+		return true
+	}
+	perms := getAdminPermissions(adminID)
+	for _, p := range perms {
+		if p == perm {
+			return true
+		}
+	}
+	return false
+}
+
+// permissionAuth creates a middleware that checks if the admin has the specified permission.
+// id=1 always passes. Other admins must have the permission in their permissions list.
+func permissionAuth(permission string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !isAdminSetup() {
+				if isAPIRoute(r) {
+					jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "not_setup"})
+				} else {
+					http.Redirect(w, r, "/admin/setup", http.StatusFound)
+				}
+				return
+			}
+			sid := getSessionFromRequest(r)
+			if !isValidSession(sid) {
+				if isAPIRoute(r) {
+					jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				} else {
+					http.Redirect(w, r, "/admin/login", http.StatusFound)
+				}
+				return
+			}
+			adminID := getSessionAdminID(r)
+			if adminID == 0 {
+				if isAPIRoute(r) {
+					jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				} else {
+					http.Redirect(w, r, "/admin/login", http.StatusFound)
+				}
+				return
+			}
+			if !hasPermission(adminID, permission) {
+				jsonResponse(w, http.StatusForbidden, map[string]string{"error": "permission_denied"})
+				return
+			}
+			r.Header.Set("X-Admin-ID", strconv.FormatInt(adminID, 10))
+			next(w, r)
+		}
+	}
+}
+
+// superAdminOnlyAuth is a middleware that only allows admin with id=1.
+func superAdminOnlyAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminSetup() {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "not_setup"})
+			} else {
+				http.Redirect(w, r, "/admin/setup", http.StatusFound)
+			}
+			return
+		}
+		sid := getSessionFromRequest(r)
+		if !isValidSession(sid) {
+			if isAPIRoute(r) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/admin/login", http.StatusFound)
+			}
+			return
+		}
+		adminID := getSessionAdminID(r)
+		if adminID != 1 {
+			jsonResponse(w, http.StatusForbidden, map[string]string{"error": "permission_denied"})
+			return
+		}
+		r.Header.Set("X-Admin-ID", strconv.FormatInt(adminID, 10))
+		next(w, r)
+	}
+}
+
+// userAuth is the authentication middleware for the user portal.
+// It reads the "user_session" cookie, validates the session, and sets X-User-ID header.
+// Invalid or missing sessions are redirected to /user/login.
+func userAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("user_session")
+		if err != nil || !isValidUserSession(cookie.Value) {
+			http.Redirect(w, r, "/user/login", http.StatusFound)
+			return
+		}
+		userID := getUserSessionUserID(cookie.Value)
+		r.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		next(w, r)
+	}
+}
+
 
 // --- Captcha Generation (pure Go, no external deps) ---
 
@@ -597,6 +790,10 @@ func verifyCaptcha(id, answer string) bool {
 	entry, ok := captchas[id]
 	delete(captchas, id) // one-time use
 	captchasMu.Unlock()
+	// Also clean up math captcha expression if present
+	mathCaptchaExpressionsMu.Lock()
+	delete(mathCaptchaExpressions, id)
+	mathCaptchaExpressionsMu.Unlock()
 	if !ok || time.Now().After(entry.Expiry) {
 		return false
 	}
@@ -612,6 +809,68 @@ func getCaptchaCode(id string) string {
 		return ""
 	}
 	return entry.Code
+}
+
+// Math captcha expression store (in-memory, keyed by captcha ID)
+var (
+	mathCaptchaExpressions   = make(map[string]string) // captchaID -> expression string
+	mathCaptchaExpressionsMu sync.RWMutex
+)
+
+// generateMathCaptcha generates a math captcha with two operands (1-20) and + or -.
+// Subtraction ensures non-negative result. Returns (expression, answer).
+func generateMathCaptcha() (string, string) {
+	maxVal := big.NewInt(20)
+	na, _ := rand.Int(rand.Reader, maxVal)
+	nb, _ := rand.Int(rand.Reader, maxVal)
+	a := int(na.Int64()) + 1 // 1-20
+	b := int(nb.Int64()) + 1 // 1-20
+
+	// Random operator: 0 = add, 1 = subtract
+	nOp, _ := rand.Int(rand.Reader, big.NewInt(2))
+	if nOp.Int64() == 0 {
+		// Addition
+		return fmt.Sprintf("%d + %d = ?", a, b), fmt.Sprintf("%d", a+b)
+	}
+	// Subtraction: ensure non-negative result
+	if a < b {
+		a, b = b, a
+	}
+	return fmt.Sprintf("%d - %d = ?", a, b), fmt.Sprintf("%d", a-b)
+}
+
+// createMathCaptcha generates a math captcha, stores the answer in captchas map
+// and the expression in mathCaptchaExpressions map. Returns captcha ID.
+func createMathCaptcha() string {
+	id := generateSessionID()[:16]
+	expression, answer := generateMathCaptcha()
+	log.Printf("[MATH_CAPTCHA] created id=%s expr=%s answer=%s", id, expression, answer)
+	captchasMu.Lock()
+	captchas[id] = captchaEntry{Code: answer, Expiry: time.Now().Add(5 * time.Minute)}
+	captchasMu.Unlock()
+	mathCaptchaExpressionsMu.Lock()
+	mathCaptchaExpressions[id] = expression
+	mathCaptchaExpressionsMu.Unlock()
+	return id
+}
+
+// getMathCaptchaExpression returns the expression string for a math captcha ID.
+// Returns empty string if the captcha does not exist or has expired.
+func getMathCaptchaExpression(id string) string {
+	mathCaptchaExpressionsMu.RLock()
+	expr, ok := mathCaptchaExpressions[id]
+	mathCaptchaExpressionsMu.RUnlock()
+	if !ok {
+		return ""
+	}
+	// Also check expiry via the captchas map
+	captchasMu.RLock()
+	entry, exists := captchas[id]
+	captchasMu.RUnlock()
+	if !exists || time.Now().After(entry.Expiry) {
+		return ""
+	}
+	return expr
 }
 
 // drawDigit draws a single digit on the image at position x.
@@ -645,6 +904,118 @@ func drawDigit(img *image.RGBA, digit byte, xOff, yOff int, c color.RGBA) {
 			}
 		}
 	}
+}
+
+// drawChar draws a single character on the image at position (xOff, yOff).
+// Supports digits 0-9 and special characters: +, -, =, ?, space.
+func drawChar(img *image.RGBA, ch byte, xOff, yOff int, c color.RGBA) {
+	// 5x7 bitmap font for special characters
+	specialFont := map[byte][]string{
+		'+': {"00000", "00100", "00100", "11111", "00100", "00100", "00000"},
+		'-': {"00000", "00000", "00000", "11111", "00000", "00000", "00000"},
+		'=': {"00000", "00000", "11111", "00000", "11111", "00000", "00000"},
+		'?': {"01110", "10001", "00001", "00110", "00100", "00000", "00100"},
+		' ': {"00000", "00000", "00000", "00000", "00000", "00000", "00000"},
+	}
+
+	// Check if it's a digit — delegate to drawDigit
+	if ch >= '0' && ch <= '9' {
+		drawDigit(img, ch, xOff, yOff, c)
+		return
+	}
+
+	pattern, ok := specialFont[ch]
+	if !ok {
+		return
+	}
+	scale := 4
+	for row, line := range pattern {
+		for col, bit := range line {
+			if bit == '1' {
+				for dy := 0; dy < scale; dy++ {
+					for dx := 0; dx < scale; dx++ {
+						img.SetRGBA(xOff+col*scale+dx, yOff+row*scale+dy, c)
+					}
+				}
+			}
+		}
+	}
+}
+
+// generateMathCaptchaImage creates a PNG image for the given math captcha ID.
+// It renders the math expression (e.g. "12 + 5 = ?") with noise lines and dots.
+func generateMathCaptchaImage(id string) []byte {
+	expr := getMathCaptchaExpression(id)
+	if expr == "" {
+		return nil
+	}
+
+	// Calculate image width based on expression length
+	charWidth := 24 // 5 cols * 4 scale + 4 spacing
+	padding := 15
+	width := padding*2 + len(expr)*charWidth
+	if width < 200 {
+		width = 200
+	}
+	height := 50
+
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// Background
+	bg := color.RGBA{240, 240, 245, 255}
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.SetRGBA(x, y, bg)
+		}
+	}
+
+	// Add noise dots
+	noiseColors := []color.RGBA{
+		{180, 180, 190, 255}, {200, 200, 210, 255}, {160, 170, 180, 255},
+	}
+	for i := 0; i < 150; i++ {
+		nx, _ := rand.Int(rand.Reader, big.NewInt(int64(width)))
+		ny, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		ci, _ := rand.Int(rand.Reader, big.NewInt(int64(len(noiseColors))))
+		img.SetRGBA(int(nx.Int64()), int(ny.Int64()), noiseColors[ci.Int64()])
+	}
+
+	// Add noise lines
+	lineColor := color.RGBA{180, 180, 200, 255}
+	for l := 0; l < 3; l++ {
+		y1r, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		y2r, _ := rand.Int(rand.Reader, big.NewInt(int64(height)))
+		y1, y2 := int(y1r.Int64()), int(y2r.Int64())
+		for x := 0; x < width; x++ {
+			y := y1 + (y2-y1)*x/width
+			if y >= 0 && y < height {
+				img.SetRGBA(x, y, lineColor)
+				if y+1 < height {
+					img.SetRGBA(x, y+1, lineColor)
+				}
+			}
+		}
+	}
+
+	// Draw each character of the expression
+	charColors := []color.RGBA{
+		{50, 50, 120, 255}, {120, 40, 40, 255}, {40, 100, 50, 255}, {100, 50, 120, 255},
+	}
+	xPos := padding
+	yPos := 8
+	colorIdx := 0
+	for i := 0; i < len(expr); i++ {
+		ch := expr[i]
+		drawChar(img, ch, xPos, yPos, charColors[colorIdx%len(charColors)])
+		if ch != ' ' {
+			colorIdx++
+		}
+		xPos += charWidth
+	}
+
+	var buf bytes.Buffer
+	png.Encode(&buf, img)
+	return buf.Bytes()
 }
 
 // generateCaptchaImage creates a PNG image for the given captcha ID.
@@ -942,6 +1313,368 @@ func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/admin/login", http.StatusFound)
 }
 
+// handleUserLogin handles user login (GET: render form, POST: authenticate).
+func handleUserLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		captchaID := createMathCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": captchaID,
+			"Error":     "",
+		})
+		return
+	}
+
+	// POST
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	captchaID := r.FormValue("captcha_id")
+	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
+
+	log.Printf("[USER-LOGIN] attempt: username=%q, captchaID=%q", username, captchaID)
+
+	errMsg := ""
+	var userID int64
+	if !verifyCaptcha(captchaID, captchaAns) {
+		log.Printf("[USER-LOGIN] captcha verification failed for ID=%q", captchaID)
+		errMsg = "验证码错误"
+	} else {
+		var storedHash string
+		err := db.QueryRow("SELECT id, password_hash FROM users WHERE username = ?", username).Scan(&userID, &storedHash)
+		if err != nil {
+			log.Printf("[USER-LOGIN] db query error for username=%q: %v", username, err)
+			errMsg = "用户名或密码错误"
+		} else if !checkPassword(password, storedHash) {
+			log.Printf("[USER-LOGIN] password check failed for username=%q", username)
+			errMsg = "用户名或密码错误"
+		} else {
+			log.Printf("[USER-LOGIN] success for username=%q userID=%d", username, userID)
+		}
+	}
+
+	if errMsg != "" {
+		newCaptchaID := createMathCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": newCaptchaID,
+			"Error":     errMsg,
+		})
+		return
+	}
+
+	sid := createUserSession(userID)
+	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
+// handleUserRegister handles GET/POST /user/register for SN+Email binding registration.
+func handleUserRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		captchaID := createMathCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": captchaID,
+			"Error":     "",
+		})
+		return
+	}
+
+	// POST
+	email := strings.TrimSpace(r.FormValue("email"))
+	sn := strings.TrimSpace(r.FormValue("sn"))
+	password := r.FormValue("password")
+	password2 := r.FormValue("password2")
+	captchaID := r.FormValue("captcha_id")
+	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
+
+	log.Printf("[USER-REGISTER] attempt: email=%q, sn=%q, captchaID=%q", email, sn, captchaID)
+
+	renderError := func(msg string) {
+		newCaptchaID := createMathCaptcha()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
+			"CaptchaID": newCaptchaID,
+			"Error":     msg,
+		})
+	}
+
+	// Step 1: Verify captcha
+	if !verifyCaptcha(captchaID, captchaAns) {
+		log.Printf("[USER-REGISTER] captcha verification failed for ID=%q", captchaID)
+		renderError("验证码错误")
+		return
+	}
+
+	// Step 2: Verify password consistency and length
+	if password != password2 {
+		log.Printf("[USER-REGISTER] password mismatch for email=%q", email)
+		renderError("两次密码不一致")
+		return
+	}
+	if len(password) < 6 {
+		log.Printf("[USER-REGISTER] password too short for email=%q", email)
+		renderError("密码至少6个字符")
+		return
+	}
+
+	// Step 3: Call License_Server /api/marketplace-auth to verify SN+Email
+	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+	if err != nil {
+		log.Printf("[USER-REGISTER] failed to marshal auth request: %v", err)
+		renderError("内部错误，请稍后重试")
+		return
+	}
+
+	lsURL := getSetting("license_server_url")
+	if lsURL == "" {
+		lsURL = licenseServerURL
+	}
+	authURL := lsURL + "/api/marketplace-auth"
+	httpResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+	if err != nil {
+		log.Printf("[USER-REGISTER] failed to contact license server at %s: %v", authURL, err)
+		renderError("授权服务器连接失败，请稍后重试")
+		return
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		log.Printf("[USER-REGISTER] failed to read license server response: %v", err)
+		renderError("授权服务器连接失败，请稍后重试")
+		return
+	}
+
+	var authResp struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token,omitempty"`
+		Code    string `json:"code,omitempty"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(respBody, &authResp); err != nil {
+		log.Printf("[USER-REGISTER] failed to parse license server response: %v", err)
+		renderError("授权服务器返回异常，请稍后重试")
+		return
+	}
+
+	if !authResp.Success {
+		msg := authResp.Message
+		if msg == "" {
+			msg = "SN 或邮箱验证失败"
+		}
+		log.Printf("[USER-REGISTER] license server auth failed: code=%s msg=%s", authResp.Code, msg)
+		renderError(msg)
+		return
+	}
+
+	// Step 4: Check SN not already bound
+	var existingID int64
+	err = db.QueryRow("SELECT id FROM users WHERE auth_type='sn' AND auth_id=?", sn).Scan(&existingID)
+	if err == nil {
+		log.Printf("[USER-REGISTER] SN already bound: sn=%q existingUserID=%d", sn, existingID)
+		renderError("该序列号已绑定账号")
+		return
+	} else if err != sql.ErrNoRows {
+		log.Printf("[USER-REGISTER] db error checking SN binding: %v", err)
+		renderError("内部错误，请稍后重试")
+		return
+	}
+
+	// Step 5: Create user (username = email prefix)
+	username := email
+	if idx := strings.Index(email, "@"); idx > 0 {
+		username = email[:idx]
+	}
+
+	initialBalanceStr := getSetting("initial_credits_balance")
+	var initialBalance float64
+	if initialBalanceStr != "" {
+		fmt.Sscanf(initialBalanceStr, "%f", &initialBalance)
+	}
+
+	result, err := db.Exec(
+		"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		"sn", sn, username, email, username, hashPassword(password), initialBalance,
+	)
+	if err != nil {
+		log.Printf("[USER-REGISTER] failed to create user: %v", err)
+		if strings.Contains(err.Error(), "UNIQUE") {
+			renderError("该用户名已存在，请使用其他邮箱")
+		} else {
+			renderError("创建账号失败，请稍后重试")
+		}
+		return
+	}
+
+	userID, err := result.LastInsertId()
+	if err != nil {
+		log.Printf("[USER-REGISTER] failed to get last insert ID: %v", err)
+		renderError("创建账号失败，请稍后重试")
+		return
+	}
+
+	// Record initial credits transaction if balance > 0
+	if initialBalance > 0 {
+		_, err = db.Exec(
+			"INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'initial', ?, 'Initial credits balance')",
+			userID, initialBalance,
+		)
+		if err != nil {
+			log.Printf("[USER-REGISTER] failed to record initial credits transaction: %v", err)
+		}
+	}
+
+	log.Printf("[USER-REGISTER] success: email=%q sn=%q userID=%d username=%q", email, sn, userID, username)
+
+	// Step 6: Create session and redirect
+	sid := createUserSession(userID)
+	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
+// PurchasedPackInfo holds info about a purchased/downloaded pack for the user dashboard.
+type PurchasedPackInfo struct {
+	ListingID    int64
+	PackName     string
+	CategoryName string
+	ShareMode    string
+	CreditsPrice int
+	ValidDays    int
+	PurchaseDate string
+	ExpiresAt    string
+}
+
+// handleUserDashboard renders the user dashboard page showing account info and purchased packs.
+func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] invalid X-User-ID header: %q", userIDStr)
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Query user info
+	var user MarketplaceUser
+	err = db.QueryRow("SELECT id, email, credits_balance FROM users WHERE id = ?", userID).Scan(
+		&user.ID, &user.Email, &user.CreditsBalance,
+	)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query user id=%d: %v", userID, err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Query paid purchased packs (from credits_transactions)
+	paidRows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
+		       COALESCE(c.name, '') as category_name, ct.created_at as purchase_date
+		FROM credits_transactions ct
+		JOIN pack_listings pl ON ct.listing_id = pl.id
+		LEFT JOIN categories c ON pl.category_id = c.id
+		WHERE ct.user_id = ? AND ct.transaction_type = 'purchase'
+		ORDER BY ct.created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query paid packs for user %d: %v", userID, err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	defer paidRows.Close()
+
+	// Use a map to deduplicate by listing_id
+	seenListings := make(map[int64]bool)
+	var packs []PurchasedPackInfo
+
+	for paidRows.Next() {
+		var p PurchasedPackInfo
+		var purchaseDateStr string
+		if err := paidRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr); err != nil {
+			log.Printf("[USER-DASHBOARD] failed to scan paid pack row: %v", err)
+			continue
+		}
+		if seenListings[p.ListingID] {
+			continue
+		}
+		seenListings[p.ListingID] = true
+		p.PurchaseDate = purchaseDateStr
+
+		// Calculate ExpiresAt for time_limited and subscription packs
+		if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && p.ValidDays > 0 {
+			if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr); err == nil {
+				p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+			} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr); err == nil {
+				p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+			}
+		}
+
+		packs = append(packs, p)
+	}
+
+	// Query free downloaded packs (from user_downloads)
+	freeRows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
+		       COALESCE(c.name, '') as category_name, ud.downloaded_at as purchase_date
+		FROM user_downloads ud
+		JOIN pack_listings pl ON ud.listing_id = pl.id
+		LEFT JOIN categories c ON pl.category_id = c.id
+		WHERE ud.user_id = ?
+		ORDER BY ud.downloaded_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query free packs for user %d: %v", userID, err)
+		// Non-fatal: continue with paid packs only
+	} else {
+		defer freeRows.Close()
+		for freeRows.Next() {
+			var p PurchasedPackInfo
+			var purchaseDateStr string
+			if err := freeRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr); err != nil {
+				log.Printf("[USER-DASHBOARD] failed to scan free pack row: %v", err)
+				continue
+			}
+			if seenListings[p.ListingID] {
+				continue
+			}
+			seenListings[p.ListingID] = true
+			p.PurchaseDate = purchaseDateStr
+
+			// Calculate ExpiresAt for time_limited and subscription packs
+			if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && p.ValidDays > 0 {
+				if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr); err == nil {
+					p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+				} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr); err == nil {
+					p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+				}
+			}
+
+			packs = append(packs, p)
+		}
+	}
+
+	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d", userID, user.Email, user.CreditsBalance, len(packs))
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
+		"User":           user,
+		"PurchasedPacks": packs,
+	})
+}
+
+// handleUserLogout logs out the user by deleting the session and clearing the cookie.
+func handleUserLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("user_session")
+	if err == nil && cookie.Value != "" {
+		userSessionsMu.Lock()
+		delete(userSessions, cookie.Value)
+		userSessionsMu.Unlock()
+	}
+	http.SetCookie(w, makeSessionCookie("user_session", "", -1))
+	http.Redirect(w, r, "/user/login", http.StatusFound)
+}
+
+
 // handleCaptchaImage serves the captcha image.
 func handleCaptchaImage(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
@@ -964,6 +1697,30 @@ func handleCaptchaRefresh(w http.ResponseWriter, r *http.Request) {
 	id := createCaptcha()
 	jsonResponse(w, http.StatusOK, map[string]string{"captcha_id": id})
 }
+
+// handleUserCaptchaImage serves a math captcha image for the user portal.
+func handleUserCaptchaImage(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	data := generateMathCaptchaImage(id)
+	if data == nil {
+		http.Error(w, "captcha expired", http.StatusGone)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(data)
+}
+
+// handleUserCaptchaRefresh creates a new math captcha and returns JSON with captcha_id.
+func handleUserCaptchaRefresh(w http.ResponseWriter, r *http.Request) {
+	id := createMathCaptcha()
+	jsonResponse(w, http.StatusOK, map[string]string{"captcha_id": id})
+}
+
 
 
 // getSetting reads a value from the settings table by key.
@@ -1616,33 +2373,22 @@ type PackMetaTable struct {
 
 // validatePricingParams validates the pricing parameters based on the share_mode (pricing model).
 // Returns an error message string if validation fails, or empty string if valid.
-func validatePricingParams(shareMode string, creditsPrice int, validDays int, billingCycle string) string {
+func validatePricingParams(shareMode string, creditsPrice int) string {
 	switch shareMode {
 	case "free":
 		return ""
 	case "per_use":
-		if creditsPrice <= 0 {
-			return "credits_price must be a positive integer for per_use mode"
-		}
-		return ""
-	case "time_limited":
-		if creditsPrice <= 0 {
-			return "credits_price must be a positive integer for time_limited mode"
-		}
-		if validDays <= 0 {
-			return "valid_days must be a positive integer for time_limited mode"
+		if creditsPrice < 1 || creditsPrice > 100 {
+			return "credits_price must be between 1 and 100 for per_use mode"
 		}
 		return ""
 	case "subscription":
-		if creditsPrice <= 0 {
-			return "credits_price must be a positive integer for subscription mode"
-		}
-		if billingCycle != "monthly" && billingCycle != "yearly" {
-			return "billing_cycle must be 'monthly' or 'yearly' for subscription mode"
+		if creditsPrice < 100 || creditsPrice > 1000 {
+			return "credits_price must be between 100 and 1000 for subscription mode"
 		}
 		return ""
 	default:
-		return "share_mode must be 'free', 'per_use', 'time_limited', or 'subscription'"
+		return "share_mode must be 'free', 'per_use', or 'subscription'"
 	}
 }
 
@@ -1670,8 +2416,8 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	// Validate share_mode (pricing model)
 	shareMode := r.FormValue("share_mode")
-	if shareMode != "free" && shareMode != "per_use" && shareMode != "time_limited" && shareMode != "subscription" {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "share_mode must be 'free', 'per_use', 'time_limited', or 'subscription'"})
+	if shareMode != "free" && shareMode != "per_use" && shareMode != "subscription" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "share_mode must be 'free', 'per_use', or 'subscription'"})
 		return
 	}
 
@@ -1686,22 +2432,8 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse valid_days
-	var validDays int
-	validDaysStr := r.FormValue("valid_days")
-	if validDaysStr != "" {
-		validDays, err = strconv.Atoi(validDaysStr)
-		if err != nil {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "valid_days must be a valid integer"})
-			return
-		}
-	}
-
-	// Parse billing_cycle
-	billingCycle := r.FormValue("billing_cycle")
-
 	// Validate pricing parameters
-	if errMsg := validatePricingParams(shareMode, creditsPrice, validDays, billingCycle); errMsg != "" {
+	if errMsg := validatePricingParams(shareMode, creditsPrice); errMsg != "" {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 		return
 	}
@@ -1758,31 +2490,139 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	var qapContent qapFileContent
 	var foundJSON bool
+	var isEncrypted bool
+
+	// First, try to read metadata.json (always unencrypted, written by PackToZip)
 	for _, f := range zipReader.File {
-		if f.Name == "analysis_pack.json" {
+		if f.Name == "metadata.json" {
 			rc, err := f.Open()
 			if err != nil {
-				jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
-				return
+				continue
 			}
 			jsonData, err := io.ReadAll(rc)
 			rc.Close()
 			if err != nil {
-				jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
-				return
+				continue
 			}
-			if err := json.Unmarshal(jsonData, &qapContent); err != nil {
-				jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
-				return
+			// metadata.json contains only the metadata object directly
+			var meta struct {
+				Author      string `json:"author"`
+				CreatedAt   string `json:"created_at"`
+				SourceName  string `json:"source_name"`
+				Description string `json:"description"`
 			}
-			foundJSON = true
+			if err := json.Unmarshal(jsonData, &meta); err == nil {
+				qapContent.Metadata = meta
+				foundJSON = true
+			}
 			break
 		}
 	}
 
+	// Then, try to read pack.json for full content (schema_requirements, etc.)
+	for _, f := range zipReader.File {
+		if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
+			rc, err := f.Open()
+			if err != nil {
+				if !foundJSON {
+					jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
+					return
+				}
+				break
+			}
+			jsonData, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				if !foundJSON {
+					jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
+					return
+				}
+				break
+			}
+			// Check if pack.json is encrypted (starts with "QAPENC" magic header)
+			if len(jsonData) >= 6 && string(jsonData[:6]) == "QAPENC" {
+				isEncrypted = true
+				// Encrypted pack — metadata already read from metadata.json above
+				break
+			}
+			var fullContent qapFileContent
+			if err := json.Unmarshal(jsonData, &fullContent); err != nil {
+				if !foundJSON {
+					jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
+					return
+				}
+				break
+			}
+			// Full content parsed successfully — use it (overrides metadata.json)
+			qapContent = fullContent
+			foundJSON = true
+			break
+		}
+	}
+	_ = isEncrypted
+
 	if !foundJSON {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
 		return
+	}
+
+	// Encrypt paid packs (per_use or subscription)
+	var encryptionPassword string
+	if shareMode == "per_use" || shareMode == "subscription" {
+		// Reject pre-encrypted packs — server must control encryption
+		if isEncrypted {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "paid packs must not be pre-encrypted"})
+			return
+		}
+
+		// Extract raw pack.json bytes from the ZIP for encryption
+		var packJSONBytes []byte
+		zr2, _ := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+		for _, f := range zr2.File {
+			if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
+				rc, err := f.Open()
+				if err != nil {
+					break
+				}
+				packJSONBytes, err = io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					packJSONBytes = nil
+				}
+				break
+			}
+		}
+		if packJSONBytes == nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		// Generate secure password
+		pwd, err := generateSecurePassword()
+		if err != nil {
+			log.Printf("Failed to generate encryption password: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		// Encrypt pack.json
+		encryptedData, err := serverEncryptPackJSON(packJSONBytes, pwd)
+		if err != nil {
+			log.Printf("Failed to encrypt pack.json: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		// Repack ZIP with encrypted pack.json
+		newFileData, err := repackZipWithEncryptedData(fileData, encryptedData)
+		if err != nil {
+			log.Printf("Failed to repack ZIP: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		fileData = newFileData
+		encryptionPassword = pwd
 	}
 
 	// Use source_name as pack_name, fall back to "Untitled"
@@ -1813,10 +2653,10 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 
 	// Insert pack_listing record
 	result, err := db.Exec(
-		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, valid_days, billing_cycle, status, meta_info)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info, encryption_password)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
 		userID, categoryID, fileData, packName, qapContent.Metadata.Description,
-		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, validDays, billingCycle, metaInfoJSON,
+		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, metaInfoJSON, encryptionPassword,
 	)
 	if err != nil {
 		log.Printf("Failed to insert pack listing: %v", err)
@@ -1836,13 +2676,13 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	var metaInfoReadBack sql.NullString
 	err = db.QueryRow(
 		`SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		        pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
 		 FROM pack_listings pl
 		 JOIN categories c ON c.id = pl.category_id
 		 WHERE pl.id = ?`, listingID,
 	).Scan(&listing.ID, &listing.UserID, &listing.CategoryID, &listing.CategoryName,
 		&listing.PackName, &listing.PackDescription, &listing.SourceName, &listing.AuthorName,
-		&listing.ShareMode, &listing.CreditsPrice, &listing.ValidDays, &listing.BillingCycle, &listing.DownloadCount, &listing.Status, &metaInfoReadBack, &listing.CreatedAt)
+		&listing.ShareMode, &listing.CreditsPrice, &listing.DownloadCount, &listing.Status, &metaInfoReadBack, &listing.CreatedAt)
 	if err != nil {
 		log.Printf("Failed to read back listing: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -1867,7 +2707,7 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.meta_info, pl.created_at
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.meta_info, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.status = 'published'`
@@ -1900,7 +2740,7 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 		var desc, sourceName, authorName, metaInfoStr sql.NullString
 		if err := rows.Scan(&l.ID, &l.UserID, &l.CategoryID, &l.CategoryName,
 			&l.PackName, &desc, &sourceName, &authorName,
-			&l.ShareMode, &l.CreditsPrice, &l.ValidDays, &l.BillingCycle, &l.DownloadCount, &metaInfoStr, &l.CreatedAt); err != nil {
+			&l.ShareMode, &l.CreditsPrice, &l.DownloadCount, &metaInfoStr, &l.CreatedAt); err != nil {
 			log.Printf("Failed to scan pack listing: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
@@ -1955,15 +2795,14 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	// Look up the pack listing (must be published)
 	var shareMode string
 	var creditsPrice int
-	var validDays int
-	var billingCycle string
 	var fileData []byte
 	var packName string
 	var metaInfoStr sql.NullString
+	var encryptionPassword string
 	err = db.QueryRow(
-		`SELECT share_mode, credits_price, valid_days, billing_cycle, file_data, pack_name, meta_info FROM pack_listings WHERE id = ? AND status = 'published'`,
+		`SELECT share_mode, credits_price, file_data, pack_name, meta_info, encryption_password FROM pack_listings WHERE id = ? AND status = 'published'`,
 		packID,
-	).Scan(&shareMode, &creditsPrice, &validDays, &billingCycle, &fileData, &packName, &metaInfoStr)
+	).Scan(&shareMode, &creditsPrice, &fileData, &packName, &metaInfoStr, &encryptionPassword)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
 		return
@@ -1984,7 +2823,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-	case "per_use", "time_limited", "subscription":
+	case "per_use", "subscription":
 		// Check user's credits balance
 		var balance float64
 		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
@@ -2061,31 +2900,24 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 
 		// Build X-Usage-License header based on pricing model
 		usageLicense := map[string]interface{}{
-			"listing_id":    packID,
-			"pricing_model": shareMode,
-			"remaining_uses": 0,
-			"expires_at":    "",
-			"billing_cycle": "",
+			"listing_id":          packID,
+			"pack_name":           packName,
+			"pricing_model":       shareMode,
+			"remaining_uses":      0,
+			"total_uses":          0,
+			"expires_at":          "",
+			"subscription_months": 0,
 		}
 
 		now := time.Now().UTC()
 		switch shareMode {
 		case "per_use":
 			usageLicense["remaining_uses"] = 1
-		case "time_limited":
-			expiresAt := now.AddDate(0, 0, validDays)
-			usageLicense["expires_at"] = expiresAt.Format(time.RFC3339)
+			usageLicense["total_uses"] = 1
 		case "subscription":
-			var cycleDays int
-			switch billingCycle {
-			case "monthly":
-				cycleDays = 30
-			case "yearly":
-				cycleDays = 365
-			}
-			expiresAt := now.AddDate(0, 0, cycleDays)
+			expiresAt := now.AddDate(0, 1, 0)
 			usageLicense["expires_at"] = expiresAt.Format(time.RFC3339)
-			usageLicense["billing_cycle"] = billingCycle
+			usageLicense["subscription_months"] = 1
 		}
 
 		licenseJSON, err := json.Marshal(usageLicense)
@@ -2167,10 +2999,19 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Record download in user_downloads table (non-critical, ignore errors)
+	_, err = db.Exec("INSERT INTO user_downloads (user_id, listing_id) VALUES (?, ?)", userID, packID)
+	if err != nil {
+		log.Printf("Failed to record user download: %v", err)
+	}
+
 	// Return file data as binary response with meta_info header
 	metaInfoValue := "{}"
 	if metaInfoStr.Valid && metaInfoStr.String != "" {
 		metaInfoValue = metaInfoStr.String
+	}
+	if encryptionPassword != "" {
+		w.Header().Set("X-Encryption-Password", encryptionPassword)
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
@@ -2315,7 +3156,8 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRenewSubscription handles POST /api/packs/{id}/renew
-// Deducts one billing cycle of credits and returns new expiration date.
+// Accepts JSON body with "months" field (1 for monthly, 12 for yearly with bonus).
+// Yearly: pays 12 months credits, gets 14 months duration.
 func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -2339,15 +3181,29 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse request body for months
+	var reqBody struct {
+		Months int `json:"months"`
+	}
+	if r.Body != nil {
+		json.NewDecoder(r.Body).Decode(&reqBody)
+	}
+	if reqBody.Months == 0 {
+		reqBody.Months = 1 // default to monthly
+	}
+	if reqBody.Months != 1 && reqBody.Months != 12 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "months must be 1 (monthly) or 12 (yearly)"})
+		return
+	}
+
 	// Look up the pack listing
 	var shareMode string
 	var creditsPrice int
-	var billingCycle string
 	var packName string
 	err = db.QueryRow(
-		`SELECT share_mode, credits_price, billing_cycle, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
+		`SELECT share_mode, credits_price, pack_name FROM pack_listings WHERE id = ? AND status = 'published'`,
 		packID,
-	).Scan(&shareMode, &creditsPrice, &billingCycle, &packName)
+	).Scan(&shareMode, &creditsPrice, &packName)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
 		return
@@ -2363,6 +3219,13 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Calculate total cost and granted months
+	totalCost := creditsPrice * reqBody.Months
+	grantedMonths := reqBody.Months
+	if reqBody.Months == 12 {
+		grantedMonths = 14 // yearly bonus: pay 12, get 14
+	}
+
 	// Check user's credits balance
 	var balance float64
 	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
@@ -2372,10 +3235,10 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if balance < float64(creditsPrice) {
+	if balance < float64(totalCost) {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
 			"error":    "INSUFFICIENT_CREDITS",
-			"required": creditsPrice,
+			"required": totalCost,
 			"balance":  balance,
 		})
 		return
@@ -2393,7 +3256,7 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	// Deduct credits
 	result, err := tx.Exec(
 		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		creditsPrice, userID, creditsPrice,
+		totalCost, userID, totalCost,
 	)
 	if err != nil {
 		log.Printf("Failed to deduct credits: %v", err)
@@ -2404,30 +3267,25 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
 			"error":    "INSUFFICIENT_CREDITS",
-			"required": creditsPrice,
+			"required": totalCost,
 			"balance":  balance,
 		})
 		return
 	}
 
-	// Calculate new expires_at based on billing_cycle
+	// Calculate new expires_at
 	now := time.Now().UTC()
-	var cycleDays int
-	switch billingCycle {
-	case "monthly":
-		cycleDays = 30
-	case "yearly":
-		cycleDays = 365
-	default:
-		cycleDays = 30 // fallback to monthly
-	}
-	expiresAt := now.AddDate(0, 0, cycleDays)
+	expiresAt := now.AddDate(0, grantedMonths, 0)
 
 	// Record credits transaction
+	desc := fmt.Sprintf("Renew subscription (%d months): %s", reqBody.Months, packName)
+	if reqBody.Months == 12 {
+		desc = fmt.Sprintf("Renew subscription (yearly, pay 12 get 14 months): %s", packName)
+	}
 	_, err = tx.Exec(
 		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
 		 VALUES (?, 'renew', ?, ?, ?)`,
-		userID, -float64(creditsPrice), packID, fmt.Sprintf("Renew subscription (%s): %s", billingCycle, packName),
+		userID, -float64(totalCost), packID, desc,
 	)
 	if err != nil {
 		log.Printf("Failed to record transaction: %v", err)
@@ -2442,9 +3300,10 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"success":         true,
-		"expires_at":      expiresAt.Format(time.RFC3339),
-		"credits_deducted": creditsPrice,
+		"success":             true,
+		"expires_at":          expiresAt.Format(time.RFC3339),
+		"subscription_months": grantedMonths,
+		"credits_deducted":    totalCost,
 	})
 }
 
@@ -2626,10 +3485,10 @@ func handleAdminManagement(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleAdminList returns all admins with id, username, role, created_at.
+// handleAdminList returns all admins with id, username, role, permissions, created_at.
 // GET /api/admin/admins
 func handleAdminList(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT id, username, role, created_at FROM admin_credentials ORDER BY id")
+	rows, err := db.Query("SELECT id, username, role, COALESCE(permissions, ''), created_at FROM admin_credentials ORDER BY id")
 	if err != nil {
 		log.Printf("Failed to query admins: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -2638,18 +3497,27 @@ func handleAdminList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type adminInfo struct {
-		ID        int64  `json:"id"`
-		Username  string `json:"username"`
-		Role      string `json:"role"`
-		CreatedAt string `json:"created_at"`
+		ID          int64    `json:"id"`
+		Username    string   `json:"username"`
+		Role        string   `json:"role"`
+		Permissions []string `json:"permissions"`
+		CreatedAt   string   `json:"created_at"`
 	}
 
 	var admins []adminInfo
 	for rows.Next() {
 		var a adminInfo
-		if err := rows.Scan(&a.ID, &a.Username, &a.Role, &a.CreatedAt); err != nil {
+		var permsStr string
+		if err := rows.Scan(&a.ID, &a.Username, &a.Role, &permsStr, &a.CreatedAt); err != nil {
 			log.Printf("Failed to scan admin row: %v", err)
 			continue
+		}
+		if a.ID == 1 {
+			a.Permissions = allPermissions
+		} else if permsStr != "" {
+			a.Permissions = strings.Split(permsStr, ",")
+		} else {
+			a.Permissions = []string{}
 		}
 		admins = append(admins, a)
 	}
@@ -2659,12 +3527,13 @@ func handleAdminList(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"admins": admins})
 }
 
-// handleCreateAdmin creates a new admin with role="regular".
+// handleCreateAdmin creates a new admin with specified permissions.
 // POST /api/admin/admins
 func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+		Username    string   `json:"username"`
+		Password    string   `json:"password"`
+		Permissions []string `json:"permissions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
@@ -2680,6 +3549,16 @@ func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate permissions
+	validPerms := map[string]bool{"categories": true, "marketplace": true, "authors": true, "review": true, "settings": true}
+	var filteredPerms []string
+	for _, p := range req.Permissions {
+		if validPerms[p] {
+			filteredPerms = append(filteredPerms, p)
+		}
+	}
+	permsStr := strings.Join(filteredPerms, ",")
+
 	// Check username uniqueness
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM admin_credentials WHERE username = ?", req.Username).Scan(&count)
@@ -2694,7 +3573,7 @@ func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	passwordHash := hashPassword(req.Password)
-	result, err := db.Exec("INSERT INTO admin_credentials (username, password_hash, role) VALUES (?, ?, 'regular')", req.Username, passwordHash)
+	result, err := db.Exec("INSERT INTO admin_credentials (username, password_hash, role, permissions) VALUES (?, ?, 'regular', ?)", req.Username, passwordHash, permsStr)
 	if err != nil {
 		log.Printf("Failed to create admin: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
@@ -2706,10 +3585,11 @@ func handleCreateAdmin(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT created_at FROM admin_credentials WHERE id = ?", newID).Scan(&createdAt)
 
 	jsonResponse(w, http.StatusCreated, map[string]interface{}{
-		"id":         newID,
-		"username":   req.Username,
-		"role":       "regular",
-		"created_at": createdAt,
+		"id":          newID,
+		"username":    req.Username,
+		"role":        "regular",
+		"permissions": filteredPerms,
+		"created_at":  createdAt,
 	})
 }
 
@@ -2787,7 +3667,7 @@ func handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 func handlePendingList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query(`
 		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
-		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.valid_days, pl.billing_cycle, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.status = 'pending'
@@ -2803,7 +3683,7 @@ func handlePendingList(w http.ResponseWriter, r *http.Request) {
 		var p PackListingInfo
 		var categoryName, desc, sourceName, authorName, metaInfoStr sql.NullString
 		err := rows.Scan(&p.ID, &p.UserID, &p.CategoryID, &categoryName, &p.PackName, &desc,
-			&sourceName, &authorName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.BillingCycle, &p.DownloadCount, &p.Status, &metaInfoStr, &p.CreatedAt)
+			&sourceName, &authorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.Status, &metaInfoStr, &p.CreatedAt)
 		if err != nil {
 			log.Printf("Failed to scan pending listing: %v", err)
 			continue
@@ -2956,13 +3836,16 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Get admin info from session
 	adminID := getSessionAdminID(r)
-	role := getAdminRole(adminID)
+	permissions := getAdminPermissions(adminID)
+
+	// Convert permissions to JSON for JS consumption (use template.JS to avoid HTML escaping)
+	permsJSON, _ := json.Marshal(permissions)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	adminTmpl.Execute(w, map[string]interface{}{
-		"InitialCredits": initialCredits,
-		"Role":           role,
-		"AdminID":        adminID,
+		"InitialCredits":  initialCredits,
+		"AdminID":         adminID,
+		"PermissionsJSON": template.JS(string(permsJSON)),
 	})
 }
 
@@ -2997,6 +3880,397 @@ func handleSetInitialCredits(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
 }
+// handleAdminMarketplaceList lists published packs for admin marketplace management.
+// GET /api/admin/marketplace?category_id=&share_mode=&sort=downloads&order=desc
+func handleAdminMarketplaceList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	statusParam := r.URL.Query().Get("status")
+	if statusParam == "" {
+		statusParam = "published"
+	}
+	if statusParam != "published" && statusParam != "delisted" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_status", "message": "status must be published or delisted"})
+		return
+	}
+
+	query := `
+		SELECT pl.id, pl.user_id, pl.category_id, c.name, pl.pack_name, pl.pack_description,
+		       pl.source_name, pl.author_name, pl.share_mode, pl.credits_price, pl.download_count, pl.status, pl.meta_info, pl.created_at
+		FROM pack_listings pl
+		JOIN categories c ON c.id = pl.category_id
+		WHERE pl.status = ?`
+	args := []interface{}{statusParam}
+
+	// Filter by category
+	if catID := r.URL.Query().Get("category_id"); catID != "" {
+		id, err := strconv.ParseInt(catID, 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid category_id"})
+			return
+		}
+		query += " AND pl.category_id = ?"
+		args = append(args, id)
+	}
+
+	// Filter by share_mode
+	if mode := r.URL.Query().Get("share_mode"); mode != "" {
+		query += " AND pl.share_mode = ?"
+		args = append(args, mode)
+	}
+
+	// Sort
+	sortField := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "asc" {
+		order = "desc"
+	}
+	switch sortField {
+	case "downloads":
+		query += " ORDER BY pl.download_count " + order
+	case "price":
+		query += " ORDER BY pl.credits_price " + order
+	case "name":
+		query += " ORDER BY pl.pack_name " + order
+	default:
+		query += " ORDER BY pl.download_count DESC"
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("Failed to query marketplace listings: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	listings := []PackListingInfo{}
+	for rows.Next() {
+		var l PackListingInfo
+		var desc, sourceName, authorName, metaInfoStr sql.NullString
+		if err := rows.Scan(&l.ID, &l.UserID, &l.CategoryID, &l.CategoryName,
+			&l.PackName, &desc, &sourceName, &authorName,
+			&l.ShareMode, &l.CreditsPrice, &l.DownloadCount, &l.Status, &metaInfoStr, &l.CreatedAt); err != nil {
+			log.Printf("Failed to scan marketplace listing: %v", err)
+			continue
+		}
+		if desc.Valid {
+			l.PackDescription = desc.String
+		}
+		if sourceName.Valid {
+			l.SourceName = sourceName.String
+		}
+		if authorName.Valid {
+			l.AuthorName = authorName.String
+		}
+		if metaInfoStr.Valid && metaInfoStr.String != "" {
+			l.MetaInfo = json.RawMessage(metaInfoStr.String)
+		} else {
+			l.MetaInfo = json.RawMessage("{}")
+		}
+		listings = append(listings, l)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"packs": listings})
+}
+
+// handleAdminDelistPack delists a published pack (sets status to 'delisted').
+// POST /api/admin/marketplace/{id}/delist
+func handleAdminDelistPack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse listing ID from URL: /api/admin/marketplace/{id}/delist
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/marketplace/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "delist" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	listingID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var currentStatus string
+	err = db.QueryRow("SELECT status FROM pack_listings WHERE id = ?", listingID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	if currentStatus != "published" {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "can_only_delist_published"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	_, err = db.Exec("UPDATE pack_listings SET status='delisted', reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=?",
+		adminID, listingID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminRelistPack relists a delisted pack (sets status back to 'published').
+// POST /api/admin/marketplace/{id}/relist
+func handleAdminRelistPack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse listing ID from URL: /api/admin/marketplace/{id}/relist
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/marketplace/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "relist" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	listingID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var currentStatus string
+	err = db.QueryRow("SELECT status FROM pack_listings WHERE id = ?", listingID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	if currentStatus != "delisted" {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "can_only_relist_delisted"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	_, err = db.Exec("UPDATE pack_listings SET status='published', reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=?",
+		adminID, listingID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+
+// AuthorInfo represents author statistics for admin management.
+type AuthorInfo struct {
+	UserID         int64   `json:"user_id"`
+	DisplayName    string  `json:"display_name"`
+	Email          string  `json:"email"`
+	TotalPacks     int     `json:"total_packs"`
+	TotalDownloads int     `json:"total_downloads"`
+	TotalRevenue   float64 `json:"total_revenue"`
+	YearDownloads  int     `json:"year_downloads"`
+	YearRevenue    float64 `json:"year_revenue"`
+	MonthDownloads int     `json:"month_downloads"`
+	MonthRevenue   float64 `json:"month_revenue"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+// handleAdminAuthorList lists authors with sales statistics.
+// GET /api/admin/authors?sort=total_downloads&order=desc&email=
+func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	now := time.Now()
+	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
+
+	query := `
+		SELECT u.id, u.display_name, COALESCE(u.email, ''),
+		       COUNT(pl.id) as total_packs,
+		       COALESCE(SUM(pl.download_count), 0) as total_downloads,
+		       COALESCE(SUM(pl.download_count * pl.credits_price), 0) as total_revenue,
+		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count ELSE 0 END), 0) as year_downloads,
+		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count * pl.credits_price ELSE 0 END), 0) as year_revenue,
+		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count ELSE 0 END), 0) as month_downloads,
+		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count * pl.credits_price ELSE 0 END), 0) as month_revenue,
+		       u.created_at
+		FROM users u
+		INNER JOIN pack_listings pl ON pl.user_id = u.id AND pl.status IN ('published', 'delisted')
+	`
+	args := []interface{}{yearStart, yearStart, monthStart, monthStart}
+
+	// Filter by email
+	if email := r.URL.Query().Get("email"); email != "" {
+		query += " AND u.email LIKE ?"
+		args = append(args, "%"+email+"%")
+	}
+
+	query += " GROUP BY u.id"
+
+	// Sort
+	sortField := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "asc" {
+		order = "desc"
+	}
+	switch sortField {
+	case "total_packs":
+		query += " ORDER BY total_packs " + order
+	case "year_downloads":
+		query += " ORDER BY year_downloads " + order
+	case "year_revenue":
+		query += " ORDER BY year_revenue " + order
+	case "month_downloads":
+		query += " ORDER BY month_downloads " + order
+	case "month_revenue":
+		query += " ORDER BY month_revenue " + order
+	default:
+		query += " ORDER BY total_downloads " + order
+	}
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("Failed to query authors: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	authors := []AuthorInfo{}
+	for rows.Next() {
+		var a AuthorInfo
+		if err := rows.Scan(&a.UserID, &a.DisplayName, &a.Email,
+			&a.TotalPacks, &a.TotalDownloads, &a.TotalRevenue,
+			&a.YearDownloads, &a.YearRevenue, &a.MonthDownloads, &a.MonthRevenue,
+			&a.CreatedAt); err != nil {
+			log.Printf("Failed to scan author: %v", err)
+			continue
+		}
+		authors = append(authors, a)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"authors": authors})
+}
+
+// AuthorPackDetail represents per-pack sales detail for an author.
+type AuthorPackDetail struct {
+	PackID        int64   `json:"pack_id"`
+	PackName      string  `json:"pack_name"`
+	CategoryName  string  `json:"category_name"`
+	ShareMode     string  `json:"share_mode"`
+	CreditsPrice  int     `json:"credits_price"`
+	DownloadCount int     `json:"download_count"`
+	TotalRevenue  float64 `json:"total_revenue"`
+	Status        string  `json:"status"`
+	CreatedAt     string  `json:"created_at"`
+}
+
+// handleAdminAuthorDetail returns per-pack sales detail for a specific author.
+// GET /api/admin/authors/{id}
+func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse user ID from URL: /api/admin/authors/{id}
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/authors/")
+	userID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	// Get author info
+	var displayName, email string
+	err = db.QueryRow("SELECT display_name, COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&displayName, &email)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	// Get per-pack details
+	rows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, c.name, pl.share_mode, pl.credits_price, pl.download_count,
+		       pl.download_count * pl.credits_price as total_revenue, pl.status, pl.created_at
+		FROM pack_listings pl
+		JOIN categories c ON c.id = pl.category_id
+		WHERE pl.user_id = ? AND pl.status IN ('published', 'delisted')
+		ORDER BY pl.download_count DESC`, userID)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	packs := []AuthorPackDetail{}
+	for rows.Next() {
+		var p AuthorPackDetail
+		if err := rows.Scan(&p.PackID, &p.PackName, &p.CategoryName, &p.ShareMode,
+			&p.CreditsPrice, &p.DownloadCount, &p.TotalRevenue, &p.Status, &p.CreatedAt); err != nil {
+			log.Printf("Failed to scan author pack detail: %v", err)
+			continue
+		}
+		packs = append(packs, p)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"user_id":      userID,
+		"display_name": displayName,
+		"email":        email,
+		"packs":        packs,
+	})
+}
+
+// handleAdminMarketplaceRoutes dispatches marketplace admin API requests.
+func handleAdminMarketplaceRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/marketplace")
+	if path == "" || path == "/" {
+		handleAdminMarketplaceList(w, r)
+		return
+	}
+	// /api/admin/marketplace/{id}/delist
+	if strings.HasSuffix(path, "/delist") {
+		handleAdminDelistPack(w, r)
+		return
+	}
+	// /api/admin/marketplace/{id}/relist
+	if strings.HasSuffix(path, "/relist") {
+		handleAdminRelistPack(w, r)
+		return
+	}
+	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
+// handleAdminAuthorRoutes dispatches author admin API requests.
+func handleAdminAuthorRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/authors")
+	if path == "" || path == "/" {
+		handleAdminAuthorList(w, r)
+		return
+	}
+	// /api/admin/authors/{id}
+	handleAdminAuthorDetail(w, r)
+}
 
 func main() {
 	port := flag.Int("port", 8088, "Server port")
@@ -3030,6 +4304,17 @@ func main() {
 				}
 			}
 			captchasMu.Unlock()
+			// Clean up expired math captcha expressions
+			mathCaptchaExpressionsMu.Lock()
+			for id := range mathCaptchaExpressions {
+				captchasMu.RLock()
+				_, exists := captchas[id]
+				captchasMu.RUnlock()
+				if !exists {
+					delete(mathCaptchaExpressions, id)
+				}
+			}
+			mathCaptchaExpressionsMu.Unlock()
 		}
 	}()
 
@@ -3039,8 +4324,8 @@ func main() {
 
 	// Category routes (listing is public, admin requires auth)
 	http.HandleFunc("/api/categories", handleListCategories)
-	http.HandleFunc("/api/admin/categories", superAdminAuth(handleAdminCategories))
-	http.HandleFunc("/api/admin/categories/", superAdminAuth(handleAdminCategories))
+	http.HandleFunc("/api/admin/categories", permissionAuth("categories")(handleAdminCategories))
+	http.HandleFunc("/api/admin/categories/", permissionAuth("categories")(handleAdminCategories))
 
 	// Pack routes (upload and download require auth, listing is public)
 	http.HandleFunc("/api/packs/upload", authMiddleware(handleUploadPack))
@@ -3069,21 +4354,37 @@ func main() {
 	http.HandleFunc("/admin/captcha", handleCaptchaImage)
 	http.HandleFunc("/admin/captcha/refresh", handleCaptchaRefresh)
 
-	// Admin management API routes
-	http.HandleFunc("/api/admin/admins", superAdminAuth(handleAdminManagement))
+	// Admin management API routes (super admin id=1 only)
+	http.HandleFunc("/api/admin/admins", superAdminOnlyAuth(handleAdminManagement))
 	http.HandleFunc("/api/admin/profile", adminAuth(handleUpdateProfile))
 
-	// Review API routes
-	http.HandleFunc("/api/admin/review/", adminAuth(handleReviewRoutes))
+	// Marketplace management API routes (permission-based)
+	http.HandleFunc("/api/admin/marketplace", permissionAuth("marketplace")(handleAdminMarketplaceRoutes))
+	http.HandleFunc("/api/admin/marketplace/", permissionAuth("marketplace")(handleAdminMarketplaceRoutes))
+
+	// Author management API routes (permission-based)
+	http.HandleFunc("/api/admin/authors", permissionAuth("authors")(handleAdminAuthorRoutes))
+	http.HandleFunc("/api/admin/authors/", permissionAuth("authors")(handleAdminAuthorRoutes))
+
+	// Review API routes (permission-based)
+	http.HandleFunc("/api/admin/review/", permissionAuth("review")(handleReviewRoutes))
 
 	// Admin routes (protected by session auth)
-	http.HandleFunc("/admin/settings/initial-credits", superAdminAuth(handleSetInitialCredits))
+	http.HandleFunc("/admin/settings/initial-credits", permissionAuth("settings")(handleSetInitialCredits))
 	http.HandleFunc("/admin/", adminAuth(handleAdminDashboard))
 
-	// Root redirect to admin
+	// User portal routes
+	http.HandleFunc("/user/login", handleUserLogin)
+	http.HandleFunc("/user/register", handleUserRegister)
+	http.HandleFunc("/user/logout", handleUserLogout)
+	http.HandleFunc("/user/captcha", handleUserCaptchaImage)
+	http.HandleFunc("/user/captcha/refresh", handleUserCaptchaRefresh)
+	http.HandleFunc("/user/", userAuth(handleUserDashboard))
+
+	// Root redirect to user portal
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/admin/", http.StatusFound)
+			http.Redirect(w, r, "/user/", http.StatusFound)
 			return
 		}
 		http.NotFound(w, r)

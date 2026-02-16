@@ -32,7 +32,7 @@ func createTestQAPFile(t *testing.T, author, description, sourceName string) []b
 	}
 	jsonData, _ := json.Marshal(content)
 
-	fw, err := zw.Create("analysis_pack.json")
+	fw, err := zw.Create("pack.json")
 	if err != nil {
 		t.Fatalf("failed to create zip entry: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestUploadPack_ZipWithoutJSON(t *testing.T) {
 	userID := createTestUser(t)
 	catID := getCategoryID(t)
 
-	// Create a valid ZIP but without analysis_pack.json
+	// Create a valid ZIP but without pack.json or analysis_pack.json
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	fw, _ := zw.Create("other_file.txt")
@@ -470,5 +470,52 @@ func TestUploadPack_FileDataStoredInDB(t *testing.T) {
 	}
 	if !bytes.Equal(fileData, qapData) {
 		t.Error("stored file_data does not match uploaded data")
+	}
+}
+
+// TestUploadPack_LegacyAnalysisPackJSON verifies that the old "analysis_pack.json"
+// entry name is still accepted for backward compatibility.
+func TestUploadPack_LegacyAnalysisPackJSON(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
+	userID := createTestUser(t)
+	catID := getCategoryID(t)
+
+	// Create a QAP ZIP using the legacy "analysis_pack.json" entry name
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	content := map[string]interface{}{
+		"file_type":      "VantageData_QuickAnalysisPack",
+		"format_version": "1.0",
+		"metadata": map[string]string{
+			"author":      "LegacyAuthor",
+			"created_at":  "2024-01-01T00:00:00Z",
+			"source_name": "LegacySource",
+			"description": "Legacy format test",
+		},
+		"schema_requirements": []interface{}{},
+		"executable_steps":    []interface{}{},
+	}
+	jsonData, _ := json.Marshal(content)
+	fw, _ := zw.Create("analysis_pack.json")
+	fw.Write(jsonData)
+	zw.Close()
+
+	req := createUploadRequest(t, userID, buf.Bytes(), map[string]string{
+		"category_id": fmt.Sprintf("%d", catID),
+		"share_mode":  "free",
+	})
+	rr := httptest.NewRecorder()
+	handleUploadPack(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &resp)
+	if resp["pack_name"] != "LegacySource" {
+		t.Errorf("expected pack_name='LegacySource', got %v", resp["pack_name"])
 	}
 }

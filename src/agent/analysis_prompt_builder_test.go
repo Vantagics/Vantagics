@@ -101,7 +101,7 @@ func TestAnalysisPromptBuilder_Property_ClassificationHintsAffectPrompt(t *testi
 
 		userRequest := "分析销售数据"
 		schemaContext := &UnifiedSchemaContext{
-			DatabaseType: "sqlite",
+			DatabaseType: "duckdb",
 			Tables: []UnifiedTableSchema{
 				{Name: "sales", Columns: []UnifiedColumnInfo{{Name: "amount", Type: "REAL"}}},
 			},
@@ -195,7 +195,7 @@ func TestAnalysisPromptBuilder_Property_DataExportInstructions(t *testing.T) {
 
 		userRequest := "导出销售数据"
 		schemaContext := &UnifiedSchemaContext{
-			DatabaseType: "sqlite",
+			DatabaseType: "duckdb",
 			Tables: []UnifiedTableSchema{
 				{Name: "sales", Columns: []UnifiedColumnInfo{{Name: "amount", Type: "REAL"}}},
 			},
@@ -256,7 +256,7 @@ func TestAnalysisPromptBuilder_Property_SchemaContextIncluded(t *testing.T) {
 		}
 
 		schemaContext := &UnifiedSchemaContext{
-			DatabaseType: "sqlite",
+			DatabaseType: "duckdb",
 			Tables:       tables,
 		}
 
@@ -303,7 +303,7 @@ func generateUserRequest(seed uint16) string {
 
 func generateSchemaContext(seed uint16) *UnifiedSchemaContext {
 	return &UnifiedSchemaContext{
-		DatabaseType: "sqlite",
+		DatabaseType: "duckdb",
 		Tables: []UnifiedTableSchema{
 			{
 				Name: generateTableName(seed),

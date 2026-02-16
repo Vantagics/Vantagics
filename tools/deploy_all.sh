@@ -3,170 +3,209 @@
 # ==========================================
 # VantageData - 一键部署所有服务
 # License Server + Marketplace Server
-# 优化版：整个目录打包上传，减少SSH连接次数
+#
+# 用法:
+#   ./deploy_all.sh              部署全部
+#   ./deploy_all.sh license      仅部署 License Server
+#   ./deploy_all.sh market       仅部署 Marketplace Server
+#   ./deploy_all.sh nginx        仅部署 Nginx 配置
 # ==========================================
+
+set -e
 
 SERVER_IP="107.172.86.131"
 USER="root"
-SSH_OPTS="-o StrictHostKeyChecking=no"
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-echo "=========================================="
-echo "VantageData 一键部署（优化版 - SSH密钥认证）"
-echo "=========================================="
-echo ""
-
-# 获取脚本所在目录
+TARGET="${1:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ==========================================
-# 1. 打包 License Server 完整目录
-# ==========================================
-echo "[1/5] Packaging License Server..."
-cd "$SCRIPT_DIR"
-tar -czf /tmp/license_server.tar.gz -C license_server . 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "     [ERROR] Failed to create package"
-    exit 1
-fi
-ls -lh /tmp/license_server.tar.gz | awk '{print "     Package: "$5}'
+echo "=========================================="
+echo "VantageData 一键部署"
+echo "Target: $TARGET"
+echo "=========================================="
 echo ""
 
 # ==========================================
-# 2. 打包 Marketplace Server 完整目录
+# License Server 部署
 # ==========================================
-echo "[2/5] Packaging Marketplace Server..."
-cd "$SCRIPT_DIR"
-tar -czf /tmp/marketplace_server.tar.gz -C marketplace_server . 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "     [ERROR] Failed to create package"
-    exit 1
-fi
-ls -lh /tmp/marketplace_server.tar.gz | awk '{print "     Package: "$5}'
-echo ""
+deploy_license() {
+    echo "[License] Packaging source files..."
+    cd "$SCRIPT_DIR/license_server"
+    tar -czf /tmp/license_server.tar.gz main.go go.mod go.sum templates cmd start.sh
+    ls -lh /tmp/license_server.tar.gz | awk '{print "         Package: "$5}'
 
-# ==========================================
-# 3. 一次性上传两个服务包
-# ==========================================
-echo "[3/5] Uploading packages to server..."
-scp $SSH_OPTS /tmp/license_server.tar.gz /tmp/marketplace_server.tar.gz $USER@$SERVER_IP:/tmp/ 2>/dev/null
-if [ $? -ne 0 ]; then
-    echo "     [ERROR] Upload failed"
-    exit 1
-fi
-echo "     Both packages uploaded successfully"
-echo ""
+    echo "[License] Uploading to server..."
+    scp $SSH_OPTS /tmp/license_server.tar.gz $USER@$SERVER_IP:/tmp/
 
-# ==========================================
-# 4. 在服务器上一次性完成所有部署操作
-# ==========================================
-echo "[4/5] Building and deploying on remote server..."
-ssh $SSH_OPTS $USER@$SERVER_IP 'bash -s' << 'ENDSSH'
+    echo "[License] Building and deploying on remote server..."
+    ssh $SSH_OPTS $USER@$SERVER_IP 'bash -s' << 'ENDSSH'
 set -e
-
-echo "  → Deploying License Server..."
-
-# 解压并构建 License Server
 cd /root
 rm -rf license_server_new
 mkdir -p license_server_new
 cd license_server_new
 tar -xzf /tmp/license_server.tar.gz
 
-# 编译
+echo "  Building..."
 go mod tidy 2>/dev/null || true
-CGO_ENABLED=1 go build -o license_server .
+CGO_ENABLED=0 go build -o license_server .
+CGO_ENABLED=0 go build -o reset_password ./cmd/reset_password/
 
-# 停止老进程并替换
-cd /root
-pkill -f 'license_server' || true
+echo "  Stopping old server..."
+pkill -f '/root/license_server/license_server' 2>/dev/null || true
 sleep 2
+
+echo "  Swapping directories..."
+cd /root
 rm -rf license_server_old
-mv license_server license_server_old 2>/dev/null || true
+if [ -d license_server ]; then
+    cp license_server/license_server.db license_server_new/ 2>/dev/null || true
+    cp license_server/license_server.db-shm license_server_new/ 2>/dev/null || true
+    cp license_server/license_server.db-wal license_server_new/ 2>/dev/null || true
+    mv license_server license_server_old
+fi
 mv license_server_new license_server
 
-# 启动服务
+echo "  Starting server..."
 cd license_server
+sed -i 's/\r$//' start.sh
 chmod +x start.sh
 ./start.sh
-sleep 3
+ENDSSH
 
-# 健康检查
-if curl -s http://localhost:8080/api/health > /dev/null 2>&1; then
-    echo "  ✓ License Server started successfully"
-else
-    echo "  ✗ License Server health check failed"
-fi
+    echo "[License] Health check..."
+    ssh $SSH_OPTS $USER@$SERVER_IP "sleep 2 && curl -sf http://localhost:6699/health > /dev/null && echo '  Auth (6699): OK' || echo '  Auth (6699): FAILED'"
+    ssh $SSH_OPTS $USER@$SERVER_IP "curl -sf -o /dev/null http://localhost:8899/ && echo '  Admin (8899): OK' || echo '  Admin (8899): FAILED'"
+    echo ""
 
-echo ""
-echo "  → Deploying Marketplace Server..."
+    rm -f /tmp/license_server.tar.gz
+}
 
-# 解压并构建 Marketplace Server
+# ==========================================
+# Marketplace Server 部署
+# ==========================================
+deploy_market() {
+    echo "[Market] Packaging source files..."
+    cd "$SCRIPT_DIR/marketplace_server"
+    tar -czf /tmp/marketplace_server.tar.gz main.go go.mod go.sum templates start.sh
+    ls -lh /tmp/marketplace_server.tar.gz | awk '{print "         Package: "$5}'
+
+    echo "[Market] Uploading to server..."
+    scp $SSH_OPTS /tmp/marketplace_server.tar.gz $USER@$SERVER_IP:/tmp/
+
+    echo "[Market] Building and deploying on remote server..."
+    ssh $SSH_OPTS $USER@$SERVER_IP 'bash -s' << 'ENDSSH'
+set -e
 cd /root
 rm -rf marketplace_server_new
 mkdir -p marketplace_server_new
 cd marketplace_server_new
 tar -xzf /tmp/marketplace_server.tar.gz
 
-# 编译
+echo "  Building..."
 go mod tidy 2>/dev/null || true
 CGO_ENABLED=0 go build -o marketplace_server .
 
-# 停止老进程并替换
-cd /root
-pkill -f 'marketplace_server' || true
+echo "  Stopping old server..."
+pkill -f '/root/marketplace_server/marketplace_server' 2>/dev/null || true
 sleep 2
+
+echo "  Swapping directories..."
+cd /root
 rm -rf marketplace_server_old
-mv marketplace_server marketplace_server_old 2>/dev/null || true
+if [ -d marketplace_server ]; then
+    cp marketplace_server/marketplace.db marketplace_server_new/ 2>/dev/null || true
+    cp marketplace_server/marketplace.db-shm marketplace_server_new/ 2>/dev/null || true
+    cp marketplace_server/marketplace.db-wal marketplace_server_new/ 2>/dev/null || true
+    mv marketplace_server marketplace_server_old
+fi
 mv marketplace_server_new marketplace_server
 
-# 启动服务
+echo "  Starting server..."
 cd marketplace_server
+sed -i 's/\r$//' start.sh
 chmod +x start.sh
 ./start.sh
-sleep 3
-
-# 健康检查
-if curl -s http://localhost:8088/ > /dev/null 2>&1; then
-    echo "  ✓ Marketplace Server started successfully"
-else
-    echo "  ✗ Marketplace Server health check failed"
-fi
-
-echo ""
-echo "  → Verifying services..."
-pgrep -f 'license_server' > /dev/null && echo "  ✓ License Server running" || echo "  ✗ License Server NOT running"
-pgrep -f 'marketplace_server' > /dev/null && echo "  ✓ Marketplace Server running" || echo "  ✗ Marketplace Server NOT running"
-
 ENDSSH
 
-if [ $? -ne 0 ]; then
-    echo "     [ERROR] Deployment failed, check server logs"
-    exit 1
-fi
-echo ""
+    echo "[Market] Health check..."
+    ssh $SSH_OPTS $USER@$SERVER_IP "sleep 2 && curl -sf http://localhost:8088/ > /dev/null && echo '  Marketplace (8088): OK' || echo '  Marketplace (8088): FAILED'"
+    echo ""
+
+    rm -f /tmp/marketplace_server.tar.gz
+}
 
 # ==========================================
-# 5. 清理临时文件
+# Nginx 配置部署
 # ==========================================
-echo "[5/5] Cleanup..."
-rm -f /tmp/license_server.tar.gz
-rm -f /tmp/marketplace_server.tar.gz
-echo "     Temporary files removed"
-echo ""
+deploy_nginx() {
+    echo "[Nginx] Uploading configuration..."
+    scp $SSH_OPTS "$SCRIPT_DIR/../deploy/nginx/vantagedata.chat.conf" $USER@$SERVER_IP:/etc/nginx/conf.d/
+
+    echo "[Nginx] Testing and reloading..."
+    ssh $SSH_OPTS $USER@$SERVER_IP "nginx -t && nginx -s reload && echo '  Nginx: OK' || echo '  Nginx: FAILED'"
+    echo ""
+}
 
 # ==========================================
-echo "=========================================="
-echo "部署完成！"
-echo "=========================================="
+# 验证所有服务状态
+# ==========================================
+verify() {
+    echo "=========================================="
+    echo "服务状态验证"
+    echo "=========================================="
+    ssh $SSH_OPTS $USER@$SERVER_IP 'bash -s' << 'ENDSSH'
+echo "进程检查:"
+pgrep -f '/root/license_server/license_server' > /dev/null && echo "  [OK] License Server running" || echo "  [X] License Server NOT running"
+pgrep -f '/root/marketplace_server/marketplace_server' > /dev/null && echo "  [OK] Marketplace Server running" || echo "  [X] Marketplace Server NOT running"
 echo ""
-echo "License Server:     http://license.vantagedata.chat:8080"
-echo "Marketplace Server: http://market.vantagedata.chat:8088"
-echo ""
-echo "管理面板:"
-echo "  License:     http://license.vantagedata.chat:8080/admin/"
-echo "  Marketplace: http://market.vantagedata.chat:8088/admin/"
-echo ""
-echo "查看日志:"
-echo "  ssh root@license.vantagedata.chat \"tail -f /root/license_server/server.log\""
-echo "  ssh root@market.vantagedata.chat \"tail -f /root/marketplace_server/server.log\""
-echo ""
+echo "端口检查:"
+ss -tlnp | grep -E ':(6699|8899|8088) ' || echo "  No matching ports found"
+ENDSSH
+    echo ""
+    echo "=========================================="
+    echo "部署完成！"
+    echo "=========================================="
+    echo ""
+    echo "License Server:"
+    echo "  Auth API:  https://license.vantagedata.chat/  (port 6699)"
+    echo "  Admin:     https://license.vantagedata.chat/admin/  (port 8899)"
+    echo ""
+    echo "Marketplace Server:"
+    echo "  Service:   https://market.vantagedata.chat/  (port 8088)"
+    echo "  Admin:     https://market.vantagedata.chat/admin/"
+    echo ""
+    echo "查看日志:"
+    echo "  ssh root@$SERVER_IP \"tail -f /root/license_server/server.log\""
+    echo "  ssh root@$SERVER_IP \"tail -f /root/marketplace_server/server.log\""
+}
+
+# ==========================================
+# 执行
+# ==========================================
+case "$TARGET" in
+    all)
+        deploy_license
+        deploy_market
+        deploy_nginx
+        verify
+        ;;
+    license)
+        deploy_license
+        verify
+        ;;
+    market)
+        deploy_market
+        verify
+        ;;
+    nginx)
+        deploy_nginx
+        verify
+        ;;
+    *)
+        echo "[ERROR] Unknown target: $TARGET"
+        echo "Usage: $0 [all|license|market|nginx]"
+        exit 1
+        ;;
+esac

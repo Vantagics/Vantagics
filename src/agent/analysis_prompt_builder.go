@@ -123,7 +123,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	// Code requirements section
 	sb.WriteString("## Code Requirements (strict)\n")
 	sb.WriteString("1. Code must be complete and executable without modifications\n")
-	sb.WriteString("2. Use sqlite3 for database, pandas for data processing\n")
+	sb.WriteString("2. Use duckdb for database, pandas for data processing\n")
 	sb.WriteString("3. **⭐⭐⭐ Charts must be saved**:\n")
 	sb.WriteString("   ```python\n")
 	sb.WriteString("   chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
@@ -240,7 +240,7 @@ func (b *AnalysisPromptBuilder) AddTemplate(name string, template *CodeTemplate)
 }
 
 // Code templates
-const standardCodeTemplate = `import sqlite3
+const standardCodeTemplate = `import duckdb
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
@@ -260,7 +260,7 @@ def main():
         os.makedirs(FILES_DIR, exist_ok=True)
         
         # 1. 连接数据库
-        conn = sqlite3.connect(DB_PATH)
+        conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行SQL查询
         sql = """
@@ -268,7 +268,8 @@ def main():
         FROM ...
         WHERE ...
         """
-        df = pd.read_sql_query(sql, conn)
+        # DuckDB directly supports pandas
+        df = conn.execute(sql).df()
         
         # 3. 数据处理
         # ... 数据清洗、转换、计算 ...
@@ -277,10 +278,6 @@ def main():
         print("=== 分析结果 ===")
         print(df.to_string())
         
-    except sqlite3.Error as e:
-        print(f"数据库错误: {e}")
-    except pd.errors.EmptyDataError:
-        print("查询结果为空")
     except Exception as e:
         print(f"分析错误: {e}")
     finally:
@@ -291,7 +288,7 @@ if __name__ == "__main__":
     main()
 `
 
-const visualizationCodeTemplate = `import sqlite3
+const visualizationCodeTemplate = `import duckdb
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
@@ -312,7 +309,7 @@ def main():
         os.makedirs(FILES_DIR, exist_ok=True)
         
         # 1. 连接数据库
-        conn = sqlite3.connect(DB_PATH)
+        conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行SQL查询
         sql = """
@@ -321,7 +318,8 @@ def main():
         GROUP BY ...
         ORDER BY ...
         """
-        df = pd.read_sql_query(sql, conn)
+        # DuckDB directly supports pandas
+        df = conn.execute(sql).df()
         
         # 3. 数据处理
         # ... 数据清洗、转换、计算 ...
@@ -372,10 +370,6 @@ def main():
         # print(f"- 最低值: {df['value'].min()}")
         # print(f"- 平均值: {df['value'].mean():.2f}")
         
-    except sqlite3.Error as e:
-        print(f"数据库错误: {e}")
-    except pd.errors.EmptyDataError:
-        print("查询结果为空")
     except Exception as e:
         print(f"分析错误: {e}")
         import traceback
@@ -388,7 +382,7 @@ if __name__ == "__main__":
     main()
 `
 
-const aggregationCodeTemplate = `import sqlite3
+const aggregationCodeTemplate = `import duckdb
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
@@ -408,7 +402,7 @@ def main():
         os.makedirs(FILES_DIR, exist_ok=True)
         
         # 1. 连接数据库
-        conn = sqlite3.connect(DB_PATH)
+        conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行聚合查询
         sql = """
@@ -421,7 +415,8 @@ def main():
         GROUP BY dimension_column
         ORDER BY total DESC
         """
-        df = pd.read_sql_query(sql, conn)
+        # DuckDB directly supports pandas
+        df = conn.execute(sql).df()
         
         # 3. 计算汇总统计
         total = df['total'].sum()
@@ -434,10 +429,6 @@ def main():
         print("\n详细数据:")
         print(df.to_string())
         
-    except sqlite3.Error as e:
-        print(f"数据库错误: {e}")
-    except pd.errors.EmptyDataError:
-        print("查询结果为空")
     except Exception as e:
         print(f"分析错误: {e}")
     finally:
@@ -458,7 +449,7 @@ GROUP BY product_name
 ORDER BY total_amount DESC
 LIMIT 10
 """
-df = pd.read_sql_query(sql, conn)
+df = conn.execute(sql).df()
 print("=== 销售排行榜 ===")
 print(df.to_string(index=False))
 `
@@ -470,7 +461,7 @@ FROM orders
 GROUP BY month
 ORDER BY month
 """
-df = pd.read_sql_query(sql, conn)
+df = conn.execute(sql).df()
 
 plt.figure(figsize=(12, 6))
 plt.plot(df['month'], df['total'], marker='o', linewidth=2)
@@ -492,7 +483,7 @@ JOIN customers c ON o.customer_id = c.id
 JOIN products p ON o.product_id = p.id
 ORDER BY order_date DESC
 """
-df = pd.read_sql_query(sql, conn)
+df = conn.execute(sql).df()
 
 # 保存到Excel文件
 export_path = os.path.join(FILES_DIR, 'order_details.xlsx')
@@ -513,7 +504,7 @@ GROUP BY customer_id
 HAVING order_count >= 3
 ORDER BY total_spent DESC
 """
-df = pd.read_sql_query(sql, conn)
+df = conn.execute(sql).df()
 print(f"活跃客户数: {len(df)}")
 print(f"总消费: {df['total_spent'].sum():,.2f}")
 `
