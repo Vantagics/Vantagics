@@ -91,6 +91,8 @@ export function ExportMessageToPDF(arg1:string,arg2:string):Promise<void>;
 
 export function ExportQuickAnalysisPack(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
+export function ExportQuickAnalysisPackSelected(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<string>):Promise<string>;
+
 export function ExportReport(arg1:string,arg2:string):Promise<void>;
 
 export function ExportSessionFilesToZip(arg1:string,arg2:string):Promise<void>;
@@ -210,6 +212,8 @@ export function GetSessionFilePath(arg1:string,arg2:string):Promise<string>;
 export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
 
 export function GetSessionRecordings():Promise<Array<agent.AnalysisRecording>>;
+
+export function GetThreadExportableRequests(arg1:string):Promise<Array<main.ExportableRequest>>;
 
 export function GetShareURL(arg1:string):Promise<string>;
 

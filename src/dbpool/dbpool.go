@@ -113,6 +113,7 @@ func (m *DBManager) OpenNew(path string) (*sql.DB, error) {
 func configurePool(db *sql.DB) {
 	db.SetMaxIdleConns(0)
 	db.SetMaxOpenConns(1)
+	db.SetConnMaxLifetime(0) // no lifetime limit; connections are reused until explicitly closed
 }
 
 // retryParams returns (maxRetries, baseMs) from opts or defaults.

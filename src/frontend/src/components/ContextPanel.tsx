@@ -395,7 +395,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                             className={`w-[106px] px-1 py-1 text-[10px] border rounded focus:outline-none focus:ring-1 ${
                                 editError 
                                     ? 'border-red-400 focus:ring-red-200 bg-red-50 dark:bg-[#2e1e1e] dark:border-[#5a3d3d]' 
-                                    : 'border-blue-400 focus:ring-blue-200 bg-white dark:bg-[#3c3c3c] dark:border-[#007acc]'
+                                    : 'border-blue-400 focus:ring-blue-200 bg-white dark:bg-[#3c3c3c] dark:border-[#5b8ab5]'
                             }`}
                             disabled={savingColumn}
                         />
@@ -507,7 +507,7 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ width, onContextPanelClick,
                                         {tables.map((table) => (
                                             <div
                                                 key={table}
-                                                className="w-full flex items-center justify-between p-3 bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg hover:border-blue-300 dark:hover:border-[#007acc] hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-all shadow-sm group"
+                                                className="w-full flex items-center justify-between p-3 bg-white dark:bg-[#252526] border border-slate-200 dark:border-[#3c3c3c] rounded-lg hover:border-blue-300 dark:hover:border-[#5b8ab5] hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-all shadow-sm group"
                                             >
                                                 <button
                                                     onClick={() => handleTableClick(table)}

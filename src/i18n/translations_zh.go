@@ -52,6 +52,7 @@ var chineseTranslations = map[string]string{
 	"datasource.test_success":         "连接测试成功",
 	"datasource.semantic_opt_success": "语义优化完成",
 	"datasource.semantic_opt_failed":  "语义优化失败：%s",
+	"datasource.semantic_opt_summary": "语义优化后的数据源，包含 %d 个表",
 
 	// 分析操作
 	"analysis.execution_failed":     "分析执行失败",
@@ -349,4 +350,101 @@ var chineseTranslations = map[string]string{
 	"comprehensive_report.pack_author":        "作者：",
 	"comprehensive_report.pack_description":   "描述：",
 	"comprehensive_report.pack_source_name":   "原始数据源：",
+
+	// 快捷分析包 - 预览与导出
+	"qap.no_exportable_records":       "没有找到可导出的分析记录",
+	"qap.unknown_request":             "(未知请求)",
+	"qap.no_exportable_steps":         "所选分析请求没有可导出的操作",
+	"qap.no_exportable_operations":    "该会话没有可导出的分析操作",
+	"qap.load_pack_dialog_title":      "加载快捷分析包",
+
+	// 快捷分析包 - 导入
+	"qap.invalid_file_format":         "文件格式无效，无法解析快捷分析包: %v",
+	"qap.wrong_password":              "口令不正确",
+	"qap.invalid_pack_file":           "文件格式无效: 不是有效的快捷分析包文件",
+	"qap.unsupported_version":         "不支持的分析包版本: %s，请升级软件后重试",
+	"qap.no_executable_steps":         "分析包中没有可执行的步骤",
+	"qap.schema_fetch_failed":         "无法获取目标数据源的 schema: %v",
+	"qap.missing_required_tables":     "目标数据源缺少必需的表: %s",
+	"qap.python_not_configured":       "此分析包包含 Python 脚本，但尚未配置 Python 环境。请在设置中配置 Python 路径后重试。",
+	"qap.permission_denied":           "权限不足: %s",
+	"qap.not_replay_session":          "该会话不是快捷分析会话",
+
+	// 快捷分析包 - 步骤标签
+	"qap.step_sql_query":              "SQL 查询 #%d",
+	"qap.step_python_script":          "Python 脚本 #%d",
+	"qap.step_generic":                "步骤 #%d",
+	"qap.step_execution_failed":       "步骤 %d 执行失败: %v",
+	"qap.step_python_not_configured":  "步骤 %d 执行失败: Python 环境未配置",
+
+	// 快捷分析包 - 导入验证
+	"qap.table_not_exists":            "表 '%s' 不存在",
+	"qap.column_not_exists":           "字段 '%s.%s' 不存在",
+	"qap.step_sql_success":            "执行SQL成功 (步骤 %d):\n\n```json:table\n%s\n```",
+	"qap.step_sql_failed":             "执行SQL失败：%v\n\nSQL:\n```sql\n%s\n```",
+	"qap.step_execute_query":          "执行步骤 %d 的分析查询",
+
+	// 快捷分析包 - 执行消息
+	"qap.step_skipped":                "⏭️ 步骤 %d (%s) 已跳过：依赖的前置步骤执行失败",
+	"qap.execution_complete":          "✅ 快捷分析包执行完成！共执行了 %d 个步骤。",
+	"qap.reexecution_complete":        "✅ 快捷分析包重新执行完成！共执行了 %d 个步骤。",
+	"qap.step_sql_error":              "❌ 步骤 %d (%s) 执行失败：%v\n\n> 📋 分析请求：%s\n\n```sql\n%s\n```",
+	"qap.step_sql_success_full":       "✅ 步骤 %d (%s):\n\n> 📋 分析请求：%s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_truncated":  "✅ 步骤 %d (%s) (共 %d 行，显示前 20 行):\n\n> 📋 分析请求：%s\n\n```json:table\n%s\n```",
+	"qap.step_python_no_env":          "❌ 步骤 %d (%s) 执行失败：Python 环境未配置\n\n> 📋 分析请求：%s\n\n```python\n%s\n```",
+	"qap.step_python_error":           "❌ 步骤 %d (%s) 执行失败：%v\n\n> 📋 分析请求：%s\n\n```python\n%s\n```",
+	"qap.step_python_success":         "✅ 步骤 %d (%s):\n\n> 📋 分析请求：%s\n\n```\n%s\n```",
+
+	// 分析导出
+	"analysis_export.description":     "VantageData 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
+	"analysis_export.dialog_title":    "导出分析过程",
+
+	// 仪表盘导出
+	"dashboard.no_exportable_content": "没有可导出的内容",
+	"dashboard.message_not_found":     "消息不存在: %v",
+	"dashboard.step_no_results":       "该步骤没有可显示的结果",
+	"dashboard.session_no_results":    "该会话没有可显示的结果",
+	"dashboard.mode_switch_blocked":   "当前有正在进行的分析任务，无法切换模式",
+	"dashboard.write_pdf_failed":      "写入PDF文件失败: %v",
+	"dashboard.write_excel_failed":    "写入Excel文件失败: %v",
+	"dashboard.write_ppt_failed":      "写入PPT文件失败: %v",
+	"dashboard.write_word_failed":     "写入Word文件失败: %v",
+
+	// 数据源优化
+	"optimize.remote_not_allowed":     "无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。",
+	"optimize.summary":                "优化完成：成功创建 %d 个索引，共 %d 个建议",
+
+	// 市场
+	"marketplace.insufficient_credits": "积分余额不足，需要 %d 积分，当前余额 %.0f 积分",
+
+	// 数据源导入
+	"datasource.unsupported_format":   "不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件",
+	"datasource.excel_format_error":   "无法打开 Excel 文件：文件格式不受支持。请确保文件是有效的 .xlsx 格式（Excel 2007 或更高版本）",
+	"datasource.excel_open_failed":    "无法打开 Excel 文件: %v",
+	"datasource.no_sheets":            "Excel 文件中没有找到工作表",
+	"datasource.no_valid_data":        "Excel 文件中没有找到有效数据",
+
+	// 意图生成
+	"intent.generation_failed":        "意图生成失败: %v",
+	"intent.parse_failed":             "响应解析失败: %v",
+	"intent.no_suggestions":           "未能生成意图建议",
+
+	// 授权客户端
+	"license_client.build_request_failed":  "构建请求失败: %v",
+	"license_client.connect_failed":        "连接服务器失败: %v",
+	"license_client.read_response_failed":  "读取响应失败: %v",
+	"license_client.parse_response_failed": "解析响应失败: %v",
+
+	// 使用授权
+	"usage.expired":                   "使用权限已过期，请续费",
+	"usage.uses_exhausted":            "使用次数已用完，请重新购买",
+
+	// PDF 字体
+	"pdf.font_load_failed":            "无法加载中文字体",
+
+	// 工具结果
+	"tool.no_valid_info":              "抱歉，未能获取到有效信息。",
+
+	// SQL 验证
+	"sql.readonly_violation":          "检测到非只读SQL操作: %s (只允许SELECT查询)",
 }

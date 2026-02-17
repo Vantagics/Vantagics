@@ -4,13 +4,12 @@ import "html/template"
 
 // UserChangePasswordTmpl is the parsed change-password page template.
 var UserChangePasswordTmpl = template.Must(template.New("user_change_password").Parse(userChangePasswordHTML))
-
 const userChangePasswordHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.HtmlLang}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>修改密码 - 快捷分析包市场</title>
+    <title>{{index .T "change_password_title"}} - {{index .T "site_name"}}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -121,31 +120,34 @@ const userChangePasswordHTML = `<!DOCTYPE html>
 <body>
 <div class="auth-card">
     <div class="logo">📦</div>
-    <h1>修改密码</h1>
-    <p class="subtitle">请输入当前密码和新密码</p>
+    <h1>{{index .T "change_password_title"}}</h1>
+    <p class="subtitle">{{index .T "change_password_subtitle"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     {{if .Success}}<div class="success-msg">{{.Success}}</div>{{end}}
     <form method="POST" action="/user/change-password" onsubmit="return validateForm()">
         <div class="form-group">
-            <label for="current_password">当前密码</label>
-            <input type="password" id="current_password" name="current_password" required autocomplete="current-password" placeholder="请输入当前密码" />
+            <label for="current_password">{{index .T "current_password"}}</label>
+            <input type="password" id="current_password" name="current_password" required autocomplete="current-password" placeholder="{{index .T "enter_current_password"}}" />
             <div class="client-error" id="current-password-error"></div>
         </div>
         <div class="form-group">
-            <label for="new_password">新密码</label>
-            <input type="password" id="new_password" name="new_password" required autocomplete="new-password" placeholder="至少6个字符" />
+            <label for="new_password">{{index .T "new_password_label"}}</label>
+            <input type="password" id="new_password" name="new_password" required autocomplete="new-password" placeholder="{{index .T "min_6_chars"}}" />
             <div class="client-error" id="new-password-error"></div>
         </div>
         <div class="form-group">
-            <label for="confirm_password">确认新密码</label>
-            <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password" placeholder="再次输入新密码" />
+            <label for="confirm_password">{{index .T "confirm_new_password"}}</label>
+            <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password" placeholder="{{index .T "re_enter_new_password"}}" />
             <div class="client-error" id="confirm-password-error"></div>
         </div>
-        <button type="submit" class="btn-submit">确认修改</button>
+        <button type="submit" class="btn-submit">{{index .T "confirm_change"}}</button>
     </form>
-    <a href="/user/dashboard" class="back-link">← 返回个人中心</a>
+    <a href="/user/dashboard" class="back-link">← {{index .T "back_to_center"}}</a>
 </div>
 <script>
+var i18nEnterCurrentPw = "{{index .T "enter_current_pw"}}";
+var i18nPasswordMin6 = "{{index .T "password_min_6"}}";
+var i18nPasswordMismatch = "{{index .T "password_mismatch"}}";
 function validateForm() {
     var curPw = document.getElementById('current_password').value;
     var newPw = document.getElementById('new_password').value;
@@ -157,22 +159,23 @@ function validateForm() {
     newErr.style.display = 'none';
     confirmErr.style.display = 'none';
     if (curPw.length === 0) {
-        curErr.textContent = '请输入当前密码';
+        curErr.textContent = i18nEnterCurrentPw;
         curErr.style.display = 'block';
         return false;
     }
     if (newPw.length < 6) {
-        newErr.textContent = '密码至少6个字符';
+        newErr.textContent = i18nPasswordMin6;
         newErr.style.display = 'block';
         return false;
     }
     if (newPw !== confirmPw) {
-        confirmErr.textContent = '两次密码不一致';
+        confirmErr.textContent = i18nPasswordMismatch;
         confirmErr.style.display = 'block';
         return false;
     }
     return true;
 }
 </script>
+` + I18nJS + `
 </body>
 </html>`

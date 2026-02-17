@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"vantagedata/i18n"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -128,7 +130,7 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 	export := AnalysisExport{
 		FileType:           "VantageData_Analysis_Export",
 		FormatVersion:      "2.0",
-		Description:        "VantageData 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
+		Description:        i18n.T("analysis_export.description"),
 		ExportedAt:         time.Now().Format(time.RFC3339),
 		DataSource:         dataSource,
 		SchemaRequirements: schemaReq,
@@ -144,7 +146,7 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 	
 	// 7. Show save dialog with .rbi extension
 	savePath, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "导出分析过程",
+		Title:           i18n.T("analysis_export.dialog_title"),
 		DefaultFilename: fmt.Sprintf("analysis_%s.rbi", time.Now().Format("20060102_150405")),
 		Filters: []runtime.FileFilter{
 			{DisplayName: "VantageData Analysis", Pattern: "*.rbi"},

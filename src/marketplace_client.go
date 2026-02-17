@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"vantagedata/i18n"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -898,7 +900,7 @@ func (a *App) PurchaseAdditionalUses(listingID int64, quantity int) error {
 				Balance  float64 `json:"balance"`
 			}
 			if json.Unmarshal([]byte(body), &errResp) == nil && errResp.Error == "INSUFFICIENT_CREDITS" {
-				return fmt.Errorf("积分余额不足，需要 %d 积分，当前余额 %.0f 积分", errResp.Required, errResp.Balance)
+				return fmt.Errorf("%s", i18n.T("marketplace.insufficient_credits", errResp.Required, errResp.Balance))
 			}
 		}
 		return fmt.Errorf("purchase failed with status %d: %s", resp.StatusCode, body)
@@ -962,7 +964,7 @@ func (a *App) RenewSubscription(listingID int64, months int) error {
 				Balance  float64 `json:"balance"`
 			}
 			if json.Unmarshal([]byte(body), &errResp) == nil && errResp.Error == "INSUFFICIENT_CREDITS" {
-				return fmt.Errorf("积分余额不足，需要 %d 积分，当前余额 %.0f 积分", errResp.Required, errResp.Balance)
+				return fmt.Errorf("%s", i18n.T("marketplace.insufficient_credits", errResp.Required, errResp.Balance))
 			}
 		}
 		return fmt.Errorf("renew failed with status %d: %s", resp.StatusCode, body)

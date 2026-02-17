@@ -162,10 +162,10 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]">
             <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl w-[450px] overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-[#1e1e2e] dark:to-[#2a1e2e]">
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5] dark:from-[#1e1e2e] dark:to-[#2a1e2e]">
                     <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-indigo-100 rounded-lg">
-                            <Key className="w-5 h-5 text-indigo-600" />
+                        <div className="p-1.5 bg-[#dce5ef] rounded-lg">
+                            <Key className="w-5 h-5 text-[#5b7a9d]" />
                         </div>
                         <h2 className="text-lg font-bold text-slate-800">
                             {t('activation_title') || '产品激活'}

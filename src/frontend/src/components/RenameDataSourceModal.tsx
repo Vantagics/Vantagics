@@ -129,7 +129,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                     </button>
                     <button
                         onClick={handleRename}
-                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-[#007acc] hover:bg-blue-700 dark:hover:bg-[#005a9e] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-[#5b7a9d] hover:bg-blue-700 dark:hover:bg-[#456a8a] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                         disabled={isRenaming || !newName.trim()}
                     >
                         {isRenaming ? (

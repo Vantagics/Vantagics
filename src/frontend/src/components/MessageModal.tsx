@@ -59,7 +59,7 @@ const MessageModal: React.FC<MessageModalProps> = ({ isOpen, type, title, messag
 
                 <button
                     onClick={onClose}
-                    className="w-full bg-slate-900 dark:bg-[#007acc] hover:bg-slate-800 dark:hover:bg-[#005a9e] text-white font-medium py-2.5 rounded-xl transition-colors active:scale-95"
+                    className="w-full bg-slate-900 dark:bg-[#5b7a9d] hover:bg-slate-800 dark:hover:bg-[#456a8a] text-white font-medium py-2.5 rounded-xl transition-colors active:scale-95"
                 >
                     Close
                 </button>

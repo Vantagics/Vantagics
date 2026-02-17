@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"vantagedata/agent"
+	"vantagedata/i18n"
 	"strings"
 )
 
@@ -74,7 +75,7 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 				DataSourceID:   dataSourceID,
 				DataSourceName: dataSource.Name,
 				Success:        false,
-				Error:          fmt.Sprintf("无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。", dataSource.Type),
+				Error:          i18n.T("optimize.remote_not_allowed", dataSource.Type),
 			}, nil
 		}
 	}
@@ -159,7 +160,7 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 				DataSourceID:   dataSourceID,
 				DataSourceName: dataSource.Name,
 				Success:        false,
-				Error:          fmt.Sprintf("无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。", dataSource.Type),
+				Error:          i18n.T("optimize.remote_not_allowed", dataSource.Type),
 			}, nil
 		}
 	}
@@ -245,7 +246,7 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 	}
 
 	// Generate summary
-	summary := fmt.Sprintf("优化完成：成功创建 %d 个索引，共 %d 个建议", appliedCount, len(suggestions))
+	summary := i18n.T("optimize.summary", appliedCount, len(suggestions))
 
 	result := &OptimizeDataSourceResult{
 		DataSourceID:   dataSourceID,
@@ -400,10 +401,16 @@ Return ONLY a JSON array of suggestions, no other text:
 			continue
 		}
 
-		suggestions[i].SQLCommand = fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (%s)",
-			suggestions[i].IndexName,
-			suggestions[i].TableName,
-			strings.Join(suggestions[i].Columns, ", "))
+		suggestions[i].SQLCommand = fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON "%s" (%s)`,
+			strings.ReplaceAll(suggestions[i].IndexName, `"`, `""`),
+			strings.ReplaceAll(suggestions[i].TableName, `"`, `""`),
+			func() string {
+				quoted := make([]string, len(suggestions[i].Columns))
+				for j, col := range suggestions[i].Columns {
+					quoted[j] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(col, `"`, `""`))
+				}
+				return strings.Join(quoted, ", ")
+			}())
 		validSuggestions = append(validSuggestions, suggestions[i])
 	}
 
@@ -422,22 +429,43 @@ func getMapKeys(m map[string]bool) []string {
 
 // getColumnTypes retrieves column types for a table
 func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, error) {
-	query := fmt.Sprintf("DESCRIBE %s", tableName)
+	// Use PRAGMA table_info which is safe for DuckDB and doesn't require quoting
+	query := fmt.Sprintf(`PRAGMA table_info("%s")`, strings.ReplaceAll(tableName, `"`, `""`))
 	rows, err := db.Query(query)
 	if err != nil {
-		return nil, err
+		// Fallback to DESCRIBE for MySQL compatibility
+		query = fmt.Sprintf("DESCRIBE `%s`", strings.ReplaceAll(tableName, "`", "``"))
+		rows, err = db.Query(query)
+		if err != nil {
+			return nil, err
+		}
 	}
 	defer rows.Close()
 
 	columnTypes := make(map[string]string)
+	cols, _ := rows.Columns()
+	numCols := len(cols)
+
 	for rows.Next() {
-		var name, colType, nullable, key, defaultValue, extra sql.NullString
-
-		if err := rows.Scan(&name, &colType, &nullable, &key, &defaultValue, &extra); err != nil {
-			continue
+		if numCols >= 6 {
+			// DESCRIBE format: name, type, nullable, key, default, extra
+			var name, colType, nullable, key, defaultValue, extra sql.NullString
+			if err := rows.Scan(&name, &colType, &nullable, &key, &defaultValue, &extra); err != nil {
+				continue
+			}
+			columnTypes[name.String] = colType.String
+		} else {
+			// PRAGMA table_info format: cid, name, type, notnull, dflt_value, pk
+			var cid int
+			var name, colType string
+			var notnull int
+			var dfltValue sql.NullString
+			var pk int
+			if err := rows.Scan(&cid, &name, &colType, &notnull, &dfltValue, &pk); err != nil {
+				continue
+			}
+			columnTypes[name] = colType
 		}
-
-		columnTypes[name.String] = colType.String
 	}
 	if err := rows.Err(); err != nil {
 		return columnTypes, fmt.Errorf("error iterating column rows: %w", err)

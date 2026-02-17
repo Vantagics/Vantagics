@@ -75,7 +75,7 @@ func (a *App) getQAPDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("load config: %w", err)
 	}
-	qapDir := filepath.Join(cfg.DataCacheDir, "qap")
+	qapDir := filepath.Join(cfg.DataCacheDir, qapSubDir)
 	absDir, err := filepath.Abs(qapDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve QAP directory: %w", err)

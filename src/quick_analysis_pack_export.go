@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"vantagedata/i18n"
 )
 
 // ExportQuickAnalysisPack exports a quick analysis pack from a chat session.
@@ -43,7 +45,7 @@ func (a *App) ExportQuickAnalysisPack(threadID string, packName string, author s
 
 	if len(steps) == 0 {
 		a.Log("[QAP-EXPORT] No executable steps found")
-		return "", fmt.Errorf("该会话没有可导出的分析操作")
+		return "", fmt.Errorf("%s", i18n.T("qap.no_exportable_operations"))
 	}
 
 	a.Log(fmt.Sprintf("[QAP-EXPORT] Collected %d steps", len(steps)))
@@ -51,77 +53,17 @@ func (a *App) ExportQuickAnalysisPack(threadID string, packName string, author s
 	// Log step type breakdown
 	sqlCount, pyCount := 0, 0
 	for _, s := range steps {
-		if s.StepType == "sql_query" {
+		switch s.StepType {
+		case stepTypeSQL:
 			sqlCount++
-		} else if s.StepType == "python_code" {
+		case stepTypePython:
 			pyCount++
 		}
 	}
 	a.Log(fmt.Sprintf("[QAP-EXPORT] Step breakdown: %d SQL, %d Python", sqlCount, pyCount))
 
-	// 2.5. Extract ECharts configs from assistant messages and attach to steps
-	a.attachEChartsFromMessages(thread, steps)
-
-	// 3. Collect full schema from the data source, then filter to only referenced tables
-	fullSchema, err := a.collectFullSchema(thread.DataSourceID)
-	if err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error collecting schema: %v", err))
-		return "", fmt.Errorf("failed to collect schema: %w", err)
-	}
-
-	schema := filterSchemaByReferencedTables(fullSchema, steps)
-
-	a.Log(fmt.Sprintf("[QAP-EXPORT] Collected schema with %d tables (filtered from %d total)", len(schema), len(fullSchema)))
-
-	// 4. Get data source name for metadata
-	dsInfo, err := a.getDataSourceInfoForThread(thread.DataSourceID)
-	if err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error getting data source info: %v", err))
-		return "", fmt.Errorf("failed to get data source info: %w", err)
-	}
-
-	// 5. Build QuickAnalysisPack object
-	pack := QuickAnalysisPack{
-		FileType:      "VantageData_QuickAnalysisPack",
-		FormatVersion: "1.0",
-		Metadata: PackMetadata{
-			PackName:   packName,
-			Author:     author,
-			CreatedAt:  time.Now().Format(time.RFC3339),
-			SourceName: dsInfo.Name,
-		},
-		SchemaRequirements: schema,
-		ExecutableSteps:    steps,
-	}
-
-	// 6. Marshal to JSON
-	jsonData, err := json.MarshalIndent(pack, "", "  ")
-	if err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error marshaling JSON: %v", err))
-		return "", fmt.Errorf("failed to marshal pack: %w", err)
-	}
-
-	// 7. Auto-save to {DataCacheDir}/qap/ directory
-	cfg, err := a.GetConfig()
-	if err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error getting config: %v", err))
-		return "", fmt.Errorf("failed to get config: %w", err)
-	}
-	qapDir := filepath.Join(cfg.DataCacheDir, "qap")
-	if err := os.MkdirAll(qapDir, 0755); err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error creating QAP directory: %v", err))
-		return "", fmt.Errorf("failed to create qap directory: %w", err)
-	}
-	savePath := filepath.Join(qapDir, fmt.Sprintf("analysis_%s.qap", time.Now().Format("20060102_150405")))
-
-	// 8. Pack to ZIP (with optional encryption)
-	if err := PackToZip(jsonData, savePath, password); err != nil {
-		a.Log(fmt.Sprintf("[QAP-EXPORT] Error creating ZIP: %v", err))
-		return "", fmt.Errorf("failed to create pack file: %w", err)
-	}
-
-	a.Log(fmt.Sprintf("[QAP-EXPORT] Successfully exported to: %s", savePath))
-	return savePath, nil
+	// 3. Build and save the pack (shared logic handles ECharts, schema, metadata, ZIP)
+	return a.buildAndSavePack(thread, steps, packName, author, password)
 }
 
 
@@ -156,21 +98,7 @@ func (a *App) collectSessionSteps(threadID string) ([]PackStep, error) {
 
 		allSteps := append(sqlSteps, dedupedPythonSteps...)
 		// Re-number step IDs and rebuild dependencies
-		// For query_and_chart chart steps, pair them with the preceding SQL step
-		lastSQLStepID := 0
-		for i := range allSteps {
-			allSteps[i].StepID = i + 1
-			if allSteps[i].StepType == "sql_query" {
-				lastSQLStepID = i + 1
-				allSteps[i].DependsOn = buildDependsOn(i + 1)
-			} else if allSteps[i].SourceTool == "query_and_chart" && lastSQLStepID > 0 {
-				// Chart step from query_and_chart depends on the last SQL step
-				allSteps[i].DependsOn = []int{lastSQLStepID}
-				allSteps[i].PairedSQLStepID = lastSQLStepID
-			} else {
-				allSteps[i].DependsOn = buildDependsOn(i + 1)
-			}
-		}
+		renumberSteps(allSteps)
 		a.Log(fmt.Sprintf("[QAP-EXPORT] Total merged steps: %d", len(allSteps)))
 		return allSteps, nil
 	}
@@ -269,7 +197,7 @@ func (a *App) collectPythonStepsFromTrajectory(threadID string) ([]PackStep, err
 					}
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "python_code",
+						StepType:    stepTypePython,
 						Code:        code,
 						Description: desc,
 					})
@@ -293,7 +221,7 @@ func (a *App) collectPythonStepsFromTrajectory(threadID string) ([]PackStep, err
 					}
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "python_code",
+						StepType:    stepTypePython,
 						Code:        chartCode,
 						Description: desc,
 						SourceTool:  "query_and_chart",
@@ -424,7 +352,7 @@ func (a *App) collectStepsFromTrajectory(threadID string) ([]PackStep, error) {
 					}
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "sql_query",
+						StepType:    stepTypeSQL,
 						Code:        query,
 						Description: desc,
 						DependsOn:   buildDependsOn(stepID),
@@ -442,7 +370,7 @@ func (a *App) collectStepsFromTrajectory(threadID string) ([]PackStep, error) {
 					}
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "python_code",
+						StepType:    stepTypePython,
 						Code:        code,
 						Description: desc,
 						DependsOn:   buildDependsOn(stepID),
@@ -465,7 +393,7 @@ func (a *App) collectStepsFromTrajectory(threadID string) ([]PackStep, error) {
 					sqlStepID := stepID
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "sql_query",
+						StepType:    stepTypeSQL,
 						Code:        query,
 						Description: desc,
 						DependsOn:   buildDependsOn(stepID),
@@ -482,7 +410,7 @@ func (a *App) collectStepsFromTrajectory(threadID string) ([]PackStep, error) {
 						}
 						steps = append(steps, PackStep{
 							StepID:          stepID,
-							StepType:        "python_code",
+							StepType:        stepTypePython,
 							Code:            chartCode,
 							Description:     desc,
 							DependsOn:       []int{sqlStepID},
@@ -501,7 +429,7 @@ func (a *App) collectStepsFromTrajectory(threadID string) ([]PackStep, error) {
 					}
 					steps = append(steps, PackStep{
 						StepID:      stepID,
-						StepType:    "python_code",
+						StepType:    stepTypePython,
 						Code:        chartCode,
 						Description: desc,
 						DependsOn:   buildDependsOn(stepID),
@@ -535,19 +463,7 @@ func (a *App) collectStepsFromExecutions(threadID string) []PackStep {
 		return nil
 	}
 
-	// executions.json is a map of requestID -> { executions: [...] }
-	var executionsMap map[string]struct {
-		Executions []struct {
-			Code            string `json:"code"`
-			Type            string `json:"type"` // "sql" or "python"
-			StepDescription string `json:"step_description"`
-			UserRequest     string `json:"user_request"`
-			Timestamp       int64  `json:"timestamp"`
-			Success         bool   `json:"success"`
-		} `json:"executions"`
-		Timestamp int64 `json:"timestamp"`
-	}
-
+	var executionsMap parsedExecutionsMap
 	if err := json.Unmarshal(data, &executionsMap); err != nil {
 		a.Log(fmt.Sprintf("[QAP-EXPORT] Error parsing executions.json: %v", err))
 		return nil
@@ -555,55 +471,35 @@ func (a *App) collectStepsFromExecutions(threadID string) []PackStep {
 
 	// Collect all request entries and sort by timestamp
 	type requestEntry struct {
-		key       string
-		timestamp int64
-		execs     []struct {
-			Code            string `json:"code"`
-			Type            string `json:"type"`
-			StepDescription string `json:"step_description"`
-			UserRequest     string `json:"user_request"`
-			Timestamp       int64  `json:"timestamp"`
-			Success         bool   `json:"success"`
-		}
+		key   string
+		entry parsedExecutionEntry
 	}
-
 	var entries []requestEntry
 	for k, v := range executionsMap {
-		entries = append(entries, requestEntry{key: k, timestamp: v.Timestamp, execs: v.Executions})
+		entries = append(entries, requestEntry{key: k, entry: v})
 	}
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].timestamp < entries[j].timestamp
+		return entries[i].entry.Timestamp < entries[j].entry.Timestamp
 	})
 
 	var steps []PackStep
 	stepID := 1
-	seenCode := make(map[string]bool) // Deduplicate identical SQL/Python code
+	seenCode := make(map[string]bool)
 
 	for _, entry := range entries {
-		for _, exec := range entry.execs {
-			if exec.Code == "" {
+		for _, exec := range entry.entry.Executions {
+			if exec.Code == "" || !exec.Success {
 				continue
 			}
 
-			// Skip failed executions
-			if !exec.Success {
-				continue
-			}
-
-			// Skip duplicate code (retries of the same query)
 			codeKey := exec.Type + ":" + exec.Code
 			if seenCode[codeKey] {
 				continue
 			}
 			seenCode[codeKey] = true
 
-			var stepType string
-			switch exec.Type {
-			case "sql":
-				stepType = "sql_query"
-			case "python":
-				stepType = "python_code"
-			default:
+			stepType := execTypeToStepType(exec.Type)
+			if stepType == "" {
 				continue
 			}
 
@@ -612,7 +508,7 @@ func (a *App) collectStepsFromExecutions(threadID string) []PackStep {
 				desc = exec.UserRequest
 			}
 			if desc == "" {
-				if stepType == "sql_query" {
+				if stepType == stepTypeSQL {
 					desc = "SQL Query"
 				} else {
 					desc = "Python Code"
@@ -636,23 +532,6 @@ func (a *App) collectStepsFromExecutions(threadID string) []PackStep {
 }
 
 
-
-// buildDependsOn returns the dependency list for a step.
-// Each step depends on the previous step (sequential execution order).
-// The first step has no dependencies.
-func buildDependsOn(currentStepID int) []int {
-	if currentStepID <= 1 {
-		return nil
-	}
-	return []int{currentStepID - 1}
-}
-
-func truncStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
 
 // isToolOutputFailed checks if a tool output indicates the tool call failed.
 // This is used to filter out failed attempts from trajectory when exporting.

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	_ "modernc.org/sqlite"
+	"marketplace_server/i18n"
 	"marketplace_server/templates"
 	"github.com/xuri/excelize/v2"
 
@@ -1392,14 +1393,9 @@ func isAdminSetup() bool {
 func hashPassword(password string) string {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
-		// Fallback should never happen with valid input, but log and use SHA-256 as last resort
-		log.Printf("[WARN] bcrypt failed, falling back to SHA-256: %v", err)
-		salt := make([]byte, 16)
-		rand.Read(salt)
-		h := sha256.New()
-		h.Write(salt)
-		h.Write([]byte(password))
-		return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+		// bcrypt only fails if password > 72 bytes or cost is invalid — both are programming errors.
+		// Do NOT fall back to weaker hashing; fail loudly instead.
+		log.Fatalf("[FATAL] bcrypt.GenerateFromPassword failed: %v", err)
 	}
 	return "bcrypt:" + string(hash)
 }
@@ -1427,7 +1423,10 @@ func checkPassword(password, stored string) bool {
 // generateSessionID creates a random session ID.
 func generateSessionID() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failure is a critical system issue; fail loudly
+		panic(fmt.Sprintf("crypto/rand.Read failed: %v", err))
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -2265,15 +2264,18 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		redirect := r.URL.Query().Get("redirect")
 		captchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
 			"Redirect":  redirect,
 		})
+		templates.UserLoginTmpl.Execute(w, data)
 		return
 	}
 
 	// POST
+	lang := i18n.DetectLang(r)
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 	captchaID := r.FormValue("captcha_id")
@@ -2286,16 +2288,16 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	var userID int64
 	if !verifyCaptcha(captchaID, captchaAns) {
 		log.Printf("[USER-LOGIN] captcha verification failed for ID=%q", captchaID)
-		errMsg = "验证码错误"
+		errMsg = i18n.T(lang, "captcha_error")
 	} else {
 		var storedHash string
 		err := db.QueryRow("SELECT id, password_hash FROM users WHERE username = ?", username).Scan(&userID, &storedHash)
 		if err != nil {
 			log.Printf("[USER-LOGIN] db query error for username=%q: %v", username, err)
-			errMsg = "用户名或密码错误"
+			errMsg = i18n.T(lang, "login_error")
 		} else if !checkPassword(password, storedHash) {
 			log.Printf("[USER-LOGIN] password check failed for username=%q", username)
-			errMsg = "用户名或密码错误"
+			errMsg = i18n.T(lang, "login_error")
 		} else {
 			log.Printf("[USER-LOGIN] success for username=%q userID=%d", username, userID)
 		}
@@ -2304,11 +2306,13 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	if errMsg != "" {
 		newCaptchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     errMsg,
 			"Redirect":  redirect,
 		})
+		templates.UserLoginTmpl.Execute(w, data)
 		return
 	}
 
@@ -2330,15 +2334,18 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		redirect := r.URL.Query().Get("redirect")
 		captchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
 			"Redirect":  redirect,
 		})
+		templates.UserRegisterTmpl.Execute(w, data)
 		return
 	}
 
 	// POST
+	lang := i18n.DetectLang(r)
 	email := strings.TrimSpace(r.FormValue("email"))
 	sn := strings.TrimSpace(r.FormValue("sn"))
 	password := r.FormValue("password")
@@ -2352,40 +2359,42 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	renderError := func(msg string) {
 		newCaptchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     msg,
 			"Redirect":  redirect,
 		})
+		templates.UserRegisterTmpl.Execute(w, data)
 	}
 
 	// Step 1: Verify captcha
 	if !verifyCaptcha(captchaID, captchaAns) {
 		log.Printf("[USER-REGISTER] captcha verification failed for ID=%q", captchaID)
-		renderError("验证码错误")
+		renderError(i18n.T(lang, "captcha_error"))
 		return
 	}
 
 	// Step 2: Validate email format
 	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") || len(email) > 254 {
-		renderError("请输入有效的邮箱地址")
+		renderError(i18n.T(lang, "invalid_email"))
 		return
 	}
 
 	// Step 3: Verify password consistency and length
 	if password != password2 {
 		log.Printf("[USER-REGISTER] password mismatch for email=%q", email)
-		renderError("两次密码不一致")
+		renderError(i18n.T(lang, "password_mismatch"))
 		return
 	}
 	if len(password) < 6 {
 		log.Printf("[USER-REGISTER] password too short for email=%q", email)
-		renderError("密码至少6个字符")
+		renderError(i18n.T(lang, "password_min_6"))
 		return
 	}
 	if len(password) > 72 {
 		log.Printf("[USER-REGISTER] password too long for email=%q", email)
-		renderError("密码最多72个字符")
+		renderError(i18n.T(lang, "password_max_72"))
 		return
 	}
 
@@ -2393,7 +2402,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to marshal auth request: %v", err)
-		renderError("内部错误，请稍后重试")
+		renderError(i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -2405,7 +2414,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	httpResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to contact license server at %s: %v", authURL, err)
-		renderError("授权服务器连接失败，请稍后重试")
+		renderError(i18n.T(lang, "license_server_error"))
 		return
 	}
 	defer httpResp.Body.Close()
@@ -2413,7 +2422,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	respBody, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to read license server response: %v", err)
-		renderError("授权服务器连接失败，请稍后重试")
+		renderError(i18n.T(lang, "license_server_error"))
 		return
 	}
 
@@ -2425,14 +2434,14 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.Unmarshal(respBody, &authResp); err != nil {
 		log.Printf("[USER-REGISTER] failed to parse license server response: %v", err)
-		renderError("授权服务器返回异常，请稍后重试")
+		renderError(i18n.T(lang, "license_server_error"))
 		return
 	}
 
 	if !authResp.Success {
 		msg := authResp.Message
 		if msg == "" {
-			msg = "SN 或邮箱验证失败"
+			msg = i18n.T(lang, "sn_email_verify_failed")
 		}
 		log.Printf("[USER-REGISTER] license server auth failed: code=%s msg=%s", authResp.Code, msg)
 		renderError(msg)
@@ -2444,11 +2453,11 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	err = db.QueryRow("SELECT id FROM users WHERE auth_type='sn' AND auth_id=?", sn).Scan(&existingID)
 	if err == nil {
 		log.Printf("[USER-REGISTER] SN already bound: sn=%q existingUserID=%d", sn, existingID)
-		renderError("该序列号已绑定账号")
+		renderError(i18n.T(lang, "sn_already_bound"))
 		return
 	} else if err != sql.ErrNoRows {
 		log.Printf("[USER-REGISTER] db error checking SN binding: %v", err)
-		renderError("内部错误，请稍后重试")
+		renderError(i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -2471,9 +2480,9 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to create user: %v", err)
 		if strings.Contains(err.Error(), "UNIQUE") {
-			renderError("该用户名已存在，请使用其他邮箱")
+			renderError(i18n.T(lang, "username_already_exists"))
 		} else {
-			renderError("创建账号失败，请稍后重试")
+			renderError(i18n.T(lang, "create_account_failed"))
 		}
 		return
 	}
@@ -2481,7 +2490,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	userID, err := result.LastInsertId()
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to get last insert ID: %v", err)
-		renderError("创建账号失败，请稍后重试")
+		renderError(i18n.T(lang, "create_account_failed"))
 		return
 	}
 
@@ -3790,7 +3799,7 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 	var email string
 	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
 	if err != nil {
-		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "load_failed"), http.StatusInternalServerError)
 		return
 	}
 
@@ -3800,13 +3809,21 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodGet {
+	lang := i18n.DetectLang(r)
+
+	renderForm := func(errMsg, successMsg string) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"Email":   email,
-			"Error":   "",
-			"Success": "",
+			"Error":   errMsg,
+			"Success": successMsg,
 		})
+		templates.UserChangePasswordTmpl.Execute(w, data)
+	}
+
+	if r.Method == http.MethodGet {
+		renderForm("", "")
 		return
 	}
 
@@ -3817,43 +3834,23 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Validate current password (Requirement 3.4)
 	if !checkPassword(currentPassword, passwordHash.String) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-			"Email":   email,
-			"Error":   "当前密码错误",
-			"Success": "",
-		})
+		renderForm(i18n.T(lang, "invalid_old_password"), "")
 		return
 	}
 
 	// Validate new password length (Requirement 3.5)
 	if len(newPassword) < 6 {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-			"Email":   email,
-			"Error":   "密码至少6个字符",
-			"Success": "",
-		})
+		renderForm(i18n.T(lang, "password_min_6"), "")
 		return
 	}
 	if len(newPassword) > 72 {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-			"Email":   email,
-			"Error":   "密码最多72个字符",
-			"Success": "",
-		})
+		renderForm(i18n.T(lang, "password_max_72"), "")
 		return
 	}
 
 	// Validate password confirmation (Requirement 3.6)
 	if newPassword != confirmPassword {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-			"Email":   email,
-			"Error":   "两次密码不一致",
-			"Success": "",
-		})
+		renderForm(i18n.T(lang, "password_mismatch"), "")
 		return
 	}
 
@@ -3862,22 +3859,12 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 	_, err = db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", hashed, userID)
 	if err != nil {
 		log.Printf("[CHANGE-PASSWORD] failed to update password for user %d: %v", userID, err)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-			"Email":   email,
-			"Error":   "修改密码失败，请重试",
-			"Success": "",
-		})
+		renderForm(i18n.T(lang, "change_password_failed"), "")
 		return
 	}
 
 	log.Printf("[CHANGE-PASSWORD] user %d changed password successfully", userID)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.UserChangePasswordTmpl.Execute(w, map[string]interface{}{
-		"Email":   email,
-		"Error":   "",
-		"Success": "密码修改成功",
-	})
+	renderForm("", i18n.T(lang, "change_password_success"))
 }
 
 // handleUserSetPassword handles GET/POST /user/set-password.
@@ -3896,7 +3883,7 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 	var email string
 	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
 	if err != nil {
-		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "load_failed"), http.StatusInternalServerError)
 		return
 	}
 
@@ -3908,32 +3895,37 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"Email": email,
 			"Error": "",
 		})
+		templates.UserSetPasswordTmpl.Execute(w, data)
 		return
 	}
 
 	// POST: set password
+	lang := i18n.DetectLang(r)
 	password := r.FormValue("password")
 	password2 := r.FormValue("password2")
 
 	errMsg := ""
 	if len(password) < 6 {
-		errMsg = "密码至少6个字符"
+		errMsg = i18n.T(lang, "password_min_6")
 	} else if len(password) > 72 {
-		errMsg = "密码最多72个字符"
+		errMsg = i18n.T(lang, "password_max_72")
 	} else if password != password2 {
-		errMsg = "两次密码不一致"
+		errMsg = i18n.T(lang, "password_mismatch")
 	}
 
 	if errMsg != "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+		data := i18n.TemplateData(r)
+		i18n.MergeTemplateData(data, map[string]interface{}{
 			"Email": email,
 			"Error": errMsg,
 		})
+		templates.UserSetPasswordTmpl.Execute(w, data)
 		return
 	}
 
@@ -3949,10 +3941,12 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[SET-PASSWORD] failed to update password for user %d: %v", userID, err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.UserSetPasswordTmpl.Execute(w, map[string]interface{}{
+		errData := i18n.TemplateData(r)
+		i18n.MergeTemplateData(errData, map[string]interface{}{
 			"Email": email,
-			"Error": "设置密码失败，请重试",
+			"Error": i18n.T(lang, "set_password_failed"),
 		})
+		templates.UserSetPasswordTmpl.Execute(w, errData)
 		return
 	}
 
@@ -5626,6 +5620,20 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 // Free packs return file data directly. Paid packs check credits balance,
 // deduct if sufficient, and return file data; otherwise return 402.
 
+// sanitizeDownloadFilename removes characters that could cause HTTP header injection
+// or filesystem issues in Content-Disposition filenames.
+func sanitizeDownloadFilename(name string) string {
+	// Remove characters that are dangerous in HTTP headers and filenames
+	replacer := strings.NewReplacer(
+		`"`, "",
+		"\r", "",
+		"\n", "",
+		"\\", "_",
+		"/", "_",
+	)
+	return replacer.Replace(name)
+}
+
 func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -5695,7 +5703,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("X-Encryption-Password", encryptionPassword)
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
 		w.Header().Set("X-Meta-Info", metaInfoValue)
 		w.WriteHeader(http.StatusOK)
@@ -5817,7 +5825,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 					w.Header().Set("X-Encryption-Password", encryptionPassword)
 				}
 				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
+				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
 				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
 				w.Header().Set("X-Meta-Info", metaInfoValue)
 				w.WriteHeader(http.StatusOK)
@@ -6021,7 +6029,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Encryption-Password", encryptionPassword)
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
 	w.Header().Set("X-Meta-Info", metaInfoValue)
 	w.WriteHeader(http.StatusOK)
@@ -9059,6 +9067,41 @@ func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// handleTranslationsAPI returns all translations for the detected language as JSON.
+func handleTranslationsAPI(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.DetectLang(r)
+	translations := i18n.AllTranslations(lang)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"lang":         string(lang),
+		"translations": translations,
+	})
+}
+
+// handleSetLang sets the language cookie and redirects back.
+func handleSetLang(w http.ResponseWriter, r *http.Request) {
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		lang = r.FormValue("lang")
+	}
+	if lang != "zh-CN" && lang != "en-US" {
+		lang = "zh-CN"
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "lang",
+		Value:    lang,
+		Path:     "/",
+		MaxAge:   365 * 24 * 3600,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+	})
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		referer = "/"
+	}
+	http.Redirect(w, r, referer, http.StatusFound)
+}
+
 // securityHeaders adds standard security headers to all responses.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -9131,6 +9174,10 @@ func main() {
 			loginTicketsMu.Unlock()
 		}
 	}()
+
+	// i18n routes
+	http.HandleFunc("/api/translations", handleTranslationsAPI)
+	http.HandleFunc("/set-lang", handleSetLang)
 
 	// Auth routes
 	http.HandleFunc("/api/auth/sn-login", handleSNLogin)

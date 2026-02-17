@@ -68,10 +68,10 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e]">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5] dark:from-[#1a2332] dark:to-[#1e1e2e]">
                     <div className="flex items-center gap-2.5">
-                        <div className="p-1.5 bg-blue-100 rounded-lg">
-                            <Clock className="w-5 h-5 text-blue-600" />
+                        <div className="p-1.5 bg-[#dce5ef] rounded-lg">
+                            <Clock className="w-5 h-5 text-[#5b7a9d]" />
                         </div>
                         <div>
                             <h2 className="text-lg font-bold text-slate-800">{t('timing_analysis')}</h2>
@@ -89,7 +89,7 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-4">
                     {/* Total Time Card */}
-                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+                    <div className="bg-gradient-to-br from-[#f0f4f8] to-[#eaeff5] rounded-lg p-4 border border-[#dce5ef]">
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="text-base font-semibold text-slate-800">{t('total_time')}</h3>
                             <div className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceColor} bg-white`}>

@@ -2017,6 +2017,28 @@ export namespace main {
 	}
 	
 	
+	export class ExportableRequest {
+	    request_id: string;
+	    user_request: string;
+	    step_count: number;
+	    timestamp: number;
+	    is_auto_suggestion: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportableRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.request_id = source["request_id"];
+	        this.user_request = source["user_request"];
+	        this.step_count = source["step_count"];
+	        this.timestamp = source["timestamp"];
+	        this.is_auto_suggestion = source["is_auto_suggestion"];
+	    }
+	}
+	
+	
 	export class IndexSuggestion {
 	    table_name: string;
 	    index_name: string;

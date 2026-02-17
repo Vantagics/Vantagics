@@ -4,13 +4,12 @@ import "html/template"
 
 // UserRegisterTmpl is the parsed user registration page template.
 var UserRegisterTmpl = template.Must(template.New("user_register").Parse(userRegisterHTML))
-
 const userRegisterHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.HtmlLang}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>绑定注册 - 快捷分析包市场</title>
+    <title>{{index .T "bind_register"}} - {{index .T "site_name"}}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -140,45 +139,47 @@ const userRegisterHTML = `<!DOCTYPE html>
 <body>
 <div class="auth-card">
     <div class="logo">📦</div>
-    <h1>绑定注册</h1>
-    <p class="subtitle">通过邮箱和产品序列号创建账号</p>
+    <h1>{{index .T "bind_register"}}</h1>
+    <p class="subtitle">{{index .T "register_subtitle"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     <form method="POST" action="/user/register" onsubmit="return validateForm()">
         <input type="hidden" name="captcha_id" id="captcha_id" value="{{.CaptchaID}}" />
         <input type="hidden" name="redirect" value="{{.Redirect}}" />
         <div class="form-group">
-            <label for="email">邮箱</label>
-            <input type="email" id="email" name="email" required autocomplete="email" placeholder="请输入邮箱地址" />
+            <label for="email">{{index .T "email"}}</label>
+            <input type="email" id="email" name="email" required autocomplete="email" placeholder="{{index .T "enter_email"}}" />
         </div>
         <div class="form-group">
-            <label for="sn">产品序列号 (SN)</label>
-            <input type="text" id="sn" name="sn" required autocomplete="off" placeholder="请输入产品序列号" />
+            <label for="sn">{{index .T "sn_label"}}</label>
+            <input type="text" id="sn" name="sn" required autocomplete="off" placeholder="{{index .T "enter_sn"}}" />
         </div>
         <div class="form-group">
-            <label for="password">新密码</label>
-            <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="至少6个字符" />
+            <label for="password">{{index .T "new_password"}}</label>
+            <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="{{index .T "min_6_chars"}}" />
             <div class="client-error" id="password-error"></div>
         </div>
         <div class="form-group">
-            <label for="password2">确认密码</label>
-            <input type="password" id="password2" name="password2" required autocomplete="new-password" placeholder="再次输入密码" />
+            <label for="password2">{{index .T "confirm_password"}}</label>
+            <input type="password" id="password2" name="password2" required autocomplete="new-password" placeholder="{{index .T "re_enter_password"}}" />
             <div class="client-error" id="password2-error"></div>
         </div>
         <div class="form-group">
-            <label for="captcha_answer">验证码</label>
+            <label for="captcha_answer">{{index .T "captcha"}}</label>
             <div class="captcha-row">
-                <input type="text" id="captcha_answer" name="captcha_answer" required placeholder="输入计算结果" autocomplete="off" />
-                <img class="captcha-img" id="captcha-img" src="/user/captcha?id={{.CaptchaID}}" alt="验证码" title="点击刷新" onclick="refreshCaptcha()" />
-                <button type="button" class="captcha-refresh" onclick="refreshCaptcha()" title="刷新验证码">↻</button>
+                <input type="text" id="captcha_answer" name="captcha_answer" required placeholder="{{index .T "enter_captcha_result"}}" autocomplete="off" />
+                <img class="captcha-img" id="captcha-img" src="/user/captcha?id={{.CaptchaID}}" alt="{{index .T "captcha"}}" title="{{index .T "refresh_captcha"}}" onclick="refreshCaptcha()" />
+                <button type="button" class="captcha-refresh" onclick="refreshCaptcha()" title="{{index .T "refresh_captcha"}}">↻</button>
             </div>
         </div>
-        <button type="submit" class="btn-submit">注 册</button>
+        <button type="submit" class="btn-submit">{{index .T "register"}}</button>
     </form>
     <div class="auth-footer">
-        <a href="/user/login{{if .Redirect}}?redirect={{.Redirect}}{{end}}">已有账号？去登录</a>
+        <a href="/user/login{{if .Redirect}}?redirect={{.Redirect}}{{end}}">{{index .T "has_account"}}</a>
     </div>
 </div>
 <script>
+var i18nPasswordMin6 = "{{index .T "password_min_6"}}";
+var i18nPasswordMismatch = "{{index .T "password_mismatch"}}";
 function refreshCaptcha() {
     fetch('/user/captcha/refresh').then(function(r){return r.json();}).then(function(d){
         document.getElementById('captcha_id').value = d.captcha_id;
@@ -194,17 +195,18 @@ function validateForm() {
     pwErr.style.display = 'none';
     pw2Err.style.display = 'none';
     if (pw.length < 6) {
-        pwErr.textContent = '密码至少6个字符';
+        pwErr.textContent = i18nPasswordMin6;
         pwErr.style.display = 'block';
         return false;
     }
     if (pw !== pw2) {
-        pw2Err.textContent = '两次密码不一致';
+        pw2Err.textContent = i18nPasswordMismatch;
         pw2Err.style.display = 'block';
         return false;
     }
     return true;
 }
 </script>
+` + I18nJS + `
 </body>
 </html>`

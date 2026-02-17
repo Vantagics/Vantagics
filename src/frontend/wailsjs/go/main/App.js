@@ -174,6 +174,10 @@ export function ExportQuickAnalysisPack(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ExportQuickAnalysisPack'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportQuickAnalysisPackSelected(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ExportQuickAnalysisPackSelected'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function ExportReport(arg1, arg2) {
   return window['go']['main']['App']['ExportReport'](arg1, arg2);
 }
@@ -412,6 +416,10 @@ export function GetSessionFiles(arg1) {
 
 export function GetSessionRecordings() {
   return window['go']['main']['App']['GetSessionRecordings']();
+}
+
+export function GetThreadExportableRequests(arg1) {
+  return window['go']['main']['App']['GetThreadExportableRequests'](arg1);
 }
 
 export function GetShareURL(arg1) {

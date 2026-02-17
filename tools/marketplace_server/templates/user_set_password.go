@@ -4,13 +4,12 @@ import "html/template"
 
 // UserSetPasswordTmpl is the parsed set-password page template.
 var UserSetPasswordTmpl = template.Must(template.New("user_set_password").Parse(userSetPasswordHTML))
-
 const userSetPasswordHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.HtmlLang}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>设置密码 - 快捷分析包市场</title>
+    <title>{{index .T "set_password_title"}} - {{index .T "site_name"}}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -112,25 +111,27 @@ const userSetPasswordHTML = `<!DOCTYPE html>
 <body>
 <div class="auth-card">
     <div class="logo">📦</div>
-    <h1>设置密码</h1>
-    <p class="subtitle">首次登录，请为您的账户设置密码</p>
-    <div class="info-box">账户邮箱：{{.Email}}</div>
+    <h1>{{index .T "set_password_title"}}</h1>
+    <p class="subtitle">{{index .T "set_password_subtitle"}}</p>
+    <div class="info-box">{{index .T "account_email"}}：{{.Email}}</div>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     <form method="POST" action="/user/set-password" onsubmit="return validateForm()">
         <div class="form-group">
-            <label for="password">新密码</label>
-            <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="至少6个字符" />
+            <label for="password">{{index .T "new_password"}}</label>
+            <input type="password" id="password" name="password" required autocomplete="new-password" placeholder="{{index .T "min_6_chars"}}" />
             <div class="client-error" id="password-error"></div>
         </div>
         <div class="form-group">
-            <label for="password2">确认密码</label>
-            <input type="password" id="password2" name="password2" required autocomplete="new-password" placeholder="再次输入密码" />
+            <label for="password2">{{index .T "confirm_password"}}</label>
+            <input type="password" id="password2" name="password2" required autocomplete="new-password" placeholder="{{index .T "re_enter_password"}}" />
             <div class="client-error" id="password2-error"></div>
         </div>
-        <button type="submit" class="btn-submit">确认设置</button>
+        <button type="submit" class="btn-submit">{{index .T "confirm_set"}}</button>
     </form>
 </div>
 <script>
+var i18nPasswordMin6 = "{{index .T "password_min_6"}}";
+var i18nPasswordMismatch = "{{index .T "password_mismatch"}}";
 function validateForm() {
     var pw = document.getElementById('password').value;
     var pw2 = document.getElementById('password2').value;
@@ -139,17 +140,18 @@ function validateForm() {
     pwErr.style.display = 'none';
     pw2Err.style.display = 'none';
     if (pw.length < 6) {
-        pwErr.textContent = '密码至少6个字符';
+        pwErr.textContent = i18nPasswordMin6;
         pwErr.style.display = 'block';
         return false;
     }
     if (pw !== pw2) {
-        pw2Err.textContent = '两次密码不一致';
+        pw2Err.textContent = i18nPasswordMismatch;
         pw2Err.style.display = 'block';
         return false;
     }
     return true;
 }
 </script>
+` + I18nJS + `
 </body>
 </html>`

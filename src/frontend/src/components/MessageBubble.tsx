@@ -691,7 +691,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
             <div className={`flex items-start gap-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
                 <div className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm ${isUser
                     ? 'bg-slate-200 dark:bg-[#3c3c3c] text-slate-600 dark:text-[#d4d4d4]'
-                    : 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white'
+                    : 'bg-gradient-to-br from-[#6b8db5] to-[#5b7a9d] text-white'
                     }`}>
                     {isUser ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                 </div>

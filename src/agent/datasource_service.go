@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
@@ -68,9 +69,11 @@ func validateIdentifier(name string, identifierType string) error {
 // DuckDB uses double quotes; MySQL uses backticks.
 func quoteIdent(name string, isMySQL bool) string {
 	if isMySQL {
-		return "`" + name + "`"
+		// Escape backticks by doubling them
+		return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 	}
-	return `"` + name + `"`
+	// Escape double quotes by doubling them (SQL standard)
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 // sanitizeValueForJSON converts DuckDB-specific Go types into JSON-safe primitives.
@@ -78,8 +81,17 @@ func quoteIdent(name string, isMySQL bool) string {
 // duckdb.Interval, duckdb.Map (map[any]any), int8/int16/int32, uint8-uint64,
 // float32, and float64 with NaN/Inf �?none of which survive json.Marshal cleanly.
 func sanitizeValueForJSON(v interface{}) interface{} {
+	return sanitizeValueForJSONDepth(v, 0)
+}
+
+const maxSanitizeDepth = 32
+
+func sanitizeValueForJSONDepth(v interface{}, depth int) interface{} {
 	if v == nil {
 		return nil
+	}
+	if depth > maxSanitizeDepth {
+		return fmt.Sprintf("%v", v)
 	}
 	switch val := v.(type) {
 	// --- already safe primitives ---
@@ -148,13 +160,13 @@ func sanitizeValueForJSON(v interface{}) interface{} {
 	case map[string]interface{}:
 		out := make(map[string]interface{}, len(val))
 		for k, v2 := range val {
-			out[k] = sanitizeValueForJSON(v2)
+			out[k] = sanitizeValueForJSONDepth(v2, depth+1)
 		}
 		return out
 	case []interface{}:
 		out := make([]interface{}, len(val))
 		for i, v2 := range val {
-			out[i] = sanitizeValueForJSON(v2)
+			out[i] = sanitizeValueForJSONDepth(v2, depth+1)
 		}
 		return out
 	}
@@ -387,9 +399,26 @@ func (s *DataSourceService) UpdateMySQLExportConfig(id string, config MySQLExpor
 	return s.SaveDataSources(sources)
 }
 
+// datePatterns matches common date-like string formats that should NOT be
+// treated as numbers even when they happen to parse as int/float.
+var datePatterns = regexp.MustCompile(
+	`(?i)^(\d{4}[-/\.]\d{1,2}[-/\.]\d{1,2}` + // 2024-01-15, 2024/1/5
+		`|\d{1,2}[-/\.]\d{1,2}[-/\.]\d{2,4}` + // 01-15-2024, 1/5/24
+		`|\d{4}\d{2}\d{2}` + // 20240115 (8-digit date)
+		`|\d{4}[-/]\d{1,2}` + // 2024-01, 2024/1
+		`)$`)
+
+// dateColumnNamePattern matches column names that hint at date/time content.
+var dateColumnNamePattern = regexp.MustCompile(
+	`(?i)(date|time|birthday|birth_day|birthdate|born|created|updated|timestamp|日期|时间|生日|出生)`)
+
 // inferColumnType tries to guess the SQLite type from a string value
 func (s *DataSourceService) inferColumnType(val string) string {
 	if val == "" {
+		return "TEXT"
+	}
+	// Check for date-like patterns first — they must stay as TEXT
+	if datePatterns.MatchString(val) {
 		return "TEXT"
 	}
 	if _, err := strconv.ParseInt(val, 10, 64); err == nil {
@@ -399,6 +428,58 @@ func (s *DataSourceService) inferColumnType(val string) string {
 		return "REAL"
 	}
 	return "TEXT"
+}
+
+// isDateColumnName returns true if the column name suggests date/time content.
+func (s *DataSourceService) isDateColumnName(name string) bool {
+	return dateColumnNamePattern.MatchString(name)
+}
+
+// excelSerialToDate converts an Excel serial date number to a formatted date string.
+// Excel uses a serial number system where 1 = 1900-01-01.
+// Note: Excel incorrectly treats 1900 as a leap year (the "Lotus 1-2-3 bug"),
+// so serial number 60 = 1900-02-29 (which doesn't exist). We handle this.
+func excelSerialToDate(serial float64) (string, bool) {
+	// Valid Excel date range: 1 (1900-01-01) to ~2958465 (9999-12-31)
+	if serial < 1 || serial > 2958465 {
+		return "", false
+	}
+
+	intSerial := int(serial)
+	fracDay := serial - float64(intSerial)
+
+	if intSerial <= 0 {
+		return "", false
+	}
+
+	// Excel serial 60 is the phantom "1900-02-29" (Lotus 1-2-3 bug).
+	// This date doesn't actually exist, but Excel displays it. We map it to 1900-02-28.
+	if intSerial == 60 {
+		if fracDay > 0 {
+			totalSeconds := int64(math.Round(fracDay * 86400))
+			t := time.Date(1900, 2, 28, 0, 0, 0, 0, time.UTC).Add(time.Duration(totalSeconds) * time.Second)
+			return t.Format("2006-01-02 15:04:05"), true
+		}
+		return "1900-02-28", true
+	}
+
+	// For serial > 60, subtract 1 to compensate for the phantom Feb 29
+	if intSerial > 60 {
+		intSerial--
+	}
+
+	// serial 1 = 1900-01-01, so base is 1899-12-31
+	base := time.Date(1899, 12, 31, 0, 0, 0, 0, time.UTC)
+	t := base.AddDate(0, 0, intSerial)
+
+	// Add fractional day (time component) with proper rounding
+	if fracDay > 0 {
+		totalSeconds := int64(math.Round(fracDay * 86400))
+		t = t.Add(time.Duration(totalSeconds) * time.Second)
+		return t.Format("2006-01-02 15:04:05"), true
+	}
+
+	return t.Format("2006-01-02"), true
 }
 
 // optimizeColumnTypes converts VARCHAR columns to INTEGER or REAL when all
@@ -522,6 +603,8 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportEbay(name, config)
 	case "etsy":
 		return s.ImportEtsy(name, config)
+	case "etsy_offline":
+		return s.ImportEtsyOffline(name, config.OriginalFile, headerGen)
 	case "jira":
 		return s.ImportJira(name, config)
 	case "snowflake":
@@ -837,9 +920,17 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 	}
 	
 	// Filter rows to only include valid columns
+	// Count valid columns for pre-allocation
+	validColCount := 0
+	for _, v := range validColumns {
+		if v {
+			validColCount++
+		}
+	}
+
 	filteredRows := make([][]string, len(rows))
 	for rowIdx, row := range rows {
-		filteredRow := []string{}
+		filteredRow := make([]string, 0, validColCount)
 		for colIdx := 0; colIdx < len(row); colIdx++ {
 			if colIdx < len(validColumns) && validColumns[colIdx] {
 				filteredRow = append(filteredRow, row[colIdx])
@@ -998,19 +1089,69 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		dataStartRow = 0
 	}
 
-	createSQL := fmt.Sprintf(`CREATE TABLE "%s" (`, tableName)
-	placeholders := []string{}
+	var createBuilder strings.Builder
+	createBuilder.WriteString(fmt.Sprintf(`CREATE TABLE "%s" (`, tableName))
+	placeholders := make([]string, numCols)
+
+	// Post-process: detect columns where INTEGER values are actually Excel date serial numbers.
+	// This happens when the XLSX reader doesn't recognize date-formatted cells and returns
+	// raw numeric serial numbers (e.g., 45000 instead of "2023-03-15").
+	for i := 0; i < numCols; i++ {
+		if colTypes[i] != "INTEGER" && colTypes[i] != "REAL" {
+			continue
+		}
+		colName := headers[i]
+		if !dateColumnNamePattern.MatchString(colName) {
+			continue
+		}
+		// Column name suggests date — check if most numeric values are in Excel date serial range.
+		// Use a threshold (>=80%) instead of requiring ALL values, because some cells may contain
+		// outlier or corrupted values that shouldn't prevent the entire column from being converted.
+		dateLikeCount := 0
+		totalNumeric := 0
+		for r := dataStartRow; r < len(rows) && r < dataStartRow+100; r++ {
+			if i >= len(rows[r]) || rows[r][i] == "" {
+				continue
+			}
+			v, err := strconv.ParseFloat(rows[r][i], 64)
+			if err != nil {
+				continue
+			}
+			totalNumeric++
+			if v >= 1 && v <= 73415 {
+				dateLikeCount++
+			}
+		}
+		if totalNumeric > 0 && float64(dateLikeCount)/float64(totalNumeric) >= 0.8 {
+			// Convert values in this column from serial numbers to date strings
+			s.log(fmt.Sprintf("[processSheet] Converting column %q from Excel date serial numbers to date strings (%d/%d values in date range)", colName, dateLikeCount, totalNumeric))
+			for r := dataStartRow; r < len(rows); r++ {
+				if i >= len(rows[r]) || rows[r][i] == "" {
+					continue
+				}
+				v, err := strconv.ParseFloat(rows[r][i], 64)
+				if err != nil {
+					continue
+				}
+				if ds, ok := excelSerialToDate(v); ok {
+					rows[r][i] = ds
+				}
+				// Values outside the valid range are left as-is (will remain as numeric strings)
+			}
+			colTypes[i] = "TEXT"
+		}
+	}
 
 	for i, colName := range headers {
-		createSQL += fmt.Sprintf(`"%s" %s`, colName, colTypes[i])
-		if i < len(headers)-1 {
-			createSQL += ", "
+		if i > 0 {
+			createBuilder.WriteString(", ")
 		}
-		placeholders = append(placeholders, "?")
+		createBuilder.WriteString(fmt.Sprintf(`"%s" %s`, colName, colTypes[i]))
+		placeholders[i] = "?"
 	}
-	createSQL += ");"
+	createBuilder.WriteString(");")
 
-	_, err := db.Exec(createSQL)
+	_, err := db.Exec(createBuilder.String())
 	if err != nil {
 		return fmt.Errorf("failed to create table %s: %v", tableName, err)
 	}
@@ -1029,37 +1170,37 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		batch := dataRows[batchStart:batchEnd]
 
 		// Build multi-row VALUES clause
-		allVals := make([]interface{}, 0, len(batch)*len(headers))
-		rowPlaceholders := make([]string, 0, len(batch))
+		numHeaders := len(headers)
+		allVals := make([]interface{}, len(batch)*numHeaders)
+		rowPlaceholders := make([]string, len(batch))
 
-		for _, row := range batch {
-			vals := make([]interface{}, len(headers))
-			for j := 0; j < len(headers); j++ {
+		for rowIdx, row := range batch {
+			base := rowIdx * numHeaders
+			for j := 0; j < numHeaders; j++ {
 				if j < len(row) {
 					val := row[j]
 					if val == "" {
-						vals[j] = nil
+						allVals[base+j] = nil
 					} else if colTypes[j] == "INTEGER" {
 						if iv, err := strconv.ParseInt(val, 10, 64); err == nil {
-							vals[j] = iv
+							allVals[base+j] = iv
 						} else {
-							vals[j] = nil
+							allVals[base+j] = nil
 						}
 					} else if colTypes[j] == "REAL" {
 						if fv, err := strconv.ParseFloat(val, 64); err == nil {
-							vals[j] = fv
+							allVals[base+j] = fv
 						} else {
-							vals[j] = nil
+							allVals[base+j] = nil
 						}
 					} else {
-						vals[j] = val
+						allVals[base+j] = val
 					}
 				} else {
-					vals[j] = nil
+					allVals[base+j] = nil
 				}
 			}
-			allVals = append(allVals, vals...)
-			rowPlaceholders = append(rowPlaceholders, singlePlaceholder)
+			rowPlaceholders[rowIdx] = singlePlaceholder
 		}
 
 		batchSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES %s`, tableName, strings.Join(rowPlaceholders, ","))
@@ -1090,7 +1231,7 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		// Use GoExcel for new Excel format
 		return s.importXLSX(name, filePath, headerGen)
 	default:
-		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx �?.xls 格式�?Excel 文件", ext)
+		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件", ext)
 	}
 }
 
@@ -1126,9 +1267,13 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 	// Create DuckDB DB
 	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
+		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
 	defer db.Close()
+
+	// cleanupOnError removes the data directory if import fails partway through
+	cleanupOnError := func() { _ = os.RemoveAll(absDBDir) }
 
 	// Process Sheets
 	processedSheets := 0
@@ -1148,15 +1293,52 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 			continue
 		}
 
-		// Convert cell rows to string rows
-		var rows [][]string
+		// Convert cell rows to string rows, handling date cells properly.
+		// Single-pass approach: first scan to detect date columns, then convert.
+		// We need two passes because a column might have its first few cells as numeric
+		// but later cells as CellTypeDate, and we need to know the column type upfront
+		// to correctly convert the numeric cells in that column.
+		dateColumns := make(map[int]bool)
 		for _, cellRow := range cellRows {
-			var strRow []string
-			for _, cell := range cellRow {
-				if cell != nil {
-					strRow = append(strRow, cell.GetStringValue())
+			for colIdx, cell := range cellRow {
+				if cell != nil && cell.IsDate() {
+					dateColumns[colIdx] = true
+				}
+			}
+		}
+
+		rows := make([][]string, 0, len(cellRows))
+		for _, cellRow := range cellRows {
+			strRow := make([]string, len(cellRow))
+			for colIdx, cell := range cellRow {
+				if cell == nil {
+					// strRow[colIdx] is already ""
+					continue
+				}
+				if cell.IsDate() {
+					if t, err := cell.GetDateValue(); err == nil {
+						if t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 {
+							strRow[colIdx] = t.Format("2006-01-02")
+						} else {
+							strRow[colIdx] = t.Format("2006-01-02 15:04:05")
+						}
+					} else {
+						strRow[colIdx] = cell.GetStringValue()
+					}
+				} else if cell.IsNumber() && dateColumns[colIdx] {
+					// Numeric cell in a column known to contain date-typed cells —
+					// likely an Excel date serial number
+					if v, err := cell.GetNumericValue(); err == nil {
+						if ds, ok := excelSerialToDate(v); ok {
+							strRow[colIdx] = ds
+						} else {
+							strRow[colIdx] = cell.GetStringValue()
+						}
+					} else {
+						strRow[colIdx] = cell.GetStringValue()
+					}
 				} else {
-					strRow = append(strRow, "")
+					strRow[colIdx] = cell.GetStringValue()
 				}
 			}
 			rows = append(rows, strRow)
@@ -1180,13 +1362,14 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 		}
 
 		if err := s.processSheet(db, tableName, rows, headerGen); err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 		processedSheets++
 	}
 
 	if processedSheets == 0 {
-		_ = os.RemoveAll(absDBDir)
+		cleanupOnError()
 		return nil, fmt.Errorf("no valid data found in any sheet")
 	}
 
@@ -1237,9 +1420,13 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 	// Create DuckDB DB
 	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
+		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
 	defer db.Close()
+
+	// cleanupOnError removes the data directory if import fails partway through
+	cleanupOnError := func() { _ = os.RemoveAll(absDBDir) }
 
 	// Process Sheets
 	processedSheets := 0
@@ -1277,13 +1464,14 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 		}
 
 		if err := s.processSheet(db, tableName, rows, headerGen); err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 		processedSheets++
 	}
 
 	if processedSheets == 0 {
-		_ = os.RemoveAll(absDBDir)
+		cleanupOnError()
 		return nil, fmt.Errorf("Excel 文件中没有找到有效数据")
 	}
 
@@ -1328,6 +1516,9 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
 
 		var rowData []string
 		lastCol := row.LastCol()
+		if lastCol >= 0 {
+			rowData = make([]string, 0, lastCol+1)
+		}
 		
 		for colIdx := 0; colIdx <= lastCol; colIdx++ {
 			cell := row.Col(colIdx)
@@ -1460,6 +1651,8 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 			}
 			// Normalize path separators for DuckDB on Windows
 			duckdbPath := strings.ReplaceAll(absCSVPath, "\\", "/")
+			// Escape single quotes in path for SQL safety
+			duckdbPath = strings.ReplaceAll(duckdbPath, "'", "''")
 			nativeSQL := fmt.Sprintf(`CREATE TABLE "%s" AS SELECT * FROM read_csv_auto('%s', header=true, all_varchar=true, ignore_errors=true)`, tableName, duckdbPath)
 			if _, err := db.Exec(nativeSQL); err == nil {
 				var rowCount int
@@ -2563,6 +2756,10 @@ func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string,
 		return err
 	}
 
+	// Use buffered writer for much better I/O performance on large exports
+	bw := bufio.NewWriterSize(f, 64*1024)
+	defer bw.Flush()
+
 	// Write Data
 	// Basic INSERT statement generation
 	values := make([]interface{}, len(cols))
@@ -2571,42 +2768,53 @@ func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string,
 		valuePtrs[i] = &values[i]
 	}
 
-	colNames := strings.Join(cols, "`, `")
-	baseInsert := fmt.Sprintf("INSERT INTO `%s` (`%s`) VALUES ", tableName, colNames)
+	// Properly escape column names using quoteIdent
+	quotedCols := make([]string, len(cols))
+	for i, col := range cols {
+		quotedCols[i] = quoteIdent(col, isMySQL)
+	}
+	baseInsert := fmt.Sprintf("INSERT INTO %s (%s) VALUES ", quoteIdent(tableName, isMySQL), strings.Join(quotedCols, ", "))
+
+	// Pre-allocate vals slice to avoid repeated allocation
+	vals := make([]string, len(cols))
 
 	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
 			return err
 		}
 
-		vals := []string{}
-		for _, val := range values {
+		for i, val := range values {
 			if val == nil {
-				vals = append(vals, "NULL")
+				vals[i] = "NULL"
 			} else {
-				// Escape strings
+				// Escape strings - also handle backslash for MySQL compatibility
 				switch v := val.(type) {
 				case []byte:
 					str := string(v)
-					str = strings.ReplaceAll(str, "'", "''") // Simple SQL escaping
-					vals = append(vals, fmt.Sprintf("'%s'", str))
+					str = strings.ReplaceAll(str, "\\", "\\\\")
+					str = strings.ReplaceAll(str, "'", "''")
+					vals[i] = "'" + str + "'"
 				case string:
-					str := strings.ReplaceAll(v, "'", "''")
-					vals = append(vals, fmt.Sprintf("'%s'", str))
-				case int64, float64:
-					vals = append(vals, fmt.Sprintf("%v", v))
+					str := strings.ReplaceAll(v, "\\", "\\\\")
+					str = strings.ReplaceAll(str, "'", "''")
+					vals[i] = "'" + str + "'"
+				case int64:
+					vals[i] = strconv.FormatInt(v, 10)
+				case float64:
+					vals[i] = strconv.FormatFloat(v, 'f', -1, 64)
 				default:
 					str := fmt.Sprintf("%v", v)
+					str = strings.ReplaceAll(str, "\\", "\\\\")
 					str = strings.ReplaceAll(str, "'", "''")
-					vals = append(vals, fmt.Sprintf("'%s'", str))
+					vals[i] = "'" + str + "'"
 				}
 			}
 		}
 
-		stmt := fmt.Sprintf("%s(%s);\n", baseInsert, strings.Join(vals, ", "))
-		if _, err := f.WriteString(stmt); err != nil {
-			return err
-		}
+		bw.WriteString(baseInsert)
+		bw.WriteString("(")
+		bw.WriteString(strings.Join(vals, ", "))
+		bw.WriteString(");\n")
 	}
 
 	// Check for errors from rows iteration
@@ -2614,8 +2822,9 @@ func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string,
 		return fmt.Errorf("error during row iteration: %w", err)
 	}
 
-	return nil
+	return bw.Flush()
 }
+
 		
 // ExportToMySQL exports one or more tables to a MySQL database
 func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlConfig DataSourceConfig) error {
@@ -2763,36 +2972,53 @@ func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *
 		return err
 	}
 
-	// Create Table in MySQL
-	createCols := []string{}
-	for _, col := range cols {
-		createCols = append(createCols, fmt.Sprintf("`%s` TEXT", col))
+	// Create Table in MySQL - properly escape column names
+	createCols := make([]string, len(cols))
+	for i, col := range cols {
+		createCols[i] = fmt.Sprintf("%s TEXT", quoteIdent(col, true))
 	}
-	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (%s)", tableName, strings.Join(createCols, ", "))
+	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", quoteIdent(tableName, true), strings.Join(createCols, ", "))
 	s.log(fmt.Sprintf("SQL Exec: %s", createSQL))
 	if _, err := mysqlDB.Exec(createSQL); err != nil {
 		return fmt.Errorf("failed to create table in mysql: %v", err)
 	}
 
-	// Bulk Insert
+	// Bulk Insert with batching for better performance
+	quotedCols := make([]string, len(cols))
+	for i, col := range cols {
+		quotedCols[i] = quoteIdent(col, true)
+	}
 	placeholders := make([]string, len(cols))
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` (`%s`) VALUES (%s)", tableName, strings.Join(cols, "`, `"), strings.Join(placeholders, ", "))
-	// Don't log full insert SQL with all data, just the template or first batch
-	s.log(fmt.Sprintf("SQL Prepare: %s", insertSQL))
-	
-	stmt, err := mysqlDB.Prepare(insertSQL)
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert: %v", err)
-	}
-	defer stmt.Close()
+	singleRowPlaceholder := "(" + strings.Join(placeholders, ", ") + ")"
+
+	const batchSize = 500
 
 	values := make([]interface{}, len(cols))
 	valuePtrs := make([]interface{}, len(cols))
 	for i := range cols {
 		valuePtrs[i] = &values[i]
+	}
+
+	batchArgs := make([]interface{}, 0, batchSize*len(cols))
+	batchPlaceholders := make([]string, 0, batchSize)
+
+	flushBatch := func() error {
+		if len(batchPlaceholders) == 0 {
+			return nil
+		}
+		insertSQL := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
+			quoteIdent(tableName, true),
+			strings.Join(quotedCols, ", "),
+			strings.Join(batchPlaceholders, ", "))
+		if _, err := mysqlDB.Exec(insertSQL, batchArgs...); err != nil {
+			return fmt.Errorf("failed to insert batch: %v", err)
+		}
+		batchArgs = batchArgs[:0]
+		batchPlaceholders = batchPlaceholders[:0]
+		return nil
 	}
 
 	rowCount := 0
@@ -2801,19 +3027,26 @@ func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *
 			return err
 		}
 		// Convert []byte to string for MySQL driver stability with TEXT
-		finalValues := make([]interface{}, len(cols))
-		for i, v := range values {
+		for _, v := range values {
 			if b, ok := v.([]byte); ok {
-				finalValues[i] = string(b)
+				batchArgs = append(batchArgs, string(b))
 			} else {
-				finalValues[i] = v
+				batchArgs = append(batchArgs, v)
 			}
 		}
-
-		if _, err := stmt.Exec(finalValues...); err != nil {
-			return fmt.Errorf("failed to insert row: %v", err)
-		}
+		batchPlaceholders = append(batchPlaceholders, singleRowPlaceholder)
 		rowCount++
+
+		if rowCount%batchSize == 0 {
+			if err := flushBatch(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Flush remaining rows
+	if err := flushBatch(); err != nil {
+		return err
 	}
 
 	// Check for errors from rows iteration
@@ -2825,6 +3058,7 @@ func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *
 
 	return nil
 }
+
 
 
 // TestMySQLConnection tests the connection to a MySQL server
@@ -3263,28 +3497,22 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 	}
 
 	var db *sql.DB
-	if ds.Type == "mysql" || ds.Type == "postgresql" || ds.Type == "doris" {
-		// Remote database - build connection string
-		var connStr string
-		if ds.Type == "mysql" {
-			connStr = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true",
-				ds.Config.User, ds.Config.Password, ds.Config.Host, ds.Config.Port, ds.Config.Database)
-		} else if ds.Type == "postgresql" {
-			connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-				ds.Config.Host, ds.Config.Port, ds.Config.User, ds.Config.Password, ds.Config.Database)
-		} else {
-			return nil, fmt.Errorf("unsupported database type: %s", ds.Type)
-		}
-		db, err = sql.Open(ds.Type, connStr)
-	} else {
-		dbPath := ds.Config.DBPath
-		if dbPath == "" {
-			return nil, fmt.Errorf("database path not found in config")
-		}
+	if ds.Type == "mysql" || ds.Type == "doris" {
+		// MySQL and Doris (MySQL-compatible) - build connection string
+		connStr := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?allowNativePasswords=true",
+			ds.Config.User, ds.Config.Password, ds.Config.Host, ds.Config.Port, ds.Config.Database)
+		db, err = sql.Open("mysql", connStr)
+	} else if ds.Type == "postgresql" {
+		connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			ds.Config.Host, ds.Config.Port, ds.Config.User, ds.Config.Password, ds.Config.Database)
+		db, err = sql.Open("postgresql", connStr)
+	} else if ds.Config.DBPath != "" {
 		// Use full path by joining with dataCacheDir, and use "duckdb" driver
-		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
+		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
 		s.log(fmt.Sprintf("[GetConnection] Opening DuckDB database: %s", fullDBPath))
 		db, err = s.openDuckDBWritable(fullDBPath)
+	} else {
+		return nil, fmt.Errorf("unsupported data source type: %s (no DBPath configured)", ds.Type)
 	}
 
 	if err != nil {
@@ -3455,7 +3683,8 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 		if err != nil {
 			return fmt.Errorf("failed to get column type: %v", err)
 		}
-		renameSQL := fmt.Sprintf("ALTER TABLE `%s` CHANGE `%s` `%s` %s", tableName, oldColumnName, newColumnName, colType)
+		renameSQL := fmt.Sprintf("ALTER TABLE %s CHANGE %s %s %s",
+			quoteIdent(tableName, true), quoteIdent(oldColumnName, true), quoteIdent(newColumnName, true), colType)
 		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
 		if _, err := db.Exec(renameSQL); err != nil {
 			return fmt.Errorf("failed to rename column: %v", err)
@@ -3587,7 +3816,8 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 
 	if !isSQLite && (target.Type == "mysql" || target.Type == "doris") {
 		// For MySQL/Doris, use ALTER TABLE DROP COLUMN
-		dropSQL := fmt.Sprintf("ALTER TABLE `%s` DROP COLUMN `%s`", tableName, columnName)
+		dropSQL := fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s",
+			quoteIdent(tableName, true), quoteIdent(columnName, true))
 		s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
 		if _, err := db.Exec(dropSQL); err != nil {
 			return fmt.Errorf("failed to delete column: %v", err)
@@ -4930,6 +5160,214 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 	}
 
 	s.log(fmt.Sprintf("Etsy data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// ImportEtsyOffline imports Etsy data from a local directory containing CSV files and reviews.json
+func (s *DataSourceService) ImportEtsyOffline(name string, dirPath string, headerGen func(string) (string, error)) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportEtsyOffline: %s (Path: %s)", name, dirPath))
+
+	// 1. Validate path is a directory
+	info, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("path not found: %s", dirPath)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("path is not a directory: %s", dirPath)
+	}
+
+	// 2. Scan for CSV files and reviews.json
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read directory: %v", err)
+	}
+
+	var csvFiles []string
+	var reviewsJSONName string // store original filename to preserve casing
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		lowerName := strings.ToLower(entry.Name())
+		if strings.HasSuffix(lowerName, ".csv") {
+			csvFiles = append(csvFiles, filepath.Join(dirPath, entry.Name()))
+		}
+		if lowerName == "reviews.json" {
+			reviewsJSONName = entry.Name()
+		}
+	}
+
+	if len(csvFiles) == 0 && reviewsJSONName == "" {
+		return nil, fmt.Errorf("no CSV files or reviews.json found in directory: %s", dirPath)
+	}
+
+	// 3. Prepare Metadata
+	id := uuid.New().String()
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Resolve dirPath to absolute once, so all filepath.Join results are already absolute
+	absDirPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to resolve directory path: %v", err)
+	}
+
+	// 4. Import CSV files
+	processedFiles := 0
+	var mainTableName string
+	usedTableNames := make(map[string]bool)
+
+	for _, csvPath := range csvFiles {
+		baseName := filepath.Base(csvPath)
+		ext := filepath.Ext(baseName)
+		rawTableName := strings.TrimSuffix(baseName, ext)
+		tableName := s.sanitizeName(rawTableName)
+
+		originalTableName := tableName
+		counter := 1
+		for usedTableNames[tableName] {
+			tableName = fmt.Sprintf("%s_%d", originalTableName, counter)
+			counter++
+		}
+
+		// Read only the first row to check header, avoid loading entire file into memory
+		f, err := os.Open(csvPath)
+		if err != nil {
+			s.log(fmt.Sprintf("[EtsyOffline] Skipping CSV %s: %v", baseName, err))
+			continue
+		}
+
+		reader := csv.NewReader(f)
+		firstRow, err := reader.Read()
+		f.Close()
+
+		if err != nil || len(firstRow) == 0 {
+			s.log(fmt.Sprintf("[EtsyOffline] Skipping CSV %s: empty or read error", baseName))
+			continue
+		}
+
+		hasHeader := s.isHeaderRow(firstRow)
+		imported := false
+
+		if hasHeader {
+			// Use absolute path from pre-resolved dir
+			duckdbPath := strings.ReplaceAll(filepath.Join(absDirPath, baseName), "\\", "/")
+			// Escape single quotes in path for SQL safety
+			duckdbPath = strings.ReplaceAll(duckdbPath, "'", "''")
+			nativeSQL := fmt.Sprintf(`CREATE TABLE "%s" AS SELECT * FROM read_csv_auto('%s', header=true, all_varchar=true, ignore_errors=true)`, tableName, duckdbPath)
+			if _, err := db.Exec(nativeSQL); err == nil {
+				var rowCount int
+				if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, tableName)).Scan(&rowCount); err == nil && rowCount > 0 {
+					imported = true
+					s.log(fmt.Sprintf("[EtsyOffline] CSV imported: %s (%d rows)", tableName, rowCount))
+					s.optimizeColumnTypes(db, tableName)
+				} else {
+					db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, tableName))
+				}
+			} else {
+				s.log(fmt.Sprintf("[EtsyOffline] Native import failed for %s, falling back: %v", tableName, err))
+			}
+		}
+
+		// Fallback: full read + processSheet (required for no-header CSVs or native import failure)
+		if !imported {
+			f2, err := os.Open(csvPath)
+			if err != nil {
+				s.log(fmt.Sprintf("[EtsyOffline] Failed to reopen CSV %s: %v", baseName, err))
+				continue
+			}
+			reader2 := csv.NewReader(f2)
+			allRows, err := reader2.ReadAll()
+			f2.Close()
+
+			if err != nil || len(allRows) == 0 {
+				s.log(fmt.Sprintf("[EtsyOffline] Failed to read CSV %s for fallback: %v", baseName, err))
+				continue
+			}
+
+			if err := s.processSheet(db, tableName, allRows, headerGen); err != nil {
+				s.log(fmt.Sprintf("[EtsyOffline] Failed to process CSV %s: %v", baseName, err))
+				continue
+			}
+			s.log(fmt.Sprintf("[EtsyOffline] CSV imported (fallback): %s", tableName))
+		}
+
+		// Only mark table name as used and update mainTableName after successful import
+		usedTableNames[tableName] = true
+		if mainTableName == "" {
+			mainTableName = tableName
+		}
+		processedFiles++
+	}
+
+	// 5. Import reviews.json using DuckDB read_json_auto
+	if reviewsJSONName != "" {
+		tableName := "reviews"
+		if usedTableNames[tableName] {
+			tableName = "reviews_json"
+		}
+		usedTableNames[tableName] = true
+
+		duckdbPath := strings.ReplaceAll(filepath.Join(absDirPath, reviewsJSONName), "\\", "/")
+		// Escape single quotes in path for SQL safety
+		duckdbPath = strings.ReplaceAll(duckdbPath, "'", "''")
+		jsonSQL := fmt.Sprintf(`CREATE TABLE "%s" AS SELECT * FROM read_json_auto('%s', ignore_errors=true)`, tableName, duckdbPath)
+		if _, err := db.Exec(jsonSQL); err == nil {
+			var rowCount int
+			if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, tableName)).Scan(&rowCount); err == nil && rowCount > 0 {
+				s.log(fmt.Sprintf("[EtsyOffline] reviews.json imported: %s (%d rows)", tableName, rowCount))
+				processedFiles++
+				if mainTableName == "" {
+					mainTableName = tableName
+				}
+			} else {
+				db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, tableName))
+				s.log("[EtsyOffline] reviews.json imported but empty, skipped")
+			}
+		} else {
+			s.log(fmt.Sprintf("[EtsyOffline] Failed to import reviews.json: %v", err))
+		}
+	}
+
+	if processedFiles == 0 {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("no valid data found in directory: %s", dirPath)
+	}
+
+	// 6. Save to Registry
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "etsy_offline",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			OriginalFile: dirPath,
+			DBPath:       relDBPath,
+			TableName:    mainTableName,
+		},
+	}
+
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Etsy offline data source imported successfully: %s (%d files)", name, processedFiles))
 	return &ds, nil
 }
 

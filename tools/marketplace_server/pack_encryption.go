@@ -90,11 +90,12 @@ func repackZipWithEncryptedData(originalZip []byte, encryptedPackJSON []byte) ([
 			if openErr != nil {
 				return nil, fmt.Errorf("open metadata.json: %w", openErr)
 			}
-			metadataJSON, err = io.ReadAll(rc)
+			data, readErr := io.ReadAll(rc)
 			rc.Close()
-			if err != nil {
-				return nil, fmt.Errorf("read metadata.json: %w", err)
+			if readErr != nil {
+				return nil, fmt.Errorf("read metadata.json: %w", readErr)
 			}
+			metadataJSON = data
 			break
 		}
 	}
@@ -144,12 +145,12 @@ func injectListingIDIntoQAP(zipData []byte, listingID int64) ([]byte, error) {
 	for _, f := range zr.File {
 		rc, err := f.Open()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("open zip entry %s: %w", f.Name, err)
 		}
 		data, err := io.ReadAll(rc)
 		rc.Close()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("read zip entry %s: %w", f.Name, err)
 		}
 		switch f.Name {
 		case "pack.json", "analysis_pack.json":

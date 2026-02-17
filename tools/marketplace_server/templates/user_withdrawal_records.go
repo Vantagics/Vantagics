@@ -10,7 +10,7 @@ const userWithdrawalRecordsHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>提现记录 - 快捷分析包市场</title>
+    <title data-i18n="withdrawal_records_title">提现记录 - 快捷分析包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -109,9 +109,9 @@ const userWithdrawalRecordsHTML = `<!DOCTYPE html>
     <div class="header">
         <div class="header-title">
             <span class="logo">💰</span>
-            <h1>提现记录</h1>
+            <h1 data-i18n="withdrawal_records_title">提现记录</h1>
         </div>
-        <a class="btn-back" href="/user/">返回个人中心</a>
+        <a class="btn-back" href="/user/" data-i18n="back_to_center_link">返回个人中心</a>
     </div>
 
     {{if .Records}}
@@ -119,10 +119,10 @@ const userWithdrawalRecordsHTML = `<!DOCTYPE html>
         <table class="records-table">
             <thead>
                 <tr>
-                    <th>提现 Credits</th>
-                    <th>兑换比率</th>
-                    <th>提现现金(元)</th>
-                    <th>提现时间</th>
+                    <th data-i18n="withdraw_credits_col">提现 Credits</th>
+                    <th data-i18n="exchange_rate_col">兑换比率</th>
+                    <th data-i18n="cash_col">提现现金(元)</th>
+                    <th data-i18n="withdraw_time_col">提现时间</th>
                 </tr>
             </thead>
             <tbody>
@@ -137,16 +137,17 @@ const userWithdrawalRecordsHTML = `<!DOCTYPE html>
             </tbody>
         </table>
         <div class="total-row">
-            <span>总计提现现金：</span>
+            <span data-i18n="total_cash_label">总计提现现金：</span>
             <span class="total-amount">¥{{printf "%.2f" .TotalCash}}</span>
         </div>
     </div>
     {{else}}
     <div class="empty-state">
         <div class="icon">📭</div>
-        <p>暂无提现记录</p>
+        <p data-i18n="no_withdraw_records">暂无提现记录</p>
     </div>
     {{end}}
 </div>
+` + I18nJS + `
 </body>
 </html>`

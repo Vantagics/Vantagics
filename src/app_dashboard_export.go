@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 	"vantagedata/export"
+	"vantagedata/i18n"
 
 	ppt "github.com/VantageDataChat/GoPPT"
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
@@ -146,13 +147,13 @@ func (a *App) ExportDashboardToPDF(data DashboardExportData) error {
 	// Generate PDF using maroto
 	pdfBytes, err := pdfService.ExportDashboardToPDF(exportData)
 	if err != nil {
-		return fmt.Errorf("PDF生成失败: %v", err)
+		return fmt.Errorf("%s", i18n.T("export.pdf_failed", err))
 	}
 
 	// Write PDF file
 	err = os.WriteFile(savePath, pdfBytes, 0644)
 	if err != nil {
-		return fmt.Errorf("写入PDF文件失败: %v", err)
+		return fmt.Errorf("%s", i18n.T("dashboard.write_pdf_failed", err))
 	}
 
 	a.Log(fmt.Sprintf("Dashboard exported to PDF successfully: %s", savePath))

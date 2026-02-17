@@ -566,7 +566,7 @@ func (a *App) callLLMForReport(dataSummary string, userRequest string) (string, 
 
 	resp, err := a.einoService.ChatModel.Generate(ctx, messages)
 	if err != nil {
-		return "", fmt.Errorf("LLM 调用失败: %w", err)
+		return "", fmt.Errorf("%s", i18n.T("report.generation_failed", err))
 	}
 
 	// Post-process: strip any preamble before the actual report (# title)

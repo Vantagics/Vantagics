@@ -6,11 +6,11 @@ import "html/template"
 var UserLoginTmpl = template.Must(template.New("user_login").Parse(userLoginHTML))
 
 const userLoginHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{.HtmlLang}}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户登录 - 快捷分析包市场</title>
+    <title>{{index .T "user_login_title"}} - {{index .T "site_name"}}</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -134,32 +134,32 @@ const userLoginHTML = `<!DOCTYPE html>
 <body>
 <div class="auth-card">
     <div class="logo">📦</div>
-    <h1>快捷分析包市场</h1>
-    <p class="subtitle">请输入用户名和密码登录</p>
+    <h1>{{index .T "site_name"}}</h1>
+    <p class="subtitle">{{index .T "enter_credentials"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     <form method="POST" action="/user/login">
         <input type="hidden" name="captcha_id" id="captcha_id" value="{{.CaptchaID}}" />
         <input type="hidden" name="redirect" value="{{.Redirect}}" />
         <div class="form-group">
-            <label for="username">用户名</label>
-            <input type="text" id="username" name="username" required autocomplete="username" placeholder="请输入用户名" />
+            <label for="username">{{index .T "username"}}</label>
+            <input type="text" id="username" name="username" required autocomplete="username" placeholder="{{index .T "enter_username"}}" />
         </div>
         <div class="form-group">
-            <label for="password">密码</label>
-            <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="请输入密码" />
+            <label for="password">{{index .T "password"}}</label>
+            <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="{{index .T "enter_password"}}" />
         </div>
         <div class="form-group">
-            <label for="captcha_answer">验证码</label>
+            <label for="captcha_answer">{{index .T "captcha"}}</label>
             <div class="captcha-row">
-                <input type="text" id="captcha_answer" name="captcha_answer" required placeholder="输入计算结果" autocomplete="off" />
-                <img class="captcha-img" id="captcha-img" src="/user/captcha?id={{.CaptchaID}}" alt="验证码" title="点击刷新" onclick="refreshCaptcha()" />
-                <button type="button" class="captcha-refresh" onclick="refreshCaptcha()" title="刷新验证码">↻</button>
+                <input type="text" id="captcha_answer" name="captcha_answer" required placeholder="{{index .T "enter_captcha_result"}}" autocomplete="off" />
+                <img class="captcha-img" id="captcha-img" src="/user/captcha?id={{.CaptchaID}}" alt="{{index .T "captcha"}}" title="{{index .T "refresh_captcha"}}" onclick="refreshCaptcha()" />
+                <button type="button" class="captcha-refresh" onclick="refreshCaptcha()" title="{{index .T "refresh_captcha"}}">↻</button>
             </div>
         </div>
-        <button type="submit" class="btn-submit">登 录</button>
+        <button type="submit" class="btn-submit">{{index .T "login"}}</button>
     </form>
     <div class="auth-footer">
-        <a href="/user/register{{if .Redirect}}?redirect={{.Redirect}}{{end}}">没有账号？绑定用户</a>
+        <a href="/user/register{{if .Redirect}}?redirect={{.Redirect}}{{end}}">{{index .T "no_account"}}</a>
     </div>
 </div>
 <script>
@@ -171,5 +171,6 @@ function refreshCaptcha() {
     });
 }
 </script>
+` + I18nJS + `
 </body>
 </html>`

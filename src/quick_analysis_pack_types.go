@@ -1,5 +1,35 @@
 package main
 
+// ---------------------------------------------------------------------------
+// QAP module-wide constants
+// ---------------------------------------------------------------------------
+
+const (
+	// File format identifiers
+	qapFileType      = "VantageData_QuickAnalysisPack"
+	qapFormatVersion = "1.0"
+	qapSubDir        = "qap" // sub-directory under DataCacheDir for .qap files
+
+	// Execution record types (as stored in executions.json)
+	execTypeSQL    = "sql"
+	execTypePython = "python"
+
+	// Pack step types
+	stepTypeSQL    = "sql_query"
+	stepTypePython = "python_code"
+
+	// Log tag prefixes
+	logTagPreview = "[QAP-PREVIEW]"
+	logTagExport  = "[QAP-EXPORT]"
+	logTagImport  = "[QAP-IMPORT]"
+	logTagExecute = "[QAP-EXECUTE]"
+	logTagReexec  = "[QAP-REEXECUTE]"
+)
+
+// ---------------------------------------------------------------------------
+// Pack data types
+// ---------------------------------------------------------------------------
+
 // QuickAnalysisPack represents a complete quick analysis pack with metadata, schema requirements, and executable steps.
 // The pack is serialized as JSON inside a ZIP container (.qap file).
 type QuickAnalysisPack struct {
@@ -73,4 +103,81 @@ type PackLoadResult struct {
 	FilePath         string                   `json:"file_path"`
 	HasPythonSteps   bool                     `json:"has_python_steps"`
 	PythonConfigured bool                     `json:"python_configured"`
+}
+
+// ---------------------------------------------------------------------------
+// Parsed execution types (shared structure of executions.json)
+// ---------------------------------------------------------------------------
+
+// parsedExecutionsMap is the deserialized form of executions.json.
+// Key = messageID (request identifier), Value = the entry with user request and execution records.
+type parsedExecutionsMap map[string]parsedExecutionEntry
+
+type parsedExecutionEntry struct {
+	UserRequest string                  `json:"user_request"`
+	Executions  []parsedExecutionRecord `json:"executions"`
+	Timestamp   int64                   `json:"timestamp"`
+}
+
+type parsedExecutionRecord struct {
+	Code            string `json:"code"`
+	Type            string `json:"type"`
+	StepDescription string `json:"step_description"`
+	UserRequest     string `json:"user_request"`
+	Timestamp       int64  `json:"timestamp"`
+	Success         bool   `json:"success"`
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+// execTypeToStepType maps execution record type to pack step type.
+// Returns empty string for unrecognized types.
+func execTypeToStepType(execType string) string {
+	switch execType {
+	case execTypeSQL:
+		return stepTypeSQL
+	case execTypePython:
+		return stepTypePython
+	default:
+		return ""
+	}
+}
+
+// buildDependsOn returns the dependency list for a step.
+// Each step depends on the previous step (sequential execution order).
+// The first step has no dependencies.
+func buildDependsOn(currentStepID int) []int {
+	if currentStepID <= 1 {
+		return nil
+	}
+	return []int{currentStepID - 1}
+}
+
+// truncStr truncates a string to maxLen characters, appending "..." if truncated.
+func truncStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// renumberSteps assigns sequential StepIDs and rebuilds dependency chains,
+// pairing query_and_chart chart steps with their preceding SQL step.
+func renumberSteps(steps []PackStep) {
+	lastSQLStepID := 0
+	for i := range steps {
+		steps[i].StepID = i + 1
+		switch {
+		case steps[i].StepType == stepTypeSQL:
+			lastSQLStepID = i + 1
+			steps[i].DependsOn = buildDependsOn(i + 1)
+		case steps[i].SourceTool == "query_and_chart" && lastSQLStepID > 0:
+			steps[i].DependsOn = []int{lastSQLStepID}
+			steps[i].PairedSQLStepID = lastSQLStepID
+		default:
+			steps[i].DependsOn = buildDependsOn(i + 1)
+		}
+	}
 }

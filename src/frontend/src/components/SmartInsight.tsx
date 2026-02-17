@@ -250,7 +250,7 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
     return (
         <div 
             onClick={handleClick}
-            className={`bg-white dark:bg-[#252526] rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 dark:border-[#007acc] hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 dark:hover:bg-[#2d2d30] ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
+            className={`bg-white dark:bg-[#252526] rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 dark:border-[#5b7a9d] hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 dark:hover:bg-[#2d2d30] ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
         >
             <div className="insight-icon bg-blue-50 dark:bg-[#1a2332] p-2 rounded-md shrink-0 border border-blue-100 dark:border-[#2a3a4a]">
                 {IconComponent}

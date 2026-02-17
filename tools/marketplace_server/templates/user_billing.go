@@ -10,7 +10,7 @@ const userBillingHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>帐单记录 - 快捷分析包市场</title>
+    <title data-i18n="billing_title">帐单记录 - 快捷分析包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -97,9 +97,9 @@ const userBillingHTML = `<!DOCTYPE html>
     <div class="header">
         <div class="header-title">
             <span class="logo">🧾</span>
-            <h1>帐单记录</h1>
+            <h1 data-i18n="billing_title">帐单记录</h1>
         </div>
-        <a class="btn-back" href="/user/dashboard">返回个人中心</a>
+        <a class="btn-back" href="/user/dashboard" data-i18n="back_to_center_link">返回个人中心</a>
     </div>
 
     {{if .Records}}
@@ -107,11 +107,11 @@ const userBillingHTML = `<!DOCTYPE html>
         <table class="billing-table">
             <thead>
                 <tr>
-                    <th>交易类型</th>
-                    <th>金额</th>
-                    <th>分析包名称</th>
-                    <th>描述</th>
-                    <th>交易时间</th>
+                    <th data-i18n="transaction_type">交易类型</th>
+                    <th data-i18n="amount">金额</th>
+                    <th data-i18n="pack_name_col">分析包名称</th>
+                    <th data-i18n="description_col">描述</th>
+                    <th data-i18n="transaction_time">交易时间</th>
                 </tr>
             </thead>
             <tbody>
@@ -130,9 +130,10 @@ const userBillingHTML = `<!DOCTYPE html>
     {{else}}
     <div class="empty-state">
         <div class="icon">📭</div>
-        <p>暂无交易记录</p>
+        <p data-i18n="no_transactions">暂无交易记录</p>
     </div>
     {{end}}
 </div>
+` + I18nJS + `
 </body>
 </html>`

@@ -186,7 +186,7 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
           transform: 'translateX(-50%)',
           width: orientation === 'vertical' ? '2px' : '100%',
           height: orientation === 'vertical' ? '100%' : '2px',
-          backgroundColor: isDragging ? 'var(--resize-handle-active-bg, #3b82f6)' : 
+          backgroundColor: isDragging ? 'var(--resize-handle-active-bg, #5b7a9d)' : 
                           isHovered ? 'var(--resize-handle-hover-bg, #94a3b8)' : 
                           'var(--resize-handle-bg, #e2e8f0)',
           transition: isDragging ? 'none' : 'background-color 150ms ease-in-out',

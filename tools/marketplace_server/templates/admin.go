@@ -6,7 +6,7 @@ const AdminHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>市场管理后台</title>
+    <title data-i18n="admin_panel_title">市场管理后台</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1f2937; display: flex; min-height: 100vh; }
@@ -101,35 +101,35 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Sidebar -->
 <aside class="sidebar">
     <div class="sidebar-brand">
-        <h1>📦 市场管理</h1>
+        <h1>📦 <span data-i18n="market_admin">市场管理</span></h1>
         <span>Marketplace Admin</span>
     </div>
     <nav class="sidebar-nav">
-        <a href="#categories" data-perm="categories" onclick="showSection('categories')" style="display:none;"><span class="nav-icon">📂</span>分类管理</a>
-        <a href="#marketplace" data-perm="marketplace" onclick="showSection('marketplace')" style="display:none;"><span class="nav-icon">🏪</span>市场管理</a>
-        <a href="#authors" data-perm="authors" onclick="showSection('authors')" style="display:none;"><span class="nav-icon">✍️</span>作者管理</a>
-        <a href="#customers" data-perm="customers" onclick="showSection('customers')" style="display:none;"><span class="nav-icon">👥</span>客户管理</a>
-        <a href="#review" data-perm="review" onclick="showSection('review')" style="display:none;"><span class="nav-icon">📋</span>审核管理</a>
-        <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span>系统设置</a>
-        <a href="#notifications" data-perm="notifications" onclick="showSection('notifications')" style="display:none;"><span class="nav-icon">📢</span>消息管理</a>
-        <a href="#withdrawals" data-perm="settings" onclick="showSection('withdrawals')" style="display:none;"><span class="nav-icon">💰</span>提现管理</a>
-        <a href="#sales" data-perm="sales" onclick="showSection('sales')" style="display:none;"><span class="nav-icon">📊</span>销售管理</a>
-        <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span>管理员管理</a>
+        <a href="#categories" data-perm="categories" onclick="showSection('categories')" style="display:none;"><span class="nav-icon">📂</span><span data-i18n="category_mgmt">分类管理</span></a>
+        <a href="#marketplace" data-perm="marketplace" onclick="showSection('marketplace')" style="display:none;"><span class="nav-icon">🏪</span><span data-i18n="marketplace_mgmt">市场管理</span></a>
+        <a href="#authors" data-perm="authors" onclick="showSection('authors')" style="display:none;"><span class="nav-icon">✍️</span><span data-i18n="author_mgmt">作者管理</span></a>
+        <a href="#customers" data-perm="customers" onclick="showSection('customers')" style="display:none;"><span class="nav-icon">👥</span><span data-i18n="customer_mgmt">客户管理</span></a>
+        <a href="#review" data-perm="review" onclick="showSection('review')" style="display:none;"><span class="nav-icon">📋</span><span data-i18n="review_mgmt">审核管理</span></a>
+        <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span><span data-i18n="system_settings">系统设置</span></a>
+        <a href="#notifications" data-perm="notifications" onclick="showSection('notifications')" style="display:none;"><span class="nav-icon">📢</span><span data-i18n="notification_mgmt">消息管理</span></a>
+        <a href="#withdrawals" data-perm="settings" onclick="showSection('withdrawals')" style="display:none;"><span class="nav-icon">💰</span><span data-i18n="withdraw_mgmt">提现管理</span></a>
+        <a href="#sales" data-perm="sales" onclick="showSection('sales')" style="display:none;"><span class="nav-icon">📊</span><span data-i18n="sales_mgmt">销售管理</span></a>
+        <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span><span data-i18n="admin_mgmt">管理员管理</span></a>
         <div class="nav-divider"></div>
-        <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span>修改资料</a>
+        <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span><span data-i18n="edit_profile">修改资料</span></a>
     </nav>
     <div class="sidebar-footer">
-        <a href="/admin/logout">⏻ 退出登录</a>
+        <a href="/admin/logout">⏻ <span data-i18n="logout">退出登录</span></a>
     </div>
 </aside>
 
 <!-- Main -->
 <div class="main-wrap">
     <header class="topbar">
-        <div class="topbar-title" id="topbar-title">管理面板</div>
+        <div class="topbar-title" id="topbar-title" data-i18n="admin_panel_title">管理面板</div>
         <div class="topbar-user">
             <div class="avatar">A</div>
-            <span>管理员</span>
+            <span data-i18n="admin">管理员</span>
         </div>
     </header>
     <main class="content">
@@ -139,12 +139,12 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-categories">
         <div class="card">
             <div class="card-header">
-                <h2>分类管理</h2>
-                <button class="btn btn-primary" onclick="showCreateCategory()">+ 新建分类</button>
+                <h2 data-i18n="category_mgmt">分类管理</h2>
+                <button class="btn btn-primary" onclick="showCreateCategory()">+ <span data-i18n="new_category">新建分类</span></button>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>名称</th><th>描述</th><th>分析包数</th><th>类型</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="desc_col">描述</th><th data-i18n="pack_count_col">分析包数</th><th data-i18n="type_col_cat">类型</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="category-list"></tbody>
             </table>
@@ -154,14 +154,14 @@ const AdminHTML = `<!DOCTYPE html>
     <!-- Settings Section -->
     <div id="section-settings" style="display:none;">
         <div class="card">
-            <h2>初始 Credits 余额</h2>
-            <p class="form-hint" style="margin-bottom:16px;">新用户注册时自动获得的 Credits 数量</p>
+            <h2 data-i18n="initial_credits">初始 Credits 余额</h2>
+            <p class="form-hint" style="margin-bottom:16px;" data-i18n="initial_credits_desc">新用户注册时自动获得的 Credits 数量</p>
             <form id="credits-form" onsubmit="saveInitialCredits(event)">
                 <div class="form-group">
-                    <label for="initial-credits">初始余额</label>
+                    <label for="initial-credits" data-i18n="initial_balance">初始余额</label>
                     <input type="number" id="initial-credits" min="0" step="1" value="{{.InitialCredits}}" />
                 </div>
-                <button type="submit" class="btn btn-primary">保存设置</button>
+                <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
             </form>
         </div>
     </div>
@@ -170,12 +170,12 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-review" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>审核管理</h2>
-                <button class="btn btn-secondary" onclick="loadPendingPacks()">↻ 刷新</button>
+                <h2 data-i18n="review_mgmt">审核管理</h2>
+                <button class="btn btn-secondary" onclick="loadPendingPacks()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>名称</th><th>分类</th><th>作者</th><th>模式</th><th>价格</th><th>上传时间</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="category">分类</th><th data-i18n="author_col">作者</th><th data-i18n="mode_col">模式</th><th data-i18n="price_col">价格</th><th data-i18n="upload_time_col">上传时间</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="pending-list"></tbody>
             </table>
@@ -186,36 +186,36 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-marketplace" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>市场管理 - 在售分析包</h2>
-                <button class="btn btn-secondary" onclick="loadMarketplacePacks()">↻ 刷新</button>
+                <h2 data-i18n="marketplace_packs">市场管理 - 在售分析包</h2>
+                <button class="btn btn-secondary" onclick="loadMarketplacePacks()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
                 <select id="mp-status-filter" onchange="loadMarketplacePacks()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="published">在售</option>
-                    <option value="delisted">已下架</option>
+                    <option value="published" data-i18n="on_sale">在售</option>
+                    <option value="delisted" data-i18n="delisted">已下架</option>
                 </select>
                 <select id="mp-category-filter" onchange="loadMarketplacePacks()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="">全部分类</option>
+                    <option value="" data-i18n="all_categories">全部分类</option>
                 </select>
                 <select id="mp-mode-filter" onchange="loadMarketplacePacks()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="">全部付费方式</option>
-                    <option value="free">免费</option>
-                    <option value="per_use">按次付费</option>
-                    <option value="subscription">订阅</option>
+                    <option value="" data-i18n="all_payment_modes">全部付费方式</option>
+                    <option value="free" data-i18n="free">免费</option>
+                    <option value="per_use" data-i18n="per_use">按次付费</option>
+                    <option value="subscription" data-i18n="subscription">订阅</option>
                 </select>
                 <select id="mp-sort" onchange="loadMarketplacePacks()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="downloads">按下载量排序</option>
-                    <option value="price">按价格排序</option>
-                    <option value="name">按名称排序</option>
+                    <option value="downloads" data-i18n="sort_by_downloads">按下载量排序</option>
+                    <option value="price" data-i18n="sort_by_price">按价格排序</option>
+                    <option value="name" data-i18n="sort_by_name">按名称排序</option>
                 </select>
                 <select id="mp-order" onchange="loadMarketplacePacks()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="desc">降序</option>
-                    <option value="asc">升序</option>
+                    <option value="desc" data-i18n="desc">降序</option>
+                    <option value="asc" data-i18n="asc">升序</option>
                 </select>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>名称</th><th>分类</th><th>作者</th><th>付费方式</th><th>价格</th><th>下载量</th><th>上架时间</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="category">分类</th><th data-i18n="author_col">作者</th><th data-i18n="payment_mode_col">付费方式</th><th data-i18n="price_col">价格</th><th data-i18n="download_count_col">下载量</th><th data-i18n="list_time_col">上架时间</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="marketplace-list"></tbody>
             </table>
@@ -226,28 +226,28 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-authors" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>作者管理</h2>
-                <button class="btn btn-secondary" onclick="loadAuthors()">↻ 刷新</button>
+                <h2 data-i18n="author_mgmt">作者管理</h2>
+                <button class="btn btn-secondary" onclick="loadAuthors()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="author-email-search" placeholder="按邮箱搜索..." style="width:240px;" onkeydown="if(event.key==='Enter')loadAuthors()" />
-                <button class="btn btn-primary btn-sm" onclick="loadAuthors()">搜索</button>
+                <input type="text" id="author-email-search" placeholder="按邮箱搜索..." data-i18n-placeholder="search_by_email" style="width:240px;" onkeydown="if(event.key==='Enter')loadAuthors()" />
+                <button class="btn btn-primary btn-sm" onclick="loadAuthors()" data-i18n="search">搜索</button>
                 <select id="author-sort" onchange="loadAuthors()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="total_downloads">按总下载量</option>
-                    <option value="total_packs">按总包数</option>
-                    <option value="year_downloads">按年下载量</option>
-                    <option value="year_revenue">按年收入</option>
-                    <option value="month_downloads">按月下载量</option>
-                    <option value="month_revenue">按月收入</option>
+                    <option value="total_downloads" data-i18n="sort_by_total_downloads">按总下载量</option>
+                    <option value="total_packs" data-i18n="sort_by_total_packs">按总包数</option>
+                    <option value="year_downloads" data-i18n="sort_by_year_downloads">按年下载量</option>
+                    <option value="year_revenue" data-i18n="sort_by_year_revenue">按年收入</option>
+                    <option value="month_downloads" data-i18n="sort_by_month_downloads">按月下载量</option>
+                    <option value="month_revenue" data-i18n="sort_by_month_revenue">按月收入</option>
                 </select>
                 <select id="author-order" onchange="loadAuthors()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="desc">降序</option>
-                    <option value="asc">升序</option>
+                    <option value="desc" data-i18n="desc">降序</option>
+                    <option value="asc" data-i18n="asc">升序</option>
                 </select>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>名称</th><th>邮箱</th><th>包数</th><th>总下载</th><th>总收入</th><th>年下载</th><th>年收入</th><th>月下载</th><th>月收入</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="email_col">邮箱</th><th data-i18n="pack_count_col">包数</th><th data-i18n="total_downloads_col">总下载</th><th data-i18n="total_revenue_col">总收入</th><th data-i18n="year_downloads_col">年下载</th><th data-i18n="year_revenue_col">年收入</th><th data-i18n="month_downloads_col">月下载</th><th data-i18n="month_revenue_col">月收入</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="author-list"></tbody>
             </table>
@@ -257,16 +257,16 @@ const AdminHTML = `<!DOCTYPE html>
     <!-- Author Detail Modal -->
     <div id="author-detail-modal" class="modal-overlay">
         <div class="modal" style="width:640px;">
-            <h3 id="author-detail-title">作者销售详情</h3>
+            <h3 id="author-detail-title" data-i18n="author_sales_detail">作者销售详情</h3>
             <div id="author-detail-info" style="margin-bottom:16px;font-size:13px;color:#6b7280;"></div>
             <table>
                 <thead>
-                    <tr><th>包名</th><th>分类</th><th>付费方式</th><th>单价</th><th>下载量</th><th>总收入</th><th>状态</th></tr>
+                    <tr><th data-i18n="pack_name">包名</th><th data-i18n="category">分类</th><th data-i18n="payment_mode_col">付费方式</th><th data-i18n="unit_price">单价</th><th data-i18n="download_count_col">下载量</th><th data-i18n="total_revenue_col">总收入</th><th data-i18n="status">状态</th></tr>
                 </thead>
                 <tbody id="author-detail-packs"></tbody>
             </table>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideAuthorDetailModal()">关闭</button>
+                <button class="btn btn-secondary" onclick="hideAuthorDetailModal()" data-i18n="close">关闭</button>
             </div>
         </div>
     </div>
@@ -275,27 +275,27 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-customers" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>客户管理</h2>
-                <button class="btn btn-secondary" onclick="loadCustomers()">↻ 刷新</button>
+                <h2 data-i18n="customer_mgmt">客户管理</h2>
+                <button class="btn btn-secondary" onclick="loadCustomers()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="customer-search" placeholder="搜索邮箱/名称/SN..." style="width:260px;" onkeydown="if(event.key==='Enter')loadCustomers()" />
-                <button class="btn btn-primary btn-sm" onclick="loadCustomers()">搜索</button>
+                <input type="text" id="customer-search" placeholder="搜索邮箱/名称/SN..." data-i18n-placeholder="search_email_name_sn" style="width:260px;" onkeydown="if(event.key==='Enter')loadCustomers()" />
+                <button class="btn btn-primary btn-sm" onclick="loadCustomers()" data-i18n="search">搜索</button>
                 <select id="customer-sort" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="created_at">按注册时间</option>
-                    <option value="credits">按余额</option>
-                    <option value="downloads">按下载量</option>
-                    <option value="spent">按消费额</option>
-                    <option value="name">按名称</option>
+                    <option value="created_at" data-i18n="sort_by_register_time">按注册时间</option>
+                    <option value="credits" data-i18n="sort_by_balance">按余额</option>
+                    <option value="downloads" data-i18n="sort_by_downloads">按下载量</option>
+                    <option value="spent" data-i18n="sort_by_spent">按消费额</option>
+                    <option value="name" data-i18n="sort_by_name">按名称</option>
                 </select>
                 <select id="customer-order" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="desc">降序</option>
-                    <option value="asc">升序</option>
+                    <option value="desc" data-i18n="desc">降序</option>
+                    <option value="asc" data-i18n="asc">升序</option>
                 </select>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>名称</th><th>邮箱</th><th>SN</th><th>余额</th><th>下载数</th><th>消费额</th><th>状态</th><th>注册时间</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="email_col">邮箱</th><th data-i18n="sn_col">SN</th><th data-i18n="balance_col">余额</th><th data-i18n="download_count_col">下载数</th><th data-i18n="spent_col">消费额</th><th data-i18n="status">状态</th><th data-i18n="register_time_col">注册时间</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="customer-list"></tbody>
             </table>
@@ -305,20 +305,20 @@ const AdminHTML = `<!DOCTYPE html>
     <!-- Customer Topup Modal -->
     <div id="topup-modal" class="modal-overlay">
         <div class="modal">
-            <h3>充值 Credits</h3>
+            <h3 data-i18n="topup_credits">充值 Credits</h3>
             <input type="hidden" id="topup-user-id" value="" />
             <div id="topup-user-info" style="margin-bottom:16px;font-size:13px;color:#6b7280;"></div>
             <div class="form-group">
-                <label for="topup-amount">充值数量</label>
-                <input type="number" id="topup-amount" min="1" step="1" placeholder="输入充值 Credits 数量" />
+                <label for="topup-amount" data-i18n="topup_amount">充值数量</label>
+                <input type="number" id="topup-amount" min="1" step="1" placeholder="输入充值 Credits 数量" data-i18n-placeholder="enter_topup_amount" />
             </div>
             <div class="form-group">
-                <label for="topup-reason">备注（可选）</label>
-                <input type="text" id="topup-reason" placeholder="充值原因" />
+                <label for="topup-reason" data-i18n="topup_reason">备注（可选）</label>
+                <input type="text" id="topup-reason" placeholder="充值原因" data-i18n-placeholder="topup_reason_placeholder" />
             </div>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideTopupModal()">取消</button>
-                <button class="btn btn-primary" onclick="submitTopup()">确认充值</button>
+                <button class="btn btn-secondary" onclick="hideTopupModal()" data-i18n="cancel">取消</button>
+                <button class="btn btn-primary" onclick="submitTopup()" data-i18n="confirm_topup">确认充值</button>
             </div>
         </div>
     </div>
@@ -326,15 +326,15 @@ const AdminHTML = `<!DOCTYPE html>
     <!-- Customer Transactions Modal -->
     <div id="customer-tx-modal" class="modal-overlay">
         <div class="modal" style="width:640px;">
-            <h3 id="customer-tx-title">交易记录</h3>
+            <h3 id="customer-tx-title" data-i18n="transaction_records">交易记录</h3>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>类型</th><th>金额</th><th>描述</th><th>时间</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="type_col">类型</th><th data-i18n="amount">金额</th><th data-i18n="description">描述</th><th data-i18n="time">时间</th></tr>
                 </thead>
                 <tbody id="customer-tx-list"></tbody>
             </table>
             <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideCustomerTxModal()">关闭</button>
+                <button class="btn btn-secondary" onclick="hideCustomerTxModal()" data-i18n="close">关闭</button>
             </div>
         </div>
     </div>
@@ -343,12 +343,12 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-admins" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>管理员管理</h2>
-                <button class="btn btn-primary" onclick="showAddAdminModal()">+ 添加管理员</button>
+                <h2 data-i18n="admin_mgmt">管理员管理</h2>
+                <button class="btn btn-primary" onclick="showAddAdminModal()">+ <span data-i18n="add_admin">添加管理员</span></button>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>用户名</th><th>权限</th><th>创建时间</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="username">用户名</th><th data-i18n="permissions_col">权限</th><th data-i18n="created_at_col">创建时间</th></tr>
                 </thead>
                 <tbody id="admin-list"></tbody>
             </table>
@@ -359,12 +359,12 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-notifications" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>消息管理</h2>
-                <button class="btn btn-primary" onclick="showCreateNotification()">+ 发送消息</button>
+                <h2 data-i18n="notification_mgmt">消息管理</h2>
+                <button class="btn btn-primary" onclick="showCreateNotification()">+ <span data-i18n="send_notification">发送消息</span></button>
             </div>
             <table>
                 <thead>
-                    <tr><th>ID</th><th>标题</th><th>类型</th><th>状态</th><th>生效日期</th><th>时长</th><th>创建时间</th><th>操作</th></tr>
+                    <tr><th data-i18n="id_col">ID</th><th data-i18n="title_col">标题</th><th data-i18n="type_col">类型</th><th data-i18n="status">状态</th><th data-i18n="effective_date">生效日期</th><th data-i18n="duration_col">时长</th><th data-i18n="created_at_col">创建时间</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="notifications-tbody"></tbody>
             </table>
@@ -501,10 +501,10 @@ const AdminHTML = `<!DOCTYPE html>
             <!-- Filters -->
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
                 <select id="sales-category-filter" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="">全部分类</option>
+                    <option value="" data-i18n="all_categories_filter">全部分类</option>
                 </select>
                 <select id="sales-author-filter" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="">全部作者</option>
+                    <option value="" data-i18n="all_authors_filter">全部作者</option>
                 </select>
                 <input type="date" id="sales-date-from" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
                 <input type="date" id="sales-date-to" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />

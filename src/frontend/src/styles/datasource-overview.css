@@ -245,12 +245,12 @@
 
 /* Focus indicators for keyboard navigation */
 .data-source-overview button:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline: 2px solid rgba(91, 122, 157, 0.8);
   outline-offset: 2px;
 }
 
 .breakdown-item:focus-visible {
-  outline: 2px solid rgba(59, 130, 246, 0.8);
+  outline: 2px solid rgba(91, 122, 157, 0.8);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 4px rgba(91, 122, 157, 0.2);
 }

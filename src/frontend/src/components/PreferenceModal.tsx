@@ -1210,7 +1210,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                         >
                             {t('cancel')}
                         </button>
-                        <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-[#007acc] hover:bg-blue-700 dark:hover:bg-[#005a9e] rounded-md shadow-sm">
+                        <button onClick={handleSave} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 dark:bg-[#5b7a9d] hover:bg-blue-700 dark:hover:bg-[#456a8a] rounded-md shadow-sm">
                             {t('save_changes')}
                         </button>
                     </div>
@@ -1735,7 +1735,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
             closeBtn.textContent = t('close');
             closeBtn.style.marginTop = '10px';
             closeBtn.style.padding = '8px 16px';
-            closeBtn.style.backgroundColor = '#3b82f6';
+            closeBtn.style.backgroundColor = '#5b7a9d';
             closeBtn.style.color = 'white';
             closeBtn.style.border = 'none';
             closeBtn.style.borderRadius = '4px';
@@ -2225,7 +2225,7 @@ const SkillDetailModalInSettings: React.FC<SkillDetailModalInSettingsProps> = ({
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+                <div className="p-4 border-b border-slate-200 bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5]">
                     <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-lg ${
@@ -2311,7 +2311,7 @@ const SkillDetailModalInSettings: React.FC<SkillDetailModalInSettingsProps> = ({
                             {skill.tools.map(tool => (
                                 <span
                                     key={tool}
-                                    className="px-3 py-1.5 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 rounded text-xs font-bold border border-blue-200"
+                                    className="px-3 py-1.5 bg-gradient-to-r from-[#f0f4f8] to-[#edf2f7] text-[#456a8a] rounded text-xs font-bold border border-[#dce5ef]"
                                 >
                                     {tool.toUpperCase()}
                                 </span>

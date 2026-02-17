@@ -5,7 +5,7 @@ go 1.25.5
 require (
 	github.com/AxT-Team/uapi-sdk-go v0.1.4
 	github.com/PuerkitoBio/goquery v1.11.0
-	github.com/VantageDataChat/GoExcel v0.1.0
+	github.com/VantageDataChat/GoExcel v0.0.0-20260217221828-9e17ca484c06
 	github.com/VantageDataChat/GoPDF2 v0.1.0
 	github.com/VantageDataChat/GoPPT v0.1.0
 	github.com/VantageDataChat/GoWord v0.1.0
@@ -19,7 +19,7 @@ require (
 	github.com/marcboeker/go-duckdb v1.7.0
 	github.com/snowflakedb/gosnowflake v1.7.2
 	github.com/wailsapp/wails/v2 v2.11.0
-	golang.org/x/crypto v0.44.0
+	golang.org/x/crypto v0.48.0
 )
 
 require (
@@ -130,14 +130,14 @@ require (
 	golang.org/x/arch v0.11.0 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
 	golang.org/x/image v0.25.0 // indirect
-	golang.org/x/mod v0.29.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sync v0.18.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
-	golang.org/x/term v0.37.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/mod v0.32.0 // indirect
+	golang.org/x/net v0.49.0 // indirect
+	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260109210033-bd525da824e2 // indirect
+	golang.org/x/term v0.40.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
+	golang.org/x/tools v0.41.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gonum.org/v1/gonum v0.15.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
@@ -147,7 +147,6 @@ require (
 // replace github.com/wailsapp/wails/v2 v2.11.0 => /Users/znsoft/go/pkg/mod
 
 replace (
-	github.com/VantageDataChat/GoExcel v0.1.0 => github.com/VantageDataChat/GoExcel v0.0.0-20260210221956-22a34d8dea7f
 	github.com/VantageDataChat/GoPDF2 v0.1.0 => github.com/VantageDataChat/GoPDF2 v0.0.0-20260210221934-debe2ff9c48d
 	github.com/VantageDataChat/GoPPT v0.1.0 => github.com/VantageDataChat/GoPPT v0.0.0-20260210220934-e91ef3c4e651
 	github.com/VantageDataChat/GoWord v0.1.0 => github.com/VantageDataChat/GoWord v0.0.0-20260210220908-40c2b82002d1

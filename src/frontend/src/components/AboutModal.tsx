@@ -183,7 +183,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl w-full max-w-sm">
                 {/* Header with Logo */}
-                <div className="p-5 bg-gradient-to-br from-blue-500 to-purple-600 rounded-t-xl text-white text-center relative">
+                <div className="p-5 bg-gradient-to-br from-[#5b7a9d] to-[#7b9bb8] rounded-t-xl text-white text-center relative">
                     <button
                         onClick={onClose}
                         className="absolute right-3 top-3 p-1 hover:bg-white/20 rounded-lg transition-colors"
@@ -284,7 +284,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                             className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                                 isExpired 
                                     ? 'bg-red-600 hover:bg-red-700 text-white' 
-                                    : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white'
+                                    : 'bg-gradient-to-r from-[#5b7a9d] to-[#7b9bb8] hover:from-[#456a8a] hover:to-[#6b8db5] text-white'
                             }`}
                         >
                             <CreditCard className="w-4 h-4" />

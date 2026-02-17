@@ -55,7 +55,11 @@ type AppData struct {
 var key []byte
 
 func init() {
-	hash := sha256.Sum256([]byte(encryptionKey))
+	encKey := os.Getenv("APPDATA_ENCRYPTION_KEY")
+	if encKey == "" {
+		encKey = defaultEncryptionKey
+	}
+	hash := sha256.Sum256([]byte(encKey))
 	key = hash[:]
 }
 

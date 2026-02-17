@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"vantagedata/agent"
+	"vantagedata/i18n"
 	
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -513,7 +514,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	}
 	summary := strings.Join(summaryParts, "\n")
 	if summary == "" {
-		summary = fmt.Sprintf("语义优化后的数据源，包含 %d 个表", len(optimization.Tables))
+		summary = i18n.T("datasource.semantic_opt_summary", len(optimization.Tables))
 	}
 
 	// 注册新数据源（使用相对路径，包含 schema 信息）

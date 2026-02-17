@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"vantagedata/i18n"
 )
 
 // UsageLicense 本地使用权限记录
@@ -164,7 +166,7 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 
 	// If server has previously marked this license as blocked, deny immediately
 	if lic.Blocked {
-		return false, "使用权限已过期，请续费"
+		return false, i18n.T("usage.expired")
 	}
 
 	switch lic.PricingModel {
@@ -174,7 +176,7 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 		if lic.RemainingUses > 0 {
 			return true, ""
 		}
-		return false, "使用次数已用完，请重新购买"
+		return false, i18n.T("usage.uses_exhausted")
 	case "subscription":
 		// Optimistic: allow execution without checking local expiry.
 		// Server validation will run after execution and set Blocked=true if expired.

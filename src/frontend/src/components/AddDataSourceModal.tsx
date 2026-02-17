@@ -48,6 +48,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
     const [jiraProjectsError, setJiraProjectsError] = useState<string | null>(null);
     const [jiraCredentialsValid, setJiraCredentialsValid] = useState(false);
 
+    // Etsy mode state: 'online' (API) or 'offline' (local files)
+    const [etsyMode, setEtsyMode] = useState<'online' | 'offline'>('online');
+
     // Check if Shopify OAuth is configured - run every time modal opens or driver type changes
     useEffect(() => {
         if (isOpen && driverType === 'shopify') {
@@ -69,6 +72,12 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         if (isOpen && preSelectedDriverType) {
             setDriverType(preSelectedDriverType);
             setConfig(prev => ({ ...prev, filePath: '' }));
+            // Sync etsyMode when pre-selected
+            if (preSelectedDriverType === 'etsy_offline') {
+                setEtsyMode('offline');
+            } else if (preSelectedDriverType === 'etsy') {
+                setEtsyMode('online');
+            }
         }
     }, [isOpen, preSelectedDriverType]);
 
@@ -83,6 +92,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                 path = await SelectFolder("Select CSV Directory");
             } else if (driverType === 'json') {
                 path = await SelectJSONFile();
+            } else if (driverType === 'etsy_offline') {
+                path = await SelectFolder("Select Etsy Data Directory");
             }
 
             if (path) {
@@ -171,8 +182,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setError('Please enter a data source name');
             return;
         }
-        if ((driverType === 'excel' || driverType === 'csv' || driverType === 'json') && !config.filePath) {
-            setError(driverType === 'excel' ? 'Please select an Excel file' : driverType === 'json' ? 'Please select a JSON file' : 'Please select a CSV file');
+        if ((driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'etsy_offline') && !config.filePath) {
+            setError(driverType === 'excel' ? 'Please select an Excel file' : driverType === 'json' ? 'Please select a JSON file' : driverType === 'etsy_offline' ? 'Please select an Etsy data folder' : 'Please select a CSV file');
             return;
         }
         if (driverType === 'shopify' && (!config.shopifyStore || !config.shopifyAccessToken)) {
@@ -225,6 +236,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             // Reset form
             setName('');
             setDriverType('excel');
+            setEtsyMode('online');
             setIsStoreLocally(false);
             setShouldOptimize(true);
             setConfig({
@@ -283,9 +295,16 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">{t('driver_type')}</label>
                             <select
-                                value={driverType}
+                                value={driverType === 'etsy_offline' ? 'etsy' : driverType}
                                 onChange={(e) => {
-                                    setDriverType(e.target.value);
+                                    const val = e.target.value;
+                                    if (val === 'etsy') {
+                                        // Default to online mode, let sub-selector handle the actual driverType
+                                        setEtsyMode('online');
+                                        setDriverType('etsy');
+                                    } else {
+                                        setDriverType(val);
+                                    }
                                     setConfig(prev => ({ ...prev, filePath: '' })); // Reset file path on change
                                 }}
                                 className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
@@ -301,19 +320,55 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 <option value="shopify">Shopify API</option>
                                 <option value="bigcommerce">BigCommerce API</option>
                                 <option value="ebay">eBay API</option>
-                                <option value="etsy">Etsy API</option>
+                                <option value="etsy">Etsy</option>
                                 <option value="jira">Jira</option>
                             </select>
                         </div>
 
-                        {driverType === 'excel' || driverType === 'csv' || driverType === 'json' ? (
+                        {/* Etsy mode sub-selector: Online (API) vs Offline (local files) */}
+                        {(driverType === 'etsy' || driverType === 'etsy_offline') && (
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_data_mode') || 'Data Mode'}</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => { if (etsyMode !== 'online') { setEtsyMode('online'); setDriverType('etsy'); setConfig(prev => ({ ...prev, filePath: '' })); } }}
+                                        className={`p-3 rounded-lg border-2 text-left transition-all ${etsyMode === 'online' ? 'border-blue-500 bg-blue-50 dark:bg-[#1a2332]' : 'border-slate-200 dark:border-[#3c3c3c] hover:border-slate-300'}`}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-lg">🌐</span>
+                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_online_mode') || 'Online Data'}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_online_desc') || 'Connect via Etsy API with access token'}</p>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { if (etsyMode !== 'offline') { setEtsyMode('offline'); setDriverType('etsy_offline'); setConfig(prev => ({ ...prev, filePath: '' })); } }}
+                                        className={`p-3 rounded-lg border-2 text-left transition-all ${etsyMode === 'offline' ? 'border-blue-500 bg-blue-50 dark:bg-[#1a2332]' : 'border-slate-200 dark:border-[#3c3c3c] hover:border-slate-300'}`}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="text-lg">📁</span>
+                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_offline_mode') || 'Offline Data'}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_offline_desc') || 'Import from local CSV files and reviews.json'}</p>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'etsy_offline' ? (
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                                    {driverType === 'csv' ? (t('csv_folder_path') || 'CSV Folder Path') : t('file_path')}
+                                    {driverType === 'csv' ? (t('csv_folder_path') || 'CSV Folder Path') : driverType === 'etsy_offline' ? (t('etsy_offline_folder_path') || 'Etsy Data Folder Path') : t('file_path')}
                                 </label>
                                 {driverType === 'csv' && (
                                     <p className="text-xs text-slate-500 mb-2">
                                         {t('csv_folder_hint') || '📁 Select a folder containing CSV files. Each CSV file in the folder will be imported as a separate data table.'}
+                                    </p>
+                                )}
+                                {driverType === 'etsy_offline' && (
+                                    <p className="text-xs text-slate-500 mb-2">
+                                        {t('etsy_offline_folder_hint') || '📁 Select a folder containing Etsy exported CSV files and reviews.json. All CSV files and reviews.json will be imported.'}
                                     </p>
                                 )}
                                 <div className="flex gap-2">
@@ -322,7 +377,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         value={config.filePath}
                                         readOnly
                                         className="flex-1 border border-slate-300 rounded-md p-2 text-sm bg-slate-50 outline-none"
-                                        placeholder={driverType === 'excel' ? "Select excel file..." : driverType === 'json' ? "Select JSON file..." : "Select csv folder..."}
+                                        placeholder={driverType === 'excel' ? "Select excel file..." : driverType === 'json' ? "Select JSON file..." : driverType === 'etsy_offline' ? "Select Etsy data folder..." : "Select csv folder..."}
                                     />
                                     <button
                                         onClick={handleBrowseFile}
@@ -1097,7 +1152,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         )}
 
                         {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || isStoreLocally) && (
+                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'etsy_offline' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || isStoreLocally) && (
                             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <input
                                     type="checkbox"

@@ -150,27 +150,27 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={handleClose}>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[10000] animate-in fade-in duration-200" onClick={handleClose}>
             <div
                 className="bg-white dark:bg-[#252526] rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-amber-50 to-orange-50 dark:from-[#2a2620] dark:to-[#2a2620]">
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-amber-50 to-orange-50 dark:from-[#2a2620] dark:to-[#2a2418]">
                     <div className="flex items-center gap-2">
-                        <div className="p-1.5 bg-amber-100 rounded-lg">
-                            <Zap className="w-5 h-5 text-amber-600" />
+                        <div className="p-1.5 bg-amber-100 dark:bg-[#3d3830] rounded-lg">
+                            <Zap className="w-5 h-5 text-amber-600 dark:text-[#dcdcaa]" />
                         </div>
                         <div>
-                            <h2 className="text-lg font-bold text-slate-800">数据源本地副本加速</h2>
-                            <p className="text-xs text-slate-500">{dataSourceName}</p>
+                            <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">数据源本地副本加速</h2>
+                            <p className="text-xs text-slate-500 dark:text-[#808080]">{dataSourceName}</p>
                         </div>
                     </div>
                     <button
                         onClick={handleClose}
-                        className="p-1.5 hover:bg-white/50 rounded-lg transition-colors"
+                        className="p-1.5 hover:bg-white/50 dark:hover:bg-[#3c3c3c] rounded-lg transition-colors"
                     >
-                        <X className="w-4 h-4 text-slate-500" />
+                        <X className="w-4 h-4 text-slate-500 dark:text-[#808080]" />
                     </button>
                 </div>
 
@@ -180,8 +180,8 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                     {(step === 'loading' || step === 'applying') && (
                         <div className="space-y-3">
                             <div className="flex items-center gap-2 mb-2">
-                                <Loader className="w-4 h-4 text-amber-500 animate-spin" />
-                                <span className="text-sm font-medium text-slate-700">
+                                <Loader className="w-4 h-4 text-amber-500 dark:text-[#dcdcaa] animate-spin" />
+                                <span className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">
                                     {step === 'loading' ? '正在分析...' : '正在执行优化...'}
                                 </span>
                             </div>
@@ -198,12 +198,12 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                     {/* Confirm Step */}
                     {step === 'confirm' && suggestions.length > 0 && (
                         <div className="space-y-3">
-                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                            <div className="bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] rounded-lg p-3">
                                 <div className="flex items-start gap-2">
-                                    <AlertTriangle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                                    <AlertTriangle className="w-4 h-4 text-blue-500 dark:text-[#569cd6] flex-shrink-0 mt-0.5" />
                                     <div>
-                                        <h3 className="font-semibold text-sm text-blue-800 mb-0.5">确认加速操作</h3>
-                                        <p className="text-xs text-blue-600">
+                                        <h3 className="font-semibold text-sm text-blue-800 dark:text-[#569cd6] mb-0.5">确认加速操作</h3>
+                                        <p className="text-xs text-blue-600 dark:text-[#6b9fcf]">
                                             系统将执行以下 {suggestions.length} 个索引创建操作。
                                         </p>
                                     </div>
@@ -214,24 +214,24 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                                 {suggestions.map((suggestion, index) => (
                                     <div
                                         key={index}
-                                        className="border border-slate-200 rounded-lg p-3 bg-slate-50 text-sm"
+                                        className="border border-slate-200 dark:border-[#3c3c3c] rounded-lg p-3 bg-slate-50 dark:bg-[#1e1e1e] text-sm"
                                     >
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="flex-shrink-0 w-5 h-5 bg-amber-100 rounded-full flex items-center justify-center text-xs font-bold text-amber-600">
+                                            <span className="flex-shrink-0 w-5 h-5 bg-amber-100 dark:bg-[#3d3830] rounded-full flex items-center justify-center text-xs font-bold text-amber-600 dark:text-[#dcdcaa]">
                                                 {index + 1}
                                             </span>
-                                            <span className="font-semibold text-slate-800">{suggestion.index_name}</span>
-                                            <span className="text-xs px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded">
+                                            <span className="font-semibold text-slate-800 dark:text-[#d4d4d4]">{suggestion.index_name}</span>
+                                            <span className="text-xs px-1.5 py-0.5 bg-slate-200 dark:bg-[#3c3c3c] text-slate-600 dark:text-[#9d9d9d] rounded">
                                                 {suggestion.table_name}
                                             </span>
                                         </div>
 
-                                        <p className="text-xs text-slate-600 mb-1 ml-7">
+                                        <p className="text-xs text-slate-600 dark:text-[#9d9d9d] mb-1 ml-7">
                                             <span className="font-medium">列：</span>
                                             {suggestion.columns.join(', ')}
                                         </p>
 
-                                        <p className="text-xs text-slate-600 ml-7">
+                                        <p className="text-xs text-slate-600 dark:text-[#9d9d9d] ml-7">
                                             {suggestion.reason}
                                         </p>
                                     </div>
@@ -253,30 +253,30 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                     {step === 'complete' && (
                         <div className="space-y-3">
                             {error && (
-                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <div className="bg-blue-50 dark:bg-[#1a2332] border border-blue-200 dark:border-[#264f78] rounded-lg p-3">
                                     <div className="flex items-start gap-2">
-                                        <XCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                                        <XCircle className="w-4 h-4 text-blue-500 dark:text-[#569cd6] flex-shrink-0 mt-0.5" />
                                         <div>
-                                            <h3 className="font-semibold text-sm text-blue-800 mb-0.5">优化失败</h3>
-                                            <p className="text-xs text-blue-600">{error}</p>
+                                            <h3 className="font-semibold text-sm text-blue-800 dark:text-[#569cd6] mb-0.5">优化失败</h3>
+                                            <p className="text-xs text-blue-600 dark:text-[#6b9fcf]">{error}</p>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
                             {result && (
-                                <div className={`rounded-lg p-3 text-sm ${result.success ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                                <div className={`rounded-lg p-3 text-sm ${result.success ? 'bg-green-50 dark:bg-[#1e2a1e] border border-green-200 dark:border-[#3d5a3d]' : 'bg-amber-50 dark:bg-[#2a2620] border border-amber-200 dark:border-[#5a5040]'}`}>
                                     <div className="flex items-start gap-2">
                                         {result.success ? (
-                                            <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                                            <CheckCircle className="w-4 h-4 text-green-500 dark:text-[#6a9955] flex-shrink-0 mt-0.5" />
                                         ) : (
-                                            <Database className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                                            <Database className="w-4 h-4 text-amber-500 dark:text-[#dcdcaa] flex-shrink-0 mt-0.5" />
                                         )}
                                         <div>
-                                            <h3 className={`font-semibold mb-0.5 ${result.success ? 'text-green-800' : 'text-amber-800'}`}>
+                                            <h3 className={`font-semibold mb-0.5 ${result.success ? 'text-green-800 dark:text-[#6a9955]' : 'text-amber-800 dark:text-[#dcdcaa]'}`}>
                                                 {result.summary}
                                             </h3>
-                                            <p className={`text-xs ${result.success ? 'text-green-600' : 'text-amber-600'}`}>
+                                            <p className={`text-xs ${result.success ? 'text-green-600 dark:text-[#6a9955]' : 'text-amber-600 dark:text-[#dcdcaa]'}`}>
                                                 共分析 {result.suggestions.length} 个索引建议
                                             </p>
                                         </div>
@@ -287,7 +287,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                             {/* Execution Logs */}
                             {logs.length > 0 && (
                                 <div>
-                                    <h3 className="text-sm font-semibold text-slate-800 mb-2">执行日志</h3>
+                                    <h3 className="text-sm font-semibold text-slate-800 dark:text-[#d4d4d4] mb-2">执行日志</h3>
                                     <div className="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 max-h-64 overflow-y-auto">
                                         {logs.map((log, idx) => (
                                             <div key={idx} className="mb-1 whitespace-pre-line">{log}</div>
@@ -305,13 +305,13 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                         <>
                             <button
                                 onClick={handleClose}
-                                className="px-3 py-1.5 text-sm bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium"
+                                className="px-3 py-1.5 text-sm bg-slate-200 dark:bg-[#3c3c3c] text-slate-700 dark:text-[#d4d4d4] rounded-lg hover:bg-slate-300 dark:hover:bg-[#4d4d4d] transition-colors font-medium"
                             >
                                 取消
                             </button>
                             <button
                                 onClick={applyOptimizations}
-                                className="px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-medium flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-sm bg-amber-600 dark:bg-[#5b7a9d] text-white rounded-lg hover:bg-amber-700 dark:hover:bg-[#456a8a] transition-colors font-medium flex items-center gap-1.5"
                             >
                                 <Zap className="w-3.5 h-3.5" />
                                 确认加速
@@ -321,7 +321,7 @@ const DataSourceOptimizeModal: React.FC<DataSourceOptimizeModalProps> = ({
                     {(step === 'complete' || step === 'loading') && (
                         <button
                             onClick={handleClose}
-                            className="px-3 py-1.5 text-sm bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors font-medium"
+                            className="px-3 py-1.5 text-sm bg-slate-600 dark:bg-[#3c3c3c] text-white dark:text-[#d4d4d4] rounded-lg hover:bg-slate-700 dark:hover:bg-[#4d4d4d] transition-colors font-medium"
                         >
                             关闭
                         </button>

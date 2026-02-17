@@ -15,19 +15,16 @@ func (m *DBManager) openMySQL(opts OpenOptions) (*sql.DB, error) {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		db, err := sql.Open("mysql", opts.Path)
-		if err != nil {
-			lastErr = err
-			m.logger(fmt.Sprintf("[dbpool] MySQL open attempt %d/%d failed: %v", i+1, maxRetries, err))
-			if maxRetries > 1 {
-				time.Sleep(time.Duration(baseMs*(i+1)) * time.Millisecond)
+		if err == nil {
+			err = db.Ping()
+			if err != nil {
+				db.Close()
 			}
-			continue
 		}
 
-		if err := db.Ping(); err != nil {
-			db.Close()
+		if err != nil {
 			lastErr = err
-			m.logger(fmt.Sprintf("[dbpool] MySQL ping attempt %d/%d failed: %v", i+1, maxRetries, err))
+			m.logger(fmt.Sprintf("[dbpool] MySQL attempt %d/%d failed: %v", i+1, maxRetries, err))
 			if maxRetries > 1 {
 				time.Sleep(time.Duration(baseMs*(i+1)) * time.Millisecond)
 			}

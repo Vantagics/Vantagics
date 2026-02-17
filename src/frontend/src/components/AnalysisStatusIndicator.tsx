@@ -270,7 +270,7 @@ const FullIndicator: React.FC<{
         <>
             <div className={`flex items-start gap-4 ${className}`}>
                 {/* AI 助手图标 - 与 MessageBubble 中的 AI 消息样式一致 */}
-                <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
+                <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br from-[#6b8db5] to-[#5b7a9d] text-white">
                     <Loader2 className="w-5 h-5 animate-spin" />
                 </div>
                 

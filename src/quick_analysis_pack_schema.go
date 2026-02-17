@@ -175,7 +175,7 @@ func extractReferencedTables(steps []PackStep) map[string]bool {
 	referenced := make(map[string]bool)
 
 	for _, step := range steps {
-		if step.StepType != "sql_query" {
+		if step.StepType != stepTypeSQL {
 			continue
 		}
 		sql := step.Code

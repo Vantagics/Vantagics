@@ -16,7 +16,7 @@
     padding: 10px;
     border: none;
     border-radius: 8px;
-    background-color: #475569;
+    background-color: var(--color-primary, #5b7a9d);
     color: white;
     font-size: 13px;
     font-weight: 500;
@@ -26,7 +26,7 @@
 }
 
 .new-session-button:hover:not(:disabled) {
-    background-color: #334155;
+    background-color: var(--color-primary-dark, #456a8a);
 }
 
 .new-session-button:disabled {
@@ -53,11 +53,11 @@
 }
 
 .dark .new-session-button {
-    background-color: #007acc;
+    background-color: #5b7a9d;
 }
 
 .dark .new-session-button:hover:not(:disabled) {
-    background-color: #005a9e;
+    background-color: #456a8a;
 }
 
 .dark .new-session-button:disabled {

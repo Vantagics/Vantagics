@@ -52,6 +52,7 @@ var englishTranslations = map[string]string{
 	"datasource.test_success":         "Connection test successful",
 	"datasource.semantic_opt_success": "Semantic optimization completed",
 	"datasource.semantic_opt_failed":  "Semantic optimization failed: %s",
+	"datasource.semantic_opt_summary": "Semantically optimized data source with %d tables",
 
 	// Analysis Operations
 	"analysis.execution_failed":     "Analysis execution failed",
@@ -349,4 +350,101 @@ var englishTranslations = map[string]string{
 	"comprehensive_report.pack_author":        "Author: ",
 	"comprehensive_report.pack_description":   "Description: ",
 	"comprehensive_report.pack_source_name":   "Original Data Source: ",
+
+	// Quick Analysis Pack - Preview & Export
+	"qap.no_exportable_records":       "No exportable analysis records found",
+	"qap.unknown_request":             "(Unknown request)",
+	"qap.no_exportable_steps":         "Selected analysis requests have no exportable operations",
+	"qap.no_exportable_operations":    "This session has no exportable analysis operations",
+	"qap.load_pack_dialog_title":      "Load Quick Analysis Pack",
+
+	// Quick Analysis Pack - Import
+	"qap.invalid_file_format":         "Invalid file format, cannot parse quick analysis pack: %v",
+	"qap.wrong_password":              "Incorrect password",
+	"qap.invalid_pack_file":           "Invalid file format: not a valid quick analysis pack file",
+	"qap.unsupported_version":         "Unsupported pack version: %s, please upgrade the software and try again",
+	"qap.no_executable_steps":         "The analysis pack has no executable steps",
+	"qap.schema_fetch_failed":         "Unable to get target data source schema: %v",
+	"qap.missing_required_tables":     "Target data source is missing required tables: %s",
+	"qap.python_not_configured":       "This analysis pack contains Python scripts, but Python environment is not configured. Please configure the Python path in Settings and try again.",
+	"qap.permission_denied":           "Permission denied: %s",
+	"qap.not_replay_session":          "This session is not a quick analysis session",
+
+	// Quick Analysis Pack - Step Labels
+	"qap.step_sql_query":              "SQL Query #%d",
+	"qap.step_python_script":          "Python Script #%d",
+	"qap.step_generic":                "Step #%d",
+	"qap.step_execution_failed":       "Step %d execution failed: %v",
+	"qap.step_python_not_configured":  "Step %d execution failed: Python environment not configured",
+
+	// Quick Analysis Pack - Import Validation
+	"qap.table_not_exists":            "Table '%s' does not exist",
+	"qap.column_not_exists":           "Column '%s.%s' does not exist",
+	"qap.step_sql_success":            "SQL executed successfully (Step %d):\n\n```json:table\n%s\n```",
+	"qap.step_sql_failed":             "SQL execution failed: %v\n\nSQL:\n```sql\n%s\n```",
+	"qap.step_execute_query":          "Execute step %d analysis query",
+
+	// Quick Analysis Pack - Execution Messages
+	"qap.step_skipped":                "⏭️ Step %d (%s) skipped: dependent step failed",
+	"qap.execution_complete":          "✅ Quick analysis pack execution complete! Executed %d steps in total.",
+	"qap.reexecution_complete":        "✅ Quick analysis pack re-execution complete! Executed %d steps in total.",
+	"qap.step_sql_error":              "❌ Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```sql\n%s\n```",
+	"qap.step_sql_success_full":       "✅ Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_truncated":  "✅ Step %d (%s) (%d rows, showing first 20):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_python_no_env":          "❌ Step %d (%s) execution failed: Python environment not configured\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
+	"qap.step_python_error":           "❌ Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
+	"qap.step_python_success":         "✅ Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```\n%s\n```",
+
+	// Analysis Export
+	"analysis_export.description":     "VantageData analysis export file - contains executable SQL/Python steps",
+	"analysis_export.dialog_title":    "Export Analysis",
+
+	// Dashboard Export
+	"dashboard.no_exportable_content": "No content available to export",
+	"dashboard.message_not_found":     "Message not found: %v",
+	"dashboard.step_no_results":       "This step has no displayable results",
+	"dashboard.session_no_results":    "This session has no displayable results",
+	"dashboard.mode_switch_blocked":   "Cannot switch mode while analysis is in progress",
+	"dashboard.write_pdf_failed":      "Failed to write PDF file: %v",
+	"dashboard.write_excel_failed":    "Failed to write Excel file: %v",
+	"dashboard.write_ppt_failed":      "Failed to write PPT file: %v",
+	"dashboard.write_word_failed":     "Failed to write Word file: %v",
+
+	// Data Source Optimization
+	"optimize.remote_not_allowed":     "Cannot optimize remote database (%s). For safety, only locally imported data sources can be optimized.",
+	"optimize.summary":                "Optimization complete: successfully created %d indexes, %d suggestions total",
+
+	// Marketplace
+	"marketplace.insufficient_credits": "Insufficient credits, need %d credits, current balance %.0f credits",
+
+	// Data Source Import
+	"datasource.unsupported_format":   "Unsupported file format: %s. Please use .xlsx or .xls format Excel files",
+	"datasource.excel_format_error":   "Unable to open Excel file: file format not supported. Please ensure the file is a valid .xlsx format (Excel 2007 or later)",
+	"datasource.excel_open_failed":    "Unable to open Excel file: %v",
+	"datasource.no_sheets":            "No worksheets found in the Excel file",
+	"datasource.no_valid_data":        "No valid data found in the Excel file",
+
+	// Intent Generator
+	"intent.generation_failed":        "Intent generation failed: %v",
+	"intent.parse_failed":             "Response parsing failed: %v",
+	"intent.no_suggestions":           "Unable to generate intent suggestions",
+
+	// License Client
+	"license_client.build_request_failed":  "Failed to build request: %v",
+	"license_client.connect_failed":        "Failed to connect to server: %v",
+	"license_client.read_response_failed":  "Failed to read response: %v",
+	"license_client.parse_response_failed": "Failed to parse response: %v",
+
+	// Usage License
+	"usage.expired":                   "Usage permission has expired, please renew",
+	"usage.uses_exhausted":            "Usage count exhausted, please repurchase",
+
+	// PDF Font
+	"pdf.font_load_failed":            "Unable to load Chinese font",
+
+	// Tool Results
+	"tool.no_valid_info":              "Sorry, unable to retrieve valid information.",
+
+	// SQL Validation
+	"sql.readonly_violation":          "Non-read-only SQL operation detected: %s (only SELECT queries are allowed)",
 }

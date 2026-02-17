@@ -31,7 +31,7 @@
 .left-panel:focus-visible,
 .center-panel:focus-visible,
 .right-panel:focus-visible {
-  outline: 2px solid var(--primary-color, #3b82f6);
+  outline: 2px solid var(--color-primary, #5b7a9d);
   outline-offset: -2px;
   z-index: 1;
 }
@@ -40,7 +40,7 @@
 .left-panel:focus:not(:focus-visible),
 .center-panel:focus:not(:focus-visible),
 .right-panel:focus:not(:focus-visible) {
-  outline: 2px solid var(--primary-color, #3b82f6);
+  outline: 2px solid var(--color-primary, #5b7a9d);
   outline-offset: -2px;
   z-index: 1;
 }

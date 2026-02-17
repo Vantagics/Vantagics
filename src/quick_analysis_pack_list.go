@@ -28,7 +28,7 @@ func (a *App) ListLocalQuickAnalysisPacks() ([]LocalPackInfo, error) {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	qapDir := filepath.Join(cfg.DataCacheDir, "qap")
+	qapDir := filepath.Join(cfg.DataCacheDir, qapSubDir)
 
 	entries, err := os.ReadDir(qapDir)
 	if err != nil {

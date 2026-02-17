@@ -22,30 +22,19 @@ func (m *DBManager) openDuckDB(opts OpenOptions) (*sql.DB, error) {
 
 	for i := 0; i < maxRetries; i++ {
 		db, err := sql.Open("duckdb", connStr)
-		if err != nil {
-			lastErr = err
-			m.logger(fmt.Sprintf("[dbpool] DuckDB open attempt %d/%d failed: %v", i+1, maxRetries, err))
-
-			// For read-only mode, try checkpointing the WAL on first failure
-			if opts.Mode == ModeReadOnly && !walCheckpointed {
-				walCheckpointed = true
-				m.checkpointWAL(opts.Path)
+		if err == nil {
+			configurePool(db)
+			err = db.Ping()
+			if err != nil {
+				db.Close()
 			}
-
-			if maxRetries > 1 {
-				time.Sleep(time.Duration(baseMs*(i+1)) * time.Millisecond)
-			}
-			continue
 		}
 
-		configurePool(db)
-
-		// Verify the connection is usable
-		if err := db.Ping(); err != nil {
-			db.Close()
+		if err != nil {
 			lastErr = err
-			m.logger(fmt.Sprintf("[dbpool] DuckDB ping attempt %d/%d failed: %v", i+1, maxRetries, err))
+			m.logger(fmt.Sprintf("[dbpool] DuckDB attempt %d/%d failed: %v", i+1, maxRetries, err))
 
+			// For read-only mode, try checkpointing the WAL on first failure
 			if opts.Mode == ModeReadOnly && !walCheckpointed {
 				walCheckpointed = true
 				m.checkpointWAL(opts.Path)

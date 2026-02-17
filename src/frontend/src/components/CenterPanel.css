@@ -31,10 +31,10 @@
 }
 
 .center-panel-header-icon {
-    background: linear-gradient(to bottom right, #3b82f6, #4f46e5);
+    background: linear-gradient(to bottom right, var(--color-primary), var(--color-primary-dark));
     padding: 0.5rem;
     border-radius: 0.75rem;
-    box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.2);
+    box-shadow: 0 4px 6px -1px rgba(91, 122, 157, 0.2);
 }
 
 .center-panel-header-info {
@@ -127,7 +127,7 @@
 }
 
 .center-panel-welcome-icon {
-    background: linear-gradient(to bottom right, #eff6ff, #eef2ff);
+    background: linear-gradient(to bottom right, var(--color-primary-50), #f0f0f8);
     padding: 1.5rem;
     border-radius: 2.5rem;
     margin-bottom: 1.5rem;
@@ -162,7 +162,7 @@
 }
 
 .center-panel-empty-icon {
-    background: linear-gradient(to bottom right, #eff6ff, #eef2ff);
+    background: linear-gradient(to bottom right, var(--color-primary-50), #f0f0f8);
     padding: 1.25rem;
     border-radius: 2rem;
     margin-bottom: 1.25rem;
@@ -218,9 +218,9 @@
 }
 
 .center-panel-input:focus {
-    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 4px rgba(91, 122, 157, 0.1);
     background-color: #ffffff;
-    border-color: #93c5fd;
+    border-color: var(--color-primary-200);
 }
 
 .center-panel-input:hover:not(:disabled) {
@@ -242,18 +242,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: #2563eb;
+    background-color: var(--color-primary);
     color: #ffffff;
     border-radius: 1rem;
     border: none;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 6px -1px rgba(91, 122, 157, 0.2);
     padding: 0.5rem;
 }
 
 .center-panel-send-button:hover:not(:disabled) {
-    background-color: #1d4ed8;
+    background-color: var(--color-primary-dark);
 }
 
 .center-panel-send-button:active:not(:disabled) {
@@ -345,8 +345,8 @@
 
 .dark .center-panel-input:focus {
     background-color: #3c3c3c;
-    border-color: #007acc;
-    box-shadow: 0 0 0 4px rgba(0, 122, 204, 0.2);
+    border-color: #5b8ab5;
+    box-shadow: 0 0 0 4px rgba(91, 122, 157, 0.2);
 }
 
 .dark .center-panel-input:hover:not(:disabled) {
@@ -363,11 +363,11 @@
 }
 
 .dark .center-panel-send-button {
-    background-color: #007acc;
+    background-color: #5b7a9d;
 }
 
 .dark .center-panel-send-button:hover:not(:disabled) {
-    background-color: #005a9e;
+    background-color: #456a8a;
 }
 
 .dark .center-panel-send-button:disabled {

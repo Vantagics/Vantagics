@@ -87,9 +87,9 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
         <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 backdrop-blur-sm">
             <div className="bg-white dark:bg-[#252526] w-[500px] rounded-xl shadow-2xl flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-center bg-gradient-to-r from-purple-50 to-blue-50 dark:from-[#2a1e2e] dark:to-[#1a2332]">
+                <div className="p-4 border-b border-slate-200 dark:border-[#3c3c3c] flex justify-between items-center bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5] dark:from-[#2a1e2e] dark:to-[#1a2332]">
                     <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-purple-600 dark:text-[#c586c0]" />
+                        <Sparkles className="w-5 h-5 text-[#5b7a9d] dark:text-[#c586c0]" />
                         <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">
                             {t('semantic_optimize') || '数据源语义优化'}
                         </h2>
@@ -126,12 +126,12 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
 
                     {isOptimizing && (
                         <div className="flex flex-col items-center py-8">
-                            <Loader2 className="w-12 h-12 text-purple-600 dark:text-[#c586c0] animate-spin mb-4" />
+                            <Loader2 className="w-12 h-12 text-[#5b7a9d] dark:text-[#c586c0] animate-spin mb-4" />
                             <p className="text-sm text-slate-700 dark:text-[#d4d4d4] text-center">
                                 {progress}
                             </p>
                             <div className="mt-4 w-full bg-slate-200 dark:bg-[#3c3c3c] rounded-full h-2">
-                                <div className="bg-gradient-to-r from-purple-500 to-blue-500 h-2 rounded-full animate-pulse" 
+                                <div className="bg-gradient-to-r from-[#5b7a9d] to-[#7b9bb8] h-2 rounded-full animate-pulse" 
                                      style={{ width: '60%' }}></div>
                             </div>
                         </div>
@@ -170,7 +170,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                         </button>
                         <button
                             onClick={handleOptimize}
-                            className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-md flex items-center gap-2"
+                            className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#5b7a9d] to-[#6b8db5] hover:from-[#456a8a] hover:to-[#5b7a9d] rounded-md flex items-center gap-2"
                         >
                             <Sparkles className="w-4 h-4" />
                             {t('start_optimize') || '开始优化'}

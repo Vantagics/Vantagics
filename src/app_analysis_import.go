@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"vantagedata/i18n"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -178,7 +180,7 @@ func (a *App) ValidateImportAnalysis(exportData *AnalysisExport, targetDataSourc
 			result.Issues = append(result.Issues, ValidationIssue{
 				Type:     "missing_table",
 				Table:    reqTable.Name,
-				Message:  fmt.Sprintf("表 '%s' 不存在", reqTable.Name),
+				Message:  i18n.T("qap.table_not_exists", reqTable.Name),
 				Severity: "error",
 			})
 			a.Log(fmt.Sprintf("[VALIDATE] Missing table: %s", reqTable.Name))
@@ -197,7 +199,7 @@ func (a *App) ValidateImportAnalysis(exportData *AnalysisExport, targetDataSourc
 					Type:     "missing_column",
 					Table:    reqTable.Name,
 					Column:   reqCol,
-					Message:  fmt.Sprintf("字段 '%s.%s' 不存在", reqTable.Name, reqCol),
+					Message:  i18n.T("qap.column_not_exists", reqTable.Name, reqCol),
 					Severity: "warning",
 				})
 				a.Log(fmt.Sprintf("[VALIDATE] Missing column: %s.%s", reqTable.Name, reqCol))
@@ -239,14 +241,14 @@ func (a *App) ExecuteImportAnalysis(exportData *AnalysisExport, targetDataSource
 		case "sql_query":
 			result, err := a.dataSourceService.ExecuteSQL(targetDataSourceID, step.SQL)
 			if err != nil {
-				errMsg := fmt.Sprintf("步骤 %d 执行失败: %v", step.StepID, err)
+				errMsg := i18n.T("qap.step_execution_failed", step.StepID, err)
 				a.Log(fmt.Sprintf("[EXECUTE] SQL Error: %s", errMsg))
 				
 				// Add error message to chat
 				errorMsg := ChatMessage{
 					ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
 					Role:      "assistant",
-					Content:   fmt.Sprintf("执行SQL失败：%v\n\nSQL:\n```sql\n%s\n```", err, step.SQL),
+					Content:   i18n.T("qap.step_sql_failed", err, step.SQL),
 					Timestamp: time.Now().Unix(),
 				}
 				a.chatService.AddMessage(thread.ID, errorMsg)
@@ -263,7 +265,7 @@ func (a *App) ExecuteImportAnalysis(exportData *AnalysisExport, targetDataSource
 			successMsg := ChatMessage{
 				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
 				Role:      "assistant",
-				Content:   fmt.Sprintf("执行SQL成功 (步骤 %d):\n\n```json:table\n%s\n```", step.StepID, string(resultJSON)),
+				Content:   i18n.T("qap.step_sql_success", step.StepID, string(resultJSON)),
 				Timestamp: time.Now().Unix(),
 			}
 			a.chatService.AddMessage(thread.ID, successMsg)
@@ -285,7 +287,7 @@ func (a *App) ExecuteImportAnalysis(exportData *AnalysisExport, targetDataSource
 			pythonMsg := ChatMessage{
 				ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
 				Role:      "assistant",
-				Content:   fmt.Sprintf("Python执行 (步骤 %d):\n\n```python\n%s\n```\n\n*注：Python执行功能待实现*", step.StepID, code),
+				Content:   fmt.Sprintf("Python (Step %d):\n\n```python\n%s\n```\n\n*Note: Python execution pending*", step.StepID, code),
 				Timestamp: time.Now().Unix(),
 			}
 			a.chatService.AddMessage(thread.ID, pythonMsg)
@@ -306,7 +308,7 @@ func (a *App) ExecuteImportAnalysis(exportData *AnalysisExport, targetDataSource
 	completionMsg := ChatMessage{
 		ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
 		Role:      "assistant",
-		Content:   fmt.Sprintf("✅ 分析导入完成！成功执行了 %d 个步骤。", len(exportData.ExecutableSteps)),
+		Content:   i18n.T("qap.execution_complete", len(exportData.ExecutableSteps)),
 		Timestamp: time.Now().Unix(),
 	}
 	a.chatService.AddMessage(thread.ID, completionMsg)

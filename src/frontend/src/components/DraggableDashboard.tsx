@@ -1542,7 +1542,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         return (
                             <div 
                                 key={idx} 
-                                className="flex flex-col bg-white dark:bg-[#252526] rounded-lg border border-slate-200 dark:border-[#3c3c3c] overflow-hidden hover:border-blue-400 dark:hover:border-[#007acc] hover:shadow-lg cursor-pointer transition-all group"
+                                className="flex flex-col bg-white dark:bg-[#252526] rounded-lg border border-slate-200 dark:border-[#3c3c3c] overflow-hidden hover:border-blue-400 dark:hover:border-[#5b8ab5] hover:shadow-lg cursor-pointer transition-all group"
                                 onClick={() => handleFileDownload(file)}
                                 title={`点击下载: ${file.name}`}
                             >
@@ -2097,12 +2097,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         {/* 旋转动画 */}
                         <div className="relative w-16 h-16">
                             <div className="absolute inset-0 rounded-full border-4 border-slate-200 dark:border-[#3c3c3c]"></div>
-                            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-indigo-500 animate-spin"></div>
-                            <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-purple-400 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+                            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-[#5b7a9d] animate-spin"></div>
+                            <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-[#7b9bb8] animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
                         </div>
                         {/* 进度条 */}
                         <div className="w-full bg-slate-100 dark:bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
-                            <div className="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-full animate-pulse" style={{ width: '100%', animation: 'reportProgress 2s ease-in-out infinite' }}></div>
+                            <div className="h-full bg-gradient-to-r from-[#5b7a9d] via-[#7b9bb8] to-[#5b7a9d] rounded-full animate-pulse" style={{ width: '100%', animation: 'reportProgress 2s ease-in-out infinite' }}></div>
                         </div>
                         <p className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{t('generate_report_processing') || '正在生成报告，请稍候...'}</p>
                         <p className="text-xs text-slate-400 dark:text-[#808080]">{t('generate_report_llm_hint') || 'AI 正在分析数据并撰写报告'}</p>

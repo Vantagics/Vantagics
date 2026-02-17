@@ -68,7 +68,7 @@ const DataSourceSelectionModal: React.FC<DataSourceSelectionModalProps> = ({
                             <button
                                 key={ds.id}
                                 onClick={() => onSelect(ds.id)}
-                                className="w-full text-left p-4 border-2 border-slate-200 dark:border-[#3c3c3c] rounded-lg hover:border-blue-500 dark:hover:border-[#007acc] hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-all duration-200 group"
+                                className="w-full text-left p-4 border-2 border-slate-200 dark:border-[#3c3c3c] rounded-lg hover:border-blue-500 dark:hover:border-[#5b8ab5] hover:bg-blue-50 dark:hover:bg-[#1a2332] transition-all duration-200 group"
                             >
                                 <div className="flex items-center justify-between">
                                     <div className="flex-1 min-w-0">

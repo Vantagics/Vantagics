@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, ClearThreadMessages, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import * as echarts from 'echarts';
@@ -48,6 +48,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const loadingThreadIdRef = useRef<string | null>(null); // Ref to track loading thread ID
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [showClearConversationConfirm, setShowClearConversationConfirm] = useState<string | null>(null);
     const [dataSources, setDataSources] = useState<any[]>([]);
     const [deleteThreadTarget, setDeleteThreadTarget] = useState<{ id: string, title: string } | null>(null);
     const [memoryModalTarget, setMemoryModalTarget] = useState<string | null>(null);
@@ -3068,6 +3069,57 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         setShowClearConfirm(false);
     };
 
+    // Clear conversation (current thread messages only)
+    const handleClearConversation = () => {
+        if (!activeThreadId) return;
+        setShowClearConversationConfirm(activeThreadId);
+    };
+
+    const confirmClearConversation = async () => {
+        const threadId = showClearConversationConfirm;
+        if (!threadId) return;
+        try {
+            await ClearThreadMessages(threadId);
+            // Clear pending error ref if it targets this thread, to prevent
+            // loadThreads from re-adding a stale error message to the cleared thread
+            if (pendingErrorRef.current?.threadId === threadId) {
+                pendingErrorRef.current = null;
+            }
+            // Reload threads via loadThreads (handles pending error merging, QAP state, etc.)
+            await loadThreads();
+            // Clear dashboard since messages (and their analysis results) are gone
+            if (activeThreadId === threadId) {
+                EventsEmit('clear-dashboard');
+            }
+            // Clear any pending intent state
+            setIntentSuggestions([]);
+            setPendingMessage('');
+            setPendingThreadId('');
+            setIntentMessageId('');
+            intentSuggestionsRef.current = [];
+            pendingMessageRef.current = '';
+            pendingThreadIdRef.current = '';
+            intentMessageIdRef.current = '';
+            // Clear comprehensive report cache for this thread
+            setPreparedComprehensiveReportId(null);
+            setComprehensiveReportCached(false);
+            setComprehensiveReportError(null);
+        } catch (err) {
+            console.error('Failed to clear conversation:', err);
+            EventsEmit('show-message-modal', {
+                type: 'error',
+                title: t('clear_conversation') || 'Clear Chat',
+                message: String(err)
+            });
+        } finally {
+            setShowClearConversationConfirm(null);
+        }
+    };
+
+    const cancelClearConversation = () => {
+        setShowClearConversationConfirm(null);
+    };
+
     const handleCancelAnalysis = () => {
         setShowCancelConfirm(true);
     };
@@ -3210,7 +3262,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
                     <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-[#2d2d30] bg-white/80 dark:bg-[#1e1e1e]/80 backdrop-blur-md z-10 relative">
                         <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-2 rounded-xl shadow-md shadow-blue-200/50 dark:shadow-blue-900/30 flex-shrink-0">
+                            <div className="bg-gradient-to-br from-[#6b8db5] to-[#5b7a9d] p-2 rounded-xl shadow-md shadow-slate-300/50 dark:shadow-slate-900/30 flex-shrink-0">
                                 <MessageSquare className="w-5 h-5 text-white" />
                             </div>
                             <div className="flex items-center gap-2 min-w-0">
@@ -3222,18 +3274,30 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     </span>
                                 )}
                             </div>
+                            {/* Clear Conversation Button */}
+                            {activeThreadId && (
+                                <button
+                                    onClick={handleClearConversation}
+                                    disabled={isLoading || isStreaming || isGeneratingComprehensiveReport}
+                                    className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:text-[#808080] hover:text-red-600 dark:hover:text-[#f14c4c] transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-[#2e1e1e] disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                    title={t('clear_conversation') || 'Clear Chat'}
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>{t('clear_conversation') || '清除会话'}</span>
+                                </button>
+                            )}
                             {/* Inline Comprehensive Report Progress / Export Button */}
                             {/* Show for normal sessions (activeDataSource) and replay sessions (is_replay_session) */}
                             {activeThread && activeThread.data_source_id && (activeDataSource || activeThread.is_replay_session) && (
-                                <div className="ml-auto flex items-center gap-2 comprehensive-report-dropdown-container">
+                                <div className="flex items-center gap-2 comprehensive-report-dropdown-container">
                                     {isGeneratingComprehensiveReport ? (
                                         /* Inline progress indicator */
-                                        <div className="flex items-center gap-2 px-3 py-1 bg-indigo-50 dark:bg-[#1e1e2e] border border-indigo-200 dark:border-[#3d3d5a] rounded-lg">
-                                            <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+                                        <div className="flex items-center gap-2 px-3 py-1 bg-[#f0f4f8] dark:bg-[#1e1e2e] border border-[#b8cade] dark:border-[#3d3d5a] rounded-lg">
+                                            <Loader2 className="w-3.5 h-3.5 text-[#5b7a9d] animate-spin" />
                                             <div className="flex flex-col gap-0.5">
-                                                <span className="text-[10px] font-medium text-indigo-600">{t('comprehensive_report_generating') || '正在生成综合报告...'}</span>
-                                                <div className="w-28 bg-indigo-100 rounded-full h-1 overflow-hidden">
-                                                    <div className="h-full bg-gradient-to-r from-indigo-400 via-purple-400 to-indigo-400 rounded-full" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
+                                                <span className="text-[10px] font-medium text-[#5b7a9d]">{t('comprehensive_report_generating') || '正在生成综合报告...'}</span>
+                                                <div className="w-28 bg-[#dce5ef] rounded-full h-1 overflow-hidden">
+                                                    <div className="h-full bg-gradient-to-r from-[#7b9bb8] via-[#5b7a9d] to-[#7b9bb8] rounded-full" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
                                                 </div>
                                             </div>
                                             <style>{`
@@ -3747,8 +3811,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         {/* 显示"生成建议分析"按钮 - 当自动分析关闭且会话为空时 */}
                         {activeThreadId && suggestionButtonSessions.has(activeThreadId) && activeThread && (!activeThread.messages || activeThread.messages.length === 0) && !(isLoading && loadingThreadId === activeThreadId) && (
                             <div className="flex flex-col items-center justify-center py-12 animate-in fade-in zoom-in-95 duration-300">
-                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e] p-5 rounded-[2rem] mb-5 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
-                                    <Zap className="w-8 h-8 text-blue-500" />
+                                <div className="bg-gradient-to-br from-[#f0f4f8] to-[#eaeff5] dark:from-[#1a2332] dark:to-[#1e1e2e] p-5 rounded-[2rem] mb-5 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
+                                    <Zap className="w-8 h-8 text-[#6b8db5]" />
                                 </div>
                                 <p className="text-sm text-slate-500 dark:text-[#808080] mb-4 text-center max-w-[280px]">
                                     {t('ask_about_sales')}
@@ -3764,8 +3828,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         )}
                         {!activeThread && !(isLoading && loadingThreadId === activeThreadId) && (
                             <div className="h-full flex flex-col items-center justify-center text-center px-8 animate-in fade-in zoom-in-95 duration-500">
-                                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e] p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
-                                    <MessageSquare className="w-10 h-10 text-blue-500" />
+                                <div className="bg-gradient-to-br from-[#f0f4f8] to-[#eaeff5] dark:from-[#1a2332] dark:to-[#1e1e2e] p-6 rounded-[2.5rem] mb-6 shadow-inner ring-1 ring-white dark:ring-[#3c3c3c]">
+                                    <MessageSquare className="w-10 h-10 text-[#6b8db5]" />
                                 </div>
                                 <h4 className="text-slate-900 dark:text-[#d4d4d4] font-extrabold text-xl tracking-tight mb-3">{t('insights_at_fingertips')}</h4>
                                 <p className="text-sm text-slate-500 dark:text-[#808080] max-w-[280px] leading-relaxed font-medium">
@@ -3814,14 +3878,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         {activeThreadId && !activeThread?.data_source_id && isSearching && (
                             <div className="flex items-start gap-4 mx-auto max-w-md animate-in fade-in slide-in-from-bottom-2 duration-300">
                                 {/* AI 助手图标 */}
-                                <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br from-blue-500 to-indigo-600 text-white">
+                                <div className="flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center shadow-sm bg-gradient-to-br from-[#6b8db5] to-[#5b7a9d] text-white">
                                     <Loader2 className="w-5 h-5 animate-spin" />
                                 </div>
                                 
                                 {/* 状态内容区域 */}
                                 <div className="flex-1 flex flex-col gap-2 p-3 bg-white dark:bg-[#252526] border border-slate-100 dark:border-[#3c3c3c] rounded-2xl rounded-tl-none shadow-sm">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-4 h-4 border-2 border-blue-200 dark:border-[#264f78] border-t-blue-600 dark:border-t-[#007acc] rounded-full animate-spin" />
+                                        <div className="w-4 h-4 border-2 border-blue-200 dark:border-[#264f78] border-t-blue-600 dark:border-t-[#5b7a9d] rounded-full animate-spin" />
                                         <span className="text-sm text-slate-700 dark:text-[#d4d4d4] font-medium">
                                             {t('searching_web') || '正在搜索网络信息...'}
                                         </span>
@@ -3849,12 +3913,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 }}
                                 placeholder={t('what_to_analyze')}
                                 disabled={(isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId)}
-                                className="flex-1 bg-slate-50 dark:bg-[#3c3c3c] border border-slate-200 dark:border-[#4d4d4d] rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 dark:text-[#d4d4d4] focus:ring-4 focus:ring-blue-100 dark:focus:ring-[#007acc33] focus:bg-white dark:focus:bg-[#3c3c3c] focus:border-blue-300 dark:focus:border-[#007acc] transition-all outline-none shadow-sm hover:border-slate-300 dark:hover:border-[#5a5a5a] disabled:bg-slate-100 dark:disabled:bg-[#2d2d30] disabled:text-slate-400 dark:disabled:text-[#808080] disabled:cursor-not-allowed"
+                                className="flex-1 bg-slate-50 dark:bg-[#3c3c3c] border border-slate-200 dark:border-[#4d4d4d] rounded-2xl px-6 py-1.5 text-sm font-normal text-slate-900 dark:text-[#d4d4d4] focus:ring-4 focus:ring-blue-100 dark:focus:ring-[#5b7a9d33] focus:bg-white dark:focus:bg-[#3c3c3c] focus:border-blue-300 dark:focus:border-[#5b8ab5] transition-all outline-none shadow-sm hover:border-slate-300 dark:hover:border-[#5a5a5a] disabled:bg-slate-100 dark:disabled:bg-[#2d2d30] disabled:text-slate-400 dark:disabled:text-[#808080] disabled:cursor-not-allowed"
                             />
                             <button
                                 onClick={() => handleSendMessage()}
                                 disabled={(isLoading && loadingThreadId === activeThreadId) || (isStreaming && streamingThreadId === activeThreadId) || !input.trim()}
-                                className="aspect-square bg-blue-600 dark:bg-[#007acc] text-white hover:bg-blue-700 dark:hover:bg-[#005a9e] rounded-2xl disabled:bg-slate-200 dark:disabled:bg-[#3c3c3c] disabled:text-slate-400 dark:disabled:text-[#808080] transition-all shadow-md active:scale-95 flex items-center justify-center"
+                                className="aspect-square bg-blue-600 dark:bg-[#5b7a9d] text-white hover:bg-blue-700 dark:hover:bg-[#456a8a] rounded-2xl disabled:bg-slate-200 dark:disabled:bg-[#3c3c3c] disabled:text-slate-400 dark:disabled:text-[#808080] transition-all shadow-md active:scale-95 flex items-center justify-center"
                             >
                                 <Send className="w-5 h-5" />
                             </button>
@@ -3891,6 +3955,32 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </button>
                             <button
                                 onClick={confirmClearHistory}
+                                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
+                            >
+                                {t('clear')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Clear Conversation Confirmation Modal */}
+            {showClearConversationConfirm && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-[#d4d4d4] mb-2">{t('clear_conversation_confirm_title')}</h3>
+                        <p className="text-sm text-slate-500 dark:text-[#808080] mb-6">
+                            {t('clear_conversation_confirm_desc')}
+                        </p>
+                        <div className="flex justify-end gap-3">
+                            <button
+                                onClick={cancelClearConversation}
+                                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#3c3c3c] rounded-lg transition-colors"
+                            >
+                                {t('cancel')}
+                            </button>
+                            <button
+                                onClick={confirmClearConversation}
                                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
                             >
                                 {t('clear')}

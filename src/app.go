@@ -7979,7 +7979,7 @@ func (a *App) ShowStepResultOnDashboard(threadID string, messageID string) error
 	// First try GetMessageAnalysisData which handles both stored results and content extraction
 	analysisData, err := a.GetMessageAnalysisData(threadID, messageID)
 	if err != nil {
-		return fmt.Errorf("消息不存在: %w", err)
+		return fmt.Errorf("%s", i18n.T("dashboard.message_not_found", err))
 	}
 
 	pushed := false
@@ -8046,7 +8046,7 @@ func (a *App) ShowStepResultOnDashboard(threadID string, messageID string) error
 	}
 
 	if !pushed {
-		return fmt.Errorf("该步骤没有可显示的结果")
+		return fmt.Errorf("%s", i18n.T("dashboard.step_no_results"))
 	}
 
 	a.eventAggregator.FlushNow(threadID, false)

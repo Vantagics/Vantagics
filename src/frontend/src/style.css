@@ -2,10 +2,79 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ========== 统一配色系统 - 清新、简洁、专业 ========== */
+:root {
+    /* 主色调 - 柔和的蓝灰色系 (参考左侧面板风格) */
+    --color-primary: #5b7a9d;
+    --color-primary-light: #7b9bb8;
+    --color-primary-dark: #456a8a;
+    --color-primary-50: #f0f4f8;
+    --color-primary-100: #dce5ef;
+    --color-primary-200: #b8cade;
+}
+
 input, textarea {
     user-select: text !important;
     -webkit-user-select: text !important;
 }
+
+/* ========== 全局配色统一覆盖 - 将蓝色系映射到统一色调 ========== */
+/* 主要操作按钮 */
+.bg-blue-500,
+.bg-blue-600 { background-color: var(--color-primary) !important; }
+.bg-blue-700 { background-color: var(--color-primary-dark) !important; }
+.hover\:bg-blue-600:hover { background-color: var(--color-primary) !important; }
+.hover\:bg-blue-700:hover { background-color: var(--color-primary-dark) !important; }
+
+/* 焦点环 */
+.ring-blue-500,
+.focus\:ring-blue-500:focus { --tw-ring-color: var(--color-primary) !important; }
+
+/* 文字色 */
+.text-blue-400 { color: var(--color-primary-light) !important; }
+.text-blue-500 { color: var(--color-primary-light) !important; }
+.text-blue-600 { color: var(--color-primary) !important; }
+.text-blue-700,
+.text-blue-800,
+.text-blue-900 { color: var(--color-primary-dark) !important; }
+
+/* 文字 hover 色 */
+.hover\:text-blue-300:hover { color: var(--color-primary-light) !important; }
+.hover\:text-blue-600:hover { color: var(--color-primary) !important; }
+.hover\:text-blue-700:hover,
+.hover\:text-blue-800:hover { color: var(--color-primary-dark) !important; }
+
+/* group-hover 文字色 (Tailwind: .group:hover .group-hover\:xxx) */
+.group:hover .group-hover\:text-blue-500 { color: var(--color-primary-light) !important; }
+.group:hover .group-hover\:text-blue-600 { color: var(--color-primary) !important; }
+.group:hover .group-hover\:bg-blue-100 { background-color: var(--color-primary-100) !important; }
+
+/* 边框色 */
+.border-blue-100 { border-color: var(--color-primary-100) !important; }
+.border-blue-200,
+.border-blue-300 { border-color: var(--color-primary-200) !important; }
+.border-blue-400 { border-color: var(--color-primary-light) !important; }
+.hover\:border-blue-300:hover { border-color: var(--color-primary-200) !important; }
+.hover\:border-blue-400:hover { border-color: var(--color-primary-light) !important; }
+
+/* 浅色背景 */
+.bg-blue-50 { background-color: var(--color-primary-50) !important; }
+.bg-blue-100 { background-color: var(--color-primary-100) !important; }
+.hover\:bg-blue-50:hover { background-color: var(--color-primary-50) !important; }
+.hover\:bg-blue-100:hover { background-color: var(--color-primary-100) !important; }
+
+/* Indigo 系列映射到统一色调 */
+.bg-indigo-50 { background-color: var(--color-primary-50) !important; }
+.bg-indigo-100 { background-color: var(--color-primary-100) !important; }
+.bg-indigo-600 { background-color: var(--color-primary) !important; }
+.hover\:bg-indigo-100:hover { background-color: var(--color-primary-100) !important; }
+.hover\:bg-indigo-700:hover { background-color: var(--color-primary-dark) !important; }
+.border-indigo-100 { border-color: var(--color-primary-100) !important; }
+.border-indigo-200 { border-color: var(--color-primary-200) !important; }
+.text-indigo-500,
+.text-indigo-600 { color: var(--color-primary) !important; }
+.text-indigo-700,
+.text-indigo-800 { color: var(--color-primary-dark) !important; }
 
 @keyframes progress-indeterminate {
   0% { transform: translateX(-100%); }
@@ -95,7 +164,7 @@ input, textarea {
 .dark input:focus,
 .dark textarea:focus,
 .dark select:focus {
-  border-color: #007acc !important;
+  border-color: #5b8ab5 !important;
   outline: none !important;
 }
 
@@ -123,11 +192,11 @@ input, textarea {
 /* VS Code 风格选中/激活状态 */
 .dark .bg-blue-500,
 .dark .bg-blue-600 {
-  background-color: #007acc !important;
+  background-color: #5b7a9d !important;
 }
 
 .dark .ring-blue-500 {
-  --tw-ring-color: #007acc !important;
+  --tw-ring-color: #5b7a9d !important;
 }
 
 /* ========== 仪表盘组件深色配色 - VS Code 风格 ========== */
@@ -297,11 +366,6 @@ input, textarea {
   border-color: #3c3c3c;
 }
 
-/* 编辑模式提示条 - VS Code 蓝色 */
-.dark .bg-blue-600 {
-  background-color: #007acc !important;
-}
-
 /* 按钮深色样式 - VS Code 风格 */
 .dark .hover\:bg-blue-100:hover {
   background-color: #1e3a5f !important;
@@ -341,7 +405,7 @@ input, textarea {
 
 /* VS Code 风格标签页 */
 .dark .border-b-2 {
-  border-bottom-color: #007acc !important;
+  border-bottom-color: #5b7a9d !important;
 }
 
 /* VS Code 风格代码块背景 */
@@ -484,8 +548,8 @@ input, textarea {
 }
 
 .context-menu-btn:hover {
-  background-color: #eff6ff;
-  color: #2563eb;
+  background-color: var(--color-primary-50, #f0f4f8);
+  color: var(--color-primary, #5b7a9d);
 }
 
 .dark .context-menu-btn {
@@ -585,7 +649,7 @@ input, textarea {
 /* ========== AnalysisStatusIndicator 深色模式 ========== */
 .dark .border-blue-200.border-t-blue-600 {
   border-color: #264f78 !important;
-  border-top-color: #007acc !important;
+  border-top-color: #5b7a9d !important;
 }
 
 /* ========== ChartModal 深色模式 ========== */
@@ -597,7 +661,7 @@ input, textarea {
 .dark .resize-handle div {
   --resize-handle-bg: #3c3c3c;
   --resize-handle-hover-bg: #808080;
-  --resize-handle-active-bg: #007acc;
+  --resize-handle-active-bg: #5b7a9d;
 }
 
 /* Yellow warning backgrounds */
@@ -778,11 +842,6 @@ input, textarea {
 /* hover:bg-green-200 */
 .dark .hover\:bg-green-200:hover {
   background-color: #3d5a3d !important;
-}
-
-/* hover:bg-slate-50 */
-.dark .hover\:bg-slate-50:hover {
-  background-color: #2d2d30 !important;
 }
 
 /* bg-slate-50/50 */

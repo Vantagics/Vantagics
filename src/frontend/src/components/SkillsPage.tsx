@@ -134,9 +134,9 @@ const SkillsPage: React.FC<SkillsPageProps> = ({ isOpen, onClose, onSelectSkill 
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-[#252526] rounded-2xl shadow-2xl w-full max-w-6xl h-[85vh] flex flex-col overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e]">
+                <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5] dark:from-[#1a2332] dark:to-[#1e1e2e]">
                     <div className="flex items-center gap-3">
-                        <div className="bg-gradient-to-br from-blue-500 to-indigo-600 p-3 rounded-xl">
+                        <div className="bg-gradient-to-br from-[#6b8db5] to-[#5b7a9d] p-3 rounded-xl">
                             <Zap className="w-6 h-6 text-white" />
                         </div>
                         <div>
@@ -333,7 +333,7 @@ const SkillDetailModal: React.FC<SkillDetailModalProps> = ({ skill, onClose, onT
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
             <div className="bg-white dark:bg-[#252526] rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
                 {/* Header */}
-                <div className="p-6 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-[#1a2332] dark:to-[#1e1e2e]">
+                <div className="p-6 border-b border-slate-200 dark:border-[#3c3c3c] bg-gradient-to-r from-[#f0f4f8] to-[#eaeff5] dark:from-[#1a2332] dark:to-[#1e1e2e]">
                     <div className="flex items-start justify-between">
                         <div className="flex items-center gap-4">
                             <div className={`p-3 rounded-xl ${
@@ -423,7 +423,7 @@ const SkillDetailModal: React.FC<SkillDetailModalProps> = ({ skill, onClose, onT
                             {skill.tools.map(tool => (
                                 <span
                                     key={tool}
-                                    className="px-4 py-2 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-700 rounded-lg text-sm font-bold border border-blue-200"
+                                    className="px-4 py-2 bg-gradient-to-r from-[#f0f4f8] to-[#edf2f7] text-[#456a8a] rounded-lg text-sm font-bold border border-[#dce5ef]"
                                 >
                                     {tool.toUpperCase()}
                                 </span>

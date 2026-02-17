@@ -49,7 +49,7 @@
 }
 
 .data-browser-header-icon {
-    color: #3b82f6;
+    color: var(--color-primary, #5b7a9d);
     flex-shrink: 0;
 }
 
@@ -162,7 +162,7 @@
 
 .db-loading-spinner {
     animation: db-spin 1s linear infinite;
-    color: #3b82f6;
+    color: var(--color-primary, #5b7a9d);
 }
 
 @keyframes db-spin {
@@ -400,7 +400,7 @@
 .db-column-edit-input {
     flex: 1;
     min-width: 0;
-    border: 1px solid #93c5fd;
+    border: 1px solid var(--color-primary-200, #b8cade);
     border-radius: 4px;
     padding: 2px 6px;
     font-size: 13px;
@@ -411,7 +411,7 @@
 }
 
 .db-column-edit-input:focus {
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 0 0 2px rgba(91, 122, 157, 0.15);
 }
 
 .db-column-edit-btn {
@@ -553,11 +553,11 @@
 }
 
 .data-browser-resize-handle:hover {
-    background-color: rgba(59, 130, 246, 0.3);
+    background-color: rgba(91, 122, 157, 0.3);
 }
 
 .data-browser-resize-handle.dragging {
-    background-color: rgba(59, 130, 246, 0.6);
+    background-color: rgba(91, 122, 157, 0.6);
 }
 
 /* Backdrop overlay on center panel - Requirement 7.9 */
@@ -691,7 +691,7 @@
 
 .dark .db-column-edit-input {
     background-color: #3c3c3c;
-    border-color: #007acc;
+    border-color: #5b8ab5;
     color: #d4d4d4;
 }
 

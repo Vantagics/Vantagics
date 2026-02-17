@@ -52,6 +52,10 @@ if /i "%COMMAND%"=="fast" (
     goto :build_all
 )
 
+echo Error: Unknown command "%COMMAND%"
+echo Usage: build.bat [build^|windows^|tools^|fast^|clean] [--skip-nsis] [--skip-frontend] [--skip-tools] [--fast]
+exit /b 1
+
 :build_all
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 call :build_windows
@@ -162,6 +166,21 @@ if errorlevel 1 (
     exit /b 1
 )
 echo   [OK] license_server
+cd /d "%~dp0"
+
+REM Build reset_password
+echo   Building reset_password...
+set CGO_ENABLED=0
+set GOOS=windows
+set GOARCH=amd64
+cd /d "%~dp0tools\license_server"
+go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\reset_password.exe" ./cmd/reset_password
+if errorlevel 1 (
+    echo   Error: reset_password build failed!
+    cd /d "%~dp0"
+    exit /b 1
+)
+echo   [OK] reset_password
 cd /d "%~dp0"
 
 echo.
