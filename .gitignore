@@ -34,6 +34,7 @@ tools/marketplace_server/*.py
 tools/marketplace_server/*.db
 tools/marketplace_server/*.db-shm
 tools/marketplace_server/*.db-wal
+tools/marketplace_server/*.txt
 tools/marketplace_server/templates/auth.go
 
 # Temporary tools

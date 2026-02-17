@@ -39,6 +39,17 @@ func (a *App) LoadQuickAnalysisPackByPath(filePath string, dataSourceID string) 
 			}
 			// Auto-decrypt failed, fall back to manual password input
 			a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with stored password failed: %v, falling back to manual input", err))
+		} else if a.packPasswordStore != nil {
+			// Check persistent store (survives app restarts)
+			if persistedPwd, ok := a.packPasswordStore.GetPassword(filePath); ok && persistedPwd != "" {
+				a.Log("[QAP-IMPORT] Found persisted password for encrypted pack, attempting auto-decrypt")
+				a.packPasswords[filePath] = persistedPwd
+				result, err := a.loadAndValidatePack(filePath, dataSourceID, persistedPwd)
+				if err == nil {
+					return result, nil
+				}
+				a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with persisted password failed: %v, falling back to manual input", err))
+			}
 		}
 		return &PackLoadResult{
 			IsEncrypted:   true,
@@ -83,6 +94,17 @@ func (a *App) LoadQuickAnalysisPack(dataSourceID string) (*PackLoadResult, error
 			}
 			// Auto-decrypt failed, fall back to manual password input
 			a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with stored password failed: %v, falling back to manual input", err))
+		} else if a.packPasswordStore != nil {
+			// Check persistent store (survives app restarts)
+			if persistedPwd, ok := a.packPasswordStore.GetPassword(filePath); ok && persistedPwd != "" {
+				a.Log("[QAP-IMPORT] Found persisted password for encrypted pack, attempting auto-decrypt")
+				a.packPasswords[filePath] = persistedPwd
+				result, err := a.loadAndValidatePack(filePath, dataSourceID, persistedPwd)
+				if err == nil {
+					return result, nil
+				}
+				a.Log(fmt.Sprintf("[QAP-IMPORT] Auto-decrypt with persisted password failed: %v, falling back to manual input", err))
+			}
 		}
 		a.Log("[QAP-IMPORT] File is encrypted, requesting password")
 		return &PackLoadResult{
@@ -110,6 +132,13 @@ func (a *App) loadAndValidatePack(filePath string, dataSourceID string, password
 		if storedPwd, ok := a.packPasswords[filePath]; ok && storedPwd != "" {
 			a.Log("[QAP-IMPORT] Using stored marketplace password for auto-decrypt")
 			password = storedPwd
+		} else if a.packPasswordStore != nil {
+			if persistedPwd, ok := a.packPasswordStore.GetPassword(filePath); ok && persistedPwd != "" {
+				a.Log("[QAP-IMPORT] Using persisted marketplace password for auto-decrypt")
+				password = persistedPwd
+				// Also cache in memory for future use
+				a.packPasswords[filePath] = persistedPwd
+			}
 		}
 	}
 
@@ -330,6 +359,11 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 			_ = a.usageLicenseStore.Save()
 			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
 		}
+		// For subscription packs, validate with server asynchronously
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic != nil && (lic.PricingModel == "subscription" || lic.PricingModel == "time_limited") {
+			a.ValidateSubscriptionLicenseAsync(listingID)
+		}
 	}
 
 	return nil
@@ -472,6 +506,11 @@ func (a *App) ReExecuteQuickAnalysisPack(threadID string) error {
 		} else {
 			_ = a.usageLicenseStore.Save()
 			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
+		}
+		// For subscription packs, validate with server asynchronously
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic != nil && (lic.PricingModel == "subscription" || lic.PricingModel == "time_limited") {
+			a.ValidateSubscriptionLicenseAsync(listingID)
 		}
 	}
 

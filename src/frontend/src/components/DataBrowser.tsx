@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { X, Database, Search, ChevronLeft, ChevronRight, Table2, Columns3, AlertCircle, Loader2, Hash, Trash2, Check, Pencil } from 'lucide-react';
+import { X, Database, Search, ChevronLeft, ChevronRight, Table2, Columns3, AlertCircle, Loader2, Hash, Trash2, Check, Pencil, RefreshCw } from 'lucide-react';
 import { GetDataSourceTables, GetDataSourceTableData, GetDataSourceTableCount, GetDataSourceTableDataWithCount, RenameColumn, DeleteColumn, DeleteDataSource, DeleteTable, GetConfig } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import DeleteColumnConfirmationModal from './DeleteColumnConfirmationModal';
@@ -845,6 +845,21 @@ const DataBrowser: React.FC<DataBrowserProps> = ({
                         <div className="db-error" data-testid="db-error">
                             <AlertCircle size={20} />
                             <span>{error}</span>
+                            <button
+                                className="db-retry-button"
+                                data-testid="db-retry-button"
+                                onClick={() => {
+                                    setError(null);
+                                    if (selectedTable && sourceId) {
+                                        loadTableData(selectedTable);
+                                    } else if (sourceId) {
+                                        loadTables(sourceId);
+                                    }
+                                }}
+                            >
+                                <RefreshCw size={14} />
+                                <span>{t('retry')}</span>
+                            </button>
                         </div>
                     )}
 

@@ -222,6 +222,10 @@ export function ExtractSuggestionsFromAnalysis(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExtractSuggestionsFromAnalysis'](arg1, arg2, arg3);
 }
 
+export function FlushPendingUsageReports() {
+  return window['go']['main']['App']['FlushPendingUsageReports']();
+}
+
 export function GenerateCSVThumbnail(arg1, arg2) {
   return window['go']['main']['App']['GenerateCSVThumbnail'](arg1, arg2);
 }
@@ -354,16 +358,36 @@ export function GetMarketplaceCreditsBalance() {
   return window['go']['main']['App']['GetMarketplaceCreditsBalance']();
 }
 
+export function GetMarketplaceNotifications() {
+  return window['go']['main']['App']['GetMarketplaceNotifications']();
+}
+
 export function GetMessageAnalysisData(arg1, arg2) {
   return window['go']['main']['App']['GetMessageAnalysisData'](arg1, arg2);
+}
+
+export function GetMyPublishedPacks(arg1) {
+  return window['go']['main']['App']['GetMyPublishedPacks'](arg1);
+}
+
+export function GetMyPurchasedPacks() {
+  return window['go']['main']['App']['GetMyPurchasedPacks']();
 }
 
 export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetMySQLDatabases'](arg1, arg2, arg3, arg4);
 }
 
+export function GetMySharedPackNames() {
+  return window['go']['main']['App']['GetMySharedPackNames']();
+}
+
 export function GetOptimizeSuggestions(arg1) {
   return window['go']['main']['App']['GetOptimizeSuggestions'](arg1);
+}
+
+export function GetPackListingID(arg1) {
+  return window['go']['main']['App']['GetPackListingID'](arg1);
 }
 
 export function GetPythonEnvironments() {
@@ -384,6 +408,10 @@ export function GetSessionFiles(arg1) {
 
 export function GetSessionRecordings() {
   return window['go']['main']['App']['GetSessionRecordings']();
+}
+
+export function GetShareURL(arg1) {
+  return window['go']['main']['App']['GetShareURL'](arg1);
 }
 
 export function GetShopifyConfigFromAppData() {
@@ -570,6 +598,10 @@ export function RefreshLicense() {
   return window['go']['main']['App']['RefreshLicense']();
 }
 
+export function RefreshPurchasedPackLicenses() {
+  return window['go']['main']['App']['RefreshPurchasedPackLicenses']();
+}
+
 export function ReloadSkills() {
   return window['go']['main']['App']['ReloadSkills']();
 }
@@ -586,8 +618,16 @@ export function RenewSubscription(arg1, arg2) {
   return window['go']['main']['App']['RenewSubscription'](arg1, arg2);
 }
 
+export function ReplaceMarketplacePack(arg1, arg2) {
+  return window['go']['main']['App']['ReplaceMarketplacePack'](arg1, arg2);
+}
+
 export function ReplayAnalysisRecording(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ReplayAnalysisRecording'](arg1, arg2, arg3, arg4);
+}
+
+export function ReportPackUsage(arg1, arg2) {
+  return window['go']['main']['App']['ReportPackUsage'](arg1, arg2);
 }
 
 export function RequestSN(arg1, arg2) {
@@ -756,6 +796,10 @@ export function ValidateImportAnalysis(arg1, arg2) {
 
 export function ValidatePython(arg1) {
   return window['go']['main']['App']['ValidatePython'](arg1);
+}
+
+export function ValidateSubscriptionLicenseAsync(arg1) {
+  return window['go']['main']['App']['ValidateSubscriptionLicenseAsync'](arg1);
 }
 
 export function WaitForShopifyOAuth() {

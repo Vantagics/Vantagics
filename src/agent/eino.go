@@ -1404,7 +1404,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 						helpMsg += "3. Rewrite and execute the corrected query"
 					} else if strings.Contains(errStr, "syntax error") {
 						helpMsg = fmt.Sprintf("❌ SQL Syntax Error: %v\n\n", err)
-						helpMsg += "🔧 For SQLite, use: strftime('%Y',col) not YEAR(), col1||col2 not CONCAT()"
+						helpMsg += "🔧 For DuckDB, use: strftime('%Y',col) not YEAR(), col1||col2 not CONCAT()"
 					} else {
 						helpMsg = fmt.Sprintf("❌ SQL Error: %v\n\n🔧 Please fix and retry.", err)
 					}
@@ -1532,14 +1532,14 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	// 6. Build Context Prompt (include table names and column names for data background)
 	startContext := time.Now()
 	var contextPrompt string
-	var dbType string = "sqlite"
+	var dbType string = "duckdb"
 	if dataSourceID != "" && s.dsService != nil {
 		sources, _ := s.dsService.LoadDataSources()
 		for _, ds := range sources {
 			if ds.ID == dataSourceID {
 				// Determine database type
 				if ds.Config.DBPath != "" {
-					dbType = "sqlite"
+					dbType = "duckdb"
 				} else if ds.Type == "mysql" || ds.Type == "doris" {
 					dbType = ds.Type
 				}
@@ -1573,8 +1573,8 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 				contextPrompt += "\n💡 Column names above are exact (case-sensitive). For simple queries with obvious columns, you may write SQL directly. Call get_data_source_context only if you need sample data, data types, or relationship info.\n"
 
 				// SQL dialect
-				if dbType == "sqlite" {
-					contextPrompt += `Dialect: SQLite (use strftime, ||, no YEAR/MONTH)`
+				if dbType == "duckdb" {
+					contextPrompt += `Dialect: DuckDB (use strftime, ||, no YEAR/MONTH)`
 				} else if dbType == "mysql" || dbType == "doris" {
 					contextPrompt += `Dialect: MySQL (use YEAR/MONTH, CONCAT)`
 				}
@@ -1724,6 +1724,13 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		// Run asynchronously to not block user response
 		if s.cfg.EnableMemory && lastMsg.Role == schema.Assistant && lastMsg.Content != "" {
 			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						if s.Logger != nil {
+							s.Logger(fmt.Sprintf("[MEMORY] Panic in memory extraction goroutine: %v", r))
+						}
+					}
+				}()
 				startMemoryExtraction := time.Now()
 				
 				// Collect SQL queries and results from history

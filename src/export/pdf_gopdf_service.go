@@ -3,7 +3,9 @@ package export
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"vantagedata/i18n"
@@ -843,6 +845,19 @@ func (s *GopdfService) extractJsonTables(text string) (string, [][][]string) {
 		// Remove the code block from result (replace with placeholder marker)
 		result = result[:startIdx] + result[startIdx+len(startMarker)+endIdx+len(endMarker):]
 	}
+
+	// Method 1b: Find json:table without backticks (LLM sometimes omits them)
+	reNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
+	for _, match := range reNoBT.FindAllStringSubmatch(result, -1) {
+		if len(match) > 1 {
+			jsonContent := strings.TrimSpace(match[1])
+			tableData := s.parseJsonTable(jsonContent)
+			if len(tableData) > 0 {
+				tables = append(tables, tableData)
+			}
+			result = strings.Replace(result, match[0], "", 1)
+		}
+	}
 	
 	// Method 2: Find standalone JSON arrays like [ ["col1", "col2"], ["val1", "val2"] ]
 	// These are 2D arrays that look like table data
@@ -1122,8 +1137,31 @@ func (s *GopdfService) findMatchingBracket(text string, startIdx int) int {
 func (s *GopdfService) parseJsonTable(jsonContent string) [][]string {
 	var result [][]string
 	
-	// Simple JSON array parser for [[...], [...], ...] format
 	jsonContent = strings.TrimSpace(jsonContent)
+
+	// Try {columns: [...], data: [[...], ...]} format first
+	if strings.HasPrefix(jsonContent, "{") {
+		var colDataFormat struct {
+			Columns []string        `json:"columns"`
+			Data    [][]interface{} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(jsonContent), &colDataFormat); err == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
+			// Header row
+			result = append(result, colDataFormat.Columns)
+			// Data rows
+			for _, row := range colDataFormat.Data {
+				strRow := make([]string, len(row))
+				for i, val := range row {
+					strRow[i] = fmt.Sprintf("%v", val)
+				}
+				result = append(result, strRow)
+			}
+			return result
+		}
+		return result
+	}
+
+	// Simple JSON array parser for [[...], [...], ...] format
 	if !strings.HasPrefix(jsonContent, "[") || !strings.HasSuffix(jsonContent, "]") {
 		return result
 	}

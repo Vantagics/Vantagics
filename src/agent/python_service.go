@@ -176,7 +176,7 @@ func (s *PythonService) ValidatePythonEnvironment(path string) PythonValidationR
 	}
 
 	// 2. Check for required packages
-	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "sqlite3"}
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
 	for _, pkg := range requiredPackages {
 		if !s.checkPackage(path, pkg) {
 			result.MissingPackages = append(result.MissingPackages, pkg)
@@ -271,24 +271,14 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 
 	// Filter out packages that don't need pip installation
 	var installablePackages []string
-	var skippedPackages []string
 	
 	for _, pkg := range packages {
 		switch pkg {
-		case "sqlite3":
-			// sqlite3 is part of Python standard library, skip pip installation
-			skippedPackages = append(skippedPackages, pkg)
+		case "duckdb":
+			// duckdb needs pip installation, don't skip
+			installablePackages = append(installablePackages, pkg)
 		default:
 			installablePackages = append(installablePackages, pkg)
-		}
-	}
-
-	// If sqlite3 is missing, it indicates a Python installation issue
-	if len(skippedPackages) > 0 {
-		for _, pkg := range skippedPackages {
-			if pkg == "sqlite3" {
-				return fmt.Errorf("sqlite3 is missing from Python standard library. This indicates a problem with your Python installation. Please reinstall Python or use a different Python environment")
-			}
 		}
 	}
 

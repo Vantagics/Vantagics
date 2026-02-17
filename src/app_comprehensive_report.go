@@ -260,7 +260,10 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 
 					// Extract json:table blocks from assistant message content
 					reJsonTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-					for _, jtMatch := range reJsonTable.FindAllStringSubmatchIndex(assistantMsg.Content, -1) {
+					reJsonTableNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
+					allJTMatches := reJsonTable.FindAllStringSubmatchIndex(assistantMsg.Content, -1)
+					allJTMatches = append(allJTMatches, reJsonTableNoBT.FindAllStringSubmatchIndex(assistantMsg.Content, -1)...)
+					for _, jtMatch := range allJTMatches {
 						if len(jtMatch) >= 4 {
 							fullMatchStart := jtMatch[0]
 							jsonContent := strings.TrimSpace(assistantMsg.Content[jtMatch[2]:jtMatch[3]])
@@ -287,22 +290,40 @@ func (a *App) PrepareComprehensiveReport(req ComprehensiveReportRequest) (*Compr
 							// Try to parse as object array
 							var tableData []map[string]interface{}
 							if err := json.Unmarshal([]byte(jsonContent), &tableData); err != nil {
-								// Try 2D array format
-								var arrayData [][]interface{}
-								if err2 := json.Unmarshal([]byte(jsonContent), &arrayData); err2 == nil && len(arrayData) > 1 {
-									headers := make([]string, len(arrayData[0]))
-									for i, h := range arrayData[0] {
-										headers[i] = fmt.Sprintf("%v", h)
-									}
-									tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
-									for _, row := range arrayData[1:] {
+								// Try {columns: [...], data: [[...], ...]} format
+								var colDataFormat struct {
+									Columns []string        `json:"columns"`
+									Data    [][]interface{} `json:"data"`
+								}
+								if err2 := json.Unmarshal([]byte(jsonContent), &colDataFormat); err2 == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
+									tableData = make([]map[string]interface{}, 0, len(colDataFormat.Data))
+									for _, row := range colDataFormat.Data {
 										rowMap := make(map[string]interface{})
-										for ri, val := range row {
-											if ri < len(headers) {
-												rowMap[headers[ri]] = val
+										for i, val := range row {
+											if i < len(colDataFormat.Columns) {
+												rowMap[colDataFormat.Columns[i]] = val
 											}
 										}
 										tableData = append(tableData, rowMap)
+									}
+								} else {
+									// Try 2D array format
+									var arrayData [][]interface{}
+									if err3 := json.Unmarshal([]byte(jsonContent), &arrayData); err3 == nil && len(arrayData) > 1 {
+										headers := make([]string, len(arrayData[0]))
+										for i, h := range arrayData[0] {
+											headers[i] = fmt.Sprintf("%v", h)
+										}
+										tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+										for _, row := range arrayData[1:] {
+											rowMap := make(map[string]interface{})
+											for ri, val := range row {
+												if ri < len(headers) {
+													rowMap[headers[ri]] = val
+												}
+											}
+											tableData = append(tableData, rowMap)
+										}
 									}
 								}
 							}

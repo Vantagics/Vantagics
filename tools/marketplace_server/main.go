@@ -28,6 +28,7 @@ import (
 
 	_ "modernc.org/sqlite"
 	"marketplace_server/templates"
+	"github.com/xuri/excelize/v2"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -110,6 +111,204 @@ type CreditsTransaction struct {
 	ListingID       *int64  `json:"listing_id,omitempty"`
 	Description     string  `json:"description"`
 	CreatedAt       string  `json:"created_at"`
+}
+
+// PaymentInfo represents a user's payment receiving information.
+type PaymentInfo struct {
+	PaymentType    string          `json:"payment_type"`
+	PaymentDetails json.RawMessage `json:"payment_details"`
+}
+
+// WithdrawalRequest represents a withdrawal request with fee calculation.
+type WithdrawalRequest struct {
+	ID             int64   `json:"id"`
+	UserID         int64   `json:"user_id"`
+	DisplayName    string  `json:"display_name"`
+	CreditsAmount  float64 `json:"credits_amount"`
+	CashRate       float64 `json:"cash_rate"`
+	CashAmount     float64 `json:"cash_amount"`
+	PaymentType    string  `json:"payment_type"`
+	PaymentDetails string  `json:"payment_details"`
+	FeeRate        float64 `json:"fee_rate"`
+	FeeAmount      float64 `json:"fee_amount"`
+	NetAmount      float64 `json:"net_amount"`
+	Status         string  `json:"status"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+// validPaymentTypes is the set of allowed payment type values.
+var validPaymentTypes = map[string]bool{
+	"paypal":        true,
+	"bank_card":     true,
+	"wechat":        true,
+	"alipay":        true,
+	"check":         true,
+	"wire_transfer": true,
+	"bank_card_us":  true,
+	"bank_card_eu":  true,
+	"bank_card_cn":  true,
+}
+
+// requiredFieldsByPaymentType maps each payment type to its required detail fields.
+var requiredFieldsByPaymentType = map[string][]string{
+	"paypal":        {"account", "username"},
+	"bank_card":     {"bank_name", "card_number", "account_holder"},
+	"wechat":        {"account", "username"},
+	"alipay":        {"account", "username"},
+	"check":         {"full_legal_name", "province", "city", "district", "street_address", "postal_code", "phone"},
+	"wire_transfer": {"beneficiary_name", "beneficiary_address", "bank_name", "swift_code", "account_number"},
+	"bank_card_us":  {"legal_name", "routing_number", "account_number", "account_type"},
+	"bank_card_eu":  {"legal_name", "iban", "bic_swift"},
+	"bank_card_cn":  {"real_name", "card_number", "bank_branch"},
+}
+
+// validatePaymentInfo validates a payment_type and its corresponding payment_details JSON.
+// Returns an error message string if validation fails, or empty string if valid.
+func validatePaymentInfo(paymentType string, paymentDetailsJSON json.RawMessage) string {
+	if !validPaymentTypes[paymentType] {
+		return "invalid payment_type: must be one of paypal, bank_card, wechat, alipay, check, wire_transfer, bank_card_us, bank_card_eu, bank_card_cn"
+	}
+
+	var details map[string]string
+	if err := json.Unmarshal(paymentDetailsJSON, &details); err != nil {
+		return "invalid payment_details: must be a JSON object with string values"
+	}
+
+	requiredFields := requiredFieldsByPaymentType[paymentType]
+	for _, field := range requiredFields {
+		val, ok := details[field]
+		if !ok || strings.TrimSpace(val) == "" {
+			return fmt.Sprintf("missing or empty required field: %s", field)
+		}
+	}
+
+	return ""
+}
+
+
+// handleGetPaymentInfo handles GET /user/payment-info.
+// Returns the current user's payment receiving information as JSON.
+func handleGetPaymentInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var paymentType string
+	var paymentDetailsStr string
+	err = db.QueryRow("SELECT payment_type, payment_details FROM user_payment_info WHERE user_id = ?", userID).Scan(&paymentType, &paymentDetailsStr)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"payment_type":    "",
+			"payment_details": map[string]interface{}{},
+		})
+		return
+	}
+	if err != nil {
+		log.Printf("[PAYMENT-INFO] failed to query payment info for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+
+	var paymentDetails json.RawMessage
+	if err := json.Unmarshal([]byte(paymentDetailsStr), &paymentDetails); err != nil {
+		paymentDetails = json.RawMessage(`{}`)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"payment_type":    paymentType,
+		"payment_details": paymentDetails,
+	})
+}
+
+// handleSavePaymentInfo handles POST /user/payment-info.
+// Validates and saves the user's payment receiving information.
+func handleSavePaymentInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	var info PaymentInfo
+	if err := json.NewDecoder(r.Body).Decode(&info); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if errMsg := validatePaymentInfo(info.PaymentType, info.PaymentDetails); errMsg != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
+	}
+
+	detailsStr := string(info.PaymentDetails)
+	_, err = db.Exec(
+		`INSERT INTO user_payment_info (user_id, payment_type, payment_details, updated_at)
+		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(user_id) DO UPDATE SET payment_type=excluded.payment_type, payment_details=excluded.payment_details, updated_at=CURRENT_TIMESTAMP`,
+		userID, info.PaymentType, detailsStr,
+	)
+	if err != nil {
+		log.Printf("[PAYMENT-INFO] failed to save payment info for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal"})
+		return
+	}
+
+	log.Printf("[PAYMENT-INFO] user %d saved payment info: type=%s", userID, info.PaymentType)
+	jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleGetPaymentFeeRate handles GET /user/payment-info/fee-rate?type=paypal
+// Returns the fee rate for the given payment type from settings.
+func handleGetPaymentFeeRate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	paymentType := r.URL.Query().Get("type")
+	if !validPaymentTypes[paymentType] {
+		jsonResponse(w, http.StatusOK, map[string]float64{"fee_rate": 0})
+		return
+	}
+	feeRateStr := getSetting("fee_rate_" + paymentType)
+	feeRate, _ := strconv.ParseFloat(feeRateStr, 64)
+	if feeRate < 0 {
+		feeRate = 0
+	}
+	jsonResponse(w, http.StatusOK, map[string]float64{"fee_rate": feeRate})
+}
+
+// handleGetAllPaymentFeeRates handles GET /user/payment-info/fee-rates
+// Returns the fee rates for all payment types from settings.
+func handleGetAllPaymentFeeRates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	allTypes := []string{"paypal", "wechat", "alipay", "check", "wire_transfer", "bank_card_us", "bank_card_eu", "bank_card_cn"}
+	rates := make(map[string]float64, len(allTypes))
+	for _, pt := range allTypes {
+		feeRateStr := getSetting("fee_rate_" + pt)
+		feeRate, _ := strconv.ParseFloat(feeRateStr, 64)
+		if feeRate < 0 {
+			feeRate = 0
+		}
+		rates[pt] = feeRate
+	}
+	jsonResponse(w, http.StatusOK, rates)
 }
 
 // initDB initializes the SQLite database with WAL mode and creates all required tables.
@@ -235,6 +434,9 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add encryption_password column for paid pack encryption (ignore error if already exists)
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN encryption_password TEXT DEFAULT ''")
 
+	// Add version column for pack replacement tracking (ignore error if already exists)
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN version INTEGER DEFAULT 1")
+
 	// Add username and password_hash columns to users table (ignore error if already exists)
 	database.Exec("ALTER TABLE users ADD COLUMN username TEXT")
 	database.Exec("ALTER TABLE users ADD COLUMN password_hash TEXT")
@@ -276,6 +478,12 @@ func initDB(dbPath string) (*sql.DB, error) {
 		database.Close()
 		return nil, fmt.Errorf("failed to create credits_transactions table: %w", err)
 	}
+
+	// Add ip_address column to credits_transactions for sales tracking (ignore error if already exists)
+	database.Exec("ALTER TABLE credits_transactions ADD COLUMN ip_address TEXT DEFAULT ''")
+
+	// Add ip_address column to user_downloads for buyer region tracking (ignore error if already exists)
+	database.Exec("ALTER TABLE user_downloads ADD COLUMN ip_address TEXT DEFAULT ''")
 
 	// Create user_purchased_packs table
 	if _, err := database.Exec(`
@@ -330,6 +538,46 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create pack_usage_log table: %w", err)
 	}
 
+	// Create withdrawal_records table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS withdrawal_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			credits_amount REAL NOT NULL,
+			cash_rate REAL NOT NULL,
+			cash_amount REAL NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create withdrawal_records table: %w", err)
+	}
+
+	// Create user_payment_info table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS user_payment_info (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL UNIQUE,
+			payment_type TEXT NOT NULL,
+			payment_details TEXT NOT NULL,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create user_payment_info table: %w", err)
+	}
+
+	// Add payment/fee/status columns to withdrawal_records (ignore error if already exists)
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN payment_type TEXT DEFAULT ''")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN payment_details TEXT DEFAULT '{}'")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN fee_rate REAL DEFAULT 0")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN fee_amount REAL DEFAULT 0")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN net_amount REAL DEFAULT 0")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN status TEXT DEFAULT 'paid'")
+	database.Exec("ALTER TABLE withdrawal_records ADD COLUMN display_name TEXT DEFAULT ''")
+
 	// Create settings table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS settings (
@@ -369,6 +617,15 @@ func initDB(dbPath string) (*sql.DB, error) {
 	if err != nil {
 		database.Close()
 		return nil, fmt.Errorf("failed to insert default settings: %w", err)
+	}
+
+	// Insert default credit_cash_rate setting (ignore if already exists)
+	_, err = database.Exec(
+		"INSERT OR IGNORE INTO settings (key, value) VALUES ('credit_cash_rate', '0')",
+	)
+	if err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to insert credit_cash_rate setting: %w", err)
 	}
 
 	// Migrate admin_credentials table: detect old CHECK(id=1) constraint and rebuild
@@ -422,7 +679,459 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add permissions column to admin_credentials (ignore error if already exists)
 	database.Exec("ALTER TABLE admin_credentials ADD COLUMN permissions TEXT DEFAULT ''")
 
+	// Create notifications table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL,
+			content TEXT NOT NULL,
+			target_type TEXT NOT NULL DEFAULT 'broadcast',
+			effective_date DATETIME NOT NULL,
+			display_duration_days INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_by INTEGER NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (created_by) REFERENCES admin_credentials(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create notifications table: %w", err)
+	}
+
+	// Create notification_targets table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS notification_targets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			notification_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			FOREIGN KEY (notification_id) REFERENCES notifications(id),
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			UNIQUE(notification_id, user_id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create notification_targets table: %w", err)
+	}
+
 	return database, nil
+}
+
+// isNotificationVisible determines whether a notification should be visible
+// based on its effective date, display duration, and the current time.
+// - If now is before effectiveDate, the notification is not yet active.
+// - If durationDays is 0, the notification is permanent (always visible once active).
+// - If durationDays > 0, the notification expires after effectiveDate + durationDays.
+func isNotificationVisible(effectiveDate time.Time, durationDays int, now time.Time) bool {
+	if now.Before(effectiveDate) {
+		return false
+	}
+	if durationDays == 0 {
+		return true
+	}
+	expiryDate := effectiveDate.AddDate(0, 0, durationDays)
+	return now.Before(expiryDate)
+}
+
+// handleAdminCreateNotification handles POST /api/admin/notifications.
+// It creates a new notification (broadcast or targeted).
+func handleAdminCreateNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Title               string  `json:"title"`
+		Content             string  `json:"content"`
+		TargetType          string  `json:"target_type"`
+		TargetUserIDs       []int64 `json:"target_user_ids"`
+		EffectiveDate       string  `json:"effective_date"`
+		DisplayDurationDays int     `json:"display_duration_days"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if strings.TrimSpace(req.Title) == "" || strings.TrimSpace(req.Content) == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "title and content are required"})
+		return
+	}
+
+	if req.TargetType == "targeted" && len(req.TargetUserIDs) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "target_user_ids required for targeted messages"})
+		return
+	}
+
+	if req.TargetType == "" {
+		req.TargetType = "broadcast"
+	}
+
+	var effectiveDate time.Time
+	if req.EffectiveDate != "" {
+		parsed, err := time.Parse(time.RFC3339, req.EffectiveDate)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid effective_date format"})
+			return
+		}
+		effectiveDate = parsed
+	}
+	if effectiveDate.IsZero() {
+		effectiveDate = time.Now()
+	}
+
+	adminID := getSessionAdminID(r)
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Failed to begin transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`
+		INSERT INTO notifications (title, content, target_type, effective_date, display_duration_days, status, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		req.Title, req.Content, req.TargetType, effectiveDate.Format(time.RFC3339), req.DisplayDurationDays, adminID,
+	)
+	if err != nil {
+		log.Printf("Failed to insert notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	notificationID, err := result.LastInsertId()
+	if err != nil {
+		log.Printf("Failed to get notification ID: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if req.TargetType == "targeted" {
+		for _, userID := range req.TargetUserIDs {
+			_, err := tx.Exec(`INSERT OR IGNORE INTO notification_targets (notification_id, user_id) VALUES (?, ?)`,
+				notificationID, userID)
+			if err != nil {
+				log.Printf("Failed to insert notification target: %v", err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, map[string]interface{}{"id": notificationID})
+}
+
+// AdminNotificationInfo is the response struct for admin notification list API.
+type AdminNotificationInfo struct {
+	ID                  int64  `json:"id"`
+	Title               string `json:"title"`
+	Content             string `json:"content"`
+	TargetType          string `json:"target_type"`
+	EffectiveDate       string `json:"effective_date"`
+	DisplayDurationDays int    `json:"display_duration_days"`
+	Status              string `json:"status"`
+	CreatedBy           int64  `json:"created_by"`
+	CreatedAt           string `json:"created_at"`
+	TargetCount         int    `json:"target_count"`
+}
+
+// handleAdminListNotifications handles GET /api/admin/notifications.
+// It returns all non-deleted notifications ordered by created_at DESC.
+// For targeted notifications, it includes the target_count field.
+func handleAdminListNotifications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT id, title, content, target_type, effective_date, display_duration_days, status, created_by, created_at
+		FROM notifications
+		WHERE status != 'deleted'
+		ORDER BY created_at DESC`)
+	if err != nil {
+		log.Printf("Failed to query notifications: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	var notifications []AdminNotificationInfo
+	for rows.Next() {
+		var n AdminNotificationInfo
+		if err := rows.Scan(&n.ID, &n.Title, &n.Content, &n.TargetType, &n.EffectiveDate, &n.DisplayDurationDays, &n.Status, &n.CreatedBy, &n.CreatedAt); err != nil {
+			log.Printf("Failed to scan notification: %v", err)
+			continue
+		}
+		if n.TargetType == "targeted" {
+			db.QueryRow("SELECT COUNT(*) FROM notification_targets WHERE notification_id = ?", n.ID).Scan(&n.TargetCount)
+		}
+		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminListNotifications] rows iteration error: %v", err)
+	}
+
+	if notifications == nil {
+		notifications = []AdminNotificationInfo{}
+	}
+
+	jsonResponse(w, http.StatusOK, notifications)
+}
+
+// handleAdminDisableNotification handles POST /api/admin/notifications/{id}/disable.
+// It updates the notification status to "disabled".
+func handleAdminDisableNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse notification ID from URL: /api/admin/notifications/{id}/disable
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/notifications/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "disable" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	notificationID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var currentStatus string
+	err = db.QueryRow("SELECT status FROM notifications WHERE id = ?", notificationID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "notification not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to query notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE notifications SET status='disabled', updated_at=CURRENT_TIMESTAMP WHERE id=?", notificationID)
+	if err != nil {
+		log.Printf("Failed to disable notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminEnableNotification handles POST /api/admin/notifications/{id}/enable.
+// It restores the notification status from "disabled" to "active".
+func handleAdminEnableNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse notification ID from URL: /api/admin/notifications/{id}/enable
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/notifications/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "enable" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	notificationID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var currentStatus string
+	err = db.QueryRow("SELECT status FROM notifications WHERE id = ?", notificationID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "notification not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to query notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE notifications SET status='active', updated_at=CURRENT_TIMESTAMP WHERE id=?", notificationID)
+	if err != nil {
+		log.Printf("Failed to enable notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func handleAdminDeleteNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse notification ID from URL: /api/admin/notifications/{id}/delete
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/notifications/")
+	parts := strings.Split(path, "/")
+	if len(parts) != 2 || parts[1] != "delete" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_path"})
+		return
+	}
+	notificationID, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+		return
+	}
+
+	var currentStatus string
+	err = db.QueryRow("SELECT status FROM notifications WHERE id = ?", notificationID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "notification not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to query notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE notifications SET status='deleted', updated_at=CURRENT_TIMESTAMP WHERE id=?", notificationID)
+	if err != nil {
+		log.Printf("Failed to delete notification: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func handleAdminNotificationRoutes(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if path == "/api/admin/notifications" {
+		switch r.Method {
+		case http.MethodGet:
+			handleAdminListNotifications(w, r)
+		case http.MethodPost:
+			handleAdminCreateNotification(w, r)
+		default:
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+		return
+	}
+	// /api/admin/notifications/{id}/disable|enable|delete
+	if strings.HasSuffix(path, "/disable") {
+		handleAdminDisableNotification(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/enable") {
+		handleAdminEnableNotification(w, r)
+		return
+	}
+	if strings.HasSuffix(path, "/delete") {
+		handleAdminDeleteNotification(w, r)
+		return
+	}
+	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
+// NotificationInfo is the response struct for user-facing notification query API.
+type NotificationInfo struct {
+	ID                  int64  `json:"id"`
+	Title               string `json:"title"`
+	Content             string `json:"content"`
+	TargetType          string `json:"target_type"`
+	EffectiveDate       string `json:"effective_date"`
+	DisplayDurationDays int    `json:"display_duration_days"`
+	CreatedAt           string `json:"created_at"`
+}
+
+// handleListNotifications handles GET /api/notifications.
+// It returns active, visible notifications for the current user.
+// Authenticated users see broadcast + their targeted messages.
+// Unauthenticated users see only broadcast messages.
+func handleListNotifications(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userID := optionalUserID(r)
+	now := time.Now()
+
+	var rows *sql.Rows
+	var err error
+
+	if userID > 0 {
+		// Authenticated: broadcast + targeted for this user
+		rows, err = db.Query(`
+			SELECT DISTINCT n.id, n.title, n.content, n.target_type, n.effective_date, n.display_duration_days, n.created_at
+			FROM notifications n
+			LEFT JOIN notification_targets nt ON n.id = nt.notification_id
+			WHERE n.status = 'active'
+			  AND n.effective_date <= ?
+			  AND (n.target_type = 'broadcast' OR (n.target_type = 'targeted' AND nt.user_id = ?))
+			ORDER BY n.created_at DESC`,
+			now.Format(time.RFC3339), userID,
+		)
+	} else {
+		// Unauthenticated: broadcast only
+		rows, err = db.Query(`
+			SELECT id, title, content, target_type, effective_date, display_duration_days, created_at
+			FROM notifications
+			WHERE status = 'active'
+			  AND target_type = 'broadcast'
+			  AND effective_date <= ?
+			ORDER BY created_at DESC`,
+			now.Format(time.RFC3339),
+		)
+	}
+
+	if err != nil {
+		log.Printf("Failed to query notifications: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	var notifications []NotificationInfo
+	for rows.Next() {
+		var n NotificationInfo
+		var effectiveDateStr string
+		if err := rows.Scan(&n.ID, &n.Title, &n.Content, &n.TargetType, &effectiveDateStr, &n.DisplayDurationDays, &n.CreatedAt); err != nil {
+			log.Printf("Failed to scan notification: %v", err)
+			continue
+		}
+		// Parse effective_date and apply visibility filter
+		effectiveDate, err := time.Parse(time.RFC3339, effectiveDateStr)
+		if err != nil {
+			log.Printf("Failed to parse effective_date for notification %d: %v", n.ID, err)
+			continue
+		}
+		if !isNotificationVisible(effectiveDate, n.DisplayDurationDays, now) {
+			continue
+		}
+		n.EffectiveDate = effectiveDateStr
+		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleListNotifications] rows iteration error: %v", err)
+	}
+
+	if notifications == nil {
+		notifications = []NotificationInfo{}
+	}
+
+	jsonResponse(w, http.StatusOK, notifications)
 }
 
 // upsertUserPurchasedPack inserts or updates a user_purchased_packs record,
@@ -569,6 +1278,25 @@ func optionalUserID(r *http.Request) int64 {
 // to return the set of listing IDs that the given user has purchased or downloaded.
 func getUserPurchasedListingIDs(userID int64) map[int64]bool {
 	purchased := make(map[int64]bool)
+
+	// Build a set of listing IDs that the user has explicitly hidden (soft-deleted)
+	hiddenSet := make(map[int64]bool)
+	hiddenRows, err := db.Query(
+		"SELECT listing_id FROM user_purchased_packs WHERE user_id = ? AND is_hidden = 1",
+		userID)
+	if err == nil {
+		defer hiddenRows.Close()
+		for hiddenRows.Next() {
+			var lid int64
+			if hiddenRows.Scan(&lid) == nil {
+				hiddenSet[lid] = true
+			}
+		}
+		if err := hiddenRows.Err(); err != nil {
+			log.Printf("[getUserPurchasedListingIDs] hiddenRows iteration error: %v", err)
+		}
+	}
+
 	// Query user_downloads table
 	rows, err := db.Query("SELECT listing_id FROM user_downloads WHERE user_id = ?", userID)
 	if err == nil {
@@ -576,8 +1304,13 @@ func getUserPurchasedListingIDs(userID int64) map[int64]bool {
 		for rows.Next() {
 			var lid int64
 			if rows.Scan(&lid) == nil {
-				purchased[lid] = true
+				if !hiddenSet[lid] {
+					purchased[lid] = true
+				}
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[getUserPurchasedListingIDs] rows iteration error: %v", err)
 		}
 	}
 	// Query credits_transactions table (purchase-type transactions)
@@ -589,12 +1322,18 @@ func getUserPurchasedListingIDs(userID int64) map[int64]bool {
 		for rows2.Next() {
 			var lid int64
 			if rows2.Scan(&lid) == nil {
-				purchased[lid] = true
+				if !hiddenSet[lid] {
+					purchased[lid] = true
+				}
 			}
+		}
+		if err := rows2.Err(); err != nil {
+			log.Printf("[getUserPurchasedListingIDs] rows2 iteration error: %v", err)
 		}
 	}
 	return purchased
 }
+
 
 
 
@@ -835,7 +1574,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers"}
+var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers", "sales"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.
@@ -1522,11 +2261,13 @@ func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 // handleUserLogin handles user login (GET: render form, POST: authenticate).
 func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		redirect := r.URL.Query().Get("redirect")
 		captchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
+			"Redirect":  redirect,
 		})
 		return
 	}
@@ -1536,6 +2277,7 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 	captchaID := r.FormValue("captcha_id")
 	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
+	redirect := r.FormValue("redirect")
 
 	log.Printf("[USER-LOGIN] attempt: username=%q, captchaID=%q", username, captchaID)
 
@@ -1564,23 +2306,33 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		templates.UserLoginTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     errMsg,
+			"Redirect":  redirect,
 		})
 		return
 	}
 
 	sid := createUserSession(userID)
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
+
+	// Redirect to the original page if redirect parameter starts with /pack/
+	if strings.HasPrefix(redirect, "/pack/") {
+		http.Redirect(w, r, redirect, http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
+
 
 // handleUserRegister handles GET/POST /user/register for SN+Email binding registration.
 func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
+		redirect := r.URL.Query().Get("redirect")
 		captchaID := createMathCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
+			"Redirect":  redirect,
 		})
 		return
 	}
@@ -1592,6 +2344,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	password2 := r.FormValue("password2")
 	captchaID := r.FormValue("captcha_id")
 	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
+	redirect := r.FormValue("redirect")
 
 	log.Printf("[USER-REGISTER] attempt: email=%q, sn=%q, captchaID=%q", email, sn, captchaID)
 
@@ -1601,6 +2354,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		templates.UserRegisterTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     msg,
+			"Redirect":  redirect,
 		})
 	}
 
@@ -1746,6 +2500,12 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	// Step 6: Create session and redirect
 	sid := createUserSession(userID)
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
+
+	// Redirect to the original page if redirect parameter starts with /pack/ (security: only allow /pack/ prefix)
+	if strings.HasPrefix(redirect, "/pack/") {
+		http.Redirect(w, r, redirect, http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
 
@@ -1773,6 +2533,30 @@ type BillingRecord struct {
 	CreatedAt       string
 }
 
+// AuthorPackInfo holds info about an author's shared pack with sales data.
+type AuthorPackInfo struct {
+	ListingID    int64
+	PackName     string
+	PackDesc     string
+	ShareMode    string
+	CreditsPrice int
+	Status       string
+	SoldCount    int
+	TotalRevenue float64
+}
+
+// AuthorDashboardData holds all author panel data for the user dashboard.
+type AuthorDashboardData struct {
+	IsAuthor           bool
+	AuthorPacks        []AuthorPackInfo
+	TotalRevenue       float64
+	TotalWithdrawn     float64
+	UnwithdrawnCredits float64
+	CreditCashRate     float64
+	WithdrawalEnabled  bool
+	RevenueSplitPct    float64
+}
+
 // handleUserDashboard renders the user dashboard page showing account info and purchased packs.
 func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	// Get user_id from X-User-ID header (set by userAuth middleware)
@@ -1795,36 +2579,47 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query paid purchased packs (from credits_transactions)
-	paidRows, err := db.Query(`
+	// Query all purchased/downloaded packs using a UNION approach:
+	// 1. From user_purchased_packs (canonical record)
+	// 2. From credits_transactions (paid downloads)
+	// 3. From user_downloads (all downloads including free)
+	allRows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
-		       COALESCE(c.name, '') as category_name, ct.created_at as purchase_date,
+		       COALESCE(c.name, '') as category_name, COALESCE(src.purchase_date, upp.created_at) as purchase_date,
 		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
-		FROM credits_transactions ct
-		JOIN pack_listings pl ON ct.listing_id = pl.id
+		FROM user_purchased_packs upp
+		JOIN pack_listings pl ON upp.listing_id = pl.id
 		LEFT JOIN categories c ON pl.category_id = c.id
-		LEFT JOIN user_purchased_packs upp ON upp.user_id = ct.user_id AND upp.listing_id = ct.listing_id
-		LEFT JOIN pack_usage_records pur ON pur.user_id = ct.user_id AND pur.listing_id = ct.listing_id
-		WHERE ct.user_id = ? AND ct.transaction_type IN ('purchase', 'download')
-		  AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
-		ORDER BY ct.created_at DESC
+		LEFT JOIN pack_usage_records pur ON pur.user_id = upp.user_id AND pur.listing_id = upp.listing_id
+		LEFT JOIN (
+		    SELECT user_id, listing_id, MIN(created_at) as purchase_date
+		    FROM credits_transactions
+		    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew_subscription')
+		    GROUP BY user_id, listing_id
+		    UNION ALL
+		    SELECT user_id, listing_id, MIN(downloaded_at) as purchase_date
+		    FROM user_downloads
+		    GROUP BY user_id, listing_id
+		) src ON src.user_id = upp.user_id AND src.listing_id = upp.listing_id
+		WHERE upp.user_id = ? AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
+		ORDER BY purchase_date DESC
 	`, userID)
 	if err != nil {
-		log.Printf("[USER-DASHBOARD] failed to query paid packs for user %d: %v", userID, err)
+		log.Printf("[USER-DASHBOARD] failed to query purchased packs for user %d: %v", userID, err)
 		http.Error(w, "加载数据失败", http.StatusInternalServerError)
 		return
 	}
-	defer paidRows.Close()
+	defer allRows.Close()
 
 	// Use a map to deduplicate by listing_id
 	seenListings := make(map[int64]bool)
 	var packs []PurchasedPackInfo
 
-	for paidRows.Next() {
+	for allRows.Next() {
 		var p PurchasedPackInfo
 		var purchaseDateStr string
-		if err := paidRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
-			log.Printf("[USER-DASHBOARD] failed to scan paid pack row: %v", err)
+		if err := allRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
+			log.Printf("[USER-DASHBOARD] failed to scan purchased pack row: %v", err)
 			continue
 		}
 		if seenListings[p.ListingID] {
@@ -1834,41 +2629,57 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		p.PurchaseDate = purchaseDateStr
 
 		// Calculate ExpiresAt for time_limited and subscription packs
-		if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && p.ValidDays > 0 {
+		// For subscription packs with valid_days=0, default to 30 days (1 month)
+		effectiveDays := p.ValidDays
+		if p.ShareMode == "subscription" && effectiveDays == 0 {
+			effectiveDays = 30
+		}
+		if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && effectiveDays > 0 {
 			if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr); err == nil {
-				p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+				p.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format("2006-01-02 15:04:05")
 			} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr); err == nil {
-				p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+				p.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format("2006-01-02 15:04:05")
 			}
 		}
 
 		packs = append(packs, p)
 	}
+	if err := allRows.Err(); err != nil {
+		log.Printf("[handleUserDashboard] allRows iteration error: %v", err)
+	}
 
-	// Query free downloaded packs (from user_downloads)
-	freeRows, err := db.Query(`
-		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
-		       COALESCE(c.name, '') as category_name, ud.downloaded_at as purchase_date,
+	// Also query from credits_transactions and user_downloads for packs
+	// that may not have a user_purchased_packs record yet (legacy data)
+	legacyRows, err := db.Query(`
+		SELECT DISTINCT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
+		       COALESCE(c.name, '') as category_name, src.purchase_date,
 		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
-		FROM user_downloads ud
-		JOIN pack_listings pl ON ud.listing_id = pl.id
+		FROM (
+		    SELECT user_id, listing_id, MIN(created_at) as purchase_date FROM credits_transactions
+		    WHERE user_id = ? AND transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew_subscription') AND listing_id IS NOT NULL
+		    GROUP BY user_id, listing_id
+		    UNION ALL
+		    SELECT user_id, listing_id, MIN(downloaded_at) as purchase_date FROM user_downloads
+		    WHERE user_id = ?
+		    GROUP BY user_id, listing_id
+		) src
+		JOIN pack_listings pl ON src.listing_id = pl.id
 		LEFT JOIN categories c ON pl.category_id = c.id
-		LEFT JOIN user_purchased_packs upp ON upp.user_id = ud.user_id AND upp.listing_id = ud.listing_id
-		LEFT JOIN pack_usage_records pur ON pur.user_id = ud.user_id AND pur.listing_id = ud.listing_id
-		WHERE ud.user_id = ?
-		  AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
-		ORDER BY ud.downloaded_at DESC
-	`, userID)
+		LEFT JOIN user_purchased_packs upp ON upp.user_id = src.user_id AND upp.listing_id = src.listing_id
+		LEFT JOIN pack_usage_records pur ON pur.user_id = src.user_id AND pur.listing_id = src.listing_id
+		WHERE (upp.id IS NULL OR (upp.is_hidden IS NULL OR upp.is_hidden = 0))
+		ORDER BY src.purchase_date DESC
+	`, userID, userID)
 	if err != nil {
-		log.Printf("[USER-DASHBOARD] failed to query free packs for user %d: %v", userID, err)
-		// Non-fatal: continue with paid packs only
+		log.Printf("[USER-DASHBOARD] failed to query legacy packs for user %d: %v", userID, err)
+		// Non-fatal: continue with packs from user_purchased_packs
 	} else {
-		defer freeRows.Close()
-		for freeRows.Next() {
+		defer legacyRows.Close()
+		for legacyRows.Next() {
 			var p PurchasedPackInfo
 			var purchaseDateStr string
-			if err := freeRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
-				log.Printf("[USER-DASHBOARD] failed to scan free pack row: %v", err)
+			if err := legacyRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
+				log.Printf("[USER-DASHBOARD] failed to scan legacy pack row: %v", err)
 				continue
 			}
 			if seenListings[p.ListingID] {
@@ -1877,17 +2688,95 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 			seenListings[p.ListingID] = true
 			p.PurchaseDate = purchaseDateStr
 
-			// Calculate ExpiresAt for time_limited and subscription packs
-			if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && p.ValidDays > 0 {
+			// For subscription packs with valid_days=0, default to 30 days (1 month)
+			effectiveDays := p.ValidDays
+			if p.ShareMode == "subscription" && effectiveDays == 0 {
+				effectiveDays = 30
+			}
+			if (p.ShareMode == "time_limited" || p.ShareMode == "subscription") && effectiveDays > 0 {
 				if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr); err == nil {
-					p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+					p.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format("2006-01-02 15:04:05")
 				} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr); err == nil {
-					p.ExpiresAt = t.AddDate(0, 0, p.ValidDays).Format("2006-01-02 15:04:05")
+					p.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format("2006-01-02 15:04:05")
 				}
 			}
 
 			packs = append(packs, p)
 		}
+		if err := legacyRows.Err(); err != nil {
+			log.Printf("[handleUserDashboard] legacyRows iteration error: %v", err)
+		}
+	}
+
+	// For ALL subscription packs (both main and legacy), calculate the correct cumulative expiry date.
+	// Start from the original purchase date, add the initial period,
+	// then for each renew transaction, extend from the previous expiry (if still valid at renew time)
+	// or from the renew time (if expired at renew time).
+	for i := range packs {
+		if packs[i].ShareMode != "subscription" {
+			continue
+		}
+
+		// Get original purchase date as the base
+		baseTime := time.Time{}
+		if t, err := time.Parse("2006-01-02 15:04:05", packs[i].PurchaseDate); err == nil {
+			baseTime = t
+		} else if t, err := time.Parse("2006-01-02T15:04:05Z", packs[i].PurchaseDate); err == nil {
+			baseTime = t
+		}
+		if baseTime.IsZero() {
+			continue
+		}
+
+		// Initial subscription period: valid_days from purchase (default 30 days = ~1 month)
+		effectiveDays := packs[i].ValidDays
+		if effectiveDays == 0 {
+			effectiveDays = 30
+		}
+		currentExpiry := baseTime.AddDate(0, 0, effectiveDays)
+
+		// Query ALL renew transactions in chronological order
+		renewRows, err := db.Query(`
+			SELECT created_at, COALESCE(description, '')
+			FROM credits_transactions
+			WHERE user_id = ? AND listing_id = ? AND transaction_type = 'renew'
+			ORDER BY created_at ASC
+		`, userID, packs[i].ListingID)
+		if err == nil {
+			for renewRows.Next() {
+				var renewDateStr, desc string
+				if err := renewRows.Scan(&renewDateStr, &desc); err != nil {
+					continue
+				}
+				renewMonths := 1
+				if strings.Contains(desc, "yearly") || strings.Contains(desc, "14 month") {
+					renewMonths = 14
+				} else if strings.Contains(desc, "12 month") {
+					renewMonths = 12
+				}
+				var renewTime time.Time
+				if t, err := time.Parse("2006-01-02 15:04:05", renewDateStr); err == nil {
+					renewTime = t
+				} else if t, err := time.Parse("2006-01-02T15:04:05Z", renewDateStr); err == nil {
+					renewTime = t
+				}
+				if renewTime.IsZero() {
+					continue
+				}
+				// If subscription was still valid at renew time, extend from current expiry
+				// Otherwise extend from the renew time
+				if currentExpiry.After(renewTime) {
+					currentExpiry = currentExpiry.AddDate(0, renewMonths, 0)
+				} else {
+					currentExpiry = renewTime.AddDate(0, renewMonths, 0)
+				}
+				// Update PurchaseDate to latest renew for display
+				packs[i].PurchaseDate = renewDateStr
+			}
+			renewRows.Close()
+		}
+
+		packs[i].ExpiresAt = currentExpiry.Format("2006-01-02 15:04:05")
 	}
 
 	// Query password_hash to determine if user has a password set
@@ -1895,13 +2784,152 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
 	hasPassword := passwordHash.Valid && passwordHash.String != ""
 
-	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d, hasPassword=%v", userID, user.Email, user.CreditsBalance, len(packs), hasPassword)
+	// --- Task 3.1: Author role detection ---
+	var authorPackCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE user_id = ?", userID).Scan(&authorPackCount)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query author pack count for user %d: %v", userID, err)
+		authorPackCount = 0
+	}
+	isAuthor := authorPackCount > 0
+
+	var authorData AuthorDashboardData
+	authorData.IsAuthor = isAuthor
+
+	if isAuthor {
+		// --- Task 3.3: Query author's shared packs with sales data ---
+		// Apply revenue split at query time so per-pack revenue matches the total
+		splitPctStr := getSetting("revenue_split_publisher_pct")
+		splitPct, _ := strconv.ParseFloat(splitPctStr, 64)
+		if splitPct <= 0 {
+			splitPct = 70 // default 70%
+		}
+		authorRows, err := db.Query(`
+			SELECT pl.id, pl.pack_name, pl.pack_description, pl.share_mode, pl.credits_price, pl.status,
+			       COALESCE(sales.sold_count, 0), COALESCE(sales.total_revenue, 0) * ? / 100
+			FROM pack_listings pl
+			LEFT JOIN (
+			    SELECT listing_id, COUNT(*) as sold_count, SUM(ABS(amount)) as total_revenue
+			    FROM credits_transactions
+			    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+			      AND amount < 0
+			    GROUP BY listing_id
+			) sales ON sales.listing_id = pl.id
+			WHERE pl.user_id = ?
+			ORDER BY pl.created_at DESC
+		`, splitPct, userID)
+		if err != nil {
+			log.Printf("[USER-DASHBOARD] failed to query author packs for user %d: %v", userID, err)
+		} else {
+			defer authorRows.Close()
+			for authorRows.Next() {
+				var ap AuthorPackInfo
+				if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode, &ap.CreditsPrice, &ap.Status, &ap.SoldCount, &ap.TotalRevenue); err != nil {
+					log.Printf("[USER-DASHBOARD] failed to scan author pack row: %v", err)
+					continue
+				}
+				authorData.AuthorPacks = append(authorData.AuthorPacks, ap)
+			}
+			if err := authorRows.Err(); err != nil {
+				log.Printf("[handleUserDashboard] authorRows iteration error: %v", err)
+			}
+		}
+
+		// --- Task 3.4: Calculate total revenue, total withdrawn, unwithdrawn credits ---
+		var totalRevenue float64
+		err = db.QueryRow(`
+			SELECT COALESCE(SUM(ABS(ct.amount)), 0)
+			FROM credits_transactions ct
+			JOIN pack_listings pl ON ct.listing_id = pl.id
+			WHERE pl.user_id = ? AND ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+			  AND ct.amount < 0
+		`, userID).Scan(&totalRevenue)
+		if err != nil {
+			log.Printf("[USER-DASHBOARD] failed to query total revenue for user %d: %v", userID, err)
+		}
+
+		// Apply revenue split: publisher only gets their configured share (splitPct already loaded above)
+		publisherRevenue := totalRevenue * splitPct / 100
+		authorData.TotalRevenue = publisherRevenue
+
+		var totalWithdrawn float64
+		err = db.QueryRow(`
+			SELECT COALESCE(SUM(credits_amount), 0)
+			FROM withdrawal_records
+			WHERE user_id = ?
+		`, userID).Scan(&totalWithdrawn)
+		if err != nil {
+			log.Printf("[USER-DASHBOARD] failed to query total withdrawn for user %d: %v", userID, err)
+		}
+		authorData.TotalWithdrawn = totalWithdrawn
+		authorData.UnwithdrawnCredits = publisherRevenue - totalWithdrawn
+		if authorData.UnwithdrawnCredits < 0 {
+			authorData.UnwithdrawnCredits = 0
+		}
+
+		// --- Task 3.5: Query credit_cash_rate setting ---
+		cashRateStr := getSetting("credit_cash_rate")
+		cashRate, _ := strconv.ParseFloat(cashRateStr, 64)
+		authorData.CreditCashRate = cashRate
+		authorData.WithdrawalEnabled = cashRate > 0
+		authorData.RevenueSplitPct = splitPct
+	}
+
+	// --- Task 9.1: Query visible notifications for this user ---
+	var notifications []NotificationInfo
+	now := time.Now()
+	notifRows, err := db.Query(`
+		SELECT DISTINCT n.id, n.title, n.content, n.target_type, n.effective_date, n.display_duration_days, n.created_at
+		FROM notifications n
+		LEFT JOIN notification_targets nt ON n.id = nt.notification_id
+		WHERE n.status = 'active'
+		  AND n.effective_date <= ?
+		  AND (n.target_type = 'broadcast' OR (n.target_type = 'targeted' AND nt.user_id = ?))
+		ORDER BY n.created_at DESC`,
+		now.Format(time.RFC3339), userID,
+	)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query notifications for user %d: %v", userID, err)
+	} else {
+		defer notifRows.Close()
+		for notifRows.Next() {
+			var n NotificationInfo
+			var effectiveDateStr string
+			if err := notifRows.Scan(&n.ID, &n.Title, &n.Content, &n.TargetType, &effectiveDateStr, &n.DisplayDurationDays, &n.CreatedAt); err != nil {
+				log.Printf("[USER-DASHBOARD] failed to scan notification row: %v", err)
+				continue
+			}
+			effectiveDate, err := time.Parse(time.RFC3339, effectiveDateStr)
+			if err != nil {
+				log.Printf("[USER-DASHBOARD] failed to parse effective_date for notification %d: %v", n.ID, err)
+				continue
+			}
+			if !isNotificationVisible(effectiveDate, n.DisplayDurationDays, now) {
+				continue
+			}
+			n.EffectiveDate = effectiveDateStr
+			notifications = append(notifications, n)
+		}
+		if err := notifRows.Err(); err != nil {
+			log.Printf("[handleUserDashboard] notifRows iteration error: %v", err)
+		}
+	}
+
+	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d, hasPassword=%v, isAuthor=%v", userID, user.Email, user.CreditsBalance, len(packs), hasPassword, isAuthor)
+
+	// --- Task 3.6: Pass author data to template ---
+	successMsg := r.URL.Query().Get("success")
+	errorMsg := r.URL.Query().Get("error")
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
 		"User":           user,
 		"PurchasedPacks": packs,
 		"HasPassword":    hasPassword,
+		"AuthorData":     authorData,
+		"Notifications":  notifications,
+		"SuccessMsg":     successMsg,
+		"ErrorMsg":       errorMsg,
 	})
 }
 
@@ -1942,6 +2970,9 @@ func handleUserBilling(w http.ResponseWriter, r *http.Request) {
 			rec.Description = desc.String
 		}
 		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleUserBilling] rows iteration error: %v", err)
 	}
 
 	log.Printf("[USER-BILLING] user %d: %d transaction records", userID, len(records))
@@ -2967,6 +3998,9 @@ func handleListCategories(w http.ResponseWriter, r *http.Request) {
 		}
 		categories = append(categories, cat)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleListCategories] rows iteration error: %v", err)
+	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"categories": categories})
 }
@@ -3212,6 +4246,455 @@ func validatePricingParams(shareMode string, creditsPrice int) string {
 		return "share_mode must be 'free', 'per_use', or 'subscription'"
 	}
 }
+
+// handleGetListingID handles GET /api/packs/listing-id?pack_name={name}.
+// Returns the listing_id for a published pack owned by the authenticated user.
+func handleGetListingID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	packName := r.URL.Query().Get("pack_name")
+	if packName == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack_name is required"})
+		return
+	}
+
+	var listingID int64
+	err = db.QueryRow(
+		"SELECT id FROM pack_listings WHERE pack_name = ? AND user_id = ? AND status = 'published'",
+		packName, userID,
+	).Scan(&listingID)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to query listing ID: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"listing_id": listingID,
+	})
+}
+
+// handleGetPackDetail handles GET /api/packs/{listing_id}/detail.
+// Returns full pack detail JSON for a published pack. Public access, no auth required.
+func handleGetPackDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse listing_id from URL path: /api/packs/{listing_id}/detail
+	path := strings.TrimPrefix(r.URL.Path, "/api/packs/")
+	path = strings.TrimSuffix(path, "/detail")
+	listingID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || listingID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid listing_id"})
+		return
+	}
+
+	var detail struct {
+		ListingID       int64  `json:"listing_id"`
+		PackName        string `json:"pack_name"`
+		PackDescription string `json:"pack_description"`
+		SourceName      string `json:"source_name"`
+		AuthorName      string `json:"author_name"`
+		ShareMode       string `json:"share_mode"`
+		CreditsPrice    int    `json:"credits_price"`
+		DownloadCount   int    `json:"download_count"`
+		CategoryName    string `json:"category_name"`
+	}
+
+	err = db.QueryRow(`
+		SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
+		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
+		       COALESCE(c.name, '')
+		FROM pack_listings pl
+		LEFT JOIN categories c ON pl.category_id = c.id
+		WHERE pl.id = ? AND pl.status = 'published'`,
+		listingID,
+	).Scan(&detail.ListingID, &detail.PackName, &detail.PackDescription, &detail.SourceName,
+		&detail.AuthorName, &detail.ShareMode, &detail.CreditsPrice, &detail.DownloadCount,
+		&detail.CategoryName)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found or not published"})
+		return
+	}
+	if err != nil {
+		log.Printf("Failed to query pack detail: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, detail)
+}
+
+// handlePackDetailPage handles GET /pack/{listing_id}.
+// Renders the server-side pack detail HTML page.
+// Optionally checks user login status via user_session cookie (not enforced).
+func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse listing_id from URL path: /pack/{listing_id}
+	path := strings.TrimPrefix(r.URL.Path, "/pack/")
+	path = strings.TrimSuffix(path, "/")
+	listingID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || listingID <= 0 {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+			"ListingID":    int64(0),
+			"PackName":     "",
+			"PackDescription": "",
+			"SourceName":   "",
+			"AuthorName":   "",
+			"ShareMode":    "",
+			"CreditsPrice": 0,
+			"DownloadCount": 0,
+			"CategoryName": "",
+			"IsLoggedIn":   false,
+			"HasPurchased": false,
+			"Error":        "无效的分析包链接",
+			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+		})
+		return
+	}
+
+	// Query pack detail from database
+	var packName, packDesc, sourceName, authorName, shareMode, categoryName string
+	var creditsPrice, downloadCount int
+	err = db.QueryRow(`
+		SELECT pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
+		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
+		       COALESCE(c.name, '')
+		FROM pack_listings pl
+		LEFT JOIN categories c ON pl.category_id = c.id
+		WHERE pl.id = ? AND pl.status = 'published'`,
+		listingID,
+	).Scan(&packName, &packDesc, &sourceName, &authorName, &shareMode, &creditsPrice, &downloadCount, &categoryName)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+			"ListingID":    listingID,
+			"PackName":     "",
+			"PackDescription": "",
+			"SourceName":   "",
+			"AuthorName":   "",
+			"ShareMode":    "",
+			"CreditsPrice": 0,
+			"DownloadCount": 0,
+			"CategoryName": "",
+			"IsLoggedIn":   false,
+			"HasPurchased": false,
+			"Error":        "分析包不存在或已下架",
+			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+		})
+		return
+	}
+	if err != nil {
+		log.Printf("[PACK-DETAIL-PAGE] failed to query pack id=%d: %v", listingID, err)
+		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+		return
+	}
+
+	// Optionally check user login status (read user_session cookie, not enforced)
+	isLoggedIn := false
+	hasPurchased := false
+	var userID int64
+	cookie, cookieErr := r.Cookie("user_session")
+	if cookieErr == nil && isValidUserSession(cookie.Value) {
+		userID = getUserSessionUserID(cookie.Value)
+		if userID > 0 {
+			isLoggedIn = true
+
+			// Check if user already purchased this pack
+			var count int
+			err = db.QueryRow(
+				"SELECT COUNT(*) FROM user_purchased_packs WHERE user_id = ? AND listing_id = ? AND (is_hidden IS NULL OR is_hidden = 0)",
+				userID, listingID,
+			).Scan(&count)
+			if err == nil && count > 0 {
+				hasPurchased = true
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+		"ListingID":       listingID,
+		"PackName":        packName,
+		"PackDescription": packDesc,
+		"SourceName":      sourceName,
+		"AuthorName":      authorName,
+		"ShareMode":       shareMode,
+		"CreditsPrice":    creditsPrice,
+		"DownloadCount":   downloadCount,
+		"CategoryName":    categoryName,
+		"IsLoggedIn":      isLoggedIn,
+		"HasPurchased":    hasPurchased,
+		"Error":           "",
+		"MonthOptions":    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+	})
+}
+
+// handleClaimFreePack handles POST /pack/{listing_id}/claim.
+// Protected by userAuth middleware. Only allows claiming free packs (share_mode='free').
+// Creates a purchase record via upsertUserPurchasedPack and records a download in user_downloads.
+func handleClaimFreePack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[CLAIM-FREE-PACK] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Parse listing_id from URL path: /pack/{listing_id}/claim
+	path := strings.TrimPrefix(r.URL.Path, "/pack/")
+	path = strings.TrimSuffix(path, "/claim")
+	path = strings.TrimSuffix(path, "/")
+	listingID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || listingID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_listing_id"})
+		return
+	}
+
+	// Verify the pack exists, is published, and share_mode='free'
+	var shareMode string
+	err = db.QueryRow(
+		"SELECT share_mode FROM pack_listings WHERE id = ? AND status = 'published'",
+		listingID,
+	).Scan(&shareMode)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack_not_found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[CLAIM-FREE-PACK] failed to query pack id=%d: %v", listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if shareMode != "free" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack_not_free"})
+		return
+	}
+
+	// Create/update purchase record
+	if err := upsertUserPurchasedPack(userID, listingID); err != nil {
+		log.Printf("[CLAIM-FREE-PACK] failed to upsert purchased pack (user=%d, listing=%d): %v", userID, listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Record download in user_downloads table (with buyer IP for region tracking)
+	_, err = db.Exec("INSERT INTO user_downloads (user_id, listing_id, ip_address) VALUES (?, ?, ?)", userID, listingID, getClientIP(r))
+	if err != nil {
+		log.Printf("[CLAIM-FREE-PACK] failed to record download (user=%d, listing=%d): %v", userID, listingID, err)
+		// Non-critical: purchase record already created, so we still return success
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
+		return
+	}
+
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Parse listing_id from URL path: /pack/{listing_id}/purchase
+	path := strings.TrimPrefix(r.URL.Path, "/pack/")
+	path = strings.TrimSuffix(path, "/purchase")
+	path = strings.TrimSuffix(path, "/")
+	listingID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || listingID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_listing_id"})
+		return
+	}
+
+	// Verify the pack exists, is published, and share_mode is NOT 'free'
+	var shareMode string
+	var creditsPrice int
+	var packName string
+	err = db.QueryRow(
+		"SELECT share_mode, credits_price, pack_name FROM pack_listings WHERE id = ? AND status = 'published'",
+		listingID,
+	).Scan(&shareMode, &creditsPrice, &packName)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack_not_found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to query pack id=%d: %v", listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if shareMode == "free" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "pack_is_free"})
+		return
+	}
+
+	// Parse JSON body
+	var reqBody struct {
+		Quantity int `json:"quantity"`
+		Months   int `json:"months"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request_body"})
+		return
+	}
+
+	// Calculate total cost based on share_mode
+	var totalCost int
+	switch shareMode {
+	case "per_use":
+		if reqBody.Quantity <= 0 {
+			reqBody.Quantity = 1
+		}
+		totalCost = creditsPrice * reqBody.Quantity
+	case "subscription":
+		if reqBody.Months <= 0 {
+			reqBody.Months = 1
+		}
+		if reqBody.Months > 12 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "months_must_be_1_to_12"})
+			return
+		}
+		totalCost = creditsPrice * reqBody.Months
+	default:
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "unsupported_share_mode"})
+		return
+	}
+
+	// Check user's credits balance
+	var balance float64
+	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to query balance for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if balance < float64(totalCost) {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"insufficient_balance": true,
+			"balance":              balance,
+		})
+		return
+	}
+
+	// Use a database transaction for atomic credits deduction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to begin transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Deduct credits atomically
+	result, err := tx.Exec(
+		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+		totalCost, userID, totalCost,
+	)
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to deduct credits: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"insufficient_balance": true,
+			"balance":              balance,
+		})
+		return
+	}
+
+	// Record credits transaction
+	var description string
+	if shareMode == "per_use" {
+		description = fmt.Sprintf("Purchase %d uses from detail: %s", reqBody.Quantity, packName)
+	} else {
+		description = fmt.Sprintf("Purchase %d month(s) subscription from detail: %s", reqBody.Months, packName)
+	}
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description, ip_address)
+		 VALUES (?, 'purchase', ?, ?, ?, ?)`,
+		userID, -float64(totalCost), listingID, description, getClientIP(r),
+	)
+	if err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to record transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to commit transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Create/update user purchased pack record
+	if err := upsertUserPurchasedPack(userID, listingID); err != nil {
+		log.Printf("[PURCHASE-FROM-DETAIL] failed to upsert purchased pack (user=%d, listing=%d): %v", userID, listingID, err)
+	}
+
+	// For per_use packs, sync pack_usage_records.total_purchased
+	if shareMode == "per_use" {
+		_, err = db.Exec(
+			`INSERT OR IGNORE INTO pack_usage_records (user_id, listing_id, used_count, total_purchased) VALUES (?, ?, 0, 0)`,
+			userID, listingID,
+		)
+		if err != nil {
+			log.Printf("[PURCHASE-FROM-DETAIL] failed to insert pack_usage_records (user=%d, listing=%d): %v", userID, listingID, err)
+		}
+		_, err = db.Exec(
+			`UPDATE pack_usage_records SET total_purchased = total_purchased + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND listing_id = ?`,
+			reqBody.Quantity, userID, listingID,
+		)
+		if err != nil {
+			log.Printf("[PURCHASE-FROM-DETAIL] failed to update total_purchased (user=%d, listing=%d): %v", userID, listingID, err)
+		}
+	}
+
+	log.Printf("[PURCHASE-FROM-DETAIL] user %d purchased pack %d (%s), mode=%s, cost=%d", userID, listingID, packName, shareMode, totalCost)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":          true,
+		"credits_deducted": totalCost,
+	})
+}
+
+
 
 // handleUploadPack handles POST /api/packs/upload.
 // Accepts a multipart form with a .qap file and sharing settings.
@@ -3522,6 +5005,248 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusCreated, listing)
 }
 
+func handleReplacePack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse multipart form (max 500MB)
+	if err := r.ParseMultipartForm(500 << 20); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form"})
+		return
+	}
+
+	// Get user ID from auth middleware
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Parse listing_id (the published pack to replace)
+	listingIDStr := r.FormValue("listing_id")
+	if listingIDStr == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "listing_id is required"})
+		return
+	}
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid listing_id"})
+		return
+	}
+
+	// Verify listing exists, belongs to current user, and is published
+	var ownerID int64
+	var currentStatus string
+	var currentVersion int
+	var categoryID int64
+	var shareMode string
+	var creditsPrice int
+	err = db.QueryRow(
+		`SELECT user_id, status, COALESCE(version, 1), category_id, share_mode, credits_price FROM pack_listings WHERE id = ?`,
+		listingID,
+	).Scan(&ownerID, &currentStatus, &currentVersion, &categoryID, &shareMode, &creditsPrice)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[REPLACE-PACK] failed to query listing %d: %v", listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if ownerID != userID {
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "not your listing"})
+		return
+	}
+	if currentStatus != "published" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "can only replace published packs"})
+		return
+	}
+
+	// Read uploaded file
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "file is required"})
+		return
+	}
+	defer file.Close()
+
+	fileData, err := io.ReadAll(io.LimitReader(file, 500*1024*1024+1))
+	if err != nil {
+		log.Printf("[REPLACE-PACK] failed to read uploaded file: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if int64(len(fileData)) > 500*1024*1024 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "file_too_large"})
+		return
+	}
+
+	// Parse .qap file as ZIP and extract metadata
+	zipReader, err := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
+		return
+	}
+
+	var qapContent qapFileContent
+	var foundJSON bool
+	var isEncrypted bool
+
+	for _, f := range zipReader.File {
+		if f.Name == "metadata.json" {
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			jsonData, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				continue
+			}
+			var meta struct {
+				PackName    string `json:"pack_name"`
+				Author      string `json:"author"`
+				CreatedAt   string `json:"created_at"`
+				SourceName  string `json:"source_name"`
+				Description string `json:"description"`
+			}
+			if err := json.Unmarshal(jsonData, &meta); err == nil {
+				qapContent.Metadata = meta
+				foundJSON = true
+			}
+			break
+		}
+	}
+
+	for _, f := range zipReader.File {
+		if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
+			rc, err := f.Open()
+			if err != nil {
+				break
+			}
+			jsonData, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				break
+			}
+			if len(jsonData) >= 6 && string(jsonData[:6]) == "QAPENC" {
+				isEncrypted = true
+				break
+			}
+			var fullContent qapFileContent
+			if err := json.Unmarshal(jsonData, &fullContent); err == nil {
+				qapContent = fullContent
+				foundJSON = true
+			}
+			break
+		}
+	}
+	_ = isEncrypted
+
+	if !foundJSON {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_pack_format"})
+		return
+	}
+
+	// Encrypt paid packs
+	var encryptionPassword string
+	if shareMode == "per_use" || shareMode == "subscription" {
+		if isEncrypted {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "paid packs must not be pre-encrypted"})
+			return
+		}
+		var packJSONBytes []byte
+		zr2, _ := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+		for _, f := range zr2.File {
+			if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
+				rc, err := f.Open()
+				if err != nil {
+					break
+				}
+				packJSONBytes, err = io.ReadAll(rc)
+				rc.Close()
+				if err != nil {
+					packJSONBytes = nil
+				}
+				break
+			}
+		}
+		if packJSONBytes == nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		pwd, err := generateSecurePassword()
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		encryptedData, err := serverEncryptPackJSON(packJSONBytes, pwd)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		newFileData, err := repackZipWithEncryptedData(fileData, encryptedData)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		fileData = newFileData
+		encryptionPassword = pwd
+	}
+
+	// Extract meta info
+	metaInfo := PackMetaInfo{Tables: []PackMetaTable{}}
+	for _, sr := range qapContent.SchemaRequirements {
+		table := PackMetaTable{TableName: sr.TableName, Columns: []string{}}
+		for _, col := range sr.Columns {
+			table.Columns = append(table.Columns, col.Name)
+		}
+		metaInfo.Tables = append(metaInfo.Tables, table)
+	}
+	metaInfoJSON := "{}"
+	if len(metaInfo.Tables) > 0 {
+		if b, err := json.Marshal(metaInfo); err == nil {
+			metaInfoJSON = string(b)
+		}
+	}
+
+	packName := qapContent.Metadata.PackName
+	if packName == "" {
+		packName = qapContent.Metadata.SourceName
+	}
+	if packName == "" {
+		packName = "Untitled"
+	}
+
+	newVersion := currentVersion + 1
+
+	// Update the listing: replace file_data, update metadata, bump version, reset to pending
+	_, err = db.Exec(`
+		UPDATE pack_listings
+		SET file_data = ?, pack_name = ?, pack_description = ?, source_name = ?, author_name = ?,
+		    meta_info = ?, encryption_password = ?, version = ?,
+		    status = 'pending', reviewed_by = NULL, reviewed_at = NULL, reject_reason = NULL
+		WHERE id = ? AND user_id = ?
+	`, fileData, packName, qapContent.Metadata.Description, qapContent.Metadata.SourceName,
+		qapContent.Metadata.Author, metaInfoJSON, encryptionPassword, newVersion, listingID, userID)
+	if err != nil {
+		log.Printf("[REPLACE-PACK] failed to update listing %d: %v", listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	log.Printf("[REPLACE-PACK] user %d replaced listing %d, version %d -> %d", userID, listingID, currentVersion, newVersion)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"listing_id":  listingID,
+		"new_version": newVersion,
+		"status":      "pending",
+	})
+}
+
 func handleReportPackUsage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -3626,11 +5351,171 @@ func handleReportPackUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	remaining := totalPurchased - usedCount
+	if remaining < 0 {
+		remaining = 0
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":         true,
 		"used_count":      usedCount,
 		"total_purchased": totalPurchased,
+		"remaining_uses":  remaining,
+		"exhausted":       usedCount >= totalPurchased,
 	})
+}
+
+// handleGetMyLicenses handles GET /api/packs/my-licenses.
+// Returns the authenticated user's usage license info for all purchased packs.
+// The client uses this to sync its local UsageLicenseStore with the server's authoritative data.
+func handleGetMyLicenses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userID, _ := strconv.ParseInt(r.Header.Get("X-User-ID"), 10, 64)
+	if userID == 0 {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	type LicenseJSON struct {
+		ListingID          int64  `json:"listing_id"`
+		PackName           string `json:"pack_name"`
+		PricingModel       string `json:"pricing_model"`
+		RemainingUses      int    `json:"remaining_uses"`
+		TotalUses          int    `json:"total_uses"`
+		ExpiresAt          string `json:"expires_at"`
+		SubscriptionMonths int    `json:"subscription_months"`
+	}
+
+	rows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
+		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0),
+		       COALESCE(src.purchase_date, upp.created_at) as purchase_date
+		FROM user_purchased_packs upp
+		JOIN pack_listings pl ON upp.listing_id = pl.id
+		LEFT JOIN pack_usage_records pur ON pur.user_id = upp.user_id AND pur.listing_id = upp.listing_id
+		LEFT JOIN (
+		    SELECT user_id, listing_id, MIN(created_at) as purchase_date
+		    FROM credits_transactions
+		    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew_subscription')
+		    GROUP BY user_id, listing_id
+		) src ON src.user_id = upp.user_id AND src.listing_id = upp.listing_id
+		WHERE upp.user_id = ? AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
+		ORDER BY upp.updated_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[handleGetMyLicenses] query error for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	licenses := []LicenseJSON{}
+	for rows.Next() {
+		var listingID int64
+		var packName, shareMode string
+		var creditsPrice, validDays, usedCount, totalPurchased int
+		var purchaseDateStr string
+		if err := rows.Scan(&listingID, &packName, &shareMode, &creditsPrice, &validDays, &usedCount, &totalPurchased, &purchaseDateStr); err != nil {
+			log.Printf("[handleGetMyLicenses] scan error: %v", err)
+			continue
+		}
+
+		lic := LicenseJSON{
+			ListingID:    listingID,
+			PackName:     packName,
+			PricingModel: shareMode,
+		}
+
+		switch shareMode {
+		case "per_use":
+			lic.TotalUses = totalPurchased
+			remaining := totalPurchased - usedCount
+			if remaining < 0 {
+				remaining = 0
+			}
+			lic.RemainingUses = remaining
+		case "subscription":
+			effectiveDays := validDays
+			if effectiveDays == 0 {
+				effectiveDays = 30
+			}
+			if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr); err == nil {
+				lic.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format(time.RFC3339)
+			} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr); err == nil {
+				lic.ExpiresAt = t.AddDate(0, 0, effectiveDays).Format(time.RFC3339)
+			}
+			lic.SubscriptionMonths = validDays / 30
+		}
+
+		licenses = append(licenses, lic)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleGetMyLicenses] rows iteration error: %v", err)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"licenses": licenses})
+}
+
+// handleGetPurchasedPacks handles GET /api/packs/purchased.
+// Returns the authenticated user's purchased packs (excluding hidden ones) as JSON.
+func handleGetPurchasedPacks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userID, _ := strconv.ParseInt(r.Header.Get("X-User-ID"), 10, 64)
+	if userID == 0 {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	type PurchasedPackJSON struct {
+		ListingID       int64  `json:"listing_id"`
+		PackName        string `json:"pack_name"`
+		PackDescription string `json:"pack_description"`
+		SourceName      string `json:"source_name"`
+		AuthorName      string `json:"author_name"`
+		ShareMode       string `json:"share_mode"`
+		CreditsPrice    int    `json:"credits_price"`
+		CreatedAt       string `json:"created_at"`
+	}
+
+	rows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
+		       COALESCE(u.display_name, u.email, '') as author_name,
+		       pl.share_mode, pl.credits_price, pl.created_at
+		FROM user_purchased_packs upp
+		JOIN pack_listings pl ON upp.listing_id = pl.id
+		LEFT JOIN users u ON pl.user_id = u.id
+		WHERE upp.user_id = ? AND (upp.is_hidden IS NULL OR upp.is_hidden = 0)
+		ORDER BY upp.updated_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[handleGetPurchasedPacks] query error for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	packs := []PurchasedPackJSON{}
+	for rows.Next() {
+		var p PurchasedPackJSON
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDescription, &p.SourceName, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.CreatedAt); err != nil {
+			log.Printf("[handleGetPurchasedPacks] scan error: %v", err)
+			continue
+		}
+		packs = append(packs, p)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleGetPurchasedPacks] rows iteration error: %v", err)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"packs": packs})
 }
 
 // handleListPacks handles GET /api/packs.
@@ -3698,6 +5583,9 @@ func handleListPacks(w http.ResponseWriter, r *http.Request) {
 		}
 		listings = append(listings, l)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleListPacks] rows iteration error: %v", err)
+	}
 
 	// Optionally resolve user identity from Authorization header
 	userID := optionalUserID(r)
@@ -3738,23 +5626,57 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look up the pack listing (must be published)
+	// Look up the pack listing.
+	// For re-downloads by users who already purchased, allow any status (including delisted).
+	// First try published, then check if user has a purchase record for non-published packs.
 	var shareMode string
 	var creditsPrice int
 	var fileData []byte
 	var packName string
 	var metaInfoStr sql.NullString
 	var encryptionPassword string
+	var packStatus string
 	err = db.QueryRow(
-		`SELECT share_mode, credits_price, file_data, pack_name, meta_info, encryption_password FROM pack_listings WHERE id = ? AND status = 'published'`,
+		`SELECT share_mode, credits_price, file_data, pack_name, meta_info, encryption_password, status FROM pack_listings WHERE id = ?`,
 		packID,
-	).Scan(&shareMode, &creditsPrice, &fileData, &packName, &metaInfoStr, &encryptionPassword)
+	).Scan(&shareMode, &creditsPrice, &fileData, &packName, &metaInfoStr, &encryptionPassword, &packStatus)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
 		return
 	} else if err != nil {
 		log.Printf("Failed to query pack listing: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// If pack is not published, only allow re-download for users who already purchased it
+	if packStatus != "published" {
+		var purchaseCount int
+		err = db.QueryRow(
+			`SELECT COUNT(*) FROM user_purchased_packs WHERE user_id = ? AND listing_id = ? AND (is_hidden IS NULL OR is_hidden = 0)`,
+			userID, packID,
+		).Scan(&purchaseCount)
+		if err != nil || purchaseCount == 0 {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "pack not found"})
+			return
+		}
+		// User has purchased this pack before — allow re-download without charging
+		// Record download and return file data directly
+		_, _ = db.Exec("INSERT INTO user_downloads (user_id, listing_id, ip_address) VALUES (?, ?, ?)", userID, packID, getClientIP(r))
+
+		metaInfoValue := "{}"
+		if metaInfoStr.Valid && metaInfoStr.String != "" {
+			metaInfoValue = metaInfoStr.String
+		}
+		if encryptionPassword != "" {
+			w.Header().Set("X-Encryption-Password", encryptionPassword)
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
+		w.Header().Set("X-Meta-Info", metaInfoValue)
+		w.WriteHeader(http.StatusOK)
+		w.Write(fileData)
 		return
 	}
 
@@ -3820,9 +5742,9 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 
 		// Record credits transaction
 		_, err = tx.Exec(
-			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
-			 VALUES (?, 'download', ?, ?, ?)`,
-			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName),
+			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description, ip_address)
+			 VALUES (?, 'download', ?, ?, ?, ?)`,
+			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName), getClientIP(r),
 		)
 		if err != nil {
 			log.Printf("Failed to record transaction: %v", err)
@@ -3921,9 +5843,9 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 
 		_, err = tx.Exec(
-			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
-			 VALUES (?, 'download', ?, ?, ?)`,
-			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName),
+			`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description, ip_address)
+			 VALUES (?, 'download', ?, ?, ?, ?)`,
+			userID, -float64(creditsPrice), packID, fmt.Sprintf("Download pack: %s", packName), getClientIP(r),
 		)
 		if err != nil {
 			log.Printf("Failed to record transaction: %v", err)
@@ -3945,8 +5867,8 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record download in user_downloads table (non-critical, ignore errors)
-	_, err = db.Exec("INSERT INTO user_downloads (user_id, listing_id) VALUES (?, ?)", userID, packID)
+	// Record download in user_downloads table with buyer IP (non-critical, ignore errors)
+	_, err = db.Exec("INSERT INTO user_downloads (user_id, listing_id, ip_address) VALUES (?, ?, ?)", userID, packID, getClientIP(r))
 	if err != nil {
 		log.Printf("Failed to record user download: %v", err)
 	}
@@ -4094,9 +6016,9 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 
 	// Record credits transaction
 	_, err = tx.Exec(
-		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
-		 VALUES (?, 'purchase_uses', ?, ?, ?)`,
-		userID, -float64(totalCost), packID, fmt.Sprintf("Purchase %d additional uses: %s", req.Quantity, packName),
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description, ip_address)
+		 VALUES (?, 'purchase_uses', ?, ?, ?, ?)`,
+		userID, -float64(totalCost), packID, fmt.Sprintf("Purchase %d additional uses: %s", req.Quantity, packName), getClientIP(r),
 	)
 	if err != nil {
 		log.Printf("Failed to record transaction: %v", err)
@@ -4174,8 +6096,8 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	if reqBody.Months == 0 {
 		reqBody.Months = 1 // default to monthly
 	}
-	if reqBody.Months != 1 && reqBody.Months != 12 {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "months must be 1 (monthly) or 12 (yearly)"})
+	if reqBody.Months < 1 || reqBody.Months > 36 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "months must be between 1 and 36"})
 		return
 	}
 
@@ -4205,8 +6127,10 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	// Calculate total cost and granted months
 	totalCost := creditsPrice * reqBody.Months
 	grantedMonths := reqBody.Months
-	if reqBody.Months == 12 {
-		grantedMonths = 14 // yearly bonus: pay 12, get 14
+	// Yearly bonus: for every 12 months purchased, grant 2 bonus months
+	yearlyBlocks := reqBody.Months / 12
+	if yearlyBlocks > 0 {
+		grantedMonths = reqBody.Months + yearlyBlocks*2
 	}
 
 	// Check user's credits balance
@@ -4256,9 +6180,56 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate new expires_at
+	// Calculate new expires_at: extend from current expiry if still valid, otherwise from now
 	now := time.Now().UTC()
-	expiresAt := now.AddDate(0, grantedMonths, 0)
+	baseTime := now
+
+	// Query the current effective expiry for this user+pack from the latest renew or original purchase
+	var currentExpiresAt time.Time
+	var latestTxDate string
+	var latestDesc string
+	err = db.QueryRow(`
+		SELECT created_at, COALESCE(description, '')
+		FROM credits_transactions
+		WHERE user_id = ? AND listing_id = ? AND transaction_type = 'renew'
+		ORDER BY created_at DESC LIMIT 1
+	`, userID, packID).Scan(&latestTxDate, &latestDesc)
+	if err == nil && latestTxDate != "" {
+		// Determine previous renewal months from description
+		prevMonths := 1
+		if strings.Contains(latestDesc, "yearly") || strings.Contains(latestDesc, "14 month") {
+			prevMonths = 14
+		} else if strings.Contains(latestDesc, "12 month") {
+			prevMonths = 12
+		}
+		if t, parseErr := time.Parse("2006-01-02 15:04:05", latestTxDate); parseErr == nil {
+			currentExpiresAt = t.AddDate(0, prevMonths, 0)
+		} else if t, parseErr := time.Parse("2006-01-02T15:04:05Z", latestTxDate); parseErr == nil {
+			currentExpiresAt = t.AddDate(0, prevMonths, 0)
+		}
+	}
+	// If no renew record, check original purchase/download date
+	if currentExpiresAt.IsZero() {
+		var purchaseDate string
+		_ = db.QueryRow(`
+			SELECT created_at FROM credits_transactions
+			WHERE user_id = ? AND listing_id = ? AND transaction_type IN ('purchase', 'download')
+			ORDER BY created_at ASC LIMIT 1
+		`, userID, packID).Scan(&purchaseDate)
+		if purchaseDate != "" {
+			if t, parseErr := time.Parse("2006-01-02 15:04:05", purchaseDate); parseErr == nil {
+				currentExpiresAt = t.AddDate(0, 1, 0) // initial subscription = 1 month
+			} else if t, parseErr := time.Parse("2006-01-02T15:04:05Z", purchaseDate); parseErr == nil {
+				currentExpiresAt = t.AddDate(0, 1, 0)
+			}
+		}
+	}
+
+	// If current subscription is still valid, extend from its expiry; otherwise extend from now
+	if !currentExpiresAt.IsZero() && currentExpiresAt.After(now) {
+		baseTime = currentExpiresAt
+	}
+	expiresAt := baseTime.AddDate(0, grantedMonths, 0)
 
 	// Record credits transaction
 	desc := fmt.Sprintf("Renew subscription (%d months): %s", reqBody.Months, packName)
@@ -4266,9 +6237,9 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		desc = fmt.Sprintf("Renew subscription (yearly, pay 12 get 14 months): %s", packName)
 	}
 	_, err = tx.Exec(
-		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description)
-		 VALUES (?, 'renew', ?, ?, ?)`,
-		userID, -float64(totalCost), packID, desc,
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id, description, ip_address)
+		 VALUES (?, 'renew', ?, ?, ?, ?)`,
+		userID, -float64(totalCost), packID, desc, getClientIP(r),
 	)
 	if err != nil {
 		log.Printf("Failed to record transaction: %v", err)
@@ -4456,6 +6427,9 @@ func handleListTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		transactions = append(transactions, t)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleListTransactions] rows iteration error: %v", err)
+	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"transactions": transactions,
@@ -4508,6 +6482,9 @@ func handleAdminList(w http.ResponseWriter, r *http.Request) {
 			a.Permissions = []string{}
 		}
 		admins = append(admins, a)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminList] rows iteration error: %v", err)
 	}
 	if admins == nil {
 		admins = []adminInfo{}
@@ -4695,6 +6672,9 @@ func handlePendingList(w http.ResponseWriter, r *http.Request) {
 		}
 		listings = append(listings, p)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handlePendingList] rows iteration error: %v", err)
+	}
 	if listings == nil {
 		listings = []PackListingInfo{}
 	}
@@ -4822,6 +6802,52 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		initialCredits = "0"
 	}
 
+	creditCashRate := getSetting("credit_cash_rate")
+	if creditCashRate == "" {
+		creditCashRate = "0"
+	}
+
+	revenueSplitPublisherPct := getSetting("revenue_split_publisher_pct")
+	if revenueSplitPublisherPct == "" {
+		revenueSplitPublisherPct = "70"
+	}
+	pubPctVal, _ := strconv.ParseFloat(revenueSplitPublisherPct, 64)
+	revenueSplitPlatformPct := strconv.FormatFloat(100-pubPctVal, 'f', -1, 64)
+
+	// Query withdrawal fee rates from settings
+	feeRatePaypal := getSetting("fee_rate_paypal")
+	if feeRatePaypal == "" {
+		feeRatePaypal = "0"
+	}
+	feeRateWechat := getSetting("fee_rate_wechat")
+	if feeRateWechat == "" {
+		feeRateWechat = "0"
+	}
+	feeRateAlipay := getSetting("fee_rate_alipay")
+	if feeRateAlipay == "" {
+		feeRateAlipay = "0"
+	}
+	feeRateCheck := getSetting("fee_rate_check")
+	if feeRateCheck == "" {
+		feeRateCheck = "0"
+	}
+	feeRateWireTransfer := getSetting("fee_rate_wire_transfer")
+	if feeRateWireTransfer == "" {
+		feeRateWireTransfer = "0"
+	}
+	feeRateBankCardUS := getSetting("fee_rate_bank_card_us")
+	if feeRateBankCardUS == "" {
+		feeRateBankCardUS = "0"
+	}
+	feeRateBankCardEU := getSetting("fee_rate_bank_card_eu")
+	if feeRateBankCardEU == "" {
+		feeRateBankCardEU = "0"
+	}
+	feeRateBankCardCN := getSetting("fee_rate_bank_card_cn")
+	if feeRateBankCardCN == "" {
+		feeRateBankCardCN = "0"
+	}
+
 	// Get admin info from session
 	adminID := getSessionAdminID(r)
 	permissions := getAdminPermissions(adminID)
@@ -4832,8 +6858,19 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	adminTmpl.Execute(w, map[string]interface{}{
 		"InitialCredits":  initialCredits,
-		"AdminID":         adminID,
-		"PermissionsJSON": template.JS(string(permsJSON)),
+		"CreditCashRate":  creditCashRate,
+		"FeeRatePaypal":   feeRatePaypal,
+		"FeeRateWechat":   feeRateWechat,
+		"FeeRateAlipay":   feeRateAlipay,
+		"FeeRateCheck":         feeRateCheck,
+		"FeeRateWireTransfer": feeRateWireTransfer,
+		"FeeRateBankCardUS":   feeRateBankCardUS,
+		"FeeRateBankCardEU":   feeRateBankCardEU,
+		"FeeRateBankCardCN":          feeRateBankCardCN,
+		"RevenueSplitPublisherPct":   revenueSplitPublisherPct,
+		"RevenueSplitPlatformPct":    revenueSplitPlatformPct,
+		"AdminID":                    adminID,
+		"PermissionsJSON":            template.JS(string(permsJSON)),
 	})
 }
 
@@ -4868,6 +6905,911 @@ func handleSetInitialCredits(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
 }
+
+func handleSetCreditCashRate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	value := r.FormValue("value")
+	if value == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value is required"})
+		return
+	}
+
+	// Validate that value is a non-negative number
+	rate, err := strconv.ParseFloat(value, 64)
+	if err != nil || rate < 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value must be a non-negative number"})
+		return
+	}
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('credit_cash_rate', ?)", value)
+	if err != nil {
+		log.Printf("Failed to update credit_cash_rate: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleAdminSaveRevenueSplit saves the publisher revenue split percentage.
+// POST /admin/api/settings/revenue-split
+func handleAdminSaveRevenueSplit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		PublisherPct float64 `json:"publisher_pct"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.PublisherPct < 0 || req.PublisherPct > 100 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "publisher_pct must be between 0 and 100"})
+		return
+	}
+
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", "revenue_split_publisher_pct", fmt.Sprintf("%g", req.PublisherPct))
+	if err != nil {
+		log.Printf("Failed to save revenue_split_publisher_pct: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	log.Printf("[ADMIN] revenue split updated: publisher=%.0f%%, platform=%.0f%%", req.PublisherPct, 100-req.PublisherPct)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleAdminSaveWithdrawalFees saves withdrawal fee rates for each payment type.
+// POST /admin/api/settings/withdrawal-fees
+func handleAdminSaveWithdrawalFees(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		PaypalFeeRate       float64 `json:"paypal_fee_rate"`
+		WechatFeeRate       float64 `json:"wechat_fee_rate"`
+		AlipayFeeRate       float64 `json:"alipay_fee_rate"`
+		CheckFeeRate        float64 `json:"check_fee_rate"`
+		WireTransferFeeRate float64 `json:"wire_transfer_fee_rate"`
+		BankCardUSFeeRate   float64 `json:"bank_card_us_fee_rate"`
+		BankCardEUFeeRate   float64 `json:"bank_card_eu_fee_rate"`
+		BankCardCNFeeRate   float64 `json:"bank_card_cn_fee_rate"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	feeRates := map[string]float64{
+		"fee_rate_paypal":        req.PaypalFeeRate,
+		"fee_rate_wechat":        req.WechatFeeRate,
+		"fee_rate_alipay":        req.AlipayFeeRate,
+		"fee_rate_check":         req.CheckFeeRate,
+		"fee_rate_wire_transfer": req.WireTransferFeeRate,
+		"fee_rate_bank_card_us":  req.BankCardUSFeeRate,
+		"fee_rate_bank_card_eu":  req.BankCardEUFeeRate,
+		"fee_rate_bank_card_cn":  req.BankCardCNFeeRate,
+	}
+
+	for key, rate := range feeRates {
+		if rate < 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": key + " must be non-negative"})
+			return
+		}
+	}
+
+	for key, rate := range feeRates {
+		_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", key, fmt.Sprintf("%g", rate))
+		if err != nil {
+			log.Printf("Failed to save %s: %v", key, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleAdminGetWithdrawals returns a list of withdrawal records, optionally filtered by status.
+// GET /admin/api/withdrawals?status=pending|paid
+func handleAdminGetWithdrawals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	statusFilter := r.URL.Query().Get("status")
+	authorFilter := r.URL.Query().Get("author")
+	var rows *sql.Rows
+	var err error
+
+	query := `SELECT id, user_id, display_name, credits_amount, cash_rate, cash_amount,
+	       payment_type, payment_details, fee_rate, fee_amount, net_amount, status, created_at
+	FROM withdrawal_records`
+	var conditions []string
+	var args []interface{}
+
+	if statusFilter == "pending" || statusFilter == "paid" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, statusFilter)
+	}
+	if authorFilter != "" {
+		conditions = append(conditions, "display_name LIKE ?")
+		args = append(args, "%"+authorFilter+"%")
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	query += " ORDER BY created_at DESC"
+	rows, err = db.Query(query, args...)
+	if err != nil {
+		log.Printf("Failed to query withdrawal records: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	withdrawals := []WithdrawalRequest{}
+	for rows.Next() {
+		var wr WithdrawalRequest
+		if err := rows.Scan(&wr.ID, &wr.UserID, &wr.DisplayName, &wr.CreditsAmount, &wr.CashRate, &wr.CashAmount,
+			&wr.PaymentType, &wr.PaymentDetails, &wr.FeeRate, &wr.FeeAmount, &wr.NetAmount, &wr.Status, &wr.CreatedAt); err != nil {
+			log.Printf("Failed to scan withdrawal record: %v", err)
+			continue
+		}
+		withdrawals = append(withdrawals, wr)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminGetWithdrawals] rows iteration error: %v", err)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"withdrawals": withdrawals})
+}
+
+// handleAdminApproveWithdrawals batch-approves withdrawal records by setting status from pending to paid.
+// POST /admin/api/withdrawals/approve
+func handleAdminApproveWithdrawals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "ids is required"})
+		return
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(req.IDs))
+	args := make([]interface{}, len(req.IDs))
+	for i, id := range req.IDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := fmt.Sprintf("UPDATE withdrawal_records SET status = 'paid' WHERE id IN (%s) AND status = 'pending'",
+		strings.Join(placeholders, ","))
+
+	result, err := db.Exec(query, args...)
+	if err != nil {
+		log.Printf("Failed to approve withdrawals: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	updated, _ := result.RowsAffected()
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "updated": updated})
+}
+
+// handleAdminExportWithdrawals exports selected withdrawal records as an Excel file.
+// GET /admin/api/withdrawals/export?ids=1,2,3
+func handleAdminExportWithdrawals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	idsParam := r.URL.Query().Get("ids")
+	if strings.TrimSpace(idsParam) == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "ids parameter is required"})
+		return
+	}
+
+	idStrs := strings.Split(idsParam, ",")
+	var ids []interface{}
+	var placeholders []string
+	for _, s := range idStrs {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid id: " + s})
+			return
+		}
+		ids = append(ids, id)
+		placeholders = append(placeholders, "?")
+	}
+
+	if len(ids) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "no valid ids provided"})
+		return
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, user_id, display_name, credits_amount, cash_rate, cash_amount,
+		       payment_type, payment_details, fee_rate, fee_amount, net_amount, status, created_at
+		FROM withdrawal_records
+		WHERE id IN (%s)
+		ORDER BY id`, strings.Join(placeholders, ","))
+
+	rows, err := db.Query(query, ids...)
+	if err != nil {
+		log.Printf("Failed to query withdrawal records for export: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	var withdrawals []WithdrawalRequest
+	for rows.Next() {
+		var wr WithdrawalRequest
+		if err := rows.Scan(&wr.ID, &wr.UserID, &wr.DisplayName, &wr.CreditsAmount, &wr.CashRate, &wr.CashAmount,
+			&wr.PaymentType, &wr.PaymentDetails, &wr.FeeRate, &wr.FeeAmount, &wr.NetAmount, &wr.Status, &wr.CreatedAt); err != nil {
+			log.Printf("Failed to scan withdrawal record for export: %v", err)
+			continue
+		}
+		withdrawals = append(withdrawals, wr)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminExportWithdrawals] rows iteration error: %v", err)
+	}
+
+	// Create Excel file
+	f := excelize.NewFile()
+	defer f.Close()
+	sheetName := "提现记录"
+	f.SetSheetName("Sheet1", sheetName)
+
+	// Write header row
+	headers := []string{"作者名称", "收款方式", "收款详情", "提现金额", "手续费率", "手续费金额", "实付金额"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheetName, cell, h)
+	}
+
+	// Payment type labels
+	typeLabels := map[string]string{
+		"paypal": "PayPal", "wechat": "微信", "alipay": "AliPay", "check": "支票",
+	}
+
+	// Write data rows
+	for rowIdx, wr := range withdrawals {
+		row := rowIdx + 2
+		typeLabel := typeLabels[wr.PaymentType]
+		if typeLabel == "" {
+			typeLabel = wr.PaymentType
+		}
+		feeRatePercent := fmt.Sprintf("%.2f%%", wr.FeeRate*100)
+
+		cells := []interface{}{wr.DisplayName, typeLabel, wr.PaymentDetails, wr.CashAmount, feeRatePercent, wr.FeeAmount, wr.NetAmount}
+		for i, val := range cells {
+			cell, _ := excelize.CoordinatesToCellName(i+1, row)
+			f.SetCellValue(sheetName, cell, val)
+		}
+	}
+
+	// Write to buffer
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		log.Printf("Failed to write Excel file: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate Excel file"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="withdrawals_export.xlsx"`)
+	w.Write(buf.Bytes())
+}
+
+
+
+
+// cash_amount = credits_amount × cash_rate
+// fee_amount = cash_amount × fee_rate / 100
+// net_amount = cash_amount - fee_amount
+func calculateWithdrawalFee(creditsAmount, cashRate, feeRate float64) (cashAmount, feeAmount, netAmount float64) {
+	cashAmount = creditsAmount * cashRate
+	feeAmount = cashAmount * feeRate / 100
+	netAmount = cashAmount - feeAmount
+	return
+}
+
+// handleAuthorWithdraw processes author credit withdrawal requests.
+// POST /user/author/withdraw
+// Supports both form submit (redirect) and AJAX (JSON response).
+func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
+	isAjax := r.Header.Get("X-Requested-With") == "XMLHttpRequest" ||
+		strings.Contains(r.Header.Get("Accept"), "application/json")
+
+	withdrawError := func(code string, msg string) {
+		if isAjax {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": false, "error": code, "message": msg})
+		} else {
+			http.Redirect(w, r, "/user/?error="+code, http.StatusFound)
+		}
+	}
+	withdrawSuccess := func() {
+		if isAjax {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		} else {
+			http.Redirect(w, r, "/user/?success=withdraw", http.StatusFound)
+		}
+	}
+
+	if r.Method != http.MethodPost {
+		log.Printf("[AUTHOR-WITHDRAW] rejected: method=%s (expected POST)", r.Method)
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] rejected: invalid user ID %q", userIDStr)
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	log.Printf("[AUTHOR-WITHDRAW] user %d: starting withdrawal request (isAjax=%v)", userID, isAjax)
+
+	// Payment info pre-check: user must have payment info set before withdrawing
+	var paymentType, paymentDetailsStr string
+	err = db.QueryRow("SELECT payment_type, payment_details FROM user_payment_info WHERE user_id = ?", userID).Scan(&paymentType, &paymentDetailsStr)
+	if err == sql.ErrNoRows {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - no payment info", userID)
+		withdrawError("no_payment_info", "请先设置收款信息")
+		return
+	}
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to query payment info for user %d: %v", userID, err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	// Get user's display_name
+	var displayName string
+	err = db.QueryRow("SELECT display_name FROM users WHERE id = ?", userID).Scan(&displayName)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to query display_name for user %d: %v", userID, err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	// Verify user is an author (has at least one pack listing)
+	var authorPackCount int
+	err = db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE user_id = ?", userID).Scan(&authorPackCount)
+	if err != nil || authorPackCount == 0 {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - not author (count=%d, err=%v)", userID, authorPackCount, err)
+		withdrawError("not_author", "仅作者可以申请提现")
+		return
+	}
+
+	// Parse and validate credits_amount
+	creditsAmountStr := r.FormValue("credits_amount")
+	creditsAmount, err := strconv.ParseFloat(creditsAmountStr, 64)
+	if err != nil || creditsAmount <= 0 {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - invalid amount %q (err=%v)", userID, creditsAmountStr, err)
+		withdrawError("invalid_withdraw_amount", "提现金额无效")
+		return
+	}
+
+	// Query credit_cash_rate from settings
+	cashRateStr := getSetting("credit_cash_rate")
+	cashRate, _ := strconv.ParseFloat(cashRateStr, 64)
+	if cashRate <= 0 {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - withdraw disabled (cashRate=%s)", userID, cashRateStr)
+		withdrawError("withdraw_disabled", "提现功能暂未开放")
+		return
+	}
+
+	// Read fee rate for the user's payment type from settings (default to 0 if not found)
+	feeRateStr := getSetting("fee_rate_" + paymentType)
+	feeRate, _ := strconv.ParseFloat(feeRateStr, 64)
+	if feeRate < 0 {
+		feeRate = 0
+	}
+
+	// Calculate unwithdrawn credits: total revenue minus total withdrawn (with revenue split)
+	// Must match the dashboard query exactly: purchase, download, purchase_uses, renew with amount < 0
+	var totalRevenue float64
+	err = db.QueryRow(`
+		SELECT COALESCE(SUM(ABS(ct.amount)), 0)
+		FROM credits_transactions ct
+		JOIN pack_listings pl ON ct.listing_id = pl.id
+		WHERE pl.user_id = ? AND ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+		  AND ct.amount < 0
+	`, userID).Scan(&totalRevenue)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to query total revenue for user %d: %v", userID, err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	// Apply revenue split: publisher only gets their configured share
+	splitPctStr := getSetting("revenue_split_publisher_pct")
+	splitPct, _ := strconv.ParseFloat(splitPctStr, 64)
+	if splitPct <= 0 {
+		splitPct = 70 // default 70%
+	}
+	publisherRevenue := totalRevenue * splitPct / 100
+
+	var totalWithdrawn float64
+	err = db.QueryRow(`
+		SELECT COALESCE(SUM(credits_amount), 0)
+		FROM withdrawal_records
+		WHERE user_id = ?
+	`, userID).Scan(&totalWithdrawn)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to query total withdrawn for user %d: %v", userID, err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	unwithdrawn := publisherRevenue - totalWithdrawn
+	if unwithdrawn < 0 {
+		unwithdrawn = 0
+	}
+
+	log.Printf("[AUTHOR-WITHDRAW] user %d: amount=%.2f, totalRevenue=%.2f, splitPct=%.0f, publisherRevenue=%.2f, totalWithdrawn=%.2f, unwithdrawn=%.2f",
+		userID, creditsAmount, totalRevenue, splitPct, publisherRevenue, totalWithdrawn, unwithdrawn)
+
+	// Verify credits_amount does not exceed unwithdrawn
+	if creditsAmount > unwithdrawn {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - amount %.2f exceeds unwithdrawn %.2f", userID, creditsAmount, unwithdrawn)
+		withdrawError("withdraw_exceeds_balance", "提现数量超过可提现余额")
+		return
+	}
+
+	// Calculate cash_amount, fee_amount, net_amount using calculateWithdrawalFee
+	cashAmount, feeAmount, netAmount := calculateWithdrawalFee(creditsAmount, cashRate, feeRate)
+
+	log.Printf("[AUTHOR-WITHDRAW] user %d: cashRate=%.4f, feeRate=%.2f, cashAmount=%.2f, feeAmount=%.2f, netAmount=%.2f",
+		userID, cashRate, feeRate, cashAmount, feeAmount, netAmount)
+
+	// Minimum withdrawal: net_amount must be at least 100 元
+	if netAmount < 100 {
+		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - netAmount %.2f < 100", userID, netAmount)
+		withdrawError("withdraw_below_minimum", "扣除手续费后实付金额低于最低提现金额 100 元")
+		return
+	}
+
+	// Transaction: INSERT withdrawal_records + UPDATE credits_balance
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to begin transaction: %v", err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+	defer tx.Rollback()
+
+	// Store fee_rate as decimal (e.g. 0.03 for 3%) for consistency with admin frontend display
+	feeRateDecimal := feeRate / 100
+
+	_, err = tx.Exec(
+		`INSERT INTO withdrawal_records (user_id, credits_amount, cash_rate, cash_amount, payment_type, payment_details, fee_rate, fee_amount, net_amount, status, display_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		userID, creditsAmount, cashRate, cashAmount, paymentType, paymentDetailsStr, feeRateDecimal, feeAmount, netAmount, displayName,
+	)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to insert withdrawal record: %v", err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	_, err = tx.Exec(
+		`UPDATE users SET credits_balance = credits_balance - ? WHERE id = ?`,
+		creditsAmount, userID,
+	)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to update credits_balance: %v", err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[AUTHOR-WITHDRAW] failed to commit transaction: %v", err)
+		withdrawError("internal", "系统错误")
+		return
+	}
+
+	log.Printf("[AUTHOR-WITHDRAW] user %d withdrew %.2f credits (cash=%.2f, fee=%.2f, net=%.2f, rate=%.4f, feeRate=%.4f, paymentType=%s)", userID, creditsAmount, cashAmount, feeAmount, netAmount, cashRate, feeRate, paymentType)
+	withdrawSuccess()
+}
+
+// WithdrawalRecord holds a single withdrawal record for the withdrawal records page.
+type WithdrawalRecord struct {
+	ID            int64
+	CreditsAmount float64
+	CashRate      float64
+	CashAmount    float64
+	CreatedAt     string
+}
+
+// handleAuthorWithdrawRecords renders the withdrawal records page for authors.
+// GET /user/author/withdrawals
+// Supports JSON response (Accept: application/json) for modal display.
+func handleAuthorWithdrawRecords(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	isAjax := strings.Contains(r.Header.Get("Accept"), "application/json")
+
+	rows, err := db.Query(`
+		SELECT id, credits_amount, cash_rate, cash_amount, fee_rate, fee_amount, net_amount, status, created_at
+		FROM withdrawal_records
+		WHERE user_id = ?
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		log.Printf("[AUTHOR-WITHDRAWALS] failed to query withdrawal records for user %d: %v", userID, err)
+		if isAjax {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		} else {
+			http.Error(w, "加载提现记录失败", http.StatusInternalServerError)
+		}
+		return
+	}
+	defer rows.Close()
+
+	type jsonRecord struct {
+		ID            int64   `json:"id"`
+		CreditsAmount float64 `json:"credits_amount"`
+		CashRate      float64 `json:"cash_rate"`
+		CashAmount    float64 `json:"cash_amount"`
+		FeeRate       float64 `json:"fee_rate"`
+		FeeAmount     float64 `json:"fee_amount"`
+		NetAmount     float64 `json:"net_amount"`
+		Status        string  `json:"status"`
+		CreatedAt     string  `json:"created_at"`
+	}
+
+	var records []WithdrawalRecord
+	var jsonRecords []jsonRecord
+	var totalCash float64
+	for rows.Next() {
+		var jr jsonRecord
+		if err := rows.Scan(&jr.ID, &jr.CreditsAmount, &jr.CashRate, &jr.CashAmount, &jr.FeeRate, &jr.FeeAmount, &jr.NetAmount, &jr.Status, &jr.CreatedAt); err != nil {
+			log.Printf("[AUTHOR-WITHDRAWALS] failed to scan withdrawal record row: %v", err)
+			continue
+		}
+		totalCash += jr.CashAmount
+		jsonRecords = append(jsonRecords, jr)
+		records = append(records, WithdrawalRecord{
+			ID: jr.ID, CreditsAmount: jr.CreditsAmount, CashRate: jr.CashRate,
+			CashAmount: jr.CashAmount, CreatedAt: jr.CreatedAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAuthorWithdrawRecords] rows iteration error: %v", err)
+	}
+
+	log.Printf("[AUTHOR-WITHDRAWALS] user %d: %d withdrawal records, total cash=%.2f", userID, len(records), totalCash)
+
+	if isAjax {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"records":    jsonRecords,
+			"total_cash": totalCash,
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.UserWithdrawalRecordsTmpl.Execute(w, struct {
+		Records   []WithdrawalRecord
+		TotalCash float64
+	}{Records: records, TotalCash: totalCash})
+}
+
+// handleAuthorEditPack processes author pack metadata edit requests.
+// POST /user/author/edit-pack
+func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Parse form values
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	packName := r.FormValue("pack_name")
+	packDescription := r.FormValue("pack_description")
+	shareMode := r.FormValue("share_mode")
+	creditsPriceStr := r.FormValue("credits_price")
+	creditsPrice, err := strconv.Atoi(creditsPriceStr)
+	if err != nil {
+		creditsPrice = 0
+	}
+
+	// Verify listing belongs to current user
+	var ownerID int64
+	err = db.QueryRow("SELECT user_id FROM pack_listings WHERE id = ?", listingID).Scan(&ownerID)
+	if err != nil {
+		log.Printf("[AUTHOR-EDIT-PACK] listing %d not found: %v", listingID, err)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if ownerID != userID {
+		log.Printf("[AUTHOR-EDIT-PACK] user %d attempted to edit listing %d owned by user %d", userID, listingID, ownerID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Validate share_mode and pricing using existing validatePricingParams
+	if errMsg := validatePricingParams(shareMode, creditsPrice); errMsg != "" {
+		log.Printf("[AUTHOR-EDIT-PACK] pricing validation failed for listing %d: %s", listingID, errMsg)
+		http.Redirect(w, r, "/user/?error=invalid_pricing", http.StatusFound)
+		return
+	}
+
+	// For free mode, force credits_price to 0
+	if shareMode == "free" {
+		creditsPrice = 0
+	}
+
+	// Update pack_listings: set new metadata and reset review status
+	_, err = db.Exec(`
+		UPDATE pack_listings
+		SET pack_name = ?, pack_description = ?, share_mode = ?, credits_price = ?,
+		    status = 'pending', reviewed_by = NULL, reviewed_at = NULL
+		WHERE id = ? AND user_id = ?
+	`, packName, packDescription, shareMode, creditsPrice, listingID, userID)
+	if err != nil {
+		log.Printf("[AUTHOR-EDIT-PACK] failed to update listing %d: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	log.Printf("[AUTHOR-EDIT-PACK] user %d updated listing %d: name=%s mode=%s price=%d", userID, listingID, packName, shareMode, creditsPrice)
+	http.Redirect(w, r, "/user/", http.StatusFound)
+}
+
+// handleAuthorDeletePack allows an author to delete their own rejected pack listing.
+// POST /user/author/delete-pack
+func handleAuthorDeletePack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	// Verify listing belongs to current user and is rejected
+	var ownerID int64
+	var status string
+	err = db.QueryRow("SELECT user_id, status FROM pack_listings WHERE id = ?", listingID).Scan(&ownerID, &status)
+	if err != nil {
+		log.Printf("[AUTHOR-DELETE-PACK] listing %d not found: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=not_found", http.StatusFound)
+		return
+	}
+	if ownerID != userID {
+		log.Printf("[AUTHOR-DELETE-PACK] user %d attempted to delete listing %d owned by user %d", userID, listingID, ownerID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if status != "rejected" {
+		log.Printf("[AUTHOR-DELETE-PACK] user %d attempted to delete listing %d with status %q (only rejected allowed)", userID, listingID, status)
+		http.Redirect(w, r, "/user/?error=not_rejected", http.StatusFound)
+		return
+	}
+
+	// Delete the pack listing
+	_, err = db.Exec("DELETE FROM pack_listings WHERE id = ? AND user_id = ? AND status = 'rejected'", listingID, userID)
+	if err != nil {
+		log.Printf("[AUTHOR-DELETE-PACK] failed to delete listing %d: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=delete_failed", http.StatusFound)
+		return
+	}
+
+	log.Printf("[AUTHOR-DELETE-PACK] user %d deleted rejected listing %d", userID, listingID)
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
+// handleAuthorDelistPack allows an author to delist their own published pack listing.
+// POST /user/author/delist-pack
+func handleAuthorDelistPack(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Redirect(w, r, "/user/", http.StatusFound)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	listingIDStr := r.FormValue("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		http.Redirect(w, r, "/user/?error=invalid_listing", http.StatusFound)
+		return
+	}
+
+	// Verify listing belongs to current user and is published
+	var ownerID int64
+	var status string
+	err = db.QueryRow("SELECT user_id, status FROM pack_listings WHERE id = ?", listingID).Scan(&ownerID, &status)
+	if err != nil {
+		log.Printf("[AUTHOR-DELIST-PACK] listing %d not found: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=not_found", http.StatusFound)
+		return
+	}
+	if ownerID != userID {
+		log.Printf("[AUTHOR-DELIST-PACK] user %d attempted to delist listing %d owned by user %d", userID, listingID, ownerID)
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	if status != "published" {
+		log.Printf("[AUTHOR-DELIST-PACK] user %d attempted to delist listing %d with status %q (only published allowed)", userID, listingID, status)
+		http.Redirect(w, r, "/user/?error=not_published", http.StatusFound)
+		return
+	}
+
+	// Update the pack listing status to delisted
+	_, err = db.Exec("UPDATE pack_listings SET status = 'delisted' WHERE id = ? AND user_id = ? AND status = 'published'", listingID, userID)
+	if err != nil {
+		log.Printf("[AUTHOR-DELIST-PACK] failed to delist listing %d: %v", listingID, err)
+		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
+		return
+	}
+
+	log.Printf("[AUTHOR-DELIST-PACK] user %d delisted listing %d", userID, listingID)
+	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+}
+
+
+// handleAuthorPackPurchases returns JSON with purchase details for a specific pack listing.
+// GET /user/author/pack-purchases?listing_id=123
+func handleAuthorPackPurchases(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	listingIDStr := r.URL.Query().Get("listing_id")
+	listingID, err := strconv.ParseInt(listingIDStr, 10, 64)
+	if err != nil || listingID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid listing_id"})
+		return
+	}
+
+	// Verify listing belongs to current user
+	var ownerID int64
+	err = db.QueryRow("SELECT user_id FROM pack_listings WHERE id = ?", listingID).Scan(&ownerID)
+	if err != nil {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing not found"})
+		return
+	}
+	if ownerID != userID {
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	// Get revenue split percentage
+	splitPctStr := getSetting("revenue_split_publisher_pct")
+	splitPct, _ := strconv.ParseFloat(splitPctStr, 64)
+	if splitPct <= 0 {
+		splitPct = 70
+	}
+
+	// Query purchase transactions for this listing
+	rows, err := db.Query(`
+		SELECT ct.id, COALESCE(u.email, u.display_name, 'unknown') as buyer,
+		       ABS(ct.amount) as amount, ct.created_at, COALESCE(ct.description, '')
+		FROM credits_transactions ct
+		LEFT JOIN users u ON ct.user_id = u.id
+		WHERE ct.listing_id = ? AND ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+		  AND ct.amount < 0
+		ORDER BY ct.created_at DESC
+	`, listingID)
+	if err != nil {
+		log.Printf("[AUTHOR-PACK-PURCHASES] failed to query purchases for listing %d: %v", listingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+
+	type PurchaseDetail struct {
+		ID            int64   `json:"id"`
+		Buyer         string  `json:"buyer"`
+		Amount        float64 `json:"amount"`
+		AuthorEarning float64 `json:"author_earning"`
+		CreatedAt     string  `json:"created_at"`
+		Description   string  `json:"description"`
+	}
+
+	var purchases []PurchaseDetail
+	for rows.Next() {
+		var p PurchaseDetail
+		if err := rows.Scan(&p.ID, &p.Buyer, &p.Amount, &p.CreatedAt, &p.Description); err != nil {
+			log.Printf("[AUTHOR-PACK-PURCHASES] failed to scan row: %v", err)
+			continue
+		}
+		p.AuthorEarning = p.Amount * splitPct / 100
+		purchases = append(purchases, p)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[AUTHOR-PACK-PURCHASES] rows iteration error: %v", err)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ok":        true,
+		"purchases": purchases,
+		"split_pct": splitPct,
+	})
+}
+
 // handleAdminMarketplaceList lists published packs for admin marketplace management.
 // GET /api/admin/marketplace?category_id=&share_mode=&sort=downloads&order=desc
 func handleAdminMarketplaceList(w http.ResponseWriter, r *http.Request) {
@@ -4960,6 +7902,9 @@ func handleAdminMarketplaceList(w http.ResponseWriter, r *http.Request) {
 			l.MetaInfo = json.RawMessage("{}")
 		}
 		listings = append(listings, l)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminMarketplaceList] rows iteration error: %v", err)
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"packs": listings})
 }
@@ -5152,6 +8097,9 @@ func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
 		}
 		authors = append(authors, a)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminAuthorList] rows iteration error: %v", err)
+	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"authors": authors})
 }
 
@@ -5219,6 +8167,9 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		packs = append(packs, p)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminAuthorDetail] rows iteration error: %v", err)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -5349,6 +8300,9 @@ func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 		}
 		c.IsBlocked = blocked == 1
 		customers = append(customers, c)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminCustomerList] rows iteration error: %v", err)
 	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"customers": customers})
 }
@@ -5522,6 +8476,9 @@ func handleAdminCustomerTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 		txns = append(txns, t)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminCustomerTransactions] rows iteration error: %v", err)
+	}
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"transactions": txns})
 }
 
@@ -5545,6 +8502,427 @@ func handleAdminCustomerRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
+// getClientIP extracts the client IP address from the request.
+func getClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	host := r.RemoteAddr
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		return host[:idx]
+	}
+	return host
+}
+
+// handleAdminSalesRoutes dispatches sales management API requests.
+func handleAdminSalesRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/sales")
+	switch {
+	case path == "" || path == "/":
+		handleAdminSalesList(w, r)
+	case path == "/authors":
+		handleAdminSalesAuthors(w, r)
+	case path == "/export":
+		handleAdminSalesExport(w, r)
+	default:
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+	}
+}
+
+// buildSalesWhereClause builds the WHERE clause and args for sales queries based on filters.
+func buildSalesWhereClause(r *http.Request) (string, []interface{}) {
+	where := "WHERE ct.transaction_type IN ('purchase', 'purchase_uses', 'renew', 'download') AND ct.listing_id IS NOT NULL"
+	var args []interface{}
+
+	if catID := r.URL.Query().Get("category_id"); catID != "" {
+		where += " AND pl.category_id = ?"
+		args = append(args, catID)
+	}
+	if authorID := r.URL.Query().Get("author_id"); authorID != "" {
+		where += " AND pl.user_id = ?"
+		args = append(args, authorID)
+	}
+	if dateFrom := r.URL.Query().Get("date_from"); dateFrom != "" {
+		where += " AND ct.created_at >= ?"
+		args = append(args, dateFrom+" 00:00:00")
+	}
+	if dateTo := r.URL.Query().Get("date_to"); dateTo != "" {
+		where += " AND ct.created_at <= ?"
+		args = append(args, dateTo+" 23:59:59")
+	}
+	return where, args
+}
+
+// handleAdminSalesList returns sales orders with summary statistics.
+// GET /api/admin/sales?category_id=&author_id=&date_from=&date_to=
+func handleAdminSalesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	where, args := buildSalesWhereClause(r)
+
+	// Parse pagination params
+	page := 1
+	pageSize := 100
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if v, err := strconv.Atoi(ps); err == nil && v > 0 && v <= 500 {
+			pageSize = v
+		}
+	}
+	offset := (page - 1) * pageSize
+
+	// Query summary stats (always full, no pagination)
+	summaryQuery := fmt.Sprintf(`
+		SELECT COUNT(*), COALESCE(SUM(ABS(ct.amount)), 0),
+		       COUNT(DISTINCT ct.user_id), COUNT(DISTINCT pl.user_id)
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		%s`, where)
+
+	var totalOrders int
+	var totalCredits float64
+	var totalUsers, totalAuthors int
+	err := db.QueryRow(summaryQuery, args...).Scan(&totalOrders, &totalCredits, &totalUsers, &totalAuthors)
+	if err != nil {
+		log.Printf("[handleAdminSalesList] summary query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	// Query order details with pagination
+	orderQuery := fmt.Sprintf(`
+		SELECT ct.id, ct.user_id, COALESCE(buyer.display_name, ''), COALESCE(buyer.email, ''),
+		       COALESCE(pl.pack_name, ''), COALESCE(cat.name, ''),
+		       COALESCE(author.display_name, ''), ct.amount, ct.transaction_type,
+		       COALESCE(ct.ip_address, ''), ct.created_at
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		LEFT JOIN users buyer ON ct.user_id = buyer.id
+		LEFT JOIN users author ON pl.user_id = author.id
+		LEFT JOIN categories cat ON pl.category_id = cat.id
+		%s
+		ORDER BY ct.created_at DESC
+		LIMIT ? OFFSET ?`, where)
+
+	paginatedArgs := append(append([]interface{}{}, args...), pageSize, offset)
+	rows, err := db.Query(orderQuery, paginatedArgs...)
+	if err != nil {
+		log.Printf("[handleAdminSalesList] order query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	type SalesOrder struct {
+		ID              int64   `json:"id"`
+		BuyerID         int64   `json:"buyer_id"`
+		BuyerName       string  `json:"buyer_name"`
+		BuyerEmail      string  `json:"buyer_email"`
+		PackName        string  `json:"pack_name"`
+		CategoryName    string  `json:"category_name"`
+		AuthorName      string  `json:"author_name"`
+		Amount          float64 `json:"amount"`
+		TransactionType string  `json:"transaction_type"`
+		BuyerIP         string  `json:"buyer_ip"`
+		CreatedAt       string  `json:"created_at"`
+	}
+
+	orders := []SalesOrder{}
+	for rows.Next() {
+		var o SalesOrder
+		if err := rows.Scan(&o.ID, &o.BuyerID, &o.BuyerName, &o.BuyerEmail,
+			&o.PackName, &o.CategoryName, &o.AuthorName, &o.Amount, &o.TransactionType,
+			&o.BuyerIP, &o.CreatedAt); err != nil {
+			log.Printf("[handleAdminSalesList] scan error: %v", err)
+			continue
+		}
+		orders = append(orders, o)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminSalesList] rows iteration error: %v", err)
+	}
+
+	totalPages := (totalOrders + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"total_orders":  totalOrders,
+		"total_credits": totalCredits,
+		"total_users":   totalUsers,
+		"total_authors": totalAuthors,
+		"orders":        orders,
+		"page":          page,
+		"page_size":     pageSize,
+		"total_pages":   totalPages,
+	})
+}
+
+
+// handleAdminSalesAuthors returns a list of authors who have published packs (for filter dropdown).
+// GET /api/admin/sales/authors
+func handleAdminSalesAuthors(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT DISTINCT u.id, u.display_name
+		FROM users u
+		INNER JOIN pack_listings pl ON pl.user_id = u.id
+		ORDER BY u.display_name`)
+	if err != nil {
+		log.Printf("[handleAdminSalesAuthors] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	type AuthorOption struct {
+		ID   int64  `json:"id"`
+		Name string `json:"name"`
+	}
+	authors := []AuthorOption{}
+	for rows.Next() {
+		var a AuthorOption
+		if err := rows.Scan(&a.ID, &a.Name); err != nil {
+			continue
+		}
+		authors = append(authors, a)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminSalesAuthors] rows iteration error: %v", err)
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"authors": authors})
+}
+
+// handleAdminSalesExport exports sales data as an Excel file with 3 sheets:
+// 1. 订单详表 (Order Details) - every transaction with buyer info, IP, amount
+// 2. 用户汇总 (User Summary) - aggregated by buyer
+// 3. 作者汇总 (Author Summary) - aggregated by author
+// GET /api/admin/sales/export?category_id=&author_id=&date_from=&date_to=
+func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	where, args := buildSalesWhereClause(r)
+
+	// --- Sheet 1: Order Details ---
+	orderQuery := fmt.Sprintf(`
+		SELECT ct.id, COALESCE(buyer.display_name, ''), COALESCE(buyer.email, ''),
+		       COALESCE(pl.pack_name, ''), COALESCE(cat.name, ''),
+		       COALESCE(author.display_name, ''), ABS(ct.amount), ct.transaction_type,
+		       COALESCE(ct.ip_address, ''), ct.created_at
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		LEFT JOIN users buyer ON ct.user_id = buyer.id
+		LEFT JOIN users author ON pl.user_id = author.id
+		LEFT JOIN categories cat ON pl.category_id = cat.id
+		%s
+		ORDER BY ct.created_at DESC`, where)
+
+	orderRows, err := db.Query(orderQuery, args...)
+	if err != nil {
+		log.Printf("[handleAdminSalesExport] order query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer orderRows.Close()
+
+	type OrderRow struct {
+		ID              int64
+		BuyerName       string
+		BuyerEmail      string
+		PackName        string
+		CategoryName    string
+		AuthorName      string
+		Amount          float64
+		TransactionType string
+		BuyerIP         string
+		CreatedAt       string
+	}
+	var orders []OrderRow
+	for orderRows.Next() {
+		var o OrderRow
+		if err := orderRows.Scan(&o.ID, &o.BuyerName, &o.BuyerEmail, &o.PackName, &o.CategoryName,
+			&o.AuthorName, &o.Amount, &o.TransactionType, &o.BuyerIP, &o.CreatedAt); err != nil {
+			continue
+		}
+		orders = append(orders, o)
+	}
+	if err := orderRows.Err(); err != nil {
+		log.Printf("[handleAdminSalesExport] order rows iteration error: %v", err)
+	}
+
+	// --- Sheet 2: User Summary ---
+	userQuery := fmt.Sprintf(`
+		SELECT buyer.id, COALESCE(buyer.display_name, ''), COALESCE(buyer.email, ''),
+		       COUNT(*), COALESCE(SUM(ABS(ct.amount)), 0)
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		LEFT JOIN users buyer ON ct.user_id = buyer.id
+		%s
+		GROUP BY buyer.id
+		ORDER BY COALESCE(SUM(ABS(ct.amount)), 0) DESC`, where)
+
+	userRows, err := db.Query(userQuery, args...)
+	if err != nil {
+		log.Printf("[handleAdminSalesExport] user query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer userRows.Close()
+
+	type UserRow struct {
+		ID           int64
+		DisplayName  string
+		Email        string
+		OrderCount   int
+		TotalCredits float64
+	}
+	var users []UserRow
+	for userRows.Next() {
+		var u UserRow
+		if err := userRows.Scan(&u.ID, &u.DisplayName, &u.Email, &u.OrderCount, &u.TotalCredits); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+	if err := userRows.Err(); err != nil {
+		log.Printf("[handleAdminSalesExport] user rows iteration error: %v", err)
+	}
+
+	// --- Sheet 3: Author Summary ---
+	authorQuery := fmt.Sprintf(`
+		SELECT author.id, COALESCE(author.display_name, ''), COALESCE(author.email, ''),
+		       COUNT(*), COALESCE(SUM(ABS(ct.amount)), 0),
+		       COUNT(DISTINCT pl.id)
+		FROM credits_transactions ct
+		LEFT JOIN pack_listings pl ON ct.listing_id = pl.id
+		LEFT JOIN users author ON pl.user_id = author.id
+		%s
+		GROUP BY author.id
+		ORDER BY COALESCE(SUM(ABS(ct.amount)), 0) DESC`, where)
+
+	authorRows, err := db.Query(authorQuery, args...)
+	if err != nil {
+		log.Printf("[handleAdminSalesExport] author query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer authorRows.Close()
+
+	type AuthorRow struct {
+		ID           int64
+		DisplayName  string
+		Email        string
+		OrderCount   int
+		TotalCredits float64
+		PackCount    int
+	}
+	var authors []AuthorRow
+	for authorRows.Next() {
+		var a AuthorRow
+		if err := authorRows.Scan(&a.ID, &a.DisplayName, &a.Email, &a.OrderCount, &a.TotalCredits, &a.PackCount); err != nil {
+			continue
+		}
+		authors = append(authors, a)
+	}
+	if err := authorRows.Err(); err != nil {
+		log.Printf("[handleAdminSalesExport] author rows iteration error: %v", err)
+	}
+
+	// Build Excel file
+	f := excelize.NewFile()
+	defer f.Close()
+
+	typeLabels := map[string]string{
+		"purchase": "购买", "purchase_uses": "购买次数", "renew": "续订", "download": "免费领取",
+	}
+
+	// Sheet 1: 订单详表
+	sheet1 := "订单详表"
+	f.SetSheetName("Sheet1", sheet1)
+	orderHeaders := []string{"订单ID", "买家名称", "买家邮箱", "分析包名称", "分类", "作者", "金额(Credits)", "交易类型", "买家IP", "时间"}
+	for i, h := range orderHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet1, cell, h)
+	}
+	for rowIdx, o := range orders {
+		row := rowIdx + 2
+		tl := typeLabels[o.TransactionType]
+		if tl == "" {
+			tl = o.TransactionType
+		}
+		vals := []interface{}{o.ID, o.BuyerName, o.BuyerEmail, o.PackName, o.CategoryName, o.AuthorName, o.Amount, tl, o.BuyerIP, o.CreatedAt}
+		for i, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, row)
+			f.SetCellValue(sheet1, cell, val)
+		}
+	}
+
+	// Sheet 2: 用户汇总
+	sheet2 := "用户汇总"
+	f.NewSheet(sheet2)
+	userHeaders := []string{"用户ID", "名称", "邮箱", "订单数", "总消费(Credits)"}
+	for i, h := range userHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet2, cell, h)
+	}
+	for rowIdx, u := range users {
+		row := rowIdx + 2
+		vals := []interface{}{u.ID, u.DisplayName, u.Email, u.OrderCount, u.TotalCredits}
+		for i, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, row)
+			f.SetCellValue(sheet2, cell, val)
+		}
+	}
+
+	// Sheet 3: 作者汇总
+	sheet3 := "作者汇总"
+	f.NewSheet(sheet3)
+	authorHeaders := []string{"作者ID", "名称", "邮箱", "订单数", "总销售额(Credits)", "分析包数"}
+	for i, h := range authorHeaders {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet3, cell, h)
+	}
+	for rowIdx, a := range authors {
+		row := rowIdx + 2
+		vals := []interface{}{a.ID, a.DisplayName, a.Email, a.OrderCount, a.TotalCredits, a.PackCount}
+		for i, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, row)
+			f.SetCellValue(sheet3, cell, val)
+		}
+	}
+
+	// Write to buffer
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		log.Printf("[handleAdminSalesExport] failed to write Excel: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "failed to generate Excel file"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="sales_export.xlsx"`)
+	w.Write(buf.Bytes())
 }
 
 // securityHeaders adds standard security headers to all responses.
@@ -5590,6 +8968,14 @@ func main() {
 				}
 			}
 			captchasMu.Unlock()
+			// Clean up expired user sessions
+			userSessionsMu.Lock()
+			for id, entry := range userSessions {
+				if now.After(entry.Expiry) {
+					delete(userSessions, id)
+				}
+			}
+			userSessionsMu.Unlock()
 			// Clean up expired math captcha expressions
 			mathCaptchaExpressionsMu.Lock()
 			for id := range mathCaptchaExpressions {
@@ -5623,19 +9009,26 @@ func main() {
 
 	// Pack routes (upload and download require auth, listing is public)
 	http.HandleFunc("/api/packs/upload", authMiddleware(handleUploadPack))
+	http.HandleFunc("/api/packs/replace", authMiddleware(handleReplacePack))
 	http.HandleFunc("/api/packs/report-usage", authMiddleware(handleReportPackUsage))
+	http.HandleFunc("/api/packs/listing-id", authMiddleware(handleGetListingID))
+	http.HandleFunc("/api/packs/purchased", authMiddleware(handleGetPurchasedPacks))
+	http.HandleFunc("/api/packs/my-licenses", authMiddleware(handleGetMyLicenses))
 	http.HandleFunc("/api/packs", handleListPacks)
-	http.HandleFunc("/api/packs/", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/api/packs/", func(w http.ResponseWriter, r *http.Request) {
 		// Dispatch based on URL suffix
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/detail"):
+			// Pack detail API is public, no auth required
+			handleGetPackDetail(w, r)
 		case strings.HasSuffix(r.URL.Path, "/purchase-uses"):
-			handlePurchaseAdditionalUses(w, r)
+			authMiddleware(handlePurchaseAdditionalUses)(w, r)
 		case strings.HasSuffix(r.URL.Path, "/renew"):
-			handleRenewSubscription(w, r)
+			authMiddleware(handleRenewSubscription)(w, r)
 		default:
-			handleDownloadPack(w, r)
+			authMiddleware(handleDownloadPack)(w, r)
 		}
-	}))
+	})
 
 	// Credits routes (all require auth)
 	http.HandleFunc("/api/credits/balance", authMiddleware(handleGetBalance))
@@ -5665,11 +9058,28 @@ func main() {
 	http.HandleFunc("/api/admin/customers", permissionAuth("customers")(handleAdminCustomerRoutes))
 	http.HandleFunc("/api/admin/customers/", permissionAuth("customers")(handleAdminCustomerRoutes))
 
+	// User notification query API (public, optional JWT auth)
+	http.HandleFunc("/api/notifications", handleListNotifications)
+
+	// Notification management API routes (permission-based)
+	http.HandleFunc("/api/admin/notifications", permissionAuth("notifications")(handleAdminNotificationRoutes))
+	http.HandleFunc("/api/admin/notifications/", permissionAuth("notifications")(handleAdminNotificationRoutes))
+
 	// Review API routes (permission-based)
 	http.HandleFunc("/api/admin/review/", permissionAuth("review")(handleReviewRoutes))
 
+	// Sales management API routes (permission-based)
+	http.HandleFunc("/api/admin/sales", permissionAuth("sales")(handleAdminSalesRoutes))
+	http.HandleFunc("/api/admin/sales/", permissionAuth("sales")(handleAdminSalesRoutes))
+
 	// Admin routes (protected by session auth)
 	http.HandleFunc("/admin/settings/initial-credits", permissionAuth("settings")(handleSetInitialCredits))
+	http.HandleFunc("/admin/settings/credit-cash-rate", permissionAuth("settings")(handleSetCreditCashRate))
+	http.HandleFunc("/admin/api/settings/revenue-split", permissionAuth("settings")(handleAdminSaveRevenueSplit))
+	http.HandleFunc("/admin/api/settings/withdrawal-fees", permissionAuth("settings")(handleAdminSaveWithdrawalFees))
+	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
+	http.HandleFunc("/admin/api/withdrawals/approve", permissionAuth("settings")(handleAdminApproveWithdrawals))
+	http.HandleFunc("/admin/api/withdrawals", permissionAuth("settings")(handleAdminGetWithdrawals))
 	http.HandleFunc("/admin/", adminAuth(handleAdminDashboard))
 
 	// User portal routes
@@ -5685,7 +9095,37 @@ func main() {
 	http.HandleFunc("/user/pack/renew-uses", userAuth(handleUserRenewPerUse))
 	http.HandleFunc("/user/pack/renew-subscription", userAuth(handleUserRenewSubscription))
 	http.HandleFunc("/user/pack/delete", userAuth(handleSoftDeletePack))
+	http.HandleFunc("/user/payment-info", userAuth(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handleGetPaymentInfo(w, r)
+		case http.MethodPost:
+			handleSavePaymentInfo(w, r)
+		default:
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+	}))
+	http.HandleFunc("/user/payment-info/fee-rate", userAuth(handleGetPaymentFeeRate))
+	http.HandleFunc("/user/payment-info/fee-rates", userAuth(handleGetAllPaymentFeeRates))
+	http.HandleFunc("/user/author/withdraw", userAuth(handleAuthorWithdraw))
+	http.HandleFunc("/user/author/withdrawals", userAuth(handleAuthorWithdrawRecords))
+	http.HandleFunc("/user/author/edit-pack", userAuth(handleAuthorEditPack))
+	http.HandleFunc("/user/author/delete-pack", userAuth(handleAuthorDeletePack))
+	http.HandleFunc("/user/author/delist-pack", userAuth(handleAuthorDelistPack))
+	http.HandleFunc("/user/author/pack-purchases", userAuth(handleAuthorPackPurchases))
 	http.HandleFunc("/user/", userAuth(handleUserDashboard))
+
+	// Pack detail page route (catches /pack/*)
+	http.HandleFunc("/pack/", func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/claim"):
+			userAuth(handleClaimFreePack)(w, r)
+		case strings.HasSuffix(r.URL.Path, "/purchase"):
+			userAuth(handlePurchaseFromDetail)(w, r)
+		default:
+			handlePackDetailPage(w, r)
+		}
+	})
 
 	// Root redirect to user portal
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

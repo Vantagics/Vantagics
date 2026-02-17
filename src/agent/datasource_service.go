@@ -60,6 +60,65 @@ func validateIdentifier(name string, identifierType string) error {
 	return nil
 }
 
+// openDuckDBReadOnly opens a DuckDB database in read-only mode with retry logic.
+// DuckDB on Windows can fail when a write connection is active on the same file,
+// or when a .wal file remains from a previous write session that was not checkpointed.
+// In the latter case, read-only mode cannot replay the WAL, so we first attempt a
+// brief read-write open + CHECKPOINT to flush the WAL, then retry read-only.
+func (s *DataSourceService) openDuckDBReadOnly(dbPath string) (*sql.DB, error) {
+	connStr := dbPath + "?access_mode=read_only"
+	const maxRetries = 3
+	walCheckpointed := false
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		db, err := sql.Open("duckdb", connStr)
+		if err != nil {
+			lastErr = err
+			s.log(fmt.Sprintf("[DuckDB] read-only open attempt %d/%d failed: %v", i+1, maxRetries, err))
+			// If this is the first failure and we haven't tried checkpointing yet,
+			// attempt a write-mode open + CHECKPOINT to flush any residual WAL file.
+			if !walCheckpointed {
+				walCheckpointed = true
+				s.tryCheckpointWAL(dbPath)
+			}
+			time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
+			continue
+		}
+		// Verify the connection is actually usable
+		if err := db.Ping(); err != nil {
+			db.Close()
+			lastErr = err
+			s.log(fmt.Sprintf("[DuckDB] read-only ping attempt %d/%d failed: %v", i+1, maxRetries, err))
+			if !walCheckpointed {
+				walCheckpointed = true
+				s.tryCheckpointWAL(dbPath)
+			}
+			time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
+			continue
+		}
+		return db, nil
+	}
+	return nil, fmt.Errorf("failed to open DuckDB after %d retries: %w", maxRetries, lastErr)
+}
+
+// tryCheckpointWAL attempts to open the database in read-write mode and execute
+// CHECKPOINT to flush any residual WAL file. This is needed because DuckDB cannot
+// open a database with an un-checkpointed WAL in read-only mode.
+func (s *DataSourceService) tryCheckpointWAL(dbPath string) {
+	s.log(fmt.Sprintf("[DuckDB] Attempting WAL checkpoint for: %s", dbPath))
+	db, err := sql.Open("duckdb", dbPath)
+	if err != nil {
+		s.log(fmt.Sprintf("[DuckDB] WAL checkpoint: failed to open in write mode: %v", err))
+		return
+	}
+	defer db.Close()
+	if _, err := db.Exec("CHECKPOINT"); err != nil {
+		s.log(fmt.Sprintf("[DuckDB] WAL checkpoint: CHECKPOINT failed: %v", err))
+	} else {
+		s.log("[DuckDB] WAL checkpoint: success, WAL flushed")
+	}
+}
+
 // NewDataSourceService creates a new service instance
 func NewDataSourceService(dataCacheDir string, logFunc func(string)) *DataSourceService {
 	return &DataSourceService{
@@ -392,6 +451,12 @@ func (s *DataSourceService) ImportRemoteDataSource(name string, driverType strin
 			tables = append(tables, tableName)
 		}
 
+		// Check for errors from rows iteration
+		if err := rows.Err(); err != nil {
+			_ = os.RemoveAll(absDBDir)
+			return nil, fmt.Errorf("error listing tables: %w", err)
+		}
+
 		if len(tables) == 0 {
 			_ = os.RemoveAll(absDBDir)
 			return nil, fmt.Errorf("no tables found in database")
@@ -437,10 +502,8 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 		return err
 	}
 
-	// Create table in SQLite
-	// We'll treat everything as TEXT or try basic inference? 
-	// For simplicity and robustness, TEXT is safest for caching unless we strictly map types.
-	// But let's try to be a bit smarter or just use TEXT for now to avoid type mismatch issues between MySQL and SQLite.
+	// Create table in DuckDB local cache
+	// TEXT is safest for caching to avoid type mismatch issues with remote databases.
 	createCols := []string{}
 	for _, col := range cols {
 		colName := s.sanitizeName(col)
@@ -470,7 +533,6 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 		tx.Rollback()
 		return err
 	}
-	defer stmt.Close()
 
 	values := make([]interface{}, len(cols))
 	valuePtrs := make([]interface{}, len(cols))
@@ -478,13 +540,17 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 		valuePtrs[i] = &values[i]
 	}
 
+	const batchSize = 5000
+	rowCount := 0
+
 	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
+			stmt.Close()
 			tx.Rollback()
 			return err
 		}
 
-		// Convert to string/interface safe for SQLite
+		// Convert to string/interface safe for DuckDB
 		insertValues := make([]interface{}, len(cols))
 		for i, val := range values {
 			if val == nil {
@@ -500,9 +566,39 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 		}
 
 		if _, err := stmt.Exec(insertValues...); err != nil {
+			stmt.Close()
 			tx.Rollback()
 			return err
 		}
+
+		rowCount++
+		// Commit in batches to reduce memory pressure on large tables
+		// (DuckDB holds uncommitted changes in memory until commit)
+		if rowCount%batchSize == 0 {
+			if err := tx.Commit(); err != nil {
+				stmt.Close()
+				return err
+			}
+			tx, err = localDB.Begin()
+			if err != nil {
+				stmt.Close()
+				return err
+			}
+			stmt.Close()
+			stmt, err = tx.Prepare(insertSQL)
+			if err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+	}
+
+	stmt.Close()
+
+	// Check for errors from rows iteration (e.g. network interruption during fetch)
+	if err := rows.Err(); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("error during row iteration: %w", err)
 	}
 
 	return tx.Commit()
@@ -1247,10 +1343,10 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 
 	var tables []string
 
-	// If DBPath exists, use local DuckDB
+	// If DBPath exists, use local DuckDB (read-only to avoid lock conflicts)
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err := sql.Open("duckdb", dbPath)
+		db, err := s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1358,7 +1454,7 @@ func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1492,7 +1588,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1556,6 +1652,10 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		data = append(data, rowMap)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %v", err)
+	}
+
 	// Update cache with sample data (only for small limits)
 	if useCache && len(data) > 0 {
 		cache := s.getSchemaFromCache(id)
@@ -1601,7 +1701,7 @@ func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName
 	var db *sql.DB
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -1669,6 +1769,10 @@ func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName
 		data = append(data, rowMap)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating rows: %v", err)
+	}
+
 	return data, count, nil
 }
 
@@ -1700,7 +1804,7 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return 0, err
 		}
@@ -1766,7 +1870,7 @@ func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName strin
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -1947,6 +2051,11 @@ func (s *DataSourceService) exportSingleTableToCSV(db *sql.DB, tableName string,
 		if err := w.Write(record); err != nil {
 			return err
 		}
+	}
+
+	// Check for errors from rows iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during row iteration: %w", err)
 	}
 
 	return nil
@@ -2130,6 +2239,10 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 			ws.SetRowHeight(rowNum, 20)
 			rowNum++
 		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return fmt.Errorf("error iterating rows for table %s: %v", tableName, err)
+		}
 		rows.Close()
 
 		// Freeze header row
@@ -2289,6 +2402,11 @@ func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string,
 		}
 	}
 
+	// Check for errors from rows iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during row iteration: %w", err)
+	}
+
 	return nil
 }
 		
@@ -2422,10 +2540,10 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 }
 
 // exportSingleTableToMySQL exports a single table to MySQL
-func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *sql.DB, tableName string) error {
+func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *sql.DB, tableName string) error {
 	// Get Column Info
 	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
-	rows, err := sqliteDB.Query(query)
+	rows, err := sourceDB.Query(query)
 	if err != nil {
 		return err
 	}
@@ -2488,6 +2606,12 @@ func (s *DataSourceService) exportSingleTableToMySQL(sqliteDB *sql.DB, mysqlDB *
 		}
 		rowCount++
 	}
+
+	// Check for errors from rows iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error during row iteration: %w", err)
+	}
+
 	s.log(fmt.Sprintf("Inserted %d rows into %s", rowCount, tableName))
 
 	return nil
@@ -2545,6 +2669,10 @@ func (s *DataSourceService) GetMySQLDatabases(host, port, user, password string)
 		if dbName != "information_schema" && dbName != "mysql" && dbName != "performance_schema" && dbName != "sys" {
 			databases = append(databases, dbName)
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating databases: %v", err)
 	}
 
 	return databases, nil
@@ -2642,6 +2770,11 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 			}
 		}
 		result = append(result, row)
+	}
+
+	// Check for errors from rows iteration (e.g. network interruption)
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("error during row iteration: %w", err)
 	}
 
 	return result, nil
@@ -2793,9 +2926,9 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	}
 
 	var db *sql.DB
-	// Determine if this is a local SQLite-backed data source
-	// Excel, CSV, JSON types are stored locally in SQLite
-	isLocalSQLite := ds.Config.DBPath != "" && (ds.Type == "sqlite" || ds.Type == "excel" || ds.Type == "csv" || ds.Type == "json")
+	// Determine if this is a local DuckDB-backed data source
+	// Excel, CSV, JSON types are stored locally in DuckDB
+	isLocalDuckDB := ds.Config.DBPath != "" && (ds.Type == "sqlite" || ds.Type == "excel" || ds.Type == "csv" || ds.Type == "json")
 	
 	if ds.Type == "mysql" || ds.Type == "postgresql" || ds.Type == "doris" {
 		// Remote database - build connection string
@@ -2818,10 +2951,10 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
 		defer db.Close()
-	} else if isLocalSQLite {
-		// Local SQLite-backed data source (sqlite, excel, csv, json)
+	} else if isLocalDuckDB {
+		// Local DuckDB-backed data source (excel, csv, json, etc.)
 		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-		db, err = sql.Open("duckdb", fullDBPath)
+		db, err = sql.Open("duckdb", fullDBPath+"?access_mode=read_only")
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
@@ -2832,7 +2965,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 
 	// Query column information
 	var rows *sql.Rows
-	if isLocalSQLite {
+	if isLocalDuckDB {
 		// Local data sources are opened via DuckDB driver — use information_schema
 		rows, err = db.Query(
 			"SELECT column_name, data_type, CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable "+
@@ -2849,7 +2982,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	defer rows.Close()
 
 	var columns []ColumnSchema
-	if isLocalSQLite {
+	if isLocalDuckDB {
 		// DuckDB information_schema format: column_name, data_type, nullable
 		for rows.Next() {
 			var name, colType string
@@ -2882,6 +3015,10 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 				Nullable: null == "YES",
 			})
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating column schemas: %w", err)
 	}
 
 	return columns, nil
@@ -2939,19 +3076,12 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 		}
 		// Use full path by joining with dataCacheDir, and use "duckdb" driver
 		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
-		s.log(fmt.Sprintf("[GetConnection] Opening SQLite database: %s", fullDBPath))
+		s.log(fmt.Sprintf("[GetConnection] Opening DuckDB database: %s", fullDBPath))
 		db, err = sql.Open("duckdb", fullDBPath)
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	// Enable WAL mode and performance PRAGMAs for SQLite connections
-	if ds.Config.DBPath != "" {
-		db.Exec("PRAGMA journal_mode=WAL")
-		db.Exec("PRAGMA synchronous=NORMAL")
-		db.Exec("PRAGMA cache_size=-8000") // 8MB cache
 	}
 
 	return db, nil
@@ -3379,7 +3509,7 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = sql.Open("duckdb", dbPath+"?access_mode=read_only")
 		if err != nil {
 			return nil, err
 		}
@@ -3419,6 +3549,9 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 				Type: colType,
 			})
 		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating columns: %v", err)
+		}
 	} else {
 		// MySQL: use DESCRIBE
 		query := fmt.Sprintf("DESCRIBE `%s`", tableName)
@@ -3439,6 +3572,9 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 				Name: field,
 				Type: colType,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating columns: %v", err)
 		}
 	}
 
@@ -3473,7 +3609,7 @@ func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, 
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = sql.Open("duckdb", dbPath+"?access_mode=read_only")
 		if err != nil {
 			return 0, err
 		}
@@ -7342,6 +7478,10 @@ func (s *DataSourceService) ImportSnowflake(name string, config DataSourceConfig
 				tables = append(tables, tableName)
 			}
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating Snowflake tables: %w", err)
 	}
 
 	if len(tables) == 0 {

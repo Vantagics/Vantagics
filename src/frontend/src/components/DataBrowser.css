@@ -200,11 +200,32 @@
     border-radius: 6px;
     color: #dc2626;
     font-size: 13px;
+    flex-wrap: wrap;
 }
 
 .db-error svg {
     flex-shrink: 0;
     margin-top: 1px;
+}
+
+.db-retry-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    margin-top: 4px;
+    background-color: #dc2626;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    width: 100%;
+    justify-content: center;
+}
+
+.db-retry-button:hover {
+    background-color: #b91c1c;
 }
 
 /* Table list - Requirement 8.2 */

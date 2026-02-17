@@ -18,6 +18,7 @@ type UsageLicense struct {
 	TotalUses          int    `json:"total_uses"`          // per_use 模式：总购买次数
 	ExpiresAt          string `json:"expires_at"`          // subscription 模式，RFC3339
 	SubscriptionMonths int    `json:"subscription_months"` // subscription 模式：订阅总月数
+	Blocked            bool   `json:"blocked,omitempty"`   // 服务器验证后标记为已过期/已封禁，不再允许运行
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
 }
@@ -150,6 +151,8 @@ func (s *UsageLicenseStore) GetAllLicenses() []*UsageLicense {
 
 // CheckPermission checks whether the license for the given listing ID allows execution.
 // If no license is found, it is treated as free/untracked and allowed.
+// For subscription packs, local expiry is NOT checked (optimistic execution);
+// instead, server validation happens after execution and sets Blocked=true if expired.
 func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reason string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -157,6 +160,11 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 	lic, ok := s.licenses[listingID]
 	if !ok {
 		return true, ""
+	}
+
+	// If server has previously marked this license as blocked, deny immediately
+	if lic.Blocked {
+		return false, "使用权限已过期，请续费"
 	}
 
 	switch lic.PricingModel {
@@ -168,25 +176,12 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 		}
 		return false, "使用次数已用完，请重新购买"
 	case "subscription":
-		expiresAt, err := time.Parse(time.RFC3339, lic.ExpiresAt)
-		if err != nil {
-			// Cannot parse expiry — be permissive
-			return true, ""
-		}
-		if time.Now().Before(expiresAt) {
-			return true, ""
-		}
-		return false, "使用权限已过期，请续费"
+		// Optimistic: allow execution without checking local expiry.
+		// Server validation will run after execution and set Blocked=true if expired.
+		return true, ""
 	case "time_limited":
-		// Legacy support: treat time_limited like subscription (check expiry)
-		expiresAt, err := time.Parse(time.RFC3339, lic.ExpiresAt)
-		if err != nil {
-			return true, ""
-		}
-		if time.Now().Before(expiresAt) {
-			return true, ""
-		}
-		return false, "使用权限已过期，请续费"
+		// Legacy support: treat time_limited like subscription (optimistic)
+		return true, ""
 	default:
 		// Unknown pricing model — be permissive
 		return true, ""
@@ -212,4 +207,32 @@ func (s *UsageLicenseStore) ConsumeUse(listingID int64) error {
 	lic.RemainingUses--
 	lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	return nil
+}
+
+// MarkBlocked sets the Blocked flag on a license, preventing future execution.
+// This is called after server validation confirms the subscription has expired.
+func (s *UsageLicenseStore) MarkBlocked(listingID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lic, ok := s.licenses[listingID]
+	if !ok {
+		return
+	}
+	lic.Blocked = true
+	lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+}
+
+// ClearBlocked removes the Blocked flag from a license.
+// This is called when RefreshPurchasedPackLicenses updates the license with a valid expiry.
+func (s *UsageLicenseStore) ClearBlocked(listingID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lic, ok := s.licenses[listingID]
+	if !ok {
+		return
+	}
+	lic.Blocked = false
+	lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 }

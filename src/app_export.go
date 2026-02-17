@@ -204,7 +204,9 @@ func generateMessageHTML(content string, messageID string) string {
 	// Remove json:echarts, json:table, json:metrics, json:dashboard code blocks
 	filteredContent := content
 	filteredContent = regexp.MustCompile("```[ \t]*json:echarts[\\s\\S]*?```").ReplaceAllString(filteredContent, "")
+	filteredContent = regexp.MustCompile("(?:^|\\n)json:echarts\\s*\\n\\{[\\s\\S]+?\\n\\}").ReplaceAllString(filteredContent, "")
 	filteredContent = regexp.MustCompile("```[ \t]*json:table[\\s\\S]*?```").ReplaceAllString(filteredContent, "")
+	filteredContent = regexp.MustCompile("(?:^|\\n)json:table\\s*\\n(?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\])").ReplaceAllString(filteredContent, "")
 	filteredContent = regexp.MustCompile("```[ \t]*json:metrics[\\s\\S]*?```").ReplaceAllString(filteredContent, "")
 	filteredContent = regexp.MustCompile("```[ \t]*json:dashboard[\\s\\S]*?```").ReplaceAllString(filteredContent, "")
 	// Remove SQL and Python code blocks
@@ -572,7 +574,9 @@ tr:nth-child(even) {
 		// Filter out technical code blocks
 		content := msg.Content
 		content = regexp.MustCompile("```[ \t]*json:echarts[\\s\\S]*?```").ReplaceAllString(content, "")
+		content = regexp.MustCompile("(?:^|\\n)json:echarts\\s*\\n\\{[\\s\\S]+?\\n\\}").ReplaceAllString(content, "")
 		content = regexp.MustCompile("```[ \t]*json:table[\\s\\S]*?```").ReplaceAllString(content, "")
+		content = regexp.MustCompile("(?:^|\\n)json:table\\s*\\n(?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\])").ReplaceAllString(content, "")
 		content = regexp.MustCompile("```[ \t]*json:metrics[\\s\\S]*?```").ReplaceAllString(content, "")
 		content = regexp.MustCompile("```[ \t]*json:dashboard[\\s\\S]*?```").ReplaceAllString(content, "")
 		content = regexp.MustCompile("```[ \t]*(sql|SQL)[\\s\\S]*?```").ReplaceAllString(content, "")

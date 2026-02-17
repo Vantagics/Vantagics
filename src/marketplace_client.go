@@ -2,14 +2,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DefaultMarketplaceServerURL is the default marketplace server address.
@@ -73,6 +77,17 @@ type PackListingInfo struct {
 	DownloadCount   int    `json:"download_count"`
 	CreatedAt       string `json:"created_at"`
 	Purchased       bool   `json:"purchased"`
+}
+
+// NotificationInfo represents a marketplace notification message.
+type NotificationInfo struct {
+	ID                  int64  `json:"id"`
+	Title               string `json:"title"`
+	Content             string `json:"content"`
+	TargetType          string `json:"target_type"`
+	EffectiveDate       string `json:"effective_date"`
+	DisplayDurationDays int    `json:"display_duration_days"`
+	CreatedAt           string `json:"created_at"`
 }
 
 // ensureMarketplaceClient initializes the marketplace client on the App if not already set.
@@ -452,6 +467,241 @@ func (a *App) BrowseMarketplacePacks(categoryID int64) ([]PackListingInfo, error
 	return result.Packs, nil
 }
 
+// GetMySharedPackNames returns the pack names that the current user has shared to the marketplace.
+// It decodes the JWT token to extract user_id, fetches all marketplace listings,
+// and returns pack names where the listing's user_id matches the current user.
+func (a *App) GetMySharedPackNames() ([]string, error) {
+	// Ensure auth so the token is available even if MarketBrowsePage was never opened.
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		// Auth is best-effort; if it fails, return empty list without blocking.
+		return []string{}, nil
+	}
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return []string{}, nil
+	}
+
+	// Decode JWT payload to get user_id (JWT format: header.payload.signature)
+	parts := bytes.SplitN([]byte(mc.Token), []byte("."), 3)
+	if len(parts) < 2 {
+		return []string{}, nil
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(string(parts[1]))
+	if err != nil {
+		return []string{}, nil
+	}
+
+	var claims struct {
+		UserID int64 `json:"user_id"`
+	}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil || claims.UserID == 0 {
+		return []string{}, nil
+	}
+
+	// Fetch all marketplace listings
+	allPacks, err := a.BrowseMarketplacePacks(0)
+	if err != nil {
+		return []string{}, nil
+	}
+
+	// Filter by current user's ID
+	var names []string
+	for _, p := range allPacks {
+		if p.UserID == claims.UserID {
+			names = append(names, p.PackName)
+		}
+	}
+	if names == nil {
+		names = []string{}
+	}
+	return names, nil
+}
+
+// MyPublishedPackInfo represents a published pack owned by the current user (for replacement selection).
+type MyPublishedPackInfo struct {
+	ListingID   int64  `json:"id"`
+	PackName    string `json:"pack_name"`
+	SourceName  string `json:"source_name"`
+	Version     int    `json:"version"`
+}
+
+// GetMyPublishedPacks returns the current user's published packs, optionally filtered by source_name.
+func (a *App) GetMyPublishedPacks(sourceName string) ([]MyPublishedPackInfo, error) {
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		return []MyPublishedPackInfo{}, nil
+	}
+	mc := a.marketplaceClient
+	if mc.Token == "" {
+		return []MyPublishedPackInfo{}, nil
+	}
+
+	// Decode JWT to get user_id
+	parts := bytes.SplitN([]byte(mc.Token), []byte("."), 3)
+	if len(parts) < 2 {
+		return []MyPublishedPackInfo{}, nil
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(string(parts[1]))
+	if err != nil {
+		return []MyPublishedPackInfo{}, nil
+	}
+	var claims struct {
+		UserID int64 `json:"user_id"`
+	}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil || claims.UserID == 0 {
+		return []MyPublishedPackInfo{}, nil
+	}
+
+	// Fetch all published packs
+	allPacks, err := a.BrowseMarketplacePacks(0)
+	if err != nil {
+		return []MyPublishedPackInfo{}, nil
+	}
+
+	var result []MyPublishedPackInfo
+	for _, p := range allPacks {
+		if p.UserID == claims.UserID {
+			if sourceName != "" && p.SourceName != sourceName {
+				continue
+			}
+			result = append(result, MyPublishedPackInfo{
+				ListingID:  p.ID,
+				PackName:   p.PackName,
+				SourceName: p.SourceName,
+				Version:    0, // version not available from list API
+			})
+		}
+	}
+	if result == nil {
+		result = []MyPublishedPackInfo{}
+	}
+	return result, nil
+}
+
+// ReplaceMarketplacePack replaces a published pack's content with a local pack file.
+// The server will bump the version and reset status to pending for re-review.
+func (a *App) ReplaceMarketplacePack(localPackPath string, listingID int64) error {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return fmt.Errorf("not logged in to marketplace")
+	}
+
+	fileInfo, err := os.Stat(localPackPath)
+	if err != nil {
+		return fmt.Errorf("failed to access pack file: %w", err)
+	}
+	const maxUploadSize = 500 * 1024 * 1024
+	if fileInfo.Size() > maxUploadSize {
+		return fmt.Errorf("pack file too large (%dMB), maximum is %dMB", fileInfo.Size()/1024/1024, maxUploadSize/1024/1024)
+	}
+
+	file, err := os.Open(localPackPath)
+	if err != nil {
+		return fmt.Errorf("failed to open pack file: %w", err)
+	}
+	defer file.Close()
+
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
+
+	errCh := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		part, err := writer.CreateFormFile("file", filepath.Base(localPackPath))
+		if err != nil {
+			errCh <- fmt.Errorf("failed to create form file: %w", err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			errCh <- fmt.Errorf("failed to write file data: %w", err)
+			return
+		}
+		writer.WriteField("listing_id", fmt.Sprintf("%d", listingID))
+		if err := writer.Close(); err != nil {
+			errCh <- fmt.Errorf("failed to close multipart writer: %w", err)
+			return
+		}
+		errCh <- nil
+	}()
+
+	req, err := http.NewRequest("POST", mc.ServerURL+"/api/packs/replace", pr)
+	if err != nil {
+		return fmt.Errorf("failed to create replace request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to replace pack: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if writeErr := <-errCh; writeErr != nil {
+		return writeErr
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("replace failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	return nil
+}
+
+// PurchasedPackInfo represents a purchased pack from the marketplace.
+type PurchasedPackInfo struct {
+	ListingID       int64  `json:"listing_id"`
+	PackName        string `json:"pack_name"`
+	PackDescription string `json:"pack_description"`
+	SourceName      string `json:"source_name"`
+	AuthorName      string `json:"author_name"`
+	ShareMode       string `json:"share_mode"`
+	CreditsPrice    int    `json:"credits_price"`
+	CreatedAt       string `json:"created_at"`
+}
+
+// GetMyPurchasedPacks fetches the current user's purchased packs from the marketplace.
+// Returns empty slice (not error) on auth or network failure to avoid blocking UI.
+func (a *App) GetMyPurchasedPacks() []PurchasedPackInfo {
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		return []PurchasedPackInfo{}
+	}
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return []PurchasedPackInfo{}
+	}
+
+	req, err := http.NewRequest("GET", mc.ServerURL+"/api/packs/purchased", nil)
+	if err != nil {
+		return []PurchasedPackInfo{}
+	}
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return []PurchasedPackInfo{}
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Packs []PurchasedPackInfo `json:"packs"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Packs == nil {
+		result.Packs = []PurchasedPackInfo{}
+	}
+	return result.Packs
+}
+
+
 // DownloadMarketplacePack downloads a pack from the marketplace and saves it to a temp directory.
 // Returns the local file path of the downloaded .qap file.
 func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
@@ -481,7 +731,7 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 
 	// Save to temp directory with size limit, streaming to disk to avoid memory exhaustion
 	tmpDir := os.TempDir()
-	fileName := fmt.Sprintf("marketplace_pack_%d_%d.qap", listingID, time.Now().UnixMilli())
+	fileName := fmt.Sprintf("marketplace_pack_%d.qap", listingID)
 	filePath := filepath.Join(tmpDir, fileName)
 
 	const maxDownloadSize int64 = 500 * 1024 * 1024 // 500MB limit
@@ -516,6 +766,14 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 	}
 	finalPath := filepath.Join(qapDir, fileName)
 
+	// Clean up old timestamped files for the same listing ID (legacy format: marketplace_pack_{id}_{timestamp}.qap)
+	oldPattern := fmt.Sprintf("marketplace_pack_%d_*.qap", listingID)
+	if matches, err := filepath.Glob(filepath.Join(qapDir, oldPattern)); err == nil {
+		for _, oldFile := range matches {
+			os.Remove(oldFile)
+		}
+	}
+
 	// Try os.Rename first; fallback to copy+delete for cross-filesystem moves
 	if err := os.Rename(filePath, finalPath); err != nil {
 		if copyErr := copyFile(filePath, finalPath); copyErr != nil {
@@ -532,6 +790,11 @@ func (a *App) DownloadMarketplacePack(listingID int64) (string, error) {
 			a.packPasswords = make(map[string]string)
 		}
 		a.packPasswords[finalPath] = encPassword
+		// Persist password to disk so it survives app restarts
+		if a.packPasswordStore != nil {
+			a.packPasswordStore.SetPassword(finalPath, encPassword)
+			_ = a.packPasswordStore.Save()
+		}
 	}
 
 	// Parse X-Usage-License header if present and save to local store
@@ -712,21 +975,88 @@ func (a *App) GetUsageLicenses() []*UsageLicense {
 	return a.usageLicenseStore.GetAllLicenses()
 }
 
+// RefreshPurchasedPackLicenses fetches the latest usage license info from the marketplace server
+// and updates the local UsageLicenseStore. This ensures the local license data is in sync with
+// the server's authoritative records (e.g., after purchases made on another device or via web).
+func (a *App) RefreshPurchasedPackLicenses() error {
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		return fmt.Errorf("marketplace auth failed: %w", err)
+	}
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	if mc.Token == "" {
+		return fmt.Errorf("not logged in to marketplace")
+	}
+
+	req, err := http.NewRequest("GET", mc.ServerURL+"/api/packs/my-licenses", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to fetch licenses: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	var result struct {
+		Licenses []UsageLicense `json:"licenses"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode licenses response: %w", err)
+	}
+
+	if a.usageLicenseStore == nil {
+		return nil
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, lic := range result.Licenses {
+		lic.UpdatedAt = now
+		if lic.CreatedAt == "" {
+			lic.CreatedAt = now
+		}
+		// For subscription/time_limited packs, update Blocked flag based on server expiry
+		if lic.PricingModel == "subscription" || lic.PricingModel == "time_limited" {
+			if expiresAt, err := time.Parse(time.RFC3339, lic.ExpiresAt); err == nil {
+				lic.Blocked = !time.Now().Before(expiresAt)
+			} else {
+				lic.Blocked = false // Cannot parse — be permissive
+			}
+		}
+		a.usageLicenseStore.SetLicense(&lic)
+	}
+	return a.usageLicenseStore.Save()
+}
+
 // ReportPackUsageResponse 服务器上报响应
 type ReportPackUsageResponse struct {
 	Success        bool `json:"success"`
 	UsedCount      int  `json:"used_count"`
 	TotalPurchased int  `json:"total_purchased"`
+	RemainingUses  int  `json:"remaining_uses"`
+	Exhausted      bool `json:"exhausted"`
 }
 
 // FlushPendingUsageReports processes all pending usage records in the queue.
 // For each record, it dequeues first then calls ReportPackUsage. If ReportPackUsage
 // fails, it will automatically re-enqueue the record. After processing all records,
 // the queue is persisted to disk via Save.
+// Uses flushUsageMu to prevent concurrent execution which could cause duplicate reports.
 func (a *App) FlushPendingUsageReports() {
 	if a.pendingUsageQueue == nil {
 		return
 	}
+
+	// Prevent concurrent flush calls from causing duplicate reports
+	a.flushUsageMu.Lock()
+	defer a.flushUsageMu.Unlock()
 
 	records := a.pendingUsageQueue.GetAll()
 	for _, rec := range records {
@@ -807,44 +1137,138 @@ func (a *App) ReportPackUsage(listingID int64, usedAt string) (*ReportPackUsageR
 		return nil, fmt.Errorf("failed to decode report-usage response: %w", err)
 	}
 
-	// Update local UsageLicenseStore with server's used_count
+	// Update local UsageLicenseStore with server's authoritative counts
 	if a.usageLicenseStore != nil {
 		lic := a.usageLicenseStore.GetLicense(listingID)
 		if lic != nil && lic.PricingModel == "per_use" {
-			lic.RemainingUses = lic.TotalUses - result.UsedCount
+			// Sync TotalUses from server (handles purchases from other devices/web)
+			if result.TotalPurchased > 0 {
+				lic.TotalUses = result.TotalPurchased
+			}
+			lic.RemainingUses = result.RemainingUses
 			if lic.RemainingUses < 0 {
 				lic.RemainingUses = 0
 			}
 			lic.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 			a.usageLicenseStore.SetLicense(lic)
 			_ = a.usageLicenseStore.Save()
+			a.Log(fmt.Sprintf("[REPORT-USAGE] Synced license for listing %d: remaining=%d, total=%d, used=%d, exhausted=%v",
+				listingID, lic.RemainingUses, lic.TotalUses, result.UsedCount, result.Exhausted))
 		}
 	}
 
 	return &result, nil
 }
 
-
-// FlushPendingUsageReports processes all pending usage records in the queue.
-// For each record, it dequeues first then calls ReportPackUsage. If ReportPackUsage
-// fails, it will automatically re-enqueue the record. After processing all records,
-// the queue is persisted to disk via Save.
-func (a *App) FlushPendingUsageReports() {
-	if a.pendingUsageQueue == nil {
-		return
-	}
-
-	records := a.pendingUsageQueue.GetAll()
-	for _, rec := range records {
-		// Dequeue before calling ReportPackUsage to avoid duplicates.
-		// If ReportPackUsage fails, it will re-enqueue automatically.
-		_ = a.pendingUsageQueue.Dequeue(rec.ListingID, rec.UsedAt)
-
-		_, err := a.ReportPackUsage(rec.ListingID, rec.UsedAt)
+// ValidateSubscriptionLicenseAsync refreshes licenses from the server in the background
+// and marks the subscription as blocked if the server confirms it has expired.
+// This is called after optimistic pack execution for subscription-type packs.
+func (a *App) ValidateSubscriptionLicenseAsync(listingID int64) {
+	go func() {
+		a.Log(fmt.Sprintf("[LICENSE-VALIDATE] Starting async subscription validation for listing %d", listingID))
+		err := a.RefreshPurchasedPackLicenses()
 		if err != nil {
-			fmt.Printf("[FlushPendingUsageReports] failed to report listing %d at %s: %v\n", rec.ListingID, rec.UsedAt, err)
+			a.Log(fmt.Sprintf("[LICENSE-VALIDATE] Failed to refresh licenses from server: %v", err))
+			// Network error — don't block the user; next time we'll try again
+			return
 		}
+		if a.usageLicenseStore == nil {
+			return
+		}
+		lic := a.usageLicenseStore.GetLicense(listingID)
+		if lic == nil {
+			return
+		}
+		if lic.Blocked {
+			a.Log(fmt.Sprintf("[LICENSE-VALIDATE] Listing %d subscription confirmed expired by server, marked as blocked", listingID))
+		} else {
+			a.Log(fmt.Sprintf("[LICENSE-VALIDATE] Listing %d subscription still valid", listingID))
+		}
+	}()
+}
+
+// GetMarketplaceNotifications fetches active notifications from the marketplace server.
+// If the user is logged in (has JWT token), the token is included so the server can
+// return both broadcast and targeted notifications. Otherwise only broadcasts are returned.
+func (a *App) GetMarketplaceNotifications() ([]NotificationInfo, error) {
+	a.ensureMarketplaceClient()
+	mc := a.marketplaceClient
+
+	req, err := http.NewRequest("GET", mc.ServerURL+"/api/notifications", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create notifications request: %w", err)
+	}
+	if mc.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+mc.Token)
 	}
 
-	_ = a.pendingUsageQueue.Save()
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch notifications: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	var result struct {
+		Notifications []NotificationInfo `json:"notifications"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode notifications response: %w", err)
+	}
+
+	if result.Notifications == nil {
+		return []NotificationInfo{}, nil
+	}
+	return result.Notifications, nil
 }
+
+// GetPackListingID queries the marketplace server for the listing_id of a pack by its name.
+func (a *App) GetPackListingID(packName string) (int64, error) {
+	if err := a.EnsureMarketplaceAuth(); err != nil {
+		return 0, fmt.Errorf("marketplace auth failed: %w", err)
+	}
+	mc := a.marketplaceClient
+
+	reqURL := mc.ServerURL + "/api/packs/listing-id?pack_name=" + url.QueryEscape(packName)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create listing-id request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch listing-id: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+	}
+
+	var result struct {
+		ListingID int64 `json:"listing_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("failed to decode listing-id response: %w", err)
+	}
+	return result.ListingID, nil
+}
+
+// GetShareURL generates a share URL for the given pack and copies it to the clipboard.
+func (a *App) GetShareURL(packName string) (string, error) {
+	listingID, err := a.GetPackListingID(packName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get listing ID: %w", err)
+	}
+
+	shareURL := fmt.Sprintf("https://market.vantagedata.chat/pack/%d", listingID)
+
+	runtime.ClipboardSetText(a.ctx, shareURL)
+
+	return shareURL, nil
+}
+

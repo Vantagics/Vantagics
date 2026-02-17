@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"testing/quick"
 	"time"
@@ -118,7 +119,7 @@ func TestProperty2_InvalidStatusRejection(t *testing.T) {
 			return true
 		}
 
-		req := httptest.NewRequest(http.MethodGet, "/api/admin/marketplace?status="+status, nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/marketplace?status="+url.QueryEscape(status), nil)
 		rr := httptest.NewRecorder()
 		handleAdminMarketplaceList(rr, req)
 

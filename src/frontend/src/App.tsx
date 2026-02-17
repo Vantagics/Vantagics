@@ -42,6 +42,7 @@ function AppContent() {
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [isPackManagerOpen, setIsPackManagerOpen] = useState(false);
     const [isMarketBrowseOpen, setIsMarketBrowseOpen] = useState(false);
+    const [shareVersion, setShareVersion] = useState(0);
     // Sharing flow state (Task 11.1)
     const [sharePackInfo, setSharePackInfo] = useState<{ pack_name: string; file_path: string } | null>(null);
     const [showAuthError, setShowAuthError] = useState(false);
@@ -255,6 +256,7 @@ function AppContent() {
     const handleShareSuccess = () => {
         setShowShareDialog(false);
         setSharePackInfo(null);
+        setShareVersion(v => v + 1);
         showToast('success', t('share_dialog_success'));
     };
 
@@ -1843,6 +1845,7 @@ function AppContent() {
                     isOpen={isPackManagerOpen}
                     onClose={() => setIsPackManagerOpen(false)}
                     onSharePack={handleSharePack}
+                    shareVersion={shareVersion}
                 />
 
                 {isMarketBrowseOpen && (

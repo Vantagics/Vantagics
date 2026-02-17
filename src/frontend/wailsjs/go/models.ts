@@ -1035,6 +1035,7 @@ export namespace config {
 	    sidebarWidth?: number;
 	    panelRightRatio?: number;
 	    panelRightWidth?: number;
+	    authorSignature?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -1083,6 +1084,7 @@ export namespace config {
 	        this.sidebarWidth = source["sidebarWidth"];
 	        this.panelRightRatio = source["panelRightRatio"];
 	        this.panelRightWidth = source["panelRightWidth"];
+	        this.authorSignature = source["authorSignature"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2135,7 +2137,49 @@ export namespace main {
 	        this.column_name = source["column_name"];
 	    }
 	}
+	export class MyPublishedPackInfo {
+	    id: number;
+	    pack_name: string;
+	    source_name: string;
+	    version: number;
 	
+	    static createFrom(source: any = {}) {
+	        return new MyPublishedPackInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.pack_name = source["pack_name"];
+	        this.source_name = source["source_name"];
+	        this.version = source["version"];
+	    }
+	}
+	
+	export class NotificationInfo {
+	    id: number;
+	    title: string;
+	    content: string;
+	    target_type: string;
+	    effective_date: string;
+	    display_duration_days: number;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotificationInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.content = source["content"];
+	        this.target_type = source["target_type"];
+	        this.effective_date = source["effective_date"];
+	        this.display_duration_days = source["display_duration_days"];
+	        this.created_at = source["created_at"];
+	    }
+	}
 	export class OptimizeDataSourceResult {
 	    data_source_id: string;
 	    data_source_name: string;
@@ -2471,6 +2515,32 @@ export namespace main {
 	
 	
 	
+	export class PurchasedPackInfo {
+	    listing_id: number;
+	    pack_name: string;
+	    pack_description: string;
+	    source_name: string;
+	    author_name: string;
+	    share_mode: string;
+	    credits_price: number;
+	    created_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PurchasedPackInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.listing_id = source["listing_id"];
+	        this.pack_name = source["pack_name"];
+	        this.pack_description = source["pack_description"];
+	        this.source_name = source["source_name"];
+	        this.author_name = source["author_name"];
+	        this.share_mode = source["share_mode"];
+	        this.credits_price = source["credits_price"];
+	        this.created_at = source["created_at"];
+	    }
+	}
 	
 	export class ReportGenerateRequest {
 	    userRequest: string;
@@ -2515,6 +2585,26 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ReportPackUsageResponse {
+	    success: boolean;
+	    used_count: number;
+	    total_purchased: number;
+	    remaining_uses: number;
+	    exhausted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReportPackUsageResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.used_count = source["used_count"];
+	        this.total_purchased = source["total_purchased"];
+	        this.remaining_uses = source["remaining_uses"];
+	        this.exhausted = source["exhausted"];
+	    }
 	}
 	export class RequestSNResult {
 	    success: boolean;
@@ -2611,6 +2701,7 @@ export namespace main {
 	    total_uses: number;
 	    expires_at: string;
 	    subscription_months: number;
+	    blocked?: boolean;
 	    created_at: string;
 	    updated_at: string;
 	
@@ -2627,6 +2718,7 @@ export namespace main {
 	        this.total_uses = source["total_uses"];
 	        this.expires_at = source["expires_at"];
 	        this.subscription_months = source["subscription_months"];
+	        this.blocked = source["blocked"];
 	        this.created_at = source["created_at"];
 	        this.updated_at = source["updated_at"];
 	    }

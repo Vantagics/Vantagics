@@ -104,9 +104,9 @@ func (p *SQLPlanner) GetEnhancedSchema(ctx context.Context, dataSourceID string)
 	}
 
 	// Determine database type
-	dbType := "sqlite"
+	dbType := "duckdb"
 	if target.Config.DBPath != "" {
-		dbType = "sqlite"
+		dbType = "duckdb"
 	} else if target.Type == "mysql" || target.Type == "doris" {
 		dbType = target.Type
 	}
@@ -665,14 +665,14 @@ You are a senior database expert, proficient in %s SQL syntax.
 // getSQLDialectHints returns dialect-specific hints
 func (p *SQLPlanner) getSQLDialectHints(dbType string) string {
 	switch dbType {
-	case "sqlite":
-		return `SQLite Syntax Rules:
+	case "duckdb":
+		return `DuckDB Syntax Rules:
 - Date: strftime('%Y', col), strftime('%m', col), strftime('%d', col)
 - Concat: col1 || ' ' || col2 (NOT CONCAT())
 - COALESCE(a, b) instead of IFNULL()
 - SUBSTR(str, start, len)
 - NO YEAR(), MONTH(), DAY() functions!
-- Current: date('now'), datetime('now')`
+- Current: current_date, current_timestamp`
 	case "mysql", "doris":
 		return `MySQL/Doris Syntax Rules:
 - Date: YEAR(col), MONTH(col), DAY(col)

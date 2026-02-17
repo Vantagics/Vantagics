@@ -145,6 +145,7 @@ const userRegisterHTML = `<!DOCTYPE html>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     <form method="POST" action="/user/register" onsubmit="return validateForm()">
         <input type="hidden" name="captcha_id" id="captcha_id" value="{{.CaptchaID}}" />
+        <input type="hidden" name="redirect" value="{{.Redirect}}" />
         <div class="form-group">
             <label for="email">邮箱</label>
             <input type="email" id="email" name="email" required autocomplete="email" placeholder="请输入邮箱地址" />
@@ -174,7 +175,7 @@ const userRegisterHTML = `<!DOCTYPE html>
         <button type="submit" class="btn-submit">注 册</button>
     </form>
     <div class="auth-footer">
-        <a href="/user/login">已有账号？去登录</a>
+        <a href="/user/login{{if .Redirect}}?redirect={{.Redirect}}{{end}}">已有账号？去登录</a>
     </div>
 </div>
 <script>

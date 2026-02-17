@@ -117,6 +117,9 @@ type Config struct {
 	SidebarWidth    int     `json:"sidebarWidth,omitempty"`    // Sidebar panel width in pixels
 	PanelRightRatio float64 `json:"panelRightRatio,omitempty"` // Right panel width as ratio of available space (0-1)
 	PanelRightWidth int     `json:"panelRightWidth,omitempty"` // DEPRECATED: kept for migration only
+	
+	// Other settings
+	AuthorSignature string `json:"authorSignature,omitempty"` // Default author signature for quick analysis pack export
 }
 
 // Validate checks and corrects Config field values, applying safe defaults where needed.

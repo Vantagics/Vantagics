@@ -3,11 +3,13 @@ package export
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"regexp"
 	"strings"
 	"time"
 
@@ -655,6 +657,19 @@ func (s *WordExportService) extractJsonTables(text string) (string, [][][]string
 		result = result[:startIdx] + result[startIdx+len(startMarker)+endIdx+len(endMarker):]
 	}
 
+	// Method 1b: Find json:table without backticks (LLM sometimes omits them)
+	reNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
+	for _, match := range reNoBT.FindAllStringSubmatch(result, -1) {
+		if len(match) > 1 {
+			jsonContent := strings.TrimSpace(match[1])
+			tableData := s.parseJsonTable(jsonContent)
+			if len(tableData) > 0 {
+				tables = append(tables, tableData)
+			}
+			result = strings.Replace(result, match[0], "", 1)
+		}
+	}
+
 	// Method 2: Find standalone JSON arrays
 	result = s.extractStandaloneJsonArrays(result, &tables)
 
@@ -781,6 +796,27 @@ func (s *WordExportService) parseJsonTable(jsonContent string) [][]string {
 	var result [][]string
 
 	jsonContent = strings.TrimSpace(jsonContent)
+
+	// Try {columns: [...], data: [[...], ...]} format first
+	if strings.HasPrefix(jsonContent, "{") {
+		var colDataFormat struct {
+			Columns []string        `json:"columns"`
+			Data    [][]interface{} `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(jsonContent), &colDataFormat); err == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
+			result = append(result, colDataFormat.Columns)
+			for _, row := range colDataFormat.Data {
+				strRow := make([]string, len(row))
+				for i, val := range row {
+					strRow[i] = fmt.Sprintf("%v", val)
+				}
+				result = append(result, strRow)
+			}
+			return result
+		}
+		return result
+	}
+
 	if !strings.HasPrefix(jsonContent, "[") || !strings.HasSuffix(jsonContent, "]") {
 		return result
 	}

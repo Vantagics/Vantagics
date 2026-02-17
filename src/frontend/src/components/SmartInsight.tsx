@@ -27,12 +27,28 @@ const iconMap: Record<string, React.ReactNode> = {
     'arrow-up-right': <ArrowUpRight className="w-4 h-4 text-green-600 dark:text-green-400" />,
 };
 
-// 解析 JSON 表格数据
+// 解析 JSON 表格数据 - 支持三种格式:
+// 1. 2D array: [["col1","col2"], [val1, val2], ...]
+// 2. Object with columns/data: { "columns": [...], "data": [[...], ...] }
+// 3. Object array: [{"col1": val1}, ...]
 const parseJsonTable = (jsonStr: string): string[][] | null => {
     try {
         const data = JSON.parse(jsonStr);
+        // Format 1: 2D array
         if (Array.isArray(data) && data.length > 0 && Array.isArray(data[0])) {
             return data.map(row => row.map((cell: unknown) => String(cell)));
+        }
+        // Format 2: { columns: [...], data: [[...], ...] }
+        if (data && !Array.isArray(data) && Array.isArray(data.columns) && Array.isArray(data.data)) {
+            const headers = data.columns.map(String);
+            const rows = data.data.map((row: unknown[]) => row.map((cell: unknown) => String(cell)));
+            return [headers, ...rows];
+        }
+        // Format 3: Object array
+        if (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && data[0] !== null) {
+            const headers = Object.keys(data[0]);
+            const rows = data.map((obj: Record<string, unknown>) => headers.map(h => String(obj[h])));
+            return [headers, ...rows];
         }
     } catch {
         // 解析失败，返回 null

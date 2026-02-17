@@ -55,7 +55,7 @@ func getMenuTexts(language string) MenuTexts {
 			Help:           "帮助",
 			About:          "关于",
 			Market:         "市场",
-			PackManager:    "快捷包管理",
+			PackManager:    "分析包管理",
 			BrowseMarket:   "分析包市场",
 			VisitMarket:    "个人账户",
 			ProductService: "产品服务",
@@ -105,14 +105,9 @@ func getSystemLanguage() string {
 		}
 	}
 	
-	// On Windows, check system locale
+	// On Windows, use native API to get locale (no subprocess needed)
 	if runtime.GOOS == "windows" && locale == "" {
-		// Try PowerShell to get culture
-		cmd := exec.Command("powershell", "-Command", "(Get-Culture).Name")
-		cmd.SysProcAttr = hiddenProcAttr()
-		if out, err := cmd.Output(); err == nil {
-			locale = strings.TrimSpace(string(out))
-		}
+		locale = getWindowsLocale()
 	}
 	
 	// Normalize and check locale

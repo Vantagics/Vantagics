@@ -139,6 +139,7 @@ const userLoginHTML = `<!DOCTYPE html>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}
     <form method="POST" action="/user/login">
         <input type="hidden" name="captcha_id" id="captcha_id" value="{{.CaptchaID}}" />
+        <input type="hidden" name="redirect" value="{{.Redirect}}" />
         <div class="form-group">
             <label for="username">用户名</label>
             <input type="text" id="username" name="username" required autocomplete="username" placeholder="请输入用户名" />
@@ -158,7 +159,7 @@ const userLoginHTML = `<!DOCTYPE html>
         <button type="submit" class="btn-submit">登 录</button>
     </form>
     <div class="auth-footer">
-        <a href="/user/register">没有账号？绑定用户</a>
+        <a href="/user/register{{if .Redirect}}?redirect={{.Redirect}}{{end}}">没有账号？绑定用户</a>
     </div>
 </div>
 <script>

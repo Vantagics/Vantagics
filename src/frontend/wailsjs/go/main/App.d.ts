@@ -115,6 +115,8 @@ export function ExtractSuggestionsAsItems(arg1:string,arg2:string,arg3:string):P
 
 export function ExtractSuggestionsFromAnalysis(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function FlushPendingUsageReports():Promise<void>;
+
 export function GenerateCSVThumbnail(arg1:string,arg2:string):Promise<string>;
 
 export function GenerateComprehensiveReport(arg1:main.ComprehensiveReportRequest):Promise<void>;
@@ -181,11 +183,21 @@ export function GetMarketplaceCategories():Promise<Array<main.PackCategory>>;
 
 export function GetMarketplaceCreditsBalance():Promise<number>;
 
+export function GetMarketplaceNotifications():Promise<Array<main.NotificationInfo>>;
+
 export function GetMessageAnalysisData(arg1:string,arg2:string):Promise<Record<string, any>>;
+
+export function GetMyPublishedPacks(arg1:string):Promise<Array<main.MyPublishedPackInfo>>;
+
+export function GetMyPurchasedPacks():Promise<Array<main.PurchasedPackInfo>>;
 
 export function GetMySQLDatabases(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<string>>;
 
+export function GetMySharedPackNames():Promise<Array<string>>;
+
 export function GetOptimizeSuggestions(arg1:string):Promise<main.OptimizeSuggestionsResult>;
+
+export function GetPackListingID(arg1:string):Promise<number>;
 
 export function GetPythonEnvironments():Promise<Array<agent.PythonEnvironment>>;
 
@@ -196,6 +208,8 @@ export function GetSessionFilePath(arg1:string,arg2:string):Promise<string>;
 export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
 
 export function GetSessionRecordings():Promise<Array<agent.AnalysisRecording>>;
+
+export function GetShareURL(arg1:string):Promise<string>;
 
 export function GetShopifyConfigFromAppData():Promise<agent.ShopifyOAuthConfig>;
 
@@ -289,6 +303,8 @@ export function RefreshEcommerceDataSource(arg1:string):Promise<agent.RefreshRes
 
 export function RefreshLicense():Promise<main.ActivationResult>;
 
+export function RefreshPurchasedPackLicenses():Promise<void>;
+
 export function ReloadSkills():Promise<void>;
 
 export function RenameColumn(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
@@ -297,7 +313,11 @@ export function RenameDataSource(arg1:string,arg2:string):Promise<void>;
 
 export function RenewSubscription(arg1:number,arg2:number):Promise<void>;
 
+export function ReplaceMarketplacePack(arg1:string,arg2:number):Promise<void>;
+
 export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg4:number):Promise<agent.ReplayResult>;
+
+export function ReportPackUsage(arg1:number,arg2:string):Promise<main.ReportPackUsageResponse>;
 
 export function RequestSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
 
@@ -382,6 +402,8 @@ export function UpdateWorkingContext(arg1:string,arg2:Record<string, any>):Promi
 export function ValidateImportAnalysis(arg1:main.AnalysisExport,arg2:string):Promise<main.ValidationResult>;
 
 export function ValidatePython(arg1:string):Promise<agent.PythonValidationResult>;
+
+export function ValidateSubscriptionLicenseAsync(arg1:number):Promise<void>;
 
 export function WaitForShopifyOAuth():Promise<Record<string, string>>;
 

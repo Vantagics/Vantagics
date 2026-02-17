@@ -437,14 +437,14 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	// 创建新的数据源名称
 	newName := originalSource.Name + "_语义优化"
 
-	// 创建新的 SQLite 数据库文件（返回完整路径）
+	// 创建新的 DuckDB 数据库文件（返回完整路径）
 	newDBFullPath, err := a.dataSourceService.CreateOptimizedDatabase(originalSource, newName)
 	if err != nil {
 		return nil, "", err
 	}
 
 	// 打开新数据库
-	newDB, err := sql.Open("sqlite", newDBFullPath)
+	newDB, err := sql.Open("duckdb", newDBFullPath)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to open new database: %w", err)
 	}
@@ -604,7 +604,7 @@ func (a *App) migrateDataWithOptimization(originalSource *agent.DataSource, targ
 
 	// 打开新数据库（使用完整路径）
 	a.Log(fmt.Sprintf("Opening target database: %s", targetDBPath))
-	targetDB, err := sql.Open("sqlite", targetDBPath)
+	targetDB, err := sql.Open("duckdb", targetDBPath)
 	if err != nil {
 		return fmt.Errorf("failed to open target database: %w", err)
 	}
@@ -630,7 +630,7 @@ func quoteIdentifier(name string, dbType string) string {
 	case "mysql", "doris":
 		return fmt.Sprintf("`%s`", name)
 	default:
-		// SQLite, PostgreSQL 使用双引号
+		// DuckDB, PostgreSQL 使用双引号
 		return fmt.Sprintf(`"%s"`, name)
 	}
 }
@@ -644,8 +644,8 @@ func (a *App) migrateTableData(sourceDB, targetDB *sql.DB, tableOpt TableOptimiz
 	for _, mapping := range tableOpt.ColumnMappings {
 		// 原表列名使用源数据库的引用方式
 		originalCols = append(originalCols, quoteIdentifier(mapping.OriginalName, sourceDBType))
-		// 新表列名使用 SQLite 的引用方式（双引号）
-		optimizedCols = append(optimizedCols, quoteIdentifier(mapping.OptimizedName, "sqlite"))
+		// 新表列名使用 DuckDB 的引用方式（双引号）
+		optimizedCols = append(optimizedCols, quoteIdentifier(mapping.OptimizedName, "duckdb"))
 	}
 
 	// 查询原表数据（使用源数据库的引用方式）

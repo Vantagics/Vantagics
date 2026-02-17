@@ -8,7 +8,7 @@ import MCPServiceModal from './MCPServiceModal';
 import { Plus, Edit2, Trash2, Server, Power, PowerOff, CheckCircle, AlertCircle, Zap, RefreshCw, Search, Filter, Tag, BookOpen, X, MapPin, Archive, Shield } from 'lucide-react';
 import { countries, getCityDisplayName, getCountryDisplayName, City, Country } from '../data/cities';
 
-type Tab = 'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent';
+type Tab = 'llm' | 'system' | 'session' | 'mcp' | 'search' | 'network' | 'runenv' | 'skills' | 'intent' | 'other';
 
 // Skill types
 interface SkillInfo {
@@ -406,7 +406,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     )}
                     
                     <nav className="space-y-1">
-                        {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent'] as const)
+                        {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent', 'other'] as const)
                             .filter(tab => {
                                 // Hide LLM and Search tabs in commercial mode
                                 if (isCommercialMode && (tab === 'llm' || tab === 'search')) {
@@ -430,6 +430,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                 {tab === 'runenv' && t('run_env')}
                                 {tab === 'skills' && (t('skills_management') || 'Skills管理')}
                                 {tab === 'intent' && (t('intent_enhancement') || '意图增强')}
+                                {tab === 'other' && (t('other_settings') || '其它设置')}
                             </button>
                         ))}
                     </nav>
@@ -1169,6 +1170,30 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                         {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} updateConfig={updateConfig} />}
                         {activeTab === 'skills' && <SkillsSettings onOpenSkills={onOpenSkills} />}
                         {activeTab === 'intent' && <IntentEnhancementSettings config={config} updateConfig={updateConfig} />}
+                        {activeTab === 'other' && (
+                            <div className="space-y-6">
+                                <div className="flex items-center justify-between border-b border-slate-200 dark:border-[#3c3c3c] pb-4">
+                                    <div>
+                                        <h3 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4]">{t('other_settings')}</h3>
+                                        <p className="text-sm text-slate-500 dark:text-[#808080] mt-1">{t('other_settings_description')}</p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label htmlFor="authorSignature" className="block text-sm font-medium text-slate-700 dark:text-[#b0b0b0] mb-1">
+                                        {t('author_signature')}
+                                    </label>
+                                    <p className="text-xs text-slate-500 dark:text-[#808080] mb-2">{t('author_signature_desc')}</p>
+                                    <input
+                                        id="authorSignature"
+                                        type="text"
+                                        value={config.authorSignature || ''}
+                                        onChange={e => updateConfig({ authorSignature: e.target.value })}
+                                        placeholder={t('author_signature_placeholder')}
+                                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-[#3e3e42] rounded-lg bg-white dark:bg-[#1e1e1e] text-slate-900 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Footer */}

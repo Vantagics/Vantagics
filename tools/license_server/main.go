@@ -1439,6 +1439,10 @@ func handleLicenses(w http.ResponseWriter, r *http.Request) {
 		}
 		licenses[l.SN] = l
 	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(licenses)
 }
@@ -1855,6 +1859,9 @@ func handlePurgeDisabledLicenses(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&sn)
 		sns = append(sns, sn)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
+	}
 	rows.Close()
 	
 	// Delete disabled licenses that are not bound to email
@@ -2081,6 +2088,10 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 		}
 		licenses = append(licenses, l)
 	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+		return
+	}
 	
 	totalPages := (total + pageSize - 1) / pageSize
 	if totalPages < 1 { totalPages = 1 }
@@ -2100,6 +2111,10 @@ func handleLLMConfig(w http.ResponseWriter, r *http.Request) {
 			var c LLMConfig
 			rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
 			configs = append(configs, c)
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(configs)
@@ -2140,6 +2155,10 @@ func handleSearchConfig(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
 			configs = append(configs, c)
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(configs)
 		return
@@ -2179,6 +2198,10 @@ func handleLLMGroups(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&g.ID, &g.Name, &g.Description)
 			groups = append(groups, g)
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(groups)
 		return
@@ -2216,6 +2239,10 @@ func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 			var g SearchGroup
 			rows.Scan(&g.ID, &g.Name, &g.Description)
 			groups = append(groups, g)
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(groups)
@@ -2255,6 +2282,10 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 			var g LicenseGroup
 			rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel, &g.LLMGroupID, &g.SearchGroupID)
 			groups = append(groups, g)
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(groups)
@@ -2365,6 +2396,10 @@ func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 			rows.Scan(&p.ID, &p.Name, &p.Description)
 			products = append(products, p)
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(products)
 		return
@@ -2458,6 +2493,9 @@ func getProductExtraInfo(productID int) map[string]interface{} {
 			result[key] = value
 		}
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
+	}
 	return result
 }
 
@@ -2484,6 +2522,10 @@ func handleProductExtraInfo(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]interface{}{
 				"id": id, "product_id": pid, "key": key, "value": value, "value_type": valueType,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(items)
@@ -2856,6 +2898,10 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 		var r EmailRecord
 		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID)
 		records = append(records, r)
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+		return
 	}
 	
 	totalPages := (total + pageSize - 1) / pageSize
@@ -3393,6 +3439,10 @@ func handleAPIKeys(w http.ResponseWriter, r *http.Request) {
 			}
 			keys = append(keys, k)
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(keys)
@@ -3539,6 +3589,9 @@ func handleAPIKeyBindings(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID)
 		records = append(records, r)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
+	}
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "records": records})
@@ -3579,6 +3632,9 @@ func handleClearAPIKeyBindings(w http.ResponseWriter, r *http.Request) {
 		var sn string
 		rows.Scan(&sn)
 		sns = append(sns, sn)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
 	}
 	rows.Close()
 	
@@ -3859,6 +3915,10 @@ func handleWhitelist(w http.ResponseWriter, r *http.Request) {
 				"created_at": createdAt,
 			})
 		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(patterns)
 		return
@@ -3914,6 +3974,10 @@ func handleBlacklist(w http.ResponseWriter, r *http.Request) {
 				"pattern":    pattern,
 				"created_at": createdAt,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(patterns)
@@ -3971,6 +4035,10 @@ func handleConditions(w http.ResponseWriter, r *http.Request) {
 				"llm_group_id":    llmGroupID,
 				"search_group_id": searchGroupID,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(patterns)
@@ -4048,6 +4116,9 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 				return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
+		}
 	}
 	
 	// Step 2: If whitelist is enabled, must match whitelist
@@ -4062,6 +4133,9 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 				matched = true
 				break
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
 		}
 		if !matched {
 			return false, CodeEmailNotWhitelisted, "您的邮箱不在白名单中", "", ""
@@ -4078,6 +4152,9 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 			if matchEmailPattern(email, pattern) {
 				return true, "", "", llmGroupID, searchGroupID // Condition match = allow with group bindings
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
 		}
 	}
 	
@@ -4567,6 +4644,9 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 			bestLLM = &c
 		}
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
+	}
 	rows.Close()
 	
 	// Get best Search config for the license's group (or all if no group specified)
@@ -4590,6 +4670,9 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 		if bestSearch == nil || c.StartDate > bestSearch.StartDate || (c.IsActive && !bestSearch.IsActive && c.StartDate == bestSearch.StartDate) {
 			bestSearch = &c
 		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
 	}
 	rows.Close()
 	
@@ -5150,6 +5233,9 @@ func backupAllSettings() map[string]string {
 			}
 		}
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
+	}
 	return settings
 }
 
@@ -5202,6 +5288,9 @@ func backupTable(tableName, condition string, conditionArg interface{}) []map[st
 			}
 		}
 		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
 	}
 	return result
 }
@@ -5483,6 +5572,9 @@ func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		logs = append(logs, entry)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("Warning: rows iteration error: %v", err)
 	}
 
 	if logs == nil {

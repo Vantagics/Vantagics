@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
-import { Loader2, Package, X, Download, ShoppingCart, Search, Trash2, CreditCard, RefreshCw } from 'lucide-react';
+import { Loader2, Package, X, Download, ShoppingCart, Search, Trash2, CreditCard, RefreshCw, Bell } from 'lucide-react';
 import {
     GetMarketplaceCategories,
     BrowseMarketplacePacks,
@@ -11,6 +11,7 @@ import {
     RenewSubscription,
     EnsureMarketplaceAuth,
     OpenExternalURL,
+    GetMarketplaceNotifications,
 } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { filterByShareMode, filterByKeyword, sortPacks, ShareModeFilter, SortField, SortDirection } from '../utils/marketplaceFilter';
@@ -44,7 +45,7 @@ export function shouldShowPurchasedBadge(purchased: boolean): boolean {
 /**
  * Determines the action button type for a pack listing.
  * Returns 'download' for free packs, 'add_to_cart' for paid packs.
- * The action button is always present regardless of purchased status.
+ * Note: the add-to-cart button is hidden in the UI when the pack is already purchased.
  */
 export function getActionButtonType(shareMode: string): 'download' | 'add_to_cart' {
     return shareMode === 'free' ? 'download' : 'add_to_cart';
@@ -77,6 +78,9 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
     const [downloadingID, setDownloadingID] = useState<number | null>(null);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
     const [refreshingBalance, setRefreshingBalance] = useState(false);
+
+    // Notifications state
+    const [notifications, setNotifications] = useState<any[]>([]);
 
     // Filter / Sort / Search state
     const [shareModeFilter, setShareModeFilter] = useState<ShareModeFilter>('all');
@@ -115,6 +119,15 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
         }
     }, []);
 
+    const fetchNotifications = useCallback(async () => {
+        try {
+            const msgs = await GetMarketplaceNotifications();
+            setNotifications(msgs || []);
+        } catch (_) {
+            // notifications fetch is best-effort
+        }
+    }, []);
+
     const fetchPacks = useCallback(async (categoryID: number) => {
         setLoading(true);
         setError(null);
@@ -129,10 +142,17 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
     }, []);
 
     useEffect(() => {
-        fetchCategories();
-        fetchBalance();
-        fetchPacks(0);
-    }, [fetchCategories, fetchBalance, fetchPacks]);
+        // Ensure marketplace auth before fetching packs so the server can
+        // identify the user and return correct purchased status.
+        EnsureMarketplaceAuth()
+            .catch(() => { /* best-effort auth */ })
+            .finally(() => {
+                fetchCategories();
+                fetchBalance();
+                fetchNotifications();
+                fetchPacks(0);
+            });
+    }, [fetchCategories, fetchBalance, fetchNotifications, fetchPacks]);
 
     const handleCategoryChange = (catID: number) => {
         setSelectedCategoryID(catID);
@@ -191,6 +211,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
             setCartItems([]);
             setSuccessMsg(t('market_browse_checkout_success'));
             fetchBalance();
+            fetchPacks(selectedCategoryID);
             setTimeout(() => setSuccessMsg(null), 3000);
         } catch (err: any) {
             setError(err?.message || err?.toString() || 'Checkout failed');
@@ -373,6 +394,25 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                     </div>
                 )}
 
+                {/* Notification banners */}
+                {notifications.length > 0 && (
+                    <div className="mx-6 mt-3 space-y-2">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                            <Bell className="w-3.5 h-3.5" />
+                            {t('market_notifications_title')}
+                        </div>
+                        {notifications.map((n: any) => (
+                            <div
+                                key={n.id}
+                                className="px-3 py-2 text-sm rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20"
+                            >
+                                <p className="font-medium text-amber-800 dark:text-amber-300">{n.title}</p>
+                                <p className="text-amber-700 dark:text-amber-400 mt-0.5 text-xs">{n.content}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
                 {/* Pack list */}
                 <div className="flex-1 overflow-y-auto p-6">
                     {loading && (
@@ -448,7 +488,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                                                         </>
                                                     )}
                                                 </button>
-                                            ) : (
+                                            ) : !pack.purchased ? (
                                                 <button
                                                     onClick={() => handleAddToCart(pack)}
                                                     className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center gap-1.5"
@@ -456,7 +496,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                                                     <ShoppingCart className="w-3.5 h-3.5" />
                                                     {t('market_browse_add_to_cart')}
                                                 </button>
-                                            )}
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>

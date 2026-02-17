@@ -14,6 +14,36 @@ import { useLanguage } from '../i18n';
 
 const systemLog = createLogger('MessageBubble');
 
+/**
+ * Parse json:table content supporting three formats:
+ * 1. 2D array: [["col1","col2"], [val1, val2], ...]
+ * 2. Object with columns/data: { "columns": [...], "data": [[...], ...] }
+ * 3. Object array: [{"col1": val1, "col2": val2}, ...]
+ * Returns { headers: string[], rows: any[][] } or null if parse fails.
+ */
+function parseJsonTableContent(codeContent: string): { headers: string[]; rows: any[][] } | null {
+    try {
+        const parsed = JSON.parse(codeContent);
+        // Format 1: 2D array - first row is headers
+        if (Array.isArray(parsed) && parsed.length > 0 && Array.isArray(parsed[0])) {
+            return { headers: parsed[0].map(String), rows: parsed.slice(1) };
+        }
+        // Format 2: { columns: [...], data: [[...], ...] }
+        if (parsed && !Array.isArray(parsed) && Array.isArray(parsed.columns) && Array.isArray(parsed.data)) {
+            return { headers: parsed.columns.map(String), rows: parsed.data };
+        }
+        // Format 3: Object array - keys as headers
+        if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object' && parsed[0] !== null) {
+            const headers = Object.keys(parsed[0]);
+            const rows = parsed.map((obj: Record<string, any>) => headers.map(h => obj[h]));
+            return { headers, rows };
+        }
+    } catch {
+        // parse failed
+    }
+    return null;
+}
+
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
@@ -635,6 +665,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         .replace(/```[ \t]*json:dashboard[\s\S]*?```/g, '')
         .replace(/```[ \t]*json:echarts[\s\S]*?```/g, '') // 隐藏ECharts代码（带反引号格式）
         .replace(/(?:^|\n)json:echarts\s*\n\{[\s\S]+?\n\}/g, '') // 隐藏ECharts代码（无反引号格式）
+        // json:table: convert no-backtick format to backtick format for ReactMarkdown rendering
+        .replace(/(^|\n)json:table\s*\n(\{[\s\S]+?\n\})(?=\s*\n(?:---|###)|\s*$)/g, '$1```json:table\n$2\n```')
+        .replace(/(^|\n)json:table\s*\n(\[[\s\S]+?\n\])(?=\s*\n(?:---|###)|\s*$)/g, '$1```json:table\n$2\n```')
         // json:table 保留，在 ReactMarkdown 中渲染为表格
         .replace(/```[ \t]*json:metrics[\s\S]*?```/g, '') // 隐藏Metrics代码，在仪表盘显示
         .replace(/```[ \t]*(sql|SQL)[\s\S]*?```/g, '')
@@ -737,11 +770,60 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                     // Render json:table as actual table
                                     if (isTable) {
                                         const codeContent = String(children).replace(/\n$/, '');
-                                        try {
-                                            const tableData = JSON.parse(codeContent);
-                                            if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
-                                                const headers = tableData[0];
-                                                const rows = tableData.slice(1);
+                                        const tableResult = parseJsonTableContent(codeContent);
+                                        if (tableResult) {
+                                            const { headers, rows } = tableResult;
+                                            return (
+                                                <div className="overflow-x-auto my-3">
+                                                    <table className="min-w-full border-collapse text-sm">
+                                                        <thead>
+                                                            <tr className="bg-blue-50">
+                                                                {headers.map((header: string, idx: number) => (
+                                                                    <th 
+                                                                        key={idx} 
+                                                                        className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
+                                                                    >
+                                                                        {String(header)}
+                                                                    </th>
+                                                                ))}
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {rows.map((row: any[], rowIdx: number) => (
+                                                                <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                                                    {row.map((cell: any, cellIdx: number) => (
+                                                                        <td 
+                                                                            key={cellIdx} 
+                                                                            className="border border-slate-200 px-3 py-2 text-slate-600"
+                                                                        >
+                                                                            {String(cell)}
+                                                                        </td>
+                                                                    ))}
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            );
+                                        }
+                                        console.error('[MessageBubble] Failed to parse json:table');
+                                        return null; // Hide if parse fails
+                                    }
+
+                                    return <code {...rest} className={className}>{children}</code>;
+                                },
+                                // Handle pre tag to properly render json:table
+                                pre(props) {
+                                    const { children, ...rest } = props;
+                                    // Check if child is a code element with json:table
+                                    const child = React.Children.toArray(children)[0];
+                                    if (React.isValidElement(child)) {
+                                        const childProps = child.props as { className?: string; children?: React.ReactNode };
+                                        if (childProps.className?.includes('json:table')) {
+                                            const codeContent = String(childProps.children || '').replace(/\n$/, '');
+                                            const tableResult = parseJsonTableContent(codeContent);
+                                            if (tableResult) {
+                                                const { headers, rows } = tableResult;
                                                 return (
                                                     <div className="overflow-x-auto my-3">
                                                         <table className="min-w-full border-collapse text-sm">
@@ -774,65 +856,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                                         </table>
                                                     </div>
                                                 );
-                                            }
-                                        } catch (e) {
-                                            // JSON parse failed, show as code
-                                            console.error('[MessageBubble] Failed to parse json:table:', e);
-                                        }
-                                        return null; // Hide if parse fails
-                                    }
-
-                                    return <code {...rest} className={className}>{children}</code>;
-                                },
-                                // Handle pre tag to properly render json:table
-                                pre(props) {
-                                    const { children, ...rest } = props;
-                                    // Check if child is a code element with json:table
-                                    const child = React.Children.toArray(children)[0];
-                                    if (React.isValidElement(child)) {
-                                        const childProps = child.props as { className?: string; children?: React.ReactNode };
-                                        if (childProps.className?.includes('json:table')) {
-                                            const codeContent = String(childProps.children || '').replace(/\n$/, '');
-                                            try {
-                                                const tableData = JSON.parse(codeContent);
-                                                if (Array.isArray(tableData) && tableData.length > 0 && Array.isArray(tableData[0])) {
-                                                    const headers = tableData[0];
-                                                    const rows = tableData.slice(1);
-                                                    return (
-                                                        <div className="overflow-x-auto my-3">
-                                                            <table className="min-w-full border-collapse text-sm">
-                                                                <thead>
-                                                                    <tr className="bg-blue-50">
-                                                                        {headers.map((header: string, idx: number) => (
-                                                                            <th 
-                                                                                key={idx} 
-                                                                                className="border border-slate-200 px-3 py-2 text-left font-semibold text-slate-700"
-                                                                            >
-                                                                                {String(header)}
-                                                                            </th>
-                                                                        ))}
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {rows.map((row: any[], rowIdx: number) => (
-                                                                        <tr key={rowIdx} className={rowIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                                                                            {row.map((cell: any, cellIdx: number) => (
-                                                                                <td 
-                                                                                    key={cellIdx} 
-                                                                                    className="border border-slate-200 px-3 py-2 text-slate-600"
-                                                                                >
-                                                                                    {String(cell)}
-                                                                                </td>
-                                                                            ))}
-                                                                        </tr>
-                                                                    ))}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    );
-                                                }
-                                            } catch (e) {
-                                                // Parse failed
                                             }
                                             return null;
                                         }

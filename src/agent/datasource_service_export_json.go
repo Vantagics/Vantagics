@@ -52,15 +52,15 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 
 	// 2. Open database connection
 	var db *sql.DB
-	var isLocalSQLite bool
+	var isLocalDuckDB bool
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("sqlite", dbPath)
+		db, err = sql.Open("duckdb", dbPath)
 		if err != nil {
 			return err
 		}
-		isLocalSQLite = true
+		isLocalDuckDB = true
 	} else if target.Type == "mysql" || target.Type == "doris" {
 		cfg := target.Config
 		if cfg.Port == "" {
@@ -71,7 +71,7 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 		if err != nil {
 			return err
 		}
-		isLocalSQLite = false
+		isLocalDuckDB = false
 	} else {
 		return fmt.Errorf("data source storage not found")
 	}
@@ -83,8 +83,8 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 	}
 
 	for _, tableName := range tableNames {
-		// Get column information (pass isLocalSQLite flag)
-		columns, err := s.getTableColumns(db, tableName, isLocalSQLite)
+		// Get column information
+		columns, err := s.getTableColumnsForExport(db, tableName, isLocalDuckDB)
 		if err != nil {
 			return fmt.Errorf("failed to get columns for table %s: %v", tableName, err)
 		}
@@ -117,11 +117,11 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 }
 
 // getTableColumns retrieves column names and types for a table
-func (s *DataSourceService) getTableColumns(db *sql.DB, tableName string, isLocalSQLite bool) ([]JSONTableColumn, error) {
+func (s *DataSourceService) getTableColumnsForExport(db *sql.DB, tableName string, isLocalDuckDB bool) ([]JSONTableColumn, error) {
 	var columns []JSONTableColumn
 
-	if isLocalSQLite {
-		// SQLite: use PRAGMA table_info
+	if isLocalDuckDB {
+		// DuckDB: use PRAGMA table_info
 		query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 		rows, err := db.Query(query)
 		if err != nil {
@@ -141,6 +141,9 @@ func (s *DataSourceService) getTableColumns(db *sql.DB, tableName string, isLoca
 				Name: name,
 				Type: colType,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating columns: %v", err)
 		}
 	} else {
 		// MySQL/Doris: use SHOW COLUMNS
@@ -162,6 +165,9 @@ func (s *DataSourceService) getTableColumns(db *sql.DB, tableName string, isLoca
 				Name: field,
 				Type: colType,
 			})
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating columns: %v", err)
 		}
 	}
 
@@ -215,6 +221,10 @@ func (s *DataSourceService) queryTableAsJSON(db *sql.DB, tableName string) ([]ma
 		}
 
 		result = append(result, rowMap)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %v", err)
 	}
 
 	return result, nil

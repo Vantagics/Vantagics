@@ -142,8 +142,12 @@ type App struct {
 	usageLicenseStore *UsageLicenseStore
 	// Pending usage queue for offline usage report retry
 	pendingUsageQueue *PendingUsageQueue
+	// flushUsageMu prevents concurrent FlushPendingUsageReports calls
+	flushUsageMu sync.Mutex
 	// Pack passwords from marketplace downloads (filePath -> encryption password)
 	packPasswords map[string]string
+	// Persistent pack password store (survives app restarts)
+	packPasswordStore *PackPasswordStore
 }
 
 // AgentMemoryView structure for frontend
@@ -315,12 +319,17 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.licenseClient != nil && a.licenseClient.IsCreditsMode() && a.licenseClient.GetTrustLevel() == "low" && a.licenseClient.ShouldReportNow() {
 		done := make(chan struct{})
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					a.Log(fmt.Sprintf("[SHUTDOWN] Panic in final usage report: %v", r))
+				}
+				close(done)
+			}()
 			if err := a.licenseClient.ReportUsage(); err != nil {
 				a.Log(fmt.Sprintf("[SHUTDOWN] Final usage report failed: %v", err))
 			} else {
 				a.Log("[SHUTDOWN] Final usage report sent successfully")
 			}
-			close(done)
 		}()
 		select {
 		case <-done:
@@ -336,8 +345,13 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.einoService != nil {
 		done := make(chan struct{})
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					a.Log(fmt.Sprintf("[SHUTDOWN] Panic in EinoService close: %v", r))
+				}
+				close(done)
+			}()
 			a.einoService.Close()
-			close(done)
 		}()
 		select {
 		case <-done:
@@ -594,6 +608,20 @@ func (a *App) startup(ctx context.Context) {
 				}()
 				a.FlushPendingUsageReports()
 			}()
+		}
+
+		// Initialize pack password store (persists marketplace pack passwords across restarts)
+		pps, err := NewPackPasswordStore()
+		if err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to create PackPasswordStore: %v", err))
+		} else {
+			if err := pps.Load(); err != nil {
+				a.Log(fmt.Sprintf("[STARTUP] Failed to load pack passwords: %v", err))
+			}
+			a.packPasswordStore = pps
+			// Load persisted passwords into the in-memory map for backward compatibility
+			pps.LoadIntoMap(a.packPasswords)
+			a.Log("[STARTUP] PackPasswordStore initialized successfully")
 		}
 	}
 
@@ -3326,9 +3354,14 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Allow optional newline after json:table
 			// Also capture the table title from the line before the code block
 			
-			// First, use the simple pattern to find all table blocks
+			// First, use the simple pattern to find all table blocks (with backticks)
 			reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 			allTableMatches := reTable.FindAllStringSubmatchIndex(resp, -1)
+
+			// Also match json:table without backticks (LLM sometimes omits them)
+			reTableNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
+			allTableNoBTMatches := reTableNoBT.FindAllStringSubmatchIndex(resp, -1)
+			allTableMatches = append(allTableMatches, allTableNoBTMatches...)
 			
 			for matchIdx, matchIndices := range allTableMatches {
 				if len(matchIndices) >= 4 {
@@ -3364,30 +3397,51 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 					var parseErr error
 					var columnsOrder []string
 					if parseErr = json.Unmarshal([]byte(jsonContent), &tableData); parseErr != nil {
-						// Try to parse as 2D array (first row is headers)
-						var arrayData [][]interface{}
-						if err := json.Unmarshal([]byte(jsonContent), &arrayData); err == nil && len(arrayData) > 1 {
-							// Convert 2D array to object array
-							// First row is headers
-							headers := make([]string, len(arrayData[0]))
-							for i, h := range arrayData[0] {
-								headers[i] = fmt.Sprintf("%v", h)
-							}
-							columnsOrder = headers
-							
-							// Remaining rows are data
-							tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
-							for _, row := range arrayData[1:] {
+						// Try to parse as {columns: [...], data: [[...], ...]} format
+						var colDataFormat struct {
+							Columns []string        `json:"columns"`
+							Data    [][]interface{} `json:"data"`
+						}
+						if err := json.Unmarshal([]byte(jsonContent), &colDataFormat); err == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
+							columnsOrder = colDataFormat.Columns
+							tableData = make([]map[string]interface{}, 0, len(colDataFormat.Data))
+							for _, row := range colDataFormat.Data {
 								rowMap := make(map[string]interface{})
 								for i, val := range row {
-									if i < len(headers) {
-										rowMap[headers[i]] = val
+									if i < len(colDataFormat.Columns) {
+										rowMap[colDataFormat.Columns[i]] = val
 									}
 								}
 								tableData = append(tableData, rowMap)
 							}
 							parseErr = nil
-							a.Log(fmt.Sprintf("[CHART] Converted 2D array table #%d: %d columns, %d rows", matchIdx+1, len(headers), len(tableData)))
+							a.Log(fmt.Sprintf("[CHART] Converted columns/data format table #%d: %d columns, %d rows", matchIdx+1, len(colDataFormat.Columns), len(tableData)))
+						} else {
+							// Try to parse as 2D array (first row is headers)
+							var arrayData [][]interface{}
+							if err := json.Unmarshal([]byte(jsonContent), &arrayData); err == nil && len(arrayData) > 1 {
+								// Convert 2D array to object array
+								// First row is headers
+								headers := make([]string, len(arrayData[0]))
+								for i, h := range arrayData[0] {
+									headers[i] = fmt.Sprintf("%v", h)
+								}
+								columnsOrder = headers
+								
+								// Remaining rows are data
+								tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+								for _, row := range arrayData[1:] {
+									rowMap := make(map[string]interface{})
+									for i, val := range row {
+										if i < len(headers) {
+											rowMap[headers[i]] = val
+										}
+									}
+									tableData = append(tableData, rowMap)
+								}
+								parseErr = nil
+								a.Log(fmt.Sprintf("[CHART] Converted 2D array table #%d: %d columns, %d rows", matchIdx+1, len(headers), len(tableData)))
+							}
 						}
 					} else {
 						// Extract column order from original JSON object keys
@@ -3714,6 +3768,11 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 			// Auto-extract metrics from analysis response
 			if resp != "" && userMessageID != "" {
 				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							a.Log(fmt.Sprintf("[PANIC] Recovered in metrics extraction goroutine: %v", r))
+						}
+					}()
 					// Small delay to ensure frontend has processed the response
 					time.Sleep(1 * time.Second)
 
@@ -3786,6 +3845,11 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 		// For standard path, we don't have userMessageID, so we'll use a generated one
 		// This is less ideal but provides fallback functionality
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					a.Log(fmt.Sprintf("[PANIC] Recovered in standard LLM metrics extraction goroutine: %v", r))
+				}
+			}()
 			// Small delay to ensure frontend has processed the response
 			time.Sleep(1 * time.Second)
 
@@ -5743,6 +5807,11 @@ func (a *App) StartDataSourceAnalysis(dataSourceID string) (string, error) {
 
 	// Call SendMessage asynchronously so we can return the threadID immediately
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				a.Log(fmt.Sprintf("[PANIC] Recovered in async SendMessage goroutine: %v", r))
+			}
+		}()
 		_, err := a.SendMessage(threadID, prompt, userMessageID, "")
 		if err != nil {
 			a.Log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Error: %v", err))

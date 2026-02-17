@@ -439,6 +439,9 @@ func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, e
 
 		columnTypes[name.String] = colType.String
 	}
+	if err := rows.Err(); err != nil {
+		return columnTypes, fmt.Errorf("error iterating column rows: %w", err)
+	}
 
 	return columnTypes, nil
 }
@@ -460,6 +463,9 @@ func (a *App) getExistingIndexes(db *sql.DB) ([]string, error) {
 			continue
 		}
 		indexes = append(indexes, name)
+	}
+	if err := rows.Err(); err != nil {
+		return indexes, fmt.Errorf("error iterating index rows: %w", err)
 	}
 
 	return indexes, nil

@@ -49,8 +49,8 @@ func (s *DataSourceService) ImportJSON(name string, filePath string, headerGen f
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	// Create SQLite DB
-	db, err := sql.Open("sqlite", absDBPath)
+	// Create DuckDB database
+	db, err := sql.Open("duckdb", absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}

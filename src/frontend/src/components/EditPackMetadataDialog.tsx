@@ -4,23 +4,26 @@ import { useLanguage } from '../i18n';
 import { Loader2 } from 'lucide-react';
 import { UpdatePackMetadata } from '../../wailsjs/go/main/App';
 import type { LocalPackInfo } from './PackManagerPage';
+import ConfirmationModal from './ConfirmationModal';
 
 interface EditPackMetadataDialogProps {
     pack: LocalPackInfo;
+    isShared?: boolean;
     onClose: () => void;
     onSaved: () => void;
 }
 
-const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, onClose, onSaved }) => {
+const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, isShared, onClose, onSaved }) => {
     const { t } = useLanguage();
     const [packName, setPackName] = useState(pack.pack_name);
     const [description, setDescription] = useState(pack.description);
     const [author, setAuthor] = useState(pack.author);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [showReReviewConfirm, setShowReReviewConfirm] = useState(false);
     const backdropMouseDown = React.useRef(false);
 
-    const handleSave = async () => {
+    const doSave = async () => {
         setSaving(true);
         setError(null);
         try {
@@ -30,6 +33,14 @@ const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, o
             setError(err?.message || err?.toString() || 'Failed to save metadata');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleSave = () => {
+        if (isShared) {
+            setShowReReviewConfirm(true);
+        } else {
+            doSave();
         }
     };
 
@@ -104,6 +115,14 @@ const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, o
                     <p className="mt-3 text-xs text-red-500">{error}</p>
                 )}
 
+                {isShared && (
+                    <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-md">
+                        <p className="text-xs text-amber-700 dark:text-amber-300">
+                            ⚠ {t('edit_metadata_shared_warning')}
+                        </p>
+                    </div>
+                )}
+
                 <div className="flex justify-end gap-3 mt-5">
                     <button
                         onClick={onClose}
@@ -122,6 +141,14 @@ const EditPackMetadataDialog: React.FC<EditPackMetadataDialogProps> = ({ pack, o
                     </button>
                 </div>
             </div>
+            <ConfirmationModal
+                isOpen={showReReviewConfirm}
+                title={t('edit_metadata_re_review_title')}
+                message={t('edit_metadata_re_review_message')}
+                confirmText={t('edit_metadata_re_review_confirm')}
+                onClose={() => setShowReReviewConfirm(false)}
+                onConfirm={doSave}
+            />
         </div>,
         document.body
     );

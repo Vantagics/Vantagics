@@ -1473,7 +1473,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         const hasBackendTitle = tableData.title && tableData.title.trim();
                         if (hasBackendTitle) {
                             // 使用后端提供的标题
-                            tableTitle = totalTables > 1 
+                            // 如果标题已经以数字编号开头（如 "1. xxx"），不再添加额外编号
+                            const startsWithNumber = /^\d+[\.\、]/.test(tableData.title!.trim());
+                            tableTitle = (totalTables > 1 && !startsWithNumber)
                                 ? `${index + 1}. ${tableData.title}`
                                 : tableData.title!;
                         } else {

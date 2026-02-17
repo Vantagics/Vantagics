@@ -376,16 +376,23 @@ func (p *PythonPool) maintenance() {
 				p.mu.Unlock()
 				return
 			}
-			// Check worker health: identify workers idle for too long
+			// Check worker health: identify workers that have exited unexpectedly
+			var deadWorkers []*PythonWorker
 			for _, w := range p.workers {
 				w.mu.Lock()
 				if w.ready && w.cmd.ProcessState != nil {
 					// Process has exited unexpectedly
 					w.ready = false
+					deadWorkers = append(deadWorkers, w)
 				}
 				w.mu.Unlock()
 			}
 			p.mu.Unlock()
+
+			// Replace dead workers outside the pool lock
+			for _, w := range deadWorkers {
+				go p.replaceWorker(w)
+			}
 		}
 	}
 }

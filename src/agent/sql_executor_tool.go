@@ -145,9 +145,9 @@ func (t *SQLExecutorTool) convertMySQLToDuckDB(query string) string {
 	locateRegex := regexp.MustCompile(`(?i)LOCATE\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)`)
 	query = locateRegex.ReplaceAllString(query, "INSTR($2, $1)")
 
-	// Convert INSTR with 3 parameters (MySQL style with position) to 2 parameters (SQLite)
+	// Convert INSTR with 3 parameters (MySQL style with position) to 2 parameters (DuckDB)
 	// MySQL: INSTR(str, substr, pos)
-	// SQLite: INSTR(SUBSTR(str, pos), substr) but this changes the result position
+	// DuckDB: INSTR(SUBSTR(str, pos), substr) but this changes the result position
 	// For simplicity, if pos is 1, just remove it. Otherwise, warn and use 2-param version
 	instr3Regex := regexp.MustCompile(`(?i)INSTR\s*\(\s*([^,]+)\s*,\s*([^,]+)\s*,\s*(\d+)\s*\)`)
 	query = instr3Regex.ReplaceAllStringFunc(query, func(match string) string {
@@ -245,6 +245,9 @@ func (t *SQLExecutorTool) getTableColumns(db *sql.DB, dbType string, tableName s
 			}
 			columns = append(columns, name)
 		}
+		if err := rows.Err(); err != nil {
+			return columns, fmt.Errorf("error iterating columns: %v", err)
+		}
 		return columns, nil
 	} else {
 		// For MySQL/Doris, use DESCRIBE
@@ -263,6 +266,9 @@ func (t *SQLExecutorTool) getTableColumns(db *sql.DB, dbType string, tableName s
 				continue
 			}
 			columns = append(columns, field)
+		}
+		if err := rows.Err(); err != nil {
+			return columns, fmt.Errorf("error iterating columns: %v", err)
 		}
 		return columns, nil
 	}
@@ -323,7 +329,14 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 	} else {
 		return "", "", fmt.Errorf("unsupported data source type: %s", target.Type)
 	}
-	defer db.Close()
+	defer func() {
+		// Flush WAL before closing DuckDB write connections to prevent
+		// residual WAL files that block subsequent read-only opens.
+		if dbType == "duckdb" {
+			db.Exec("CHECKPOINT")
+		}
+		db.Close()
+	}()
 
 	// Apply SQL dialect conversion if needed
 	processedQuery := query

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2 } from 'lucide-react';
-import { ExportQuickAnalysisPack } from '../../wailsjs/go/main/App';
+import { ExportQuickAnalysisPack, GetConfig } from '../../wailsjs/go/main/App';
 
 interface ExportPackDialogProps {
     isOpen: boolean;
@@ -33,6 +33,12 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
             setIsExporting(false);
             setError(null);
             setSuccessPath(null);
+            // Load author signature from config
+            GetConfig().then(cfg => {
+                if (cfg.authorSignature) {
+                    setAuthor(cfg.authorSignature);
+                }
+            }).catch(console.error);
         }
     }, [isOpen]);
 

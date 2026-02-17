@@ -429,6 +429,31 @@ func stripTableDataFromInsight(insight string) string {
 			continue
 		}
 
+		// Handle json:table without backticks
+		if trimmed == "json:table" {
+			// Skip the json:table marker and the JSON block that follows
+			i++
+			depth := 0
+			started := false
+			for i < len(lines) {
+				lt := strings.TrimSpace(lines[i])
+				if !started && (strings.HasPrefix(lt, "{") || strings.HasPrefix(lt, "[")) {
+					started = true
+				}
+				if started {
+					depth += strings.Count(lt, "{") + strings.Count(lt, "[")
+					depth -= strings.Count(lt, "}") + strings.Count(lt, "]")
+					i++
+					if depth <= 0 {
+						break
+					}
+				} else {
+					i++
+				}
+			}
+			continue
+		}
+
 		if inCodeBlock {
 			result = append(result, line)
 			i++

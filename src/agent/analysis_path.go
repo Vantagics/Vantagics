@@ -118,23 +118,29 @@ func (m *AnalysisPathManager) AddFinding(sessionID string, finding ConfirmedFind
 // GetPath retrieves the analysis path for a session
 func (m *AnalysisPathManager) GetPath(sessionID string) *AnalysisPath {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	path, exists := m.paths[sessionID]
-	if !exists {
-		// Try loading from disk
-		if loaded := m.loadPath(sessionID); loaded != nil {
-			m.mu.RUnlock()
-			m.mu.Lock()
-			m.paths[sessionID] = loaded
-			m.mu.Unlock()
-			m.mu.RLock()
-			return loaded
-		}
+	if exists {
+		m.mu.RUnlock()
+		return path
+	}
+	m.mu.RUnlock()
+
+	// Try loading from disk (outside of any lock to avoid deadlock)
+	loaded := m.loadPath(sessionID)
+	if loaded == nil {
 		return nil
 	}
 
-	return path
+	// Store in cache under write lock
+	m.mu.Lock()
+	// Double-check: another goroutine may have loaded it while we waited
+	if existing, ok := m.paths[sessionID]; ok {
+		m.mu.Unlock()
+		return existing
+	}
+	m.paths[sessionID] = loaded
+	m.mu.Unlock()
+	return loaded
 }
 
 // GenerateStoryline creates a narrative summary of the analysis path

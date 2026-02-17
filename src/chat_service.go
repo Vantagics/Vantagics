@@ -361,7 +361,10 @@ func (s *ChatService) LoadThreads() ([]ChatThread, error) {
 
 // GetThreadsByDataSource loads chat threads filtered by data source ID
 func (s *ChatService) GetThreadsByDataSource(dataSourceID string) ([]ChatThread, error) {
-	threads, err := s.LoadThreads()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	threads, err := s.loadThreadsInternal()
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +380,10 @@ func (s *ChatService) GetThreadsByDataSource(dataSourceID string) ([]ChatThread,
 
 // CheckSessionNameExists checks if a thread with the same title already exists for a specific data source
 func (s *ChatService) CheckSessionNameExists(dataSourceID string, title string, excludeThreadID string) (bool, error) {
-	threads, err := s.LoadThreads()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	threads, err := s.loadThreadsInternal()
 	if err != nil {
 		return false, err
 	}
@@ -907,7 +913,11 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 
 	// Extract table blocks (json:table format)
 	reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-	for idx, match := range reTable.FindAllStringSubmatchIndex(content, -1) {
+	// Also match json:table without backticks
+	reTableNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
+	allTableMatchIndices := reTable.FindAllStringSubmatchIndex(content, -1)
+	allTableMatchIndices = append(allTableMatchIndices, reTableNoBT.FindAllStringSubmatchIndex(content, -1)...)
+	for idx, match := range allTableMatchIndices {
 		if len(match) >= 4 {
 			fullMatchStart := match[0]
 			jsonContent := strings.TrimSpace(content[match[2]:match[3]])
@@ -932,23 +942,42 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 			var tableData []map[string]interface{}
 			var columnsOrder []string
 			if err := json.Unmarshal([]byte(jsonContent), &tableData); err != nil {
-				// Try 2D array format
-				var arrayData [][]interface{}
-				if err2 := json.Unmarshal([]byte(jsonContent), &arrayData); err2 == nil && len(arrayData) > 1 {
-					headers := make([]string, len(arrayData[0]))
-					for i, h := range arrayData[0] {
-						headers[i] = fmt.Sprintf("%v", h)
-					}
-					columnsOrder = headers
-					tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
-					for _, row := range arrayData[1:] {
+				// Try {columns: [...], data: [[...], ...]} format
+				var colDataFormat struct {
+					Columns []string        `json:"columns"`
+					Data    [][]interface{} `json:"data"`
+				}
+				if err2 := json.Unmarshal([]byte(jsonContent), &colDataFormat); err2 == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
+					columnsOrder = colDataFormat.Columns
+					tableData = make([]map[string]interface{}, 0, len(colDataFormat.Data))
+					for _, row := range colDataFormat.Data {
 						rowMap := make(map[string]interface{})
 						for i, val := range row {
-							if i < len(headers) {
-								rowMap[headers[i]] = val
+							if i < len(colDataFormat.Columns) {
+								rowMap[colDataFormat.Columns[i]] = val
 							}
 						}
 						tableData = append(tableData, rowMap)
+					}
+				} else {
+					// Try 2D array format
+					var arrayData [][]interface{}
+					if err3 := json.Unmarshal([]byte(jsonContent), &arrayData); err3 == nil && len(arrayData) > 1 {
+						headers := make([]string, len(arrayData[0]))
+						for i, h := range arrayData[0] {
+							headers[i] = fmt.Sprintf("%v", h)
+						}
+						columnsOrder = headers
+						tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
+						for _, row := range arrayData[1:] {
+							rowMap := make(map[string]interface{})
+							for i, val := range row {
+								if i < len(headers) {
+									rowMap[headers[i]] = val
+								}
+							}
+							tableData = append(tableData, rowMap)
+						}
 					}
 				}
 			} else {
