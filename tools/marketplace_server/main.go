@@ -313,21 +313,22 @@ func handleGetAllPaymentFeeRates(w http.ResponseWriter, r *http.Request) {
 
 // initDB initializes the SQLite database with WAL mode and creates all required tables.
 func initDB(dbPath string) (*sql.DB, error) {
-	database, err := sql.Open("sqlite", dbPath)
+	// Use _pragma parameters to ensure every connection from the pool gets the same settings.
+	// WAL mode is database-level (persists), but busy_timeout/synchronous/cache_size are per-connection.
+	dsn := dbPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-65536)"
+	database, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Set connection pool limits
-	database.SetMaxOpenConns(25)
-	database.SetMaxIdleConns(5)
-	database.SetConnMaxLifetime(5 * time.Minute)
-
-	// Enable WAL mode
-	if _, err := database.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
+	// SQLite concurrency notes:
+	// - WAL allows concurrent readers while one writer is active
+	// - busy_timeout(5000) makes writers wait up to 5s instead of failing on lock contention
+	// - synchronous(NORMAL) is safe with WAL and reduces fsync overhead
+	// - Small pool avoids excessive lock contention on the single database file
+	database.SetMaxOpenConns(4)
+	database.SetMaxIdleConns(4)
+	database.SetConnMaxLifetime(0) // reuse connections indefinitely
 
 	// Create users table (new schema with auth_type/auth_id)
 	if _, err := database.Exec(`
@@ -4879,55 +4880,6 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "paid packs must not be pre-encrypted"})
 			return
 		}
-
-		// Extract raw pack.json bytes from the ZIP for encryption
-		var packJSONBytes []byte
-		zr2, _ := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
-		for _, f := range zr2.File {
-			if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
-				rc, err := f.Open()
-				if err != nil {
-					break
-				}
-				packJSONBytes, err = io.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					packJSONBytes = nil
-				}
-				break
-			}
-		}
-		if packJSONBytes == nil {
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-
-		// Generate secure password
-		pwd, err := generateSecurePassword()
-		if err != nil {
-			log.Printf("Failed to generate encryption password: %v", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-
-		// Encrypt pack.json
-		encryptedData, err := serverEncryptPackJSON(packJSONBytes, pwd)
-		if err != nil {
-			log.Printf("Failed to encrypt pack.json: %v", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-
-		// Repack ZIP with encrypted pack.json
-		newFileData, err := repackZipWithEncryptedData(fileData, encryptedData)
-		if err != nil {
-			log.Printf("Failed to repack ZIP: %v", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
-
-		fileData = newFileData
-		encryptionPassword = pwd
 	}
 
 	// Use pack_name from metadata, fall back to source_name, then "Untitled"
@@ -4959,7 +4911,7 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Insert pack_listing record
+	// Insert pack_listing record (with original fileData to get listingID first)
 	result, err := db.Exec(
 		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info, encryption_password)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
@@ -4977,6 +4929,67 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to get last insert ID: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Inject listing_id into the .qap file, then encrypt if paid, and UPDATE file_data
+	{
+		// Step 1: Inject listing_id into pack.json and metadata.json
+		injectedData, err := injectListingIDIntoQAP(fileData, listingID)
+		if err != nil {
+			log.Printf("Failed to inject listing_id into QAP: %v", err)
+			// Non-fatal: the pack will work without listing_id (client has fallback)
+		} else {
+			fileData = injectedData
+		}
+
+		// Step 2: Encrypt if paid pack
+		if shareMode == "per_use" || shareMode == "subscription" {
+			// Extract pack.json bytes from the (now listing_id-injected) ZIP
+			var packJSONBytes []byte
+			zr2, _ := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+			for _, f := range zr2.File {
+				if f.Name == "pack.json" || f.Name == "analysis_pack.json" {
+					rc, err := f.Open()
+					if err != nil {
+						break
+					}
+					packJSONBytes, err = io.ReadAll(rc)
+					rc.Close()
+					if err != nil {
+						packJSONBytes = nil
+					}
+					break
+				}
+			}
+			if packJSONBytes != nil {
+				pwd, err := generateSecurePassword()
+				if err == nil {
+					encryptedData, err := serverEncryptPackJSON(packJSONBytes, pwd)
+					if err == nil {
+						newFileData, err := repackZipWithEncryptedData(fileData, encryptedData)
+						if err == nil {
+							fileData = newFileData
+							encryptionPassword = pwd
+						} else {
+							log.Printf("Failed to repack ZIP: %v", err)
+						}
+					} else {
+						log.Printf("Failed to encrypt pack.json: %v", err)
+					}
+				} else {
+					log.Printf("Failed to generate encryption password: %v", err)
+				}
+			}
+		}
+
+		// Step 3: UPDATE file_data and encryption_password with the final version
+		_, err = db.Exec(
+			`UPDATE pack_listings SET file_data = ?, encryption_password = ? WHERE id = ?`,
+			fileData, encryptionPassword, listingID,
+		)
+		if err != nil {
+			log.Printf("Failed to update file_data with listing_id: %v", err)
+		}
 	}
 
 	// Read back the created listing
@@ -5152,8 +5165,18 @@ func handleReplacePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Encrypt paid packs
+	// Inject listing_id into the .qap file before encryption
 	var encryptionPassword string
+	if !isEncrypted {
+		injectedData, err := injectListingIDIntoQAP(fileData, listingID)
+		if err != nil {
+			log.Printf("[REPLACE-PACK] Failed to inject listing_id: %v", err)
+		} else {
+			fileData = injectedData
+		}
+	}
+
+	// Encrypt paid packs
 	if shareMode == "per_use" || shareMode == "subscription" {
 		if isEncrypted {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "paid packs must not be pre-encrypted"})
@@ -5692,6 +5715,117 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case "per_use", "subscription":
+		// For subscription packs, check if user already has an active (non-expired) subscription.
+		// If so, allow re-download without charging credits.
+		if shareMode == "subscription" {
+			hasActiveSubscription := false
+
+			// Get the original purchase date from credits_transactions (include 'renew' as it may be the first record)
+			var purchaseDateStr sql.NullString
+			err = db.QueryRow(`
+				SELECT MIN(created_at) FROM credits_transactions
+				WHERE user_id = ? AND listing_id = ? AND transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew_subscription', 'renew')
+			`, userID, packID).Scan(&purchaseDateStr)
+
+			// Fallback: if no credits_transactions record, try user_purchased_packs.created_at
+			if (err != nil || !purchaseDateStr.Valid || purchaseDateStr.String == "") {
+				var uppDate sql.NullString
+				_ = db.QueryRow(`SELECT created_at FROM user_purchased_packs WHERE user_id = ? AND listing_id = ?`, userID, packID).Scan(&uppDate)
+				if uppDate.Valid && uppDate.String != "" {
+					purchaseDateStr = uppDate
+					err = nil
+				}
+			}
+
+			if err == nil && purchaseDateStr.Valid && purchaseDateStr.String != "" {
+				// Parse purchase date
+				var baseTime time.Time
+				if t, err := time.Parse("2006-01-02 15:04:05", purchaseDateStr.String); err == nil {
+					baseTime = t
+				} else if t, err := time.Parse("2006-01-02T15:04:05Z", purchaseDateStr.String); err == nil {
+					baseTime = t
+				}
+
+				if !baseTime.IsZero() {
+					// Get valid_days from pack listing (default 30 for subscription)
+					var validDays int
+					db.QueryRow("SELECT COALESCE(valid_days, 0) FROM pack_listings WHERE id = ?", packID).Scan(&validDays)
+					if validDays == 0 {
+						validDays = 30
+					}
+					currentExpiry := baseTime.AddDate(0, 0, validDays)
+
+					// Apply all renew transactions to calculate cumulative expiry
+					renewRows, err := db.Query(`
+						SELECT created_at, COALESCE(description, '')
+						FROM credits_transactions
+						WHERE user_id = ? AND listing_id = ? AND transaction_type = 'renew'
+						ORDER BY created_at ASC
+					`, userID, packID)
+					if err == nil {
+						for renewRows.Next() {
+							var renewDateStr, desc string
+							if err := renewRows.Scan(&renewDateStr, &desc); err != nil {
+								continue
+							}
+							renewMonths := 1
+							if strings.Contains(desc, "yearly") || strings.Contains(desc, "14 month") {
+								renewMonths = 14
+							} else if strings.Contains(desc, "12 month") {
+								renewMonths = 12
+							}
+							var renewTime time.Time
+							if t, err := time.Parse("2006-01-02 15:04:05", renewDateStr); err == nil {
+								renewTime = t
+							} else if t, err := time.Parse("2006-01-02T15:04:05Z", renewDateStr); err == nil {
+								renewTime = t
+							}
+							if renewTime.IsZero() {
+								continue
+							}
+							if currentExpiry.After(renewTime) {
+								currentExpiry = currentExpiry.AddDate(0, renewMonths, 0)
+							} else {
+								currentExpiry = renewTime.AddDate(0, renewMonths, 0)
+							}
+						}
+						renewRows.Close()
+					}
+
+					// Check if subscription is still active
+					if time.Now().UTC().Before(currentExpiry) {
+						hasActiveSubscription = true
+						log.Printf("[DOWNLOAD] User %d has active subscription for pack %d (expires: %s), allowing free re-download",
+							userID, packID, currentExpiry.Format("2006-01-02 15:04:05"))
+					}
+				}
+			}
+
+			if hasActiveSubscription {
+				// Active subscription: allow download without charging, just increment download count
+				_, _ = db.Exec("UPDATE pack_listings SET download_count = download_count + 1 WHERE id = ?", packID)
+				_, _ = db.Exec("INSERT INTO user_downloads (user_id, listing_id, ip_address) VALUES (?, ?, ?)", userID, packID, getClientIP(r))
+				if err := upsertUserPurchasedPack(userID, packID); err != nil {
+					log.Printf("Failed to upsert user purchased pack: %v", err)
+				}
+
+				metaInfoValue := "{}"
+				if metaInfoStr.Valid && metaInfoStr.String != "" {
+					metaInfoValue = metaInfoStr.String
+				}
+				if encryptionPassword != "" {
+					w.Header().Set("X-Encryption-Password", encryptionPassword)
+				}
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, packName))
+				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
+				w.Header().Set("X-Meta-Info", metaInfoValue)
+				w.WriteHeader(http.StatusOK)
+				w.Write(fileData)
+				return
+			}
+		}
+
 		// Check user's credits balance
 		var balance float64
 		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)

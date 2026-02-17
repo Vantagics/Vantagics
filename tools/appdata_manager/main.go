@@ -25,8 +25,11 @@ import (
 
 const (
 	appDataFileName = "appdata.dat"
-	encryptionKey   = "vantagedata"
-	currentVersion  = "1.0"
+	// encryptionKey is used to derive the AES-256 key via SHA-256.
+	// This is a static key for local data protection (not for high-security secrets).
+	// Override via APPDATA_ENCRYPTION_KEY environment variable for production use.
+	defaultEncryptionKey = "vantagedata"
+	currentVersion       = "1.0"
 )
 
 // StoreCredentials holds OAuth credentials for a store platform

@@ -889,7 +889,19 @@ func (a *App) PurchaseAdditionalUses(listingID int64, quantity int) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("purchase failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+		body := readErrorBody(resp.Body)
+		// Parse INSUFFICIENT_CREDITS error for user-friendly message
+		if resp.StatusCode == http.StatusPaymentRequired {
+			var errResp struct {
+				Error    string  `json:"error"`
+				Required int     `json:"required"`
+				Balance  float64 `json:"balance"`
+			}
+			if json.Unmarshal([]byte(body), &errResp) == nil && errResp.Error == "INSUFFICIENT_CREDITS" {
+				return fmt.Errorf("积分余额不足，需要 %d 积分，当前余额 %.0f 积分", errResp.Required, errResp.Balance)
+			}
+		}
+		return fmt.Errorf("purchase failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var result struct {
@@ -941,7 +953,19 @@ func (a *App) RenewSubscription(listingID int64, months int) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("renew failed with status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
+		body := readErrorBody(resp.Body)
+		// Parse INSUFFICIENT_CREDITS error for user-friendly message
+		if resp.StatusCode == http.StatusPaymentRequired {
+			var errResp struct {
+				Error    string  `json:"error"`
+				Required int     `json:"required"`
+				Balance  float64 `json:"balance"`
+			}
+			if json.Unmarshal([]byte(body), &errResp) == nil && errResp.Error == "INSUFFICIENT_CREDITS" {
+				return fmt.Errorf("积分余额不足，需要 %d 积分，当前余额 %.0f 积分", errResp.Required, errResp.Balance)
+			}
+		}
+		return fmt.Errorf("renew failed with status %d: %s", resp.StatusCode, body)
 	}
 
 	var result struct {
@@ -973,6 +997,15 @@ func (a *App) GetUsageLicenses() []*UsageLicense {
 		return nil
 	}
 	return a.usageLicenseStore.GetAllLicenses()
+}
+
+// GetPackLicenseInfo returns the usage license for a specific listing ID.
+// Returns nil if no license exists (e.g., local packs without marketplace listing).
+func (a *App) GetPackLicenseInfo(listingID int64) *UsageLicense {
+	if a.usageLicenseStore == nil || listingID <= 0 {
+		return nil
+	}
+	return a.usageLicenseStore.GetLicense(listingID)
 }
 
 // RefreshPurchasedPackLicenses fetches the latest usage license info from the marketplace server

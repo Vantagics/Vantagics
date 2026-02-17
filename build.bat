@@ -130,62 +130,39 @@ exit /b 0
 
 :build_tools
 echo.
-echo [Tools] Building standalone tools (parallel)...
+echo [Tools] Building standalone tools...
 set "TOOLS_OUTPUT_DIR=%DIST_DIR%\tools"
 if not exist "%TOOLS_OUTPUT_DIR%" mkdir "%TOOLS_OUTPUT_DIR%"
 
-REM Create temporary batch files for parallel builds
-echo @echo off > "%TEMP%\build_appdata.bat"
-echo cd /d "%~dp0tools\appdata_manager" >> "%TEMP%\build_appdata.bat"
-echo set GOOS=windows>> "%TEMP%\build_appdata.bat"
-echo set GOARCH=amd64>> "%TEMP%\build_appdata.bat"
-echo set CGO_ENABLED=0>> "%TEMP%\build_appdata.bat"
-echo go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\appdata_manager.exe" . >> "%TEMP%\build_appdata.bat"
-echo if errorlevel 1 (echo [ERROR] appdata_manager build failed! ^& exit /b 1) else (echo [OK] appdata_manager built successfully.) >> "%TEMP%\build_appdata.bat"
-
-echo @echo off > "%TEMP%\build_license.bat"
-echo cd /d "%~dp0tools\license_server" >> "%TEMP%\build_license.bat"
-echo set GOOS=windows>> "%TEMP%\build_license.bat"
-echo set GOARCH=amd64>> "%TEMP%\build_license.bat"
-echo set CGO_ENABLED=1>> "%TEMP%\build_license.bat"
-echo go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\license_server.exe" . >> "%TEMP%\build_license.bat"
-echo if errorlevel 1 (echo [ERROR] license_server build failed! ^& exit /b 1) else (echo [OK] license_server built successfully.) >> "%TEMP%\build_license.bat"
-
-REM Clean up signal files
-del /q "%TEMP%\build_appdata.done" 2>nul
-del /q "%TEMP%\build_license.done" 2>nul
-
-REM Append signal file creation to each build script
-echo echo done ^> "%TEMP%\build_appdata.done" >> "%TEMP%\build_appdata.bat"
-echo echo done ^> "%TEMP%\build_license.done" >> "%TEMP%\build_license.bat"
-
-REM Launch parallel builds (no pause - let them exit naturally)
-echo   Starting parallel builds...
-start /MIN "" cmd /c "call "%TEMP%\build_appdata.bat""
-start /MIN "" cmd /c "call "%TEMP%\build_license.bat""
-
-REM Wait for both builds to complete via signal files
-echo   Waiting for builds to complete...
-:wait_tools
-timeout /t 1 /nobreak >nul 2>&1
-if not exist "%TEMP%\build_appdata.done" goto :wait_tools
-if not exist "%TEMP%\build_license.done" goto :wait_tools
-
-REM Check if builds succeeded
-if not exist "%DIST_DIR%\tools\appdata_manager.exe" (
-    echo   Error: appdata_manager.exe not found!
+REM Build appdata_manager
+echo   Building appdata_manager...
+set CGO_ENABLED=0
+set GOOS=windows
+set GOARCH=amd64
+cd /d "%~dp0tools\appdata_manager"
+go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\appdata_manager.exe" .
+if errorlevel 1 (
+    echo   Error: appdata_manager build failed!
+    cd /d "%~dp0"
     exit /b 1
 )
-if not exist "%DIST_DIR%\tools\license_server.exe" (
-    echo   Error: license_server.exe not found!
+echo   [OK] appdata_manager
+cd /d "%~dp0"
+
+REM Build license_server
+echo   Building license_server...
+set CGO_ENABLED=1
+set GOOS=windows
+set GOARCH=amd64
+cd /d "%~dp0tools\license_server"
+go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\license_server.exe" .
+if errorlevel 1 (
+    echo   Error: license_server build failed!
+    cd /d "%~dp0"
     exit /b 1
 )
-
-REM Cleanup temp files
-del /q "%TEMP%\build_appdata.bat" 2>nul
-del /q "%TEMP%\build_license.bat" 2>nul
-del /q "%TEMP%\build_appdata.done" 2>nul
-del /q "%TEMP%\build_license.done" 2>nul
+echo   [OK] license_server
+cd /d "%~dp0"
 
 echo.
 echo   All tools built successfully!

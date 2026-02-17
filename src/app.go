@@ -6196,6 +6196,7 @@ func (a *App) GetDataSourceTableDataWithCount(id string, tableName string) (*Tab
 	}
 	data, count, err := a.dataSourceService.GetDataSourceTableDataWithCount(id, tableName, cfg.MaxPreviewRows)
 	if err != nil {
+		a.Log(fmt.Sprintf("[DataBrowser] Failed to load table data for %s.%s: %v", id, tableName, err))
 		return nil, err
 	}
 	return &TableDataWithCount{Data: data, RowCount: count}, nil

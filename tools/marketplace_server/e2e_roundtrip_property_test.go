@@ -116,9 +116,27 @@ func TestProperty5_PaidPackE2ERoundTrip(t *testing.T) {
 			return false
 		}
 
-		// Step 7: Compare decrypted content with the original pack.json content
-		if !bytes.Equal(decryptedPackJSON, originalPackJSON) {
-			t.Logf("seed=%d: decrypted pack.json does not match original\n  original: %s\n  decrypted: %s", seed, originalPackJSON, decryptedPackJSON)
+		// Step 7: Compare decrypted content with the original pack.json content.
+		// The server injects listing_id into pack.json during upload, so we need
+		// to compare after adding listing_id to the original.
+		var originalMap map[string]interface{}
+		var decryptedMap map[string]interface{}
+		if err := json.Unmarshal(originalPackJSON, &originalMap); err != nil {
+			t.Logf("seed=%d: failed to parse original pack.json: %v", seed, err)
+			return false
+		}
+		if err := json.Unmarshal(decryptedPackJSON, &decryptedMap); err != nil {
+			t.Logf("seed=%d: failed to parse decrypted pack.json: %v", seed, err)
+			return false
+		}
+		// Inject the expected listing_id into the original for comparison
+		if meta, ok := originalMap["metadata"].(map[string]interface{}); ok {
+			meta["listing_id"] = float64(listing.ID)
+		}
+		origNorm, _ := json.Marshal(originalMap)
+		decNorm, _ := json.Marshal(decryptedMap)
+		if !bytes.Equal(origNorm, decNorm) {
+			t.Logf("seed=%d: decrypted pack.json does not match original (after listing_id injection)\n  original: %s\n  decrypted: %s", seed, origNorm, decNorm)
 			return false
 		}
 

@@ -169,8 +169,27 @@ func (a *App) loadAndValidatePack(filePath string, dataSourceID string, password
 		return nil, fmt.Errorf("不支持的分析包版本: %s，请升级软件后重试", pack.FormatVersion)
 	}
 
-	a.Log(fmt.Sprintf("[QAP-IMPORT] Parsed pack: %s by %s, %d steps",
-		pack.Metadata.SourceName, pack.Metadata.Author, len(pack.ExecutableSteps)))
+	// If ListingID is 0 (not embedded in .qap file), try to extract from marketplace filename.
+	// Marketplace downloads are saved as "marketplace_pack_{listingID}.qap".
+	if pack.Metadata.ListingID == 0 {
+		if extractedID := extractListingIDFromFilePath(filePath); extractedID > 0 {
+			pack.Metadata.ListingID = extractedID
+			a.Log(fmt.Sprintf("[QAP-IMPORT] Extracted listing_id=%d from filename", extractedID))
+		}
+	}
+	// Fallback: look up listing_id by pack name in the local license store
+	if pack.Metadata.ListingID == 0 && a.usageLicenseStore != nil {
+		for _, lic := range a.usageLicenseStore.GetAllLicenses() {
+			if lic.PackName == pack.Metadata.PackName || lic.PackName == pack.Metadata.SourceName {
+				pack.Metadata.ListingID = lic.ListingID
+				a.Log(fmt.Sprintf("[QAP-IMPORT] Resolved listing_id=%d from license store by pack name", lic.ListingID))
+				break
+			}
+		}
+	}
+
+	a.Log(fmt.Sprintf("[QAP-IMPORT] Parsed pack: %s by %s, %d steps, listing_id=%d",
+		pack.Metadata.SourceName, pack.Metadata.Author, len(pack.ExecutableSteps), pack.Metadata.ListingID))
 
 	if len(pack.ExecutableSteps) == 0 {
 		a.Log("[QAP-IMPORT] Pack has no executable steps")
@@ -240,7 +259,7 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 	}
 
 	// 3. Create a new Replay_Session thread
-	threadTitle := fmt.Sprintf("⚡ %s (by %s)", pack.Metadata.SourceName, pack.Metadata.Author)
+	threadTitle := fmt.Sprintf("⚡ %s (by %s)", pack.Metadata.PackName, pack.Metadata.Author)
 	thread, err := a.CreateChatThread(dataSourceID, threadTitle)
 	if err != nil {
 		a.Log(fmt.Sprintf("[QAP-EXECUTE] Error creating thread: %v", err))
@@ -351,18 +370,25 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 
 	a.Log("[QAP-EXECUTE] Execution completed successfully")
 
-	// 7. Consume one use for per_use marketplace packs after successful execution
+	// 7. Billing: consume use / validate subscription for marketplace packs after successful execution
 	if listingID > 0 && a.usageLicenseStore != nil {
-		if err := a.usageLicenseStore.ConsumeUse(listingID); err != nil {
-			a.Log(fmt.Sprintf("[QAP-EXECUTE] Failed to consume use for listing %d: %v", listingID, err))
-		} else {
-			_ = a.usageLicenseStore.Save()
-			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
-		}
-		// For subscription packs, validate with server asynchronously
 		lic := a.usageLicenseStore.GetLicense(listingID)
-		if lic != nil && (lic.PricingModel == "subscription" || lic.PricingModel == "time_limited") {
-			a.ValidateSubscriptionLicenseAsync(listingID)
+		if lic != nil {
+			a.Log(fmt.Sprintf("[QAP-EXECUTE] Billing: listing_id=%d, model=%s, remaining=%d, total=%d",
+				listingID, lic.PricingModel, lic.RemainingUses, lic.TotalUses))
+			switch lic.PricingModel {
+			case "per_use":
+				if err := a.usageLicenseStore.ConsumeUse(listingID); err != nil {
+					a.Log(fmt.Sprintf("[QAP-EXECUTE] Failed to consume use for listing %d: %v", listingID, err))
+				} else {
+					_ = a.usageLicenseStore.Save()
+					go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
+				}
+			case "subscription", "time_limited":
+				a.ValidateSubscriptionLicenseAsync(listingID)
+			}
+		} else {
+			a.Log(fmt.Sprintf("[QAP-EXECUTE] No license found for listing %d, skipping billing", listingID))
 		}
 	}
 
@@ -499,18 +525,25 @@ func (a *App) ReExecuteQuickAnalysisPack(threadID string) error {
 
 	a.Log("[QAP-REEXECUTE] Re-execution completed successfully")
 
-	// 7. Consume one use for per_use marketplace packs after successful re-execution
+	// 7. Billing: consume use / validate subscription for marketplace packs after successful re-execution
 	if listingID > 0 && a.usageLicenseStore != nil {
-		if err := a.usageLicenseStore.ConsumeUse(listingID); err != nil {
-			a.Log(fmt.Sprintf("[QAP-REEXECUTE] Failed to consume use for listing %d: %v", listingID, err))
-		} else {
-			_ = a.usageLicenseStore.Save()
-			go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
-		}
-		// For subscription packs, validate with server asynchronously
 		lic := a.usageLicenseStore.GetLicense(listingID)
-		if lic != nil && (lic.PricingModel == "subscription" || lic.PricingModel == "time_limited") {
-			a.ValidateSubscriptionLicenseAsync(listingID)
+		if lic != nil {
+			a.Log(fmt.Sprintf("[QAP-REEXECUTE] Billing: listing_id=%d, model=%s, remaining=%d, total=%d",
+				listingID, lic.PricingModel, lic.RemainingUses, lic.TotalUses))
+			switch lic.PricingModel {
+			case "per_use":
+				if err := a.usageLicenseStore.ConsumeUse(listingID); err != nil {
+					a.Log(fmt.Sprintf("[QAP-REEXECUTE] Failed to consume use for listing %d: %v", listingID, err))
+				} else {
+					_ = a.usageLicenseStore.Save()
+					go a.ReportPackUsage(listingID, time.Now().Format(time.RFC3339))
+				}
+			case "subscription", "time_limited":
+				a.ValidateSubscriptionLicenseAsync(listingID)
+			}
+		} else {
+			a.Log(fmt.Sprintf("[QAP-REEXECUTE] No license found for listing %d, skipping billing", listingID))
 		}
 	}
 
@@ -594,6 +627,7 @@ func (a *App) executePackSQLStep(threadID string, messageID string, step PackSte
 	stepLabel := getStepLabel(step)
 	userRequest := getStepUserRequest(step)
 
+	a.Log(fmt.Sprintf("[QAP-EXECUTE] SQL step %d code:\n%s", step.StepID, step.Code))
 	result, err := a.dataSourceService.ExecuteSQL(dataSourceID, step.Code)
 	if err != nil {
 		errMsg := fmt.Sprintf("步骤 %d 执行失败: %v", step.StepID, err)
@@ -617,6 +651,40 @@ func (a *App) executePackSQLStep(threadID string, messageID string, step PackSte
 
 	stepResults[step.StepID] = result
 	a.Log(fmt.Sprintf("[QAP-EXECUTE] SQL step %d executed successfully, %d rows", step.StepID, len(result)))
+
+	// Log column info and null value statistics for debugging
+	if len(result) > 0 {
+		cols := make([]string, 0, len(result[0]))
+		for col := range result[0] {
+			cols = append(cols, col)
+		}
+		a.Log(fmt.Sprintf("[QAP-EXECUTE] SQL step %d columns (%d): %s", step.StepID, len(cols), strings.Join(cols, ", ")))
+
+		// Count null values per column
+		nullCounts := make(map[string]int)
+		for _, row := range result {
+			for col, val := range row {
+				if val == nil {
+					nullCounts[col]++
+				}
+			}
+		}
+		if len(nullCounts) > 0 {
+			var nullInfo []string
+			var allNullCols []string
+			for col, count := range nullCounts {
+				nullInfo = append(nullInfo, fmt.Sprintf("%s=%d/%d", col, count, len(result)))
+				if count == len(result) {
+					allNullCols = append(allNullCols, col)
+				}
+			}
+			a.Log(fmt.Sprintf("[QAP-EXECUTE] SQL step %d null values: %s", step.StepID, strings.Join(nullInfo, ", ")))
+			if len(allNullCols) > 0 {
+				a.Log(fmt.Sprintf("[QAP-EXECUTE] WARNING: SQL step %d has %d columns with ALL null values: %s. This may indicate a data import type inference issue. Consider re-importing the data source.",
+					step.StepID, len(allNullCols), strings.Join(allNullCols, ", ")))
+			}
+		}
+	}
 
 	// Add success message with results (truncate large result sets for chat display)
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")
@@ -953,4 +1021,22 @@ func (a *App) emitStepEChartsConfigs(threadID, messageID string, step PackStep) 
 		a.Log(fmt.Sprintf("[QAP-EXECUTE] Sent stored ECharts config #%d to dashboard for step %d", i+1, step.StepID))
 	}
 	return results
+}
+
+// extractListingIDFromFilePath extracts the marketplace listing ID from a file path.
+// Marketplace downloads are saved as "marketplace_pack_{listingID}.qap".
+// Returns 0 if the filename does not match the expected pattern.
+var marketplacePackFileRe = regexp.MustCompile(`^marketplace_pack_(\d+)\.qap$`)
+
+func extractListingIDFromFilePath(filePath string) int64 {
+	base := filepath.Base(filePath)
+	m := marketplacePackFileRe.FindStringSubmatch(base)
+	if len(m) < 2 {
+		return 0
+	}
+	id, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return id
 }

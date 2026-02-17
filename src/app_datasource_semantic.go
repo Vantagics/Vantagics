@@ -444,7 +444,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	}
 
 	// 打开新数据库
-	newDB, err := sql.Open("duckdb", newDBFullPath)
+	newDB, err := a.dataSourceService.DB.OpenNew(newDBFullPath)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to open new database: %w", err)
 	}
@@ -604,7 +604,7 @@ func (a *App) migrateDataWithOptimization(originalSource *agent.DataSource, targ
 
 	// 打开新数据库（使用完整路径）
 	a.Log(fmt.Sprintf("Opening target database: %s", targetDBPath))
-	targetDB, err := sql.Open("duckdb", targetDBPath)
+	targetDB, err := a.dataSourceService.DB.OpenWritable(targetDBPath)
 	if err != nil {
 		return fmt.Errorf("failed to open target database: %w", err)
 	}

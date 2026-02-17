@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"vantagedata/dbpool"
 
 	"github.com/extrame/xls"
 	"github.com/google/uuid"
@@ -37,6 +40,7 @@ const schemaCacheTTL = 5 * time.Minute // Cache expires after 5 minutes
 type DataSourceService struct {
 	dataCacheDir string
 	Log          func(string)
+	DB           *dbpool.DBManager // unified database connection manager
 
 	// Schema cache for performance
 	schemaCache  map[string]*SchemaCache
@@ -60,70 +64,132 @@ func validateIdentifier(name string, identifierType string) error {
 	return nil
 }
 
-// openDuckDBReadOnly opens a DuckDB database in read-only mode with retry logic.
-// DuckDB on Windows can fail when a write connection is active on the same file,
-// or when a .wal file remains from a previous write session that was not checkpointed.
-// In the latter case, read-only mode cannot replay the WAL, so we first attempt a
-// brief read-write open + CHECKPOINT to flush the WAL, then retry read-only.
-func (s *DataSourceService) openDuckDBReadOnly(dbPath string) (*sql.DB, error) {
-	connStr := dbPath + "?access_mode=read_only"
-	const maxRetries = 3
-	walCheckpointed := false
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		db, err := sql.Open("duckdb", connStr)
-		if err != nil {
-			lastErr = err
-			s.log(fmt.Sprintf("[DuckDB] read-only open attempt %d/%d failed: %v", i+1, maxRetries, err))
-			// If this is the first failure and we haven't tried checkpointing yet,
-			// attempt a write-mode open + CHECKPOINT to flush any residual WAL file.
-			if !walCheckpointed {
-				walCheckpointed = true
-				s.tryCheckpointWAL(dbPath)
-			}
-			time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
-			continue
-		}
-		// Verify the connection is actually usable
-		if err := db.Ping(); err != nil {
-			db.Close()
-			lastErr = err
-			s.log(fmt.Sprintf("[DuckDB] read-only ping attempt %d/%d failed: %v", i+1, maxRetries, err))
-			if !walCheckpointed {
-				walCheckpointed = true
-				s.tryCheckpointWAL(dbPath)
-			}
-			time.Sleep(time.Duration(200*(i+1)) * time.Millisecond)
-			continue
-		}
-		return db, nil
+// quoteIdent returns a quoted SQL identifier appropriate for the given database.
+// DuckDB uses double quotes; MySQL uses backticks.
+func quoteIdent(name string, isMySQL bool) string {
+	if isMySQL {
+		return "`" + name + "`"
 	}
-	return nil, fmt.Errorf("failed to open DuckDB after %d retries: %w", maxRetries, lastErr)
+	return `"` + name + `"`
 }
 
-// tryCheckpointWAL attempts to open the database in read-write mode and execute
-// CHECKPOINT to flush any residual WAL file. This is needed because DuckDB cannot
-// open a database with an un-checkpointed WAL in read-only mode.
-func (s *DataSourceService) tryCheckpointWAL(dbPath string) {
-	s.log(fmt.Sprintf("[DuckDB] Attempting WAL checkpoint for: %s", dbPath))
-	db, err := sql.Open("duckdb", dbPath)
-	if err != nil {
-		s.log(fmt.Sprintf("[DuckDB] WAL checkpoint: failed to open in write mode: %v", err))
-		return
+// sanitizeValueForJSON converts DuckDB-specific Go types into JSON-safe primitives.
+// go-duckdb may return types such as duckdb.Decimal (*big.Int inside), *big.Int (HUGEINT),
+// duckdb.Interval, duckdb.Map (map[any]any), int8/int16/int32, uint8-uint64,
+// float32, and float64 with NaN/Inf �?none of which survive json.Marshal cleanly.
+func sanitizeValueForJSON(v interface{}) interface{} {
+	if v == nil {
+		return nil
 	}
-	defer db.Close()
-	if _, err := db.Exec("CHECKPOINT"); err != nil {
-		s.log(fmt.Sprintf("[DuckDB] WAL checkpoint: CHECKPOINT failed: %v", err))
-	} else {
-		s.log("[DuckDB] WAL checkpoint: success, WAL flushed")
+	switch val := v.(type) {
+	// --- already safe primitives ---
+	case string:
+		return val
+	case bool:
+		return val
+	case int64:
+		return val
+	case float64:
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			return nil
+		}
+		return val
+
+	// --- narrow integer types returned by DuckDB ---
+	case int:
+		return int64(val)
+	case int8:
+		return int64(val)
+	case int16:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case uint:
+		return int64(val)
+	case uint8:
+		return int64(val)
+	case uint16:
+		return int64(val)
+	case uint32:
+		return int64(val)
+	case uint64:
+		// uint64 may overflow int64; use float64 for very large values
+		if val <= uint64(math.MaxInt64) {
+			return int64(val)
+		}
+		return float64(val)
+	case float32:
+		f := float64(val)
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil
+		}
+		return f
+
+	// --- time ---
+	case time.Time:
+		return val.Format(time.RFC3339)
+
+	// --- big.Int (HUGEINT) ---
+	case *big.Int:
+		if val == nil {
+			return nil
+		}
+		// If it fits in int64, return int64; otherwise return string representation
+		if val.IsInt64() {
+			return val.Int64()
+		}
+		return val.String()
+
+	// --- []byte (BLOB / UUID) ---
+	case []byte:
+		return string(val)
+
+	// --- composite / nested types ---
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, v2 := range val {
+			out[k] = sanitizeValueForJSON(v2)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, v2 := range val {
+			out[i] = sanitizeValueForJSON(v2)
+		}
+		return out
 	}
+
+	// --- fallback: use fmt.Sprintf for any unknown type (duckdb.Decimal, duckdb.Interval, duckdb.Map, etc.) ---
+	// Check if the type has a Float64() method (duckdb.Decimal)
+	if dec, ok := v.(interface{ Float64() float64 }); ok {
+		f := dec.Float64()
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil
+		}
+		return f
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+// openDuckDBReadOnly opens a DuckDB database in read-only mode with retry logic.
+// Delegates to the unified DBManager.
+func (s *DataSourceService) openDuckDBReadOnly(dbPath string) (*sql.DB, error) {
+	return s.DB.OpenReadOnly(dbPath)
+}
+
+// openDuckDBWritable opens a DuckDB database in read-write mode.
+// Delegates to the unified DBManager.
+func (s *DataSourceService) openDuckDBWritable(dbPath string) (*sql.DB, error) {
+	return s.DB.OpenWritable(dbPath)
 }
 
 // NewDataSourceService creates a new service instance
 func NewDataSourceService(dataCacheDir string, logFunc func(string)) *DataSourceService {
+	dbMgr := dbpool.New(dbpool.EngineDuckDB, logFunc)
 	return &DataSourceService{
 		dataCacheDir: dataCacheDir,
 		Log:          logFunc,
+		DB:           dbMgr,
 		schemaCache:  make(map[string]*SchemaCache),
 	}
 }
@@ -335,6 +401,90 @@ func (s *DataSourceService) inferColumnType(val string) string {
 	return "TEXT"
 }
 
+// optimizeColumnTypes converts VARCHAR columns to INTEGER or REAL when all
+// non-empty sampled values are purely numeric. Date-like strings (e.g. "2147/7/1")
+// are left as TEXT because inferColumnType only matches strict integers/floats.
+func (s *DataSourceService) optimizeColumnTypes(db *sql.DB, tableName string) {
+	// Get column names
+	colRows, err := db.Query(fmt.Sprintf(`PRAGMA table_info("%s")`, tableName))
+	if err != nil {
+		return
+	}
+	var columns []string
+	for colRows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dfltValue interface{}
+		if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			columns = append(columns, name)
+		}
+	}
+	colRows.Close()
+
+	if len(columns) == 0 {
+		return
+	}
+
+	// Sample up to 100 non-empty values per column to infer type
+	const sampleSize = 100
+	converted := 0
+
+	for _, col := range columns {
+		sampleSQL := fmt.Sprintf(`SELECT "%s" FROM "%s" WHERE "%s" IS NOT NULL AND "%s" != '' LIMIT %d`,
+			col, tableName, col, col, sampleSize)
+		rows, err := db.Query(sampleSQL)
+		if err != nil {
+			continue
+		}
+
+		inferredType := ""
+		hasSamples := false
+		for rows.Next() {
+			var val string
+			if err := rows.Scan(&val); err != nil {
+				continue
+			}
+			hasSamples = true
+			t := s.inferColumnType(val)
+			if t == "TEXT" {
+				inferredType = "TEXT"
+				break
+			}
+			if inferredType == "" {
+				inferredType = t
+			} else if t == "REAL" && inferredType == "INTEGER" {
+				inferredType = "REAL"
+			}
+		}
+		rows.Close()
+
+		if !hasSamples || inferredType == "" || inferredType == "TEXT" {
+			continue
+		}
+
+		// Convert column type using DuckDB's ALTER TABLE ... TYPE with CAST
+		var duckdbType string
+		if inferredType == "INTEGER" {
+			duckdbType = "BIGINT"
+		} else {
+			duckdbType = "DOUBLE"
+		}
+
+		alterSQL := fmt.Sprintf(`ALTER TABLE "%s" ALTER COLUMN "%s" SET DATA TYPE %s USING CAST("%s" AS %s)`,
+			tableName, col, duckdbType, col, duckdbType)
+		if _, err := db.Exec(alterSQL); err != nil {
+			s.log(fmt.Sprintf("[CSV] Type optimization: failed to convert %s.%s to %s: %v", tableName, col, duckdbType, err))
+		} else {
+			converted++
+		}
+	}
+
+	if converted > 0 {
+		s.log(fmt.Sprintf("[CSV] Type optimization: converted %d columns in %s", converted, tableName))
+	}
+}
+
 // isHeaderRow checks if the row is likely a header row
 func (s *DataSourceService) isHeaderRow(row []string) bool {
 	if len(row) == 0 {
@@ -427,7 +577,7 @@ func (s *DataSourceService) ImportRemoteDataSource(name string, driverType strin
 		relDBPath := filepath.Join(relDBDir, dbName)
 		absDBPath := filepath.Join(absDBDir, dbName)
 
-		localDB, err := sql.Open("duckdb", absDBPath)
+		localDB, err := s.DB.OpenNew(absDBPath)
 		if err != nil {
 			_ = os.RemoveAll(absDBDir)
 			return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -507,11 +657,11 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 	createCols := []string{}
 	for _, col := range cols {
 		colName := s.sanitizeName(col)
-		createCols = append(createCols, fmt.Sprintf("`%s` TEXT", colName))
+		createCols = append(createCols, fmt.Sprintf(`"%s" TEXT`, colName))
 	}
 
 	safeTableName := s.sanitizeName(tableName)
-	createSQL := fmt.Sprintf("CREATE TABLE `%s` (%s)", safeTableName, strings.Join(createCols, ", "))
+	createSQL := fmt.Sprintf(`CREATE TABLE "%s" (%s)`, safeTableName, strings.Join(createCols, ", "))
 	if _, err := localDB.Exec(createSQL); err != nil {
 		return fmt.Errorf("failed to create table schema: %v", err)
 	}
@@ -521,18 +671,9 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` VALUES (%s)", safeTableName, strings.Join(placeholders, ","))
-	
-	tx, err := localDB.Begin()
-	if err != nil {
-		return err
-	}
-	
-	stmt, err := tx.Prepare(insertSQL)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
+	// Insert data using batched multi-row INSERT for better performance
+	singlePlaceholder := "(" + strings.Join(placeholders, ",") + ")"
+	const batchSize = 1000
 
 	values := make([]interface{}, len(cols))
 	valuePtrs := make([]interface{}, len(cols))
@@ -540,68 +681,62 @@ func (s *DataSourceService) copyTable(remoteDB *sql.DB, localDB *sql.DB, tableNa
 		valuePtrs[i] = &values[i]
 	}
 
-	const batchSize = 5000
-	rowCount := 0
+	// Buffer rows for batch insert
+	batchVals := make([]interface{}, 0, batchSize*len(cols))
+	batchPlaceholders := make([]string, 0, batchSize)
 
+	flushBatch := func() error {
+		if len(batchPlaceholders) == 0 {
+			return nil
+		}
+		batchSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES %s`, safeTableName, strings.Join(batchPlaceholders, ","))
+		if _, err := localDB.Exec(batchSQL, batchVals...); err != nil {
+			return err
+		}
+		batchVals = batchVals[:0]
+		batchPlaceholders = batchPlaceholders[:0]
+		return nil
+	}
+
+	rowCount := 0
 	for rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
-			stmt.Close()
-			tx.Rollback()
 			return err
 		}
 
-		// Convert to string/interface safe for DuckDB
-		insertValues := make([]interface{}, len(cols))
-		for i, val := range values {
+		for _, val := range values {
 			if val == nil {
-				insertValues[i] = nil
+				batchVals = append(batchVals, nil)
 			} else {
 				switch v := val.(type) {
 				case []byte:
-					insertValues[i] = string(v)
+					batchVals = append(batchVals, string(v))
 				default:
-					insertValues[i] = v
+					batchVals = append(batchVals, v)
 				}
 			}
 		}
-
-		if _, err := stmt.Exec(insertValues...); err != nil {
-			stmt.Close()
-			tx.Rollback()
-			return err
-		}
-
+		batchPlaceholders = append(batchPlaceholders, singlePlaceholder)
 		rowCount++
-		// Commit in batches to reduce memory pressure on large tables
-		// (DuckDB holds uncommitted changes in memory until commit)
+
 		if rowCount%batchSize == 0 {
-			if err := tx.Commit(); err != nil {
-				stmt.Close()
-				return err
-			}
-			tx, err = localDB.Begin()
-			if err != nil {
-				stmt.Close()
-				return err
-			}
-			stmt.Close()
-			stmt, err = tx.Prepare(insertSQL)
-			if err != nil {
-				tx.Rollback()
-				return err
+			if err := flushBatch(); err != nil {
+				return fmt.Errorf("failed to insert batch at row %d: %w", rowCount, err)
 			}
 		}
 	}
 
-	stmt.Close()
+	// Flush remaining rows
+	if err := flushBatch(); err != nil {
+		return fmt.Errorf("failed to insert final batch: %w", err)
+	}
 
 	// Check for errors from rows iteration (e.g. network interruption during fetch)
 	if err := rows.Err(); err != nil {
-		tx.Rollback()
 		return fmt.Errorf("error during row iteration: %w", err)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // sanitizeName makes a string safe for use as a table or column name
@@ -737,8 +872,8 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		colTypes[i] = "TEXT" // Default
 	}
 
-	// Sample up to 10 rows for type inference
-	sampleRows := 10
+	// Sample up to 100 rows for type inference (10 was too few and could misclassify text columns as INTEGER)
+	sampleRows := 100
 	if len(rows) < sampleRows {
 		sampleRows = len(rows)
 	}
@@ -749,7 +884,8 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 	}
 
 	for i := 0; i < numCols; i++ {
-		currentType := "INTEGER"
+		// Default to TEXT - only promote to INTEGER/REAL if ALL non-empty sampled values are numeric
+		currentType := ""
 		for r := startSample; r < sampleRows; r++ {
 			if i >= len(rows[r]) || rows[r][i] == "" {
 				continue
@@ -759,11 +895,32 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 				currentType = "TEXT"
 				break
 			}
-			if t == "REAL" && currentType == "INTEGER" {
+			if currentType == "" {
+				currentType = t // First non-empty value sets the initial type
+			} else if t == "REAL" && currentType == "INTEGER" {
 				currentType = "REAL"
 			}
 		}
-		colTypes[i] = currentType
+		// If no non-empty values found in sample, default to TEXT (safe fallback)
+		if currentType == "" {
+			colTypes[i] = "TEXT"
+		} else {
+			colTypes[i] = currentType
+		}
+	}
+
+	// Log type inference results for debugging
+	if s.Log != nil {
+		var typeInfo []string
+		for i := 0; i < numCols; i++ {
+			colName := fmt.Sprintf("col_%d", i)
+			if hasHeader && i < len(rows[0]) {
+				colName = rows[0][i]
+			}
+			typeInfo = append(typeInfo, fmt.Sprintf("%s:%s", colName, colTypes[i]))
+		}
+		s.log(fmt.Sprintf("[processSheet] Table %s type inference (%d cols, %d sample rows): %s",
+			tableName, numCols, sampleRows-startSample, strings.Join(typeInfo, ", ")))
 	}
 
 	if hasHeader {
@@ -841,11 +998,11 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		dataStartRow = 0
 	}
 
-	createSQL := fmt.Sprintf("CREATE TABLE `%s` (", tableName)
+	createSQL := fmt.Sprintf(`CREATE TABLE "%s" (`, tableName)
 	placeholders := []string{}
 
 	for i, colName := range headers {
-		createSQL += fmt.Sprintf("`%s` %s", colName, colTypes[i])
+		createSQL += fmt.Sprintf(`"%s" %s`, colName, colTypes[i])
 		if i < len(headers)-1 {
 			createSQL += ", "
 		}
@@ -858,53 +1015,60 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		return fmt.Errorf("failed to create table %s: %v", tableName, err)
 	}
 
-	// Insert Data
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
+	// Insert Data using batch INSERT for much better performance.
+	// DuckDB handles multi-row VALUES efficiently, so we batch 1000 rows per INSERT.
+	const batchSize = 1000
+	singlePlaceholder := "(" + strings.Join(placeholders, ",") + ")"
 
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` VALUES (%s)", tableName, strings.Join(placeholders, ","))
-	stmt, err := tx.Prepare(insertSQL)
-	if err != nil {
-		tx.Rollback()
-		return err
-	}
-	defer stmt.Close()
+	dataRows := rows[dataStartRow:]
+	for batchStart := 0; batchStart < len(dataRows); batchStart += batchSize {
+		batchEnd := batchStart + batchSize
+		if batchEnd > len(dataRows) {
+			batchEnd = len(dataRows)
+		}
+		batch := dataRows[batchStart:batchEnd]
 
-	for i := dataStartRow; i < len(rows); i++ {
-		row := rows[i]
-		vals := make([]interface{}, len(headers))
-		for j := 0; j < len(headers); j++ {
-			if j < len(row) {
-				val := row[j]
-				if colTypes[j] == "INTEGER" {
-					if iv, err := strconv.ParseInt(val, 10, 64); err == nil {
-						vals[j] = iv
-					} else {
+		// Build multi-row VALUES clause
+		allVals := make([]interface{}, 0, len(batch)*len(headers))
+		rowPlaceholders := make([]string, 0, len(batch))
+
+		for _, row := range batch {
+			vals := make([]interface{}, len(headers))
+			for j := 0; j < len(headers); j++ {
+				if j < len(row) {
+					val := row[j]
+					if val == "" {
 						vals[j] = nil
-					}
-				} else if colTypes[j] == "REAL" {
-					if fv, err := strconv.ParseFloat(val, 64); err == nil {
-						vals[j] = fv
+					} else if colTypes[j] == "INTEGER" {
+						if iv, err := strconv.ParseInt(val, 10, 64); err == nil {
+							vals[j] = iv
+						} else {
+							vals[j] = nil
+						}
+					} else if colTypes[j] == "REAL" {
+						if fv, err := strconv.ParseFloat(val, 64); err == nil {
+							vals[j] = fv
+						} else {
+							vals[j] = nil
+						}
 					} else {
-						vals[j] = nil
+						vals[j] = val
 					}
 				} else {
-					vals[j] = val
+					vals[j] = nil
 				}
-			} else {
-				vals[j] = nil
 			}
+			allVals = append(allVals, vals...)
+			rowPlaceholders = append(rowPlaceholders, singlePlaceholder)
 		}
-		_, err = stmt.Exec(vals...)
-		if err != nil {
-			tx.Rollback()
-			return fmt.Errorf("failed to insert row %d in sheet %s: %v", i+1, tableName, err)
+
+		batchSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES %s`, tableName, strings.Join(rowPlaceholders, ","))
+		if _, err := db.Exec(batchSQL, allVals...); err != nil {
+			return fmt.Errorf("failed to insert batch at row %d in sheet %s: %v", dataStartRow+batchStart+1, tableName, err)
 		}
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // ImportExcel processes an Excel file and stores it in SQLite
@@ -926,7 +1090,7 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		// Use GoExcel for new Excel format
 		return s.importXLSX(name, filePath, headerGen)
 	default:
-		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件", ext)
+		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx �?.xls 格式�?Excel 文件", ext)
 	}
 }
 
@@ -960,7 +1124,7 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// Create DuckDB DB
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -1071,7 +1235,7 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// Create DuckDB DB
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -1234,7 +1398,7 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// 4. Create DuckDB DB
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -1246,24 +1410,6 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 	usedTableNames := make(map[string]bool)
 
 	for _, csvPath := range csvFiles {
-		// Read CSV file
-		f, err := os.Open(csvPath)
-		if err != nil {
-			continue
-		}
-
-		reader := csv.NewReader(f)
-		rows, err := reader.ReadAll()
-		f.Close()
-
-		if err != nil {
-			continue
-		}
-
-		if len(rows) == 0 {
-			continue
-		}
-
 		// Use filename as table name
 		baseName := filepath.Base(csvPath)
 		ext := filepath.Ext(baseName)
@@ -1283,9 +1429,60 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 			mainTableName = tableName
 		}
 
-		if err := s.processSheet(db, tableName, rows, headerGen); err != nil {
-			return nil, err
+		// Read CSV to check for header and determine import strategy
+		f, err := os.Open(csvPath)
+		if err != nil {
+			continue
 		}
+
+		reader := csv.NewReader(f)
+		allRows, err := reader.ReadAll()
+		f.Close()
+
+		if err != nil || len(allRows) == 0 {
+			continue
+		}
+
+		hasHeader := s.isHeaderRow(allRows[0])
+
+		// Strategy:
+		// - No header: must use processSheet so LLM can infer field names via headerGen
+		// - Has header: use DuckDB native read_csv_auto (much faster), with all_varchar=true
+		//   to prevent DuckDB from misinterpreting dates/numbers (e.g. "2147/7/1" → integer)
+		imported := false
+
+		if hasHeader {
+			absCSVPath := csvPath
+			if !filepath.IsAbs(absCSVPath) {
+				if abs, err := filepath.Abs(absCSVPath); err == nil {
+					absCSVPath = abs
+				}
+			}
+			// Normalize path separators for DuckDB on Windows
+			duckdbPath := strings.ReplaceAll(absCSVPath, "\\", "/")
+			nativeSQL := fmt.Sprintf(`CREATE TABLE "%s" AS SELECT * FROM read_csv_auto('%s', header=true, all_varchar=true, ignore_errors=true)`, tableName, duckdbPath)
+			if _, err := db.Exec(nativeSQL); err == nil {
+				var rowCount int
+				if err := db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, tableName)).Scan(&rowCount); err == nil && rowCount > 0 {
+					imported = true
+					s.log(fmt.Sprintf("[CSV] Native DuckDB import succeeded for %s: %d rows", tableName, rowCount))
+					// Optimize column types: convert numeric TEXT columns to INTEGER/REAL
+					s.optimizeColumnTypes(db, tableName)
+				} else {
+					db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, tableName))
+				}
+			} else {
+				s.log(fmt.Sprintf("[CSV] Native import failed for %s, falling back: %v", tableName, err))
+			}
+		}
+
+		// Fallback: use processSheet (required for no-header CSVs, or when native import fails)
+		if !imported {
+			if err := s.processSheet(db, tableName, allRows, headerGen); err != nil {
+				return nil, err
+			}
+		}
+
 		processedFiles++
 	}
 
@@ -1413,7 +1610,7 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 // This is much faster than calling GetDataSourceTables + GetDataSourceTableColumns per table,
 // because it opens the database connection only once.
 func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string, error) {
-	// Check cache first — if all tables have columns cached, return immediately
+	// Check cache first �?if all tables have columns cached, return immediately
 	if cache := s.getSchemaFromCache(id); cache != nil && len(cache.Tables) > 0 {
 		allCached := true
 		for _, t := range cache.Tables {
@@ -1507,7 +1704,7 @@ func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string
 	// Get columns for all tables using the same connection
 	result := make(map[string][]string, len(tables))
 	for _, tableName := range tables {
-		query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
+		query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", quoteIdent(tableName, !isDuckDB))
 		rows, err := db.Query(query)
 		if err != nil {
 			s.log(fmt.Sprintf("[WARN] GetTablesWithColumns: failed to get columns for %s: %v", tableName, err))
@@ -1548,7 +1745,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		return nil, err
 	}
 
-	// Only cache small sample requests (≤10 rows) to avoid memory bloat
+	// Only cache small sample requests (�?0 rows) to avoid memory bloat
 	const sampleCacheLimit = 10
 	useCache := limit > 0 && limit <= sampleCacheLimit
 
@@ -1586,6 +1783,8 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 
 	var db *sql.DB
 
+	isMySQL := false
+
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
 		db, err = s.openDuckDBReadOnly(dbPath)
@@ -1602,6 +1801,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		if err != nil {
 			return nil, err
 		}
+		isMySQL = true
 	} else {
 		return nil, fmt.Errorf("unsupported data source type for direct query")
 	}
@@ -1611,7 +1811,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		limit = 100 // Safe default
 	}
 
-	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT %d", tableName, limit)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoteIdent(tableName, isMySQL), limit)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -1639,12 +1839,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
 			if val != nil {
-				// Handle []byte for MySQL text columns
-				if b, ok := (*val).([]byte); ok {
-					rowMap[colName] = string(b)
-				} else {
-					rowMap[colName] = *val
-				}
+				rowMap[colName] = sanitizeValueForJSON(*val)
 			} else {
 				rowMap[colName] = nil
 			}
@@ -1678,6 +1873,8 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 // GetDataSourceTableDataWithCount returns preview data and total row count in a single DB connection.
 // This avoids DuckDB concurrent access lock conflicts that occur when opening the same file twice.
 func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName string, limit int) ([]map[string]interface{}, int, error) {
+	s.log(fmt.Sprintf("[DataBrowser] GetDataSourceTableDataWithCount: id=%s, table=%s, limit=%d", id, tableName, limit))
+
 	if err := validateIdentifier(tableName, "table name"); err != nil {
 		return nil, 0, err
 	}
@@ -1695,15 +1892,17 @@ func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName
 		}
 	}
 	if target == nil {
-		return nil, 0, fmt.Errorf("data source not found")
+		return nil, 0, fmt.Errorf("data source not found: %s", id)
 	}
 
 	var db *sql.DB
+	isMySQL := false
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
+		s.log(fmt.Sprintf("[DataBrowser] Opening DuckDB: %s", dbPath))
 		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("failed to open database for table %s: %w", tableName, err)
 		}
 	} else if target.Type == "mysql" || target.Type == "doris" {
 		cfg := target.Config
@@ -1715,26 +1914,28 @@ func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName
 		if err != nil {
 			return nil, 0, err
 		}
+		isMySQL = true
 	} else {
-		return nil, 0, fmt.Errorf("unsupported data source type for direct query")
+		return nil, 0, fmt.Errorf("unsupported data source type %q for direct query (DBPath=%q)", target.Type, target.Config.DBPath)
 	}
 	defer db.Close()
 
 	// Get row count
 	var count int
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(tableName, isMySQL))
 	if err := db.QueryRow(countQuery).Scan(&count); err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("failed to count rows in table %s: %w", tableName, err)
 	}
+	s.log(fmt.Sprintf("[DataBrowser] Table %s has %d rows", tableName, count))
 
 	// Get data
 	if limit <= 0 {
 		limit = 100
 	}
-	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT %d", tableName, limit)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", quoteIdent(tableName, isMySQL), limit)
 	rows, err := db.Query(query)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("failed to query table %s: %w", tableName, err)
 	}
 	defer rows.Close()
 
@@ -1757,11 +1958,7 @@ func (s *DataSourceService) GetDataSourceTableDataWithCount(id string, tableName
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
 			if val != nil {
-				if b, ok := (*val).([]byte); ok {
-					rowMap[colName] = string(b)
-				} else {
-					rowMap[colName] = *val
-				}
+				rowMap[colName] = sanitizeValueForJSON(*val)
 			} else {
 				rowMap[colName] = nil
 			}
@@ -1801,6 +1998,7 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 	}
 
 	var db *sql.DB
+	isMySQL := false
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
@@ -1818,13 +2016,14 @@ func (s *DataSourceService) GetDataSourceTableCount(id string, tableName string)
 		if err != nil {
 			return 0, err
 		}
+		isMySQL = true
 	} else {
 		return 0, fmt.Errorf("unsupported data source type for count")
 	}
 	defer db.Close()
 
 	var count int
-	query := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(tableName, isMySQL))
 	err = db.QueryRow(query).Scan(&count)
 	if err != nil {
 		return 0, err
@@ -1867,6 +2066,7 @@ func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName strin
 	}
 
 	var db *sql.DB
+	isMySQL := false
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
@@ -1884,12 +2084,13 @@ func (s *DataSourceService) GetDataSourceTableColumns(id string, tableName strin
 		if err != nil {
 			return nil, err
 		}
+		isMySQL = true
 	} else {
 		return nil, fmt.Errorf("unsupported data source type for columns")
 	}
 	defer db.Close()
 
-	query := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
+	query := fmt.Sprintf("SELECT * FROM %s LIMIT 0", quoteIdent(tableName, isMySQL))
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -1943,10 +2144,11 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 	}
 
 	var db *sql.DB
+	isMySQL := false
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.DB.OpenWritable(dbPath)
 		if err != nil {
 			return err
 		}
@@ -1960,6 +2162,7 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 		if err != nil {
 			return err
 		}
+		isMySQL = true
 	} else {
 		return fmt.Errorf("data source storage not found")
 	}
@@ -1985,7 +2188,7 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 		filePath := filepath.Join(exportDir, fmt.Sprintf("%s.csv", safeFileName))
 
 		// Export this table
-		if err := s.exportSingleTableToCSV(db, tableName, filePath); err != nil {
+		if err := s.exportSingleTableToCSV(db, tableName, filePath, isMySQL); err != nil {
 			return fmt.Errorf("failed to export table %s: %v", tableName, err)
 		}
 	}
@@ -1994,8 +2197,8 @@ func (s *DataSourceService) ExportToCSV(id string, tableNames []string, outputPa
 }
 
 // exportSingleTableToCSV exports a single table to a CSV file
-func (s *DataSourceService) exportSingleTableToCSV(db *sql.DB, tableName string, outputPath string) error {
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+func (s *DataSourceService) exportSingleTableToCSV(db *sql.DB, tableName string, outputPath string, isMySQL bool) error {
+	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", quoteIdent(tableName, isMySQL)))
 	if err != nil {
 		return err
 	}
@@ -2086,10 +2289,11 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 	}
 
 	var db *sql.DB
+	isMySQL := false
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.DB.OpenWritable(dbPath)
 		if err != nil {
 			return err
 		}
@@ -2103,6 +2307,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 		if err != nil {
 			return err
 		}
+		isMySQL = true
 	} else {
 		return fmt.Errorf("data source storage not found")
 	}
@@ -2159,7 +2364,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 		}
 
 		// Query table data
-		rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+		rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", quoteIdent(tableName, isMySQL)))
 		if err != nil {
 			return fmt.Errorf("failed to query table %s: %v", tableName, err)
 		}
@@ -2252,7 +2457,7 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 	// 4. Add metadata
 	wb.Properties.Title = target.Name
 	wb.Properties.Creator = "VantageData"
-	wb.Properties.Description = fmt.Sprintf("数据源: %s", target.Name)
+	wb.Properties.Description = fmt.Sprintf("数据源 %s", target.Name)
 	wb.Properties.Subject = "数据源导出"
 	wb.Properties.Keywords = "数据分析,报表,Excel"
 	wb.Properties.Category = "数据分析"
@@ -2296,10 +2501,11 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 	}
 
 	var db *sql.DB
+	isMySQL := false
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.DB.OpenWritable(dbPath)
 		if err != nil {
 			return err
 		}
@@ -2313,6 +2519,7 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 		if err != nil {
 			return err
 		}
+		isMySQL = true
 	} else {
 		return fmt.Errorf("data source storage not found")
 	}
@@ -2331,7 +2538,7 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 		if err := validateIdentifier(tableName, "table name"); err != nil {
 			return err
 		}
-		if err := s.exportSingleTableToSQL(db, tableName, f); err != nil {
+		if err := s.exportSingleTableToSQL(db, tableName, f, isMySQL); err != nil {
 			return fmt.Errorf("failed to export table %s: %v", tableName, err)
 		}
 		// Add separator between tables
@@ -2344,8 +2551,8 @@ func (s *DataSourceService) ExportToSQL(id string, tableNames []string, outputPa
 }
 
 // exportSingleTableToSQL exports a single table to a SQL file
-func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string, f *os.File) error {
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s`", tableName))
+func (s *DataSourceService) exportSingleTableToSQL(db *sql.DB, tableName string, f *os.File, isMySQL bool) error {
+	rows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", quoteIdent(tableName, isMySQL)))
 	if err != nil {
 		return err
 	}
@@ -2463,10 +2670,11 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 	}
 
 	var sourceDB *sql.DB
+	isSourceMySQL := false
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		sourceDB, err = sql.Open("duckdb", dbPath)
+		sourceDB, err = s.DB.OpenWritable(dbPath)
 		if err != nil {
 			return err
 		}
@@ -2480,6 +2688,7 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 		if err != nil {
 			return err
 		}
+		isSourceMySQL = true
 	} else {
 		return fmt.Errorf("data source storage not found")
 	}
@@ -2530,7 +2739,7 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 			return err
 		}
 		s.log(fmt.Sprintf("Exporting table: %s", tableName))
-		if err := s.exportSingleTableToMySQL(sourceDB, mysqlDB, tableName); err != nil {
+		if err := s.exportSingleTableToMySQL(sourceDB, mysqlDB, tableName, isSourceMySQL); err != nil {
 			s.log(fmt.Sprintf("Export failed for table %s: %v", tableName, err))
 			return fmt.Errorf("failed to export table %s: %v", tableName, err)
 		}
@@ -2540,9 +2749,9 @@ func (s *DataSourceService) ExportToMySQL(id string, tableNames []string, mysqlC
 }
 
 // exportSingleTableToMySQL exports a single table to MySQL
-func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *sql.DB, tableName string) error {
-	// Get Column Info
-	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
+func (s *DataSourceService) exportSingleTableToMySQL(sourceDB *sql.DB, mysqlDB *sql.DB, tableName string, isSourceMySQL bool) error {
+	// Get Column Info - use correct quoting for source DB
+	query := fmt.Sprintf("SELECT * FROM %s", quoteIdent(tableName, isSourceMySQL))
 	rows, err := sourceDB.Query(query)
 	if err != nil {
 		return err
@@ -2701,7 +2910,7 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -2763,11 +2972,7 @@ func (s *DataSourceService) ExecuteSQL(id string, query string) ([]map[string]in
 
 		row := make(map[string]interface{})
 		for i, col := range cols {
-			if b, ok := values[i].([]byte); ok {
-				row[col] = string(b)
-			} else {
-				row[col] = values[i]
-			}
+			row[col] = sanitizeValueForJSON(values[i])
 		}
 		result = append(result, row)
 	}
@@ -2848,11 +3053,12 @@ func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	}
 
 	var db *sql.DB
+	isMySQL := false
 
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBWritable(dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -2866,13 +3072,14 @@ func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %v", err)
 		}
+		isMySQL = true
 	} else {
 		return fmt.Errorf("unsupported data source type for table deletion")
 	}
 	defer db.Close()
 
 	// Drop the table
-	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS `%s`", tableName)
+	dropSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", quoteIdent(tableName, isMySQL))
 	s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
 	if _, err := db.Exec(dropSQL); err != nil {
 		return fmt.Errorf("failed to drop table: %v", err)
@@ -2901,12 +3108,12 @@ func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	return nil
 }
 
-// GetTables 获取数据源的所有表名（别名方法）
+// GetTables 获取数据源的所有表名（别名方法�?
 func (s *DataSourceService) GetTables(id string) ([]string, error) {
 	return s.GetDataSourceTables(id)
 }
 
-// GetTableColumns 获取表的列信息
+// GetTableColumns 获取表的列信�?
 func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]ColumnSchema, error) {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -2954,7 +3161,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	} else if isLocalDuckDB {
 		// Local DuckDB-backed data source (excel, csv, json, etc.)
 		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-		db, err = sql.Open("duckdb", fullDBPath+"?access_mode=read_only")
+		db, err = s.DB.OpenReadOnly(fullDBPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open database: %w", err)
 		}
@@ -2966,7 +3173,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	// Query column information
 	var rows *sql.Rows
 	if isLocalDuckDB {
-		// Local data sources are opened via DuckDB driver — use information_schema
+		// Local data sources are opened via DuckDB driver �?use information_schema
 		rows, err = db.Query(
 			"SELECT column_name, data_type, CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable "+
 				"FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position", tableName)
@@ -3024,19 +3231,19 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	return columns, nil
 }
 
-// ColumnSchema 列结构信息
+// ColumnSchema 列结构信�?
 type ColumnSchema struct {
 	Name     string
 	Type     string
 	Nullable bool
 }
 
-// ExecuteQuery 执行查询并返回结果
+// ExecuteQuery 执行查询并返回结�?
 func (s *DataSourceService) ExecuteQuery(id string, query string) ([]map[string]any, error) {
 	return s.ExecuteSQL(id, query)
 }
 
-// GetConnection 获取数据库连接
+// GetConnection 获取数据库连�?
 func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -3077,7 +3284,7 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 		// Use full path by joining with dataCacheDir, and use "duckdb" driver
 		fullDBPath := filepath.Join(s.dataCacheDir, dbPath)
 		s.log(fmt.Sprintf("[GetConnection] Opening DuckDB database: %s", fullDBPath))
-		db, err = sql.Open("duckdb", fullDBPath)
+		db, err = s.openDuckDBWritable(fullDBPath)
 	}
 
 	if err != nil {
@@ -3087,10 +3294,10 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 	return db, nil
 }
 
-// CreateOptimizedDatabase 创建优化后的数据库文件
+// CreateOptimizedDatabase 创建优化后的数据库文�?
 // 返回新数据库的完整路径和相对路径（用于存储在 DBPath 中）
 func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, newName string) (string, error) {
-	// 生成新的数据源 ID
+	// 生成新的数据�?ID
 	id := uuid.New().String()
 	
 	// 创建数据源目录：sources/{id}
@@ -3100,12 +3307,12 @@ func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, 
 		return "", fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// 数据库文件名为 data.duckdb
+	// 数据库文件名�?data.duckdb
 	dbName := "data.duckdb"
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// 创建空数据库
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to create database: %w", err)
 	}
@@ -3116,7 +3323,7 @@ func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, 
 	return absDBPath, nil
 }
 
-// SaveDataSource 保存单个数据源
+// SaveDataSource 保存单个数据�?
 func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -3140,9 +3347,9 @@ func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
 	return s.SaveDataSources(sources)
 }
 
-// sanitizeFilename 清理文件名
+// sanitizeFilename 清理文件�?
 func sanitizeFilename(name string) string {
-	// 移除或替换不安全的字符
+	// 移除或替换不安全的字�?
 	name = strings.ReplaceAll(name, "/", "_")
 	name = strings.ReplaceAll(name, "\\", "_")
 	name = strings.ReplaceAll(name, ":", "_")
@@ -3154,7 +3361,6 @@ func sanitizeFilename(name string) string {
 	name = strings.ReplaceAll(name, "|", "_")
 	return name
 }
-
 // RenameColumn renames a column in a table and updates the schema information
 func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnName string, newColumnName string) error {
 	s.log(fmt.Sprintf("RenameColumn: DataSource=%s, Table=%s, OldColumn=%s, NewColumn=%s", id, tableName, oldColumnName, newColumnName))
@@ -3218,7 +3424,7 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBWritable(dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -3255,8 +3461,8 @@ func (s *DataSourceService) RenameColumn(id string, tableName string, oldColumnN
 			return fmt.Errorf("failed to rename column: %v", err)
 		}
 	} else {
-		// For SQLite, use ALTER TABLE RENAME COLUMN (SQLite 3.25.0+)
-		renameSQL := fmt.Sprintf("ALTER TABLE `%s` RENAME COLUMN `%s` TO `%s`", tableName, oldColumnName, newColumnName)
+		// For DuckDB, use ALTER TABLE RENAME COLUMN
+		renameSQL := fmt.Sprintf(`ALTER TABLE "%s" RENAME COLUMN "%s" TO "%s"`, tableName, oldColumnName, newColumnName)
 		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
 		if _, err := db.Exec(renameSQL); err != nil {
 			return fmt.Errorf("failed to rename column: %v", err)
@@ -3357,7 +3563,7 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 	// Connect to the database
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBWritable(dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %v", err)
 		}
@@ -3398,7 +3604,7 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 				if table.TableName == tableName {
 					for _, col := range table.Columns {
 						if col != columnName {
-							remainingColumns = append(remainingColumns, fmt.Sprintf("`%s`", col))
+							remainingColumns = append(remainingColumns, fmt.Sprintf(`"%s"`, col))
 						}
 					}
 					break
@@ -3421,21 +3627,21 @@ func (s *DataSourceService) DeleteColumn(id string, tableName string, columnName
 		columnsStr := strings.Join(remainingColumns, ", ")
 		tempTableName := tableName + "_temp_delete_col"
 
-		createTempSQL := fmt.Sprintf("CREATE TABLE `%s` AS SELECT %s FROM `%s`", tempTableName, columnsStr, tableName)
+		createTempSQL := fmt.Sprintf(`CREATE TABLE "%s" AS SELECT %s FROM "%s"`, tempTableName, columnsStr, tableName)
 		s.log(fmt.Sprintf("SQL Exec: %s", createTempSQL))
 		if _, err := tx.Exec(createTempSQL); err != nil {
 			return fmt.Errorf("failed to create temp table: %v", err)
 		}
 
 		// Drop original table
-		dropSQL := fmt.Sprintf("DROP TABLE `%s`", tableName)
+		dropSQL := fmt.Sprintf(`DROP TABLE "%s"`, tableName)
 		s.log(fmt.Sprintf("SQL Exec: %s", dropSQL))
 		if _, err := tx.Exec(dropSQL); err != nil {
 			return fmt.Errorf("failed to drop original table: %v", err)
 		}
 
 		// Rename temp table to original name
-		renameSQL := fmt.Sprintf("ALTER TABLE `%s` RENAME TO `%s`", tempTableName, tableName)
+		renameSQL := fmt.Sprintf(`ALTER TABLE "%s" RENAME TO "%s"`, tempTableName, tableName)
 		s.log(fmt.Sprintf("SQL Exec: %s", renameSQL))
 		if _, err := tx.Exec(renameSQL); err != nil {
 			return fmt.Errorf("failed to rename temp table: %v", err)
@@ -3509,7 +3715,7 @@ func (s *DataSourceService) GetDataSourceTableColumnsWithTypes(id string, tableN
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath+"?access_mode=read_only")
+		db, err = s.DB.OpenReadOnly(dbPath)
 		if err != nil {
 			return nil, err
 		}
@@ -3606,10 +3812,11 @@ func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, 
 	}
 
 	var db *sql.DB
+	isMySQL := false
 
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath+"?access_mode=read_only")
+		db, err = s.DB.OpenReadOnly(dbPath)
 		if err != nil {
 			return 0, err
 		}
@@ -3623,12 +3830,13 @@ func (s *DataSourceService) GetTableRowCount(id string, tableName string) (int, 
 		if err != nil {
 			return 0, err
 		}
+		isMySQL = true
 	} else {
 		return 0, fmt.Errorf("unsupported data source type")
 	}
 	defer db.Close()
 
-	query := fmt.Sprintf("SELECT COUNT(*) FROM `%s`", tableName)
+	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(tableName, isMySQL))
 	var count int
 	err = db.QueryRow(query).Scan(&count)
 	if err != nil {
@@ -3684,7 +3892,7 @@ func (s *DataSourceService) ImportShopify(name string, config DataSourceConfig) 
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -3890,11 +4098,11 @@ func (s *DataSourceService) createTableFromJSON(db *sql.DB, tableName string, da
 	var colDefs []string
 	var colNames []string
 	for colName := range columns {
-		colDefs = append(colDefs, fmt.Sprintf("`%s` TEXT", colName))
+		colDefs = append(colDefs, fmt.Sprintf(`"%s" TEXT`, colName))
 		colNames = append(colNames, colName)
 	}
 
-	createSQL := fmt.Sprintf("CREATE TABLE IF NOT EXISTS `%s` (%s)", tableName, strings.Join(colDefs, ", "))
+	createSQL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (%s)`, tableName, strings.Join(colDefs, ", "))
 	if _, err := db.Exec(createSQL); err != nil {
 		return fmt.Errorf("failed to create table: %v", err)
 	}
@@ -3902,13 +4110,13 @@ func (s *DataSourceService) createTableFromJSON(db *sql.DB, tableName string, da
 	// Insert data
 	quotedColNames := make([]string, len(colNames))
 	for i, name := range colNames {
-		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+		quotedColNames[i] = fmt.Sprintf(`"%s"`, name)
 	}
 	placeholders := make([]string, len(colNames))
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+	insertSQL := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s)`,
 		tableName,
 		strings.Join(quotedColNames, ", "),
 		strings.Join(placeholders, ", "))
@@ -4014,7 +4222,7 @@ func (s *DataSourceService) ImportBigCommerce(name string, config DataSourceConf
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -4265,7 +4473,7 @@ func (s *DataSourceService) ImportEbay(name string, config DataSourceConfig) (*D
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -4676,7 +4884,7 @@ func (s *DataSourceService) ImportEtsy(name string, config DataSourceConfig) (*D
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -5186,7 +5394,7 @@ func (s *DataSourceService) refreshShopifyData(ds *DataSource) (*RefreshResult, 
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5235,7 +5443,7 @@ func (s *DataSourceService) refreshShopifyResource(client *http.Client, db *sql.
 	// Get the maximum ID from existing records to use as a baseline
 	// This is more efficient than loading all IDs into memory
 	var maxID int64 = 0
-	row := db.QueryRow(fmt.Sprintf("SELECT MAX(CAST(`%s` AS INTEGER)) FROM `%s`", idField, tableName))
+	row := db.QueryRow(fmt.Sprintf(`SELECT MAX(CAST("%s" AS INTEGER)) FROM "%s"`, idField, tableName))
 	row.Scan(&maxID) // Ignore error - table might be empty or have non-numeric IDs
 	
 	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Max existing ID in %s: %d", tableName, maxID))
@@ -5243,7 +5451,7 @@ func (s *DataSourceService) refreshShopifyResource(client *http.Client, db *sql.
 	// Also build a set of existing IDs for accurate duplicate detection
 	// (in case IDs are not strictly sequential)
 	existingIDs := make(map[int64]bool)
-	rows, err := db.Query(fmt.Sprintf("SELECT CAST(`%s` AS INTEGER) FROM `%s`", idField, tableName))
+	rows, err := db.Query(fmt.Sprintf(`SELECT CAST("%s" AS INTEGER) FROM "%s"`, idField, tableName))
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -5334,7 +5542,7 @@ func (s *DataSourceService) refreshShopifyResource(client *http.Client, db *sql.
 	s.log(fmt.Sprintf("[SHOPIFY-REFRESH] Inserting %d new records into %s", len(newData), tableName))
 	
 	// Get existing columns
-	colRows, err := db.Query(fmt.Sprintf("PRAGMA table_info(`%s`)", tableName))
+	colRows, err := db.Query(fmt.Sprintf(`PRAGMA table_info("%s")`, tableName))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get table info: %v", err)
 	}
@@ -5354,13 +5562,13 @@ func (s *DataSourceService) refreshShopifyResource(client *http.Client, db *sql.
 	// Prepare insert statement
 	quotedColNames := make([]string, len(colNames))
 	for i, name := range colNames {
-		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+		quotedColNames[i] = fmt.Sprintf(`"%s"`, name)
 	}
 	placeholders := make([]string, len(colNames))
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+	insertSQL := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s)`,
 		tableName,
 		strings.Join(quotedColNames, ", "),
 		strings.Join(placeholders, ", "))
@@ -5412,7 +5620,7 @@ func (s *DataSourceService) refreshBigCommerceData(ds *DataSource) (*RefreshResu
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5457,7 +5665,7 @@ func (s *DataSourceService) refreshBigCommerceData(ds *DataSource) (*RefreshResu
 func (s *DataSourceService) refreshBigCommerceResource(client *http.Client, db *sql.DB, baseURL, endpoint, jsonKey, tableName, idField, accessToken string) (int, error) {
 	// Get existing IDs using integer comparison
 	existingIDs := make(map[int64]bool)
-	rows, err := db.Query(fmt.Sprintf("SELECT CAST(`%s` AS INTEGER) FROM `%s`", idField, tableName))
+	rows, err := db.Query(fmt.Sprintf(`SELECT CAST("%s" AS INTEGER) FROM "%s"`, idField, tableName))
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -5544,7 +5752,7 @@ func (s *DataSourceService) refreshEbayData(ds *DataSource) (*RefreshResult, err
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5658,7 +5866,7 @@ func (s *DataSourceService) refreshEtsyData(ds *DataSource) (*RefreshResult, err
 
 	// Open existing database
 	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -5762,7 +5970,7 @@ func (s *DataSourceService) insertNewRecords(db *sql.DB, tableName string, newDa
 	}
 
 	// Get existing columns
-	colRows, err := db.Query(fmt.Sprintf("PRAGMA table_info(`%s`)", tableName))
+	colRows, err := db.Query(fmt.Sprintf(`PRAGMA table_info("%s")`, tableName))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get table info: %v", err)
 	}
@@ -5786,13 +5994,13 @@ func (s *DataSourceService) insertNewRecords(db *sql.DB, tableName string, newDa
 	// Prepare insert statement
 	quotedColNames := make([]string, len(colNames))
 	for i, name := range colNames {
-		quotedColNames[i] = fmt.Sprintf("`%s`", name)
+		quotedColNames[i] = fmt.Sprintf(`"%s"`, name)
 	}
 	placeholders := make([]string, len(colNames))
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
+	insertSQL := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s)`,
 		tableName,
 		strings.Join(quotedColNames, ", "),
 		strings.Join(placeholders, ", "))
@@ -5958,7 +6166,7 @@ func (s *DataSourceService) refreshJiraData(ds *DataSource) (*RefreshResult, err
 	}
 
 	dbPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
-	db, err := sql.Open("duckdb", dbPath)
+	db, err := s.DB.OpenWritable(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %v", err)
 	}
@@ -6130,7 +6338,7 @@ func (s *DataSourceService) upsertJiraIssues(db *sql.DB, issues []map[string]int
 	// Add missing columns
 	for col := range allCols {
 		if !existingCols[col] {
-			_, err := db.Exec(fmt.Sprintf("ALTER TABLE issues ADD COLUMN `%s` TEXT", col))
+			_, err := db.Exec(fmt.Sprintf(`ALTER TABLE issues ADD COLUMN "%s" TEXT`, col))
 			if err != nil {
 				s.log(fmt.Sprintf("[JIRA] Warning: Failed to add column %s: %v", col, err))
 			}
@@ -6155,7 +6363,7 @@ func (s *DataSourceService) upsertJiraIssues(db *sql.DB, issues []map[string]int
 			placeholders := []string{}
 			values := []interface{}{}
 			for col, val := range issue {
-				cols = append(cols, fmt.Sprintf("`%s`", col))
+				cols = append(cols, fmt.Sprintf(`"%s"`, col))
 				placeholders = append(placeholders, "?")
 				values = append(values, s.formatValue(val))
 			}
@@ -6173,7 +6381,7 @@ func (s *DataSourceService) upsertJiraIssues(db *sql.DB, issues []map[string]int
 			values := []interface{}{}
 			for col, val := range issue {
 				if col != "key" {
-					setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+					setClauses = append(setClauses, fmt.Sprintf(`"%s" = ?`, col))
 					values = append(values, s.formatValue(val))
 				}
 			}
@@ -6376,7 +6584,7 @@ func (s *DataSourceService) upsertJiraWorklogs(db *sql.DB, worklogs []map[string
 	// Add missing columns
 	for col := range allCols {
 		if !existingCols[col] {
-			_, err := db.Exec(fmt.Sprintf("ALTER TABLE worklogs ADD COLUMN `%s` TEXT", col))
+			_, err := db.Exec(fmt.Sprintf(`ALTER TABLE worklogs ADD COLUMN "%s" TEXT`, col))
 			if err != nil {
 				s.log(fmt.Sprintf("[JIRA] Warning: Failed to add column %s: %v", col, err))
 			}
@@ -6405,7 +6613,7 @@ func (s *DataSourceService) upsertJiraWorklogs(db *sql.DB, worklogs []map[string
 			placeholders := []string{}
 			values := []interface{}{}
 			for col, val := range wl {
-				cols = append(cols, fmt.Sprintf("`%s`", col))
+				cols = append(cols, fmt.Sprintf(`"%s"`, col))
 				placeholders = append(placeholders, "?")
 				values = append(values, s.formatValue(val))
 			}
@@ -6423,7 +6631,7 @@ func (s *DataSourceService) upsertJiraWorklogs(db *sql.DB, worklogs []map[string
 			values := []interface{}{}
 			for col, val := range wl {
 				if col != "id" {
-					setClauses = append(setClauses, fmt.Sprintf("`%s` = ?", col))
+					setClauses = append(setClauses, fmt.Sprintf(`"%s" = ?`, col))
 					values = append(values, s.formatValue(val))
 				}
 			}
@@ -6594,7 +6802,7 @@ func (s *DataSourceService) ImportJira(name string, config DataSourceConfig) (*D
 	relDBPath := filepath.Join(relDBDir, dbName)
 	absDBPath := filepath.Join(absDBDir, dbName)
 
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		_ = os.RemoveAll(absDBDir)
 		return nil, fmt.Errorf("failed to create local database: %v", err)
@@ -7437,7 +7645,7 @@ func (s *DataSourceService) ImportSnowflake(name string, config DataSourceConfig
 		return nil, fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	localDB, err := sql.Open("duckdb", dbPath)
+	localDB, err := s.DB.OpenNew(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create local database: %w", err)
 	}

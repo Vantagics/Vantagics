@@ -468,8 +468,37 @@ func TestUploadPack_FileDataStoredInDB(t *testing.T) {
 	if len(fileData) == 0 {
 		t.Error("expected non-empty file_data in DB")
 	}
-	if !bytes.Equal(fileData, qapData) {
-		t.Error("stored file_data does not match uploaded data")
+	// After upload, server injects listing_id into the .qap file,
+	// so stored data won't be byte-identical to the original upload.
+	// Verify it's a valid ZIP and contains the correct listing_id.
+	zr, err := zip.NewReader(bytes.NewReader(fileData), int64(len(fileData)))
+	if err != nil {
+		t.Fatalf("stored file_data is not a valid ZIP: %v", err)
+	}
+	var foundPackJSON bool
+	for _, f := range zr.File {
+		if f.Name == "pack.json" {
+			rc, _ := f.Open()
+			data, _ := io.ReadAll(rc)
+			rc.Close()
+			var parsed map[string]interface{}
+			if err := json.Unmarshal(data, &parsed); err != nil {
+				t.Fatalf("stored pack.json is not valid JSON: %v", err)
+			}
+			meta, ok := parsed["metadata"].(map[string]interface{})
+			if !ok {
+				t.Fatal("stored pack.json missing metadata")
+			}
+			lid, ok := meta["listing_id"].(float64)
+			if !ok || int64(lid) != listing.ID {
+				t.Errorf("expected listing_id=%d in stored pack.json, got %v", listing.ID, meta["listing_id"])
+			}
+			foundPackJSON = true
+			break
+		}
+	}
+	if !foundPackJSON {
+		t.Error("stored ZIP missing pack.json entry")
 	}
 }
 

@@ -56,7 +56,7 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 	
 	if target.Config.DBPath != "" {
 		dbPath := filepath.Join(s.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = s.openDuckDBWritable(dbPath)
 		if err != nil {
 			return err
 		}
@@ -90,7 +90,7 @@ func (s *DataSourceService) ExportToJSON(id string, tableNames []string, outputP
 		}
 
 		// Get data
-		data, err := s.queryTableAsJSON(db, tableName)
+		data, err := s.queryTableAsJSON(db, tableName, isLocalDuckDB)
 		if err != nil {
 			return fmt.Errorf("failed to query table %s: %v", tableName, err)
 		}
@@ -175,8 +175,15 @@ func (s *DataSourceService) getTableColumnsForExport(db *sql.DB, tableName strin
 }
 
 // queryTableAsJSON queries a table and returns rows as array of objects
-func (s *DataSourceService) queryTableAsJSON(db *sql.DB, tableName string) ([]map[string]interface{}, error) {
-	query := fmt.Sprintf("SELECT * FROM `%s`", tableName)
+// queryTableAsJSON queries a table and returns rows as array of objects
+func (s *DataSourceService) queryTableAsJSON(db *sql.DB, tableName string, isLocalDuckDB bool) ([]map[string]interface{}, error) {
+	// DuckDB uses double quotes for identifiers; MySQL uses backticks
+	var query string
+	if isLocalDuckDB {
+		query = fmt.Sprintf(`SELECT * FROM "%s"`, tableName)
+	} else {
+		query = fmt.Sprintf("SELECT * FROM `%s`", tableName)
+	}
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -209,12 +216,7 @@ func (s *DataSourceService) queryTableAsJSON(db *sql.DB, tableName string) ([]ma
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
 			if val != nil && *val != nil {
-				// Handle []byte for text columns
-				if b, ok := (*val).([]byte); ok {
-					rowMap[colName] = string(b)
-				} else {
-					rowMap[colName] = *val
-				}
+				rowMap[colName] = sanitizeValueForJSON(*val)
 			} else {
 				rowMap[colName] = nil
 			}
@@ -229,3 +231,4 @@ func (s *DataSourceService) queryTableAsJSON(db *sql.DB, tableName string) ([]ma
 
 	return result, nil
 }
+

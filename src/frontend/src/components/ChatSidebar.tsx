@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack } from '../../wailsjs/go/main/App';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import * as echarts from 'echarts';
@@ -96,6 +96,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [qapCompleteThreads, setQapCompleteThreads] = useState<Set<string>>(new Set());
     const [qapReExecuting, setQapReExecuting] = useState(false);
     const [qapShowingResults, setQapShowingResults] = useState(false);
+    const [packLicense, setPackLicense] = useState<main.UsageLicense | null>(null);
 
     // Broadcast comprehensive report generation state to other components (e.g. Sidebar context menu)
     useEffect(() => {
@@ -117,6 +118,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     
     // Find associated data source name
     const activeDataSource = dataSources?.find(ds => ds.id === activeThread?.data_source_id);
+
+    // Fetch pack license info when active thread changes
+    useEffect(() => {
+        const listingId = activeThread?.pack_metadata?.listing_id;
+        if (activeThread?.is_replay_session && listingId && listingId > 0) {
+            GetPackLicenseInfo(listingId).then(lic => {
+                setPackLicense(lic || null);
+            }).catch(() => setPackLicense(null));
+        } else {
+            setPackLicense(null);
+        }
+    }, [activeThreadId, activeThread?.pack_metadata?.listing_id]);
 
     useEffect(() => {
         if (isOpen) {
@@ -830,6 +843,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 setQapProgress(null);
                 setQapCompleteThreads(prev => new Set(prev).add(data.threadId));
                 setQapReExecuting(false);
+
+                // Refresh pack license info after execution (usage may have been consumed)
+                const thread = threads?.find(t => t.id === data.threadId);
+                const listingId = thread?.pack_metadata?.listing_id;
+                if (listingId && listingId > 0) {
+                    GetPackLicenseInfo(listingId).then(lic => setPackLicense(lic || null)).catch(() => {});
+                }
 
                 // Call ShowAllSessionResults from the frontend context.
                 // Calling from within the backend RPC doesn't work reliably because
@@ -3359,6 +3379,41 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 </div>
                             </div>
 
+                            {/* Pack license info display */}
+                            {packLicense && (
+                                <div className="mt-2 text-[11px]">
+                                    {packLicense.blocked ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                            ⚠ {t('pack_license_blocked')}
+                                        </span>
+                                    ) : packLicense.pricing_model === 'free' ? (
+                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                                            ✓ {t('pack_license_free')}
+                                        </span>
+                                    ) : packLicense.pricing_model === 'per_use' ? (
+                                        packLicense.remaining_uses > 0 ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                                                🎫 {t('pack_license_remaining').replace('{remaining}', String(packLicense.remaining_uses)).replace('{total}', String(packLicense.total_uses))}
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                                ⚠ {t('pack_license_exhausted')}
+                                            </span>
+                                        )
+                                    ) : (packLicense.pricing_model === 'subscription' || packLicense.pricing_model === 'time_limited') && packLicense.expires_at ? (
+                                        new Date(packLicense.expires_at) > new Date() ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+                                                📅 {t('pack_license_expires').replace('{date}', new Date(packLicense.expires_at).toLocaleDateString())}
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                                                ⚠ {t('pack_license_expired')}
+                                            </span>
+                                        )
+                                    ) : null}
+                                </div>
+                            )}
+
                             {/* Progress bar during execution (Requirement 5.7) */}
                             {qapProgress && qapProgress.threadId === activeThreadId && (
                                 <div className="mt-3">
@@ -3395,6 +3450,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                                 await ReExecuteQuickAnalysisPack(activeThreadId);
                                             } catch (err: any) {
                                                 setQapReExecuting(false);
+                                                // Restore the thread to complete set so the button reappears
+                                                setQapCompleteThreads(prev => {
+                                                    const next = new Set(prev);
+                                                    next.add(activeThreadId!);
+                                                    return next;
+                                                });
                                                 setToast({ message: err?.message || 'Re-execution failed', type: 'error' });
                                             }
                                         }}

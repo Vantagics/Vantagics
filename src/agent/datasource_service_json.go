@@ -50,7 +50,7 @@ func (s *DataSourceService) ImportJSON(name string, filePath string, headerGen f
 	absDBPath := filepath.Join(absDBDir, dbName)
 
 	// Create DuckDB database
-	db, err := sql.Open("duckdb", absDBPath)
+	db, err := s.DB.OpenNew(absDBPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %v", err)
 	}
@@ -120,10 +120,10 @@ func (s *DataSourceService) createTableWithSchema(db *sql.DB, table JSONTable) e
 		if sqliteType == "" {
 			sqliteType = "TEXT"
 		}
-		columns = append(columns, fmt.Sprintf("`%s` %s", col.Name, sqliteType))
+		columns = append(columns, fmt.Sprintf(`"%s" %s`, col.Name, sqliteType))
 	}
 
-	createSQL := fmt.Sprintf("CREATE TABLE `%s` (%s)", table.Name, strings.Join(columns, ", "))
+	createSQL := fmt.Sprintf(`CREATE TABLE "%s" (%s)`, table.Name, strings.Join(columns, ", "))
 	_, err := db.Exec(createSQL)
 	return err
 }
@@ -140,7 +140,7 @@ func (s *DataSourceService) insertTableData(db *sql.DB, table JSONTable) error {
 		placeholders[i] = "?"
 	}
 
-	insertSQL := fmt.Sprintf("INSERT INTO `%s` VALUES (%s)", table.Name, strings.Join(placeholders, ","))
+	insertSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES (%s)`, table.Name, strings.Join(placeholders, ","))
 
 	tx, err := db.Begin()
 	if err != nil {

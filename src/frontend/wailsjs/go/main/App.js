@@ -386,6 +386,10 @@ export function GetOptimizeSuggestions(arg1) {
   return window['go']['main']['App']['GetOptimizeSuggestions'](arg1);
 }
 
+export function GetPackLicenseInfo(arg1) {
+  return window['go']['main']['App']['GetPackLicenseInfo'](arg1);
+}
+
 export function GetPackListingID(arg1) {
   return window['go']['main']['App']['GetPackListingID'](arg1);
 }

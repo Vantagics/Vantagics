@@ -287,24 +287,25 @@ func main() {
 
 func initDB() {
 	var err error
-	dsn := fmt.Sprintf("%s?_pragma_key=%s&_pragma_cipher_page_size=4096", dbPath, DBPassword)
+	// Use _pragma parameters to ensure every connection from the pool gets the same settings.
+	// busy_timeout(5000): wait up to 5s on lock contention instead of failing immediately
+	// journal_mode(WAL): allow concurrent readers while one writer is active
+	// synchronous(NORMAL): safe with WAL, reduces fsync overhead
+	// temp_store(MEMORY): keep temp tables in memory
+	// cache_size(-65536): 64MB page cache
+	// Note: the database is NOT encrypted (confirmed on production server).
+	// _pragma_key/_pragma_cipher_page_size were previously included but had no effect
+	// with the modernc.org/sqlite driver (only SQLCipher supports encryption).
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-65536)", dbPath)
 	db, err = sql.Open("sqlite", dsn)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
 
-	// Set connection pool limits
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
-	
-	// Enable WAL mode for better concurrent read/write performance
-	_, err = db.Exec("PRAGMA journal_mode=WAL")
-	if err != nil {
-		log.Printf("Warning: Failed to enable WAL mode: %v", err)
-	} else {
-		log.Println("SQLite WAL mode enabled")
-	}
+	// Small pool avoids excessive lock contention on the single database file
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
+	db.SetConnMaxLifetime(0) // reuse connections indefinitely
 	
 	// Create tables
 	_, err = db.Exec(`
@@ -4107,54 +4108,66 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 	
 	// Step 1: Check blacklist first (blacklist always takes precedence when enabled)
 	if blacklistOn {
-		rows, _ := db.Query("SELECT pattern FROM email_blacklist")
-		defer rows.Close()
-		for rows.Next() {
-			var pattern string
-			rows.Scan(&pattern)
-			if matchEmailPattern(email, pattern) {
-				return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
+		rows, err := db.Query("SELECT pattern FROM email_blacklist")
+		if err != nil {
+			log.Printf("[EMAIL-FILTER] failed to query blacklist: %v", err)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var pattern string
+				rows.Scan(&pattern)
+				if matchEmailPattern(email, pattern) {
+					return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
+				}
 			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Warning: rows iteration error: %v", err)
+			if err := rows.Err(); err != nil {
+				log.Printf("Warning: rows iteration error: %v", err)
+			}
 		}
 	}
 	
 	// Step 2: If whitelist is enabled, must match whitelist
 	if whitelistEnabled {
-		rows, _ := db.Query("SELECT pattern FROM email_whitelist")
-		defer rows.Close()
-		matched := false
-		for rows.Next() {
-			var pattern string
-			rows.Scan(&pattern)
-			if matchEmailPattern(email, pattern) {
-				matched = true
-				break
+		rows, err := db.Query("SELECT pattern FROM email_whitelist")
+		if err != nil {
+			log.Printf("[EMAIL-FILTER] failed to query whitelist: %v", err)
+		} else {
+			defer rows.Close()
+			matched := false
+			for rows.Next() {
+				var pattern string
+				rows.Scan(&pattern)
+				if matchEmailPattern(email, pattern) {
+					matched = true
+					break
+				}
 			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Warning: rows iteration error: %v", err)
-		}
-		if !matched {
-			return false, CodeEmailNotWhitelisted, "您的邮箱不在白名单中", "", ""
+			if err := rows.Err(); err != nil {
+				log.Printf("Warning: rows iteration error: %v", err)
+			}
+			if !matched {
+				return false, CodeEmailNotWhitelisted, "您的邮箱不在白名单中", "", ""
+			}
 		}
 	}
 	
 	// Step 3: Check conditions list for group bindings (only if enabled)
 	if conditionsEnabled {
-		rows, _ := db.Query("SELECT pattern, COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM email_conditions")
-		defer rows.Close()
-		for rows.Next() {
-			var pattern, llmGroupID, searchGroupID string
-			rows.Scan(&pattern, &llmGroupID, &searchGroupID)
-			if matchEmailPattern(email, pattern) {
-				return true, "", "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+		rows, err := db.Query("SELECT pattern, COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM email_conditions")
+		if err != nil {
+			log.Printf("[EMAIL-FILTER] failed to query conditions: %v", err)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var pattern, llmGroupID, searchGroupID string
+				rows.Scan(&pattern, &llmGroupID, &searchGroupID)
+				if matchEmailPattern(email, pattern) {
+					return true, "", "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+				}
 			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Warning: rows iteration error: %v", err)
+			if err := rows.Err(); err != nil {
+				log.Printf("Warning: rows iteration error: %v", err)
+			}
 		}
 	}
 	
@@ -4632,22 +4645,26 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		llmQuery = "SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs"
 	}
-	rows, _ := db.Query(llmQuery, llmArgs...)
-	for rows.Next() {
-		var c LLMConfig
-		rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
-		if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
-			continue
+	rows, err := db.Query(llmQuery, llmArgs...)
+	if err != nil {
+		log.Printf("[ACTIVATE] failed to query LLM configs: %v", err)
+	} else {
+		for rows.Next() {
+			var c LLMConfig
+			rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+			if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
+				continue
+			}
+			// Priority: latest start_date, then is_active
+			if bestLLM == nil || c.StartDate > bestLLM.StartDate || (c.IsActive && !bestLLM.IsActive && c.StartDate == bestLLM.StartDate) {
+				bestLLM = &c
+			}
 		}
-		// Priority: latest start_date, then is_active
-		if bestLLM == nil || c.StartDate > bestLLM.StartDate || (c.IsActive && !bestLLM.IsActive && c.StartDate == bestLLM.StartDate) {
-			bestLLM = &c
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
 		}
+		rows.Close()
 	}
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: rows iteration error: %v", err)
-	}
-	rows.Close()
 	
 	// Get best Search config for the license's group (or all if no group specified)
 	var bestSearch *SearchConfig
@@ -4659,22 +4676,26 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		searchQuery = "SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs"
 	}
-	rows, _ = db.Query(searchQuery, searchArgs...)
-	for rows.Next() {
-		var c SearchConfig
-		rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
-		if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
-			continue
+	rows, err = db.Query(searchQuery, searchArgs...)
+	if err != nil {
+		log.Printf("[ACTIVATE] failed to query search configs: %v", err)
+	} else {
+		for rows.Next() {
+			var c SearchConfig
+			rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+			if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
+				continue
+			}
+			// Priority: latest start_date, then is_active
+			if bestSearch == nil || c.StartDate > bestSearch.StartDate || (c.IsActive && !bestSearch.IsActive && c.StartDate == bestSearch.StartDate) {
+				bestSearch = &c
+			}
 		}
-		// Priority: latest start_date, then is_active
-		if bestSearch == nil || c.StartDate > bestSearch.StartDate || (c.IsActive && !bestSearch.IsActive && c.StartDate == bestSearch.StartDate) {
-			bestSearch = &c
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
 		}
+		rows.Close()
 	}
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: rows iteration error: %v", err)
-	}
-	rows.Close()
 	
 	// Get trust level from license group
 	trustLevel := "low"

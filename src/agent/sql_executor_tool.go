@@ -191,7 +191,7 @@ func (t *SQLExecutorTool) convertMySQLToDuckDB(query string) string {
 // fixColumnCaseSensitivity attempts to fix column name case issues
 func (t *SQLExecutorTool) fixColumnCaseSensitivity(query string, db *sql.DB, tableName string) string {
 	// Get actual column names from the table
-	rows, err := db.Query(fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName))
+	rows, err := db.Query(fmt.Sprintf(`SELECT * FROM "%s" LIMIT 0`, tableName))
 	if err != nil {
 		return query
 	}
@@ -310,7 +310,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 	if target.Config.DBPath != "" {
 		dbType = "duckdb"
 		dbPath := filepath.Join(t.dsService.dataCacheDir, target.Config.DBPath)
-		db, err = sql.Open("duckdb", dbPath)
+		db, err = t.dsService.openDuckDBReadOnly(dbPath)
 		if err != nil {
 			return "", dbType, fmt.Errorf("failed to open database: %v", err)
 		}
@@ -329,14 +329,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 	} else {
 		return "", "", fmt.Errorf("unsupported data source type: %s", target.Type)
 	}
-	defer func() {
-		// Flush WAL before closing DuckDB write connections to prevent
-		// residual WAL files that block subsequent read-only opens.
-		if dbType == "duckdb" {
-			db.Exec("CHECKPOINT")
-		}
-		db.Close()
-	}()
+	defer db.Close()
 
 	// Apply SQL dialect conversion if needed
 	processedQuery := query
@@ -390,11 +383,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 		for i, colName := range cols {
 			val := columnPointers[i].(*interface{})
 			if val != nil && *val != nil {
-				if b, ok := (*val).([]byte); ok {
-					rowMap[colName] = string(b)
-				} else {
-					rowMap[colName] = *val
-				}
+				rowMap[colName] = sanitizeValueForJSON(*val)
 			} else {
 				rowMap[colName] = nil
 			}

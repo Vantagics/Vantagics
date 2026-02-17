@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"vantagedata/agent"
 	"strings"
-
-	_ "github.com/marcboeker/go-duckdb"
 )
 
 // IndexSuggestion represents a suggested index
@@ -102,8 +100,8 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 	// Get full database path
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
-	// Open database
-	db, err := sql.Open("duckdb", dbPath)
+	// Open database in read-only mode (we only query schema info here).
+	db, err := a.dataSourceService.DB.OpenReadOnly(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -185,8 +183,8 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 	// Get full database path
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
-	// Open database
-	db, err := sql.Open("duckdb", dbPath)
+	// Open database with retry logic via unified DBManager.
+	db, err := a.dataSourceService.DB.OpenWritable(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -420,7 +418,9 @@ func getMapKeys(m map[string]bool) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}// getColumnTypes retrieves column types for a table
+}
+
+// getColumnTypes retrieves column types for a table
 func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, error) {
 	query := fmt.Sprintf("DESCRIBE %s", tableName)
 	rows, err := db.Query(query)

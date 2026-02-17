@@ -635,9 +635,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 onSuccess={(newDataSource) => {
                     fetchSources();
                     // Check if we should auto-open optimize modal
+                    // Add a delay to avoid DuckDB file lock conflict with the background
+                    // analyzeDataSource goroutine that starts immediately after import.
                     if (newDataSource && newDataSource.config?.db_path && !newDataSource.config?.optimized) {
-                        // Auto-open optimize modal for new local databases
-                        setOptimizeTarget({ id: newDataSource.id, name: newDataSource.name });
+                        setTimeout(() => {
+                            setOptimizeTarget({ id: newDataSource.id, name: newDataSource.name });
+                        }, 2000);
                     }
                 }}
                 preSelectedDriverType={preSelectedDriverType}

@@ -197,6 +197,8 @@ export function GetMySharedPackNames():Promise<Array<string>>;
 
 export function GetOptimizeSuggestions(arg1:string):Promise<main.OptimizeSuggestionsResult>;
 
+export function GetPackLicenseInfo(arg1:number):Promise<main.UsageLicense>;
+
 export function GetPackListingID(arg1:string):Promise<number>;
 
 export function GetPythonEnvironments():Promise<Array<agent.PythonEnvironment>>;

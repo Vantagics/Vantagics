@@ -415,9 +415,13 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
         setLicenseActionLoading(license.pack_name);
         try {
             await PurchaseAdditionalUses(license.listing_id, 1);
+            setToast({ message: t('pack_manager_repurchase_success'), type: 'success' });
+            setTimeout(() => setToast(null), 3000);
             await loadLicenses();
-        } catch {
-            // Error handled silently - user can retry
+        } catch (err: any) {
+            const msg = err?.message || err?.toString() || t('pack_manager_repurchase_failed');
+            setToast({ message: msg, type: 'error' });
+            setTimeout(() => setToast(null), 5000);
         } finally {
             setLicenseActionLoading(null);
         }
@@ -427,9 +431,13 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
         setLicenseActionLoading(license.pack_name);
         try {
             await RenewSubscription(license.listing_id, months);
+            setToast({ message: t('pack_manager_renew_success'), type: 'success' });
+            setTimeout(() => setToast(null), 3000);
             await loadLicenses();
-        } catch {
-            // Error handled silently - user can retry
+        } catch (err: any) {
+            const msg = err?.message || err?.toString() || t('pack_manager_renew_failed');
+            setToast({ message: msg, type: 'error' });
+            setTimeout(() => setToast(null), 5000);
         } finally {
             setLicenseActionLoading(null);
         }

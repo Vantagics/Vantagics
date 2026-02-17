@@ -7,12 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/mutecomm/go-sqlcipher/v4"
+	_ "modernc.org/sqlite"
 )
 
-const (
-	DBPassword = "sunion123!"
-)
+// Note: The license_server database is NOT encrypted (uses plain modernc.org/sqlite).
+// No database password is needed to open it.
 
 func main() {
 	fmt.Println("========================================")
@@ -32,9 +31,8 @@ func main() {
 
 	fmt.Printf("数据库文件: %s\n\n", dbPath)
 
-	// Open database
-	dsn := fmt.Sprintf("%s?_pragma_key=%s&_pragma_cipher_page_size=4096", dbPath, DBPassword)
-	db, err := sql.Open("sqlite3", dsn)
+	// Open database (unencrypted SQLite, same driver as main license server)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		fmt.Printf("错误: 无法打开数据库: %v\n", err)
 		os.Exit(1)
@@ -84,19 +82,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Update password
+	// Update password (store as plaintext to match license_server's getSetting/setSetting pattern)
 	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_password', ?)", newPassword)
 	if err != nil {
 		fmt.Printf("错误: 更新密码失败: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Also reset all login locks by clearing the in-memory state hint
+	fmt.Println("提示: 登录锁定状态存储在服务器内存中，重启授权服务器即可解除所有登录限制。")
+
 	fmt.Println()
 	fmt.Println("✅ 密码重置成功！")
 	fmt.Printf("   用户名: %s\n", username)
-	fmt.Printf("   新密码: %s\n", newPassword)
+	fmt.Println("   新密码: (已设置)")
 	fmt.Println()
-	fmt.Println("登录限制说明：登录锁定状态存储在服务器内存中，重启授权服务器即可解除所有登录限制。")
 	fmt.Println("注意: 如果授权服务器正在运行，新密码将立即生效（无需重启）。")
 }
 
