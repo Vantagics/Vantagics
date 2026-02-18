@@ -1,10 +1,10 @@
-# service.vantagedata.chat 接口实现文档
+# service.vantagics.com 接口实现文档
 
 ## 背景
 
-VantageData 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到客服系统（service.vantagedata.chat）。整体流程复用已有的 License 服务器 SN+Email 认证机制。
+VantageData 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到客服系统（service.vantagics.com）。整体流程复用已有的 License 服务器 SN+Email 认证机制。
 
-当前问题：service.vantagedata.chat 上的服务对 `/api/auth/sn-login` 请求返回了前端 SPA 的 HTML 页面，而非 JSON，导致客户端报错 `service portal returned HTML instead of JSON`。
+当前问题：service.vantagics.com 上的服务对 `/api/auth/sn-login` 请求返回了前端 SPA 的 HTML 页面，而非 JSON，导致客户端报错 `service portal returned HTML instead of JSON`。
 
 ## 认证流程
 
@@ -13,13 +13,13 @@ VantageData 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到�
     ↓
 桌面应用检查 License 激活状态、SN、Email
     ↓
-桌面应用 → POST https://license.vantagedata.chat/api/marketplace-auth {sn, email}
+桌面应用 → POST https://license.vantagics.com/api/marketplace-auth {sn, email}
     ↓ 返回 {success, token}
-桌面应用 → POST https://service.vantagedata.chat/api/auth/sn-login {token}
+桌面应用 → POST https://service.vantagics.com/api/auth/sn-login {token}
     ↓ 【需要实现】service portal 拿 token 去 License Server 验证
     ↓ 验证通过后查找或创建用户，生成一次性 login_ticket
     ↓ 返回 {success, login_ticket}
-桌面应用在浏览器中打开 https://service.vantagedata.chat/auth/ticket-login?ticket=xxx
+桌面应用在浏览器中打开 https://service.vantagics.com/auth/ticket-login?ticket=xxx
     ↓ 【需要实现】验证 ticket，创建会话，重定向到客服主页
 ```
 
@@ -28,7 +28,7 @@ VantageData 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到�
 service portal 需要调用 License Server 验证令牌：
 
 ```
-POST https://license.vantagedata.chat/api/marketplace-verify
+POST https://license.vantagics.com/api/marketplace-verify
 Content-Type: application/json
 
 请求：
@@ -57,7 +57,7 @@ Content-Type: application/json
 
 1. 解析请求体，提取 `token` 字段
 2. 如果 `token` 为空，返回 400 错误
-3. 将 `token` 发送到 License Server `POST https://license.vantagedata.chat/api/marketplace-verify` 进行验证
+3. 将 `token` 发送到 License Server `POST https://license.vantagics.com/api/marketplace-verify` 进行验证
 4. 如果 License Server 验证失败，返回 401 错误
 5. 验证成功后，用返回的 `email` 在本地数据库查找用户
    - 如果用户不存在：自动创建，`display_name` 取 email 的 `@` 前缀（如 `user@example.com` → `user`）
@@ -133,7 +133,7 @@ GET /auth/ticket-login?ticket=550e8400-e29b-41d4-a716-446655440000
 
 ## 路由注意事项
 
-当前 service.vantagedata.chat 的 `/api/auth/sn-login` 返回了 SPA 的 HTML 页面，说明 API 路由被 SPA 的 catch-all 规则覆盖了。
+当前 service.vantagics.com 的 `/api/auth/sn-login` 返回了 SPA 的 HTML 页面，说明 API 路由被 SPA 的 catch-all 规则覆盖了。
 
 需要确保：
 - `/api/*` 路径优先走后端 API 处理
@@ -142,7 +142,7 @@ GET /auth/ticket-login?ticket=550e8400-e29b-41d4-a716-446655440000
 
 ## 参考实现
 
-market.vantagedata.chat（端口 8088）上已有类似的 `handleSNLogin` 实现，逻辑几乎一样。区别在于：
+market.vantagics.com（端口 8088）上已有类似的 `handleSNLogin` 实现，逻辑几乎一样。区别在于：
 - marketplace 的 sn-login 最后返回的是 JWT token（用于 API 调用）
 - service portal 的 sn-login 最后返回的是一次性 login_ticket（用于浏览器跳转登录）
 
@@ -175,15 +175,15 @@ market.vantagedata.chat（端口 8088）上已有类似的 `handleSNLogin` 实�
 
 ```bash
 # 1. 先从 License Server 获取 token
-curl -X POST https://license.vantagedata.chat/api/marketplace-auth \
+curl -X POST https://license.vantagics.com/api/marketplace-auth \
   -H "Content-Type: application/json" \
   -d '{"sn":"YOUR-SN","email":"your@email.com"}'
 
 # 2. 用 token 调用 sn-login（应返回 JSON，不是 HTML）
-curl -X POST https://service.vantagedata.chat/api/auth/sn-login \
+curl -X POST https://service.vantagics.com/api/auth/sn-login \
   -H "Content-Type: application/json" \
   -d '{"token":"TOKEN-FROM-STEP-1"}'
 
 # 3. 在浏览器中打开 ticket-login URL
-# https://service.vantagedata.chat/auth/ticket-login?ticket=TICKET-FROM-STEP-2
+# https://service.vantagics.com/auth/ticket-login?ticket=TICKET-FROM-STEP-2
 ```

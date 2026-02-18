@@ -45,7 +45,7 @@ func runSystray(ctx context.Context) {
 			systray.SetTitle("VantageData")
 			
 			// Get initial language from config
-			app := ctx.Value("app").(*App)
+			app := ctx.Value(appContextKey).(*App)
 			config, err := app.GetConfig()
 			language := "English"
 			if err == nil && config.Language != "" {

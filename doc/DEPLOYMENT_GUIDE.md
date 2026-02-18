@@ -116,7 +116,7 @@ chmod +x /root/license_server/start.sh
 ### 5. 启动服务
 
 ```bash
-ssh root@license.vantagedata.chat "cd /root/license_server && ./start.sh"
+ssh root@license.vantagics.com "cd /root/license_server && ./start.sh"
 ```
 
 ### 6. 验证服务
@@ -184,7 +184,7 @@ chmod +x /root/marketplace_server/start.sh
 ### 5. 启动服务
 
 ```bash
-ssh root@market.vantagedata.chat "cd /root/marketplace_server && ./start.sh"
+ssh root@market.vantagics.com "cd /root/marketplace_server && ./start.sh"
 ```
 
 ### 6. 验证服务
@@ -349,30 +349,30 @@ wails build -platform linux/amd64
 
 ```bash
 # License 服务器
-ssh root@license.vantagedata.chat "tail -f /root/license_server/server.log"
+ssh root@license.vantagics.com "tail -f /root/license_server/server.log"
 
 # Marketplace 服务器
-ssh root@market.vantagedata.chat "tail -f /root/marketplace_server/server.log"
+ssh root@market.vantagics.com "tail -f /root/marketplace_server/server.log"
 ```
 
 ### 重启服务
 
 ```bash
 # License 服务器
-ssh root@license.vantagedata.chat "cd /root/license_server && ./start.sh"
+ssh root@license.vantagics.com "cd /root/license_server && ./start.sh"
 
 # Marketplace 服务器
-ssh root@market.vantagedata.chat "cd /root/marketplace_server && ./start.sh"
+ssh root@market.vantagics.com "cd /root/marketplace_server && ./start.sh"
 ```
 
 ### 备份数据库
 
 ```bash
 # License 服务器
-ssh root@license.vantagedata.chat "cp /root/license_server/license_server.db /root/backups/license_$(date +%Y%m%d).db"
+ssh root@license.vantagics.com "cp /root/license_server/license_server.db /root/backups/license_$(date +%Y%m%d).db"
 
 # Marketplace 服务器
-ssh root@market.vantagedata.chat "cp /root/marketplace_server/marketplace.db /root/backups/marketplace_$(date +%Y%m%d).db"
+ssh root@market.vantagics.com "cp /root/marketplace_server/marketplace.db /root/backups/marketplace_$(date +%Y%m%d).db"
 ```
 
 ### 自动备份脚本
@@ -459,21 +459,21 @@ echo "Backup completed: $DATE"
 1. 检查共享密钥是否一致：
    ```bash
    # License 服务器
-   ssh root@license.vantagedata.chat "grep LICENSE_MARKETPLACE_SECRET /root/license_server/.env"
+   ssh root@license.vantagics.com "grep LICENSE_MARKETPLACE_SECRET /root/license_server/.env"
 
    # Marketplace 服务器
-   ssh root@market.vantagedata.chat "grep MARKETPLACE_JWT_SECRET /root/marketplace_server/.env"
+   ssh root@market.vantagics.com "grep MARKETPLACE_JWT_SECRET /root/marketplace_server/.env"
    ```
 
 2. 测试认证流程：
    ```bash
    # 1. 请求认证令牌
-   curl -X POST http://license.vantagedata.chat:6699/api/marketplace-auth \
+   curl -X POST http://license.vantagics.com:6699/api/marketplace-auth \
      -H "Content-Type: application/json" \
      -d '{"sn":"YOUR-SN","email":"user@example.com"}'
 
    # 2. 使用令牌登录市场
-   curl -X POST http://market.vantagedata.chat:8088/api/auth/sn-login \
+   curl -X POST http://market.vantagics.com:8088/api/auth/sn-login \
      -H "Content-Type: application/json" \
      -d '{"license_token":"TOKEN-FROM-STEP-1"}'
    ```

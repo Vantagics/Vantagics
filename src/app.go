@@ -95,6 +95,51 @@ type DashboardData struct {
 	Insights []Insight `json:"insights"`
 }
 
+// contextKey is a typed key for context.WithValue to avoid collisions (Go best practice).
+type contextKey string
+
+const appContextKey contextKey = "app"
+
+// mapLicenseLLMType maps license server LLM type strings to the canonical provider names
+// used throughout the application. This centralizes the mapping to avoid duplication.
+func mapLicenseLLMType(llmType, baseURL string) (mappedType, mappedBaseURL string) {
+	mappedBaseURL = baseURL
+	switch strings.ToLower(llmType) {
+	case "openai":
+		mappedType = "OpenAI"
+	case "anthropic":
+		mappedType = "Anthropic"
+	case "gemini":
+		mappedType = "Gemini"
+	case "deepseek":
+		mappedType = "OpenAI-Compatible"
+		if mappedBaseURL == "" {
+			mappedBaseURL = "https://api.deepseek.com"
+		}
+	case "openai-compatible":
+		mappedType = "OpenAI-Compatible"
+	case "claude-compatible":
+		mappedType = "Claude-Compatible"
+	default:
+		mappedType = llmType
+	}
+	return
+}
+
+// applyActivatedLLMConfig merges activated license LLM settings into the given config.
+// Returns true if the config was modified.
+func applyActivatedLLMConfig(cfg *config.Config, activationData *agent.ActivationData) bool {
+	if activationData == nil || activationData.LLMAPIKey == "" {
+		return false
+	}
+	llmType, baseURL := mapLicenseLLMType(activationData.LLMType, activationData.LLMBaseURL)
+	cfg.LLMProvider = llmType
+	cfg.APIKey = activationData.LLMAPIKey
+	cfg.BaseURL = baseURL
+	cfg.ModelName = activationData.LLMModel
+	return true
+}
+
 // App struct
 type App struct {
 	ctx                      context.Context
@@ -305,7 +350,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Store App instance in context for system tray access
-	ctx = context.WithValue(ctx, "app", a)
+	ctx = context.WithValue(ctx, appContextKey, a)
 	a.ctx = ctx
 
 	// Start system tray (Windows/Linux only, handled by build tags)
@@ -458,32 +503,10 @@ func (a *App) startup(ctx context.Context) {
 			
 			// Update config with activated LLM settings
 			if activationData := a.licenseClient.GetData(); activationData != nil && activationData.LLMAPIKey != "" {
-				// Map license server LLM types to the expected provider names
-				llmType := activationData.LLMType
-				baseURL := activationData.LLMBaseURL
-				switch strings.ToLower(llmType) {
-				case "openai":
-					llmType = "OpenAI"
-				case "anthropic":
-					llmType = "Anthropic"
-				case "gemini":
-					llmType = "Gemini"
-				case "deepseek":
-					llmType = "OpenAI-Compatible"
-					if baseURL == "" {
-						baseURL = "https://api.deepseek.com"
-					}
-				case "openai-compatible":
-					llmType = "OpenAI-Compatible"
-				case "claude-compatible":
-					llmType = "Claude-Compatible"
+				if applyActivatedLLMConfig(&cfg, activationData) {
+					a.Log(fmt.Sprintf("[STARTUP] Using activated LLM config: provider=%s, model=%s, baseURL=%s",
+						cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
 				}
-				cfg.LLMProvider = llmType
-				cfg.APIKey = activationData.LLMAPIKey
-				cfg.BaseURL = baseURL
-				cfg.ModelName = activationData.LLMModel
-				a.Log(fmt.Sprintf("[STARTUP] Using activated LLM config: provider=%s (mapped from %s), model=%s, baseURL=%s",
-					cfg.LLMProvider, activationData.LLMType, cfg.ModelName, cfg.BaseURL))
 			}
 		}
 
@@ -779,15 +802,16 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		return AgentMemoryView{}, fmt.Errorf("services not initialized")
 	}
 
-	// Get the full conversation history
-	threads, _ := a.chatService.LoadThreads()
-	var messages []ChatMessage
-	for _, t := range threads {
-		if t.ID == threadID {
-			messages = t.Messages
-			break
-		}
+	// Load only the specific thread instead of all threads (performance optimization)
+	thread, err := a.chatService.LoadThread(threadID)
+	if err != nil || thread == nil {
+		return AgentMemoryView{
+			LongTerm:   []string{"No conversation history yet."},
+			MediumTerm: []string{"No conversation history yet."},
+			ShortTerm:  []string{"No conversation history yet."},
+		}, nil
 	}
+	messages := thread.Messages
 
 	if len(messages) == 0 {
 		return AgentMemoryView{
@@ -1404,36 +1428,9 @@ func (a *App) GetEffectiveConfig() (config.Config, error) {
 	// Merge activated license LLM config if available
 	if a.licenseClient != nil && a.licenseClient.IsActivated() {
 		activationData := a.licenseClient.GetData()
-		if activationData != nil && activationData.LLMAPIKey != "" {
-			// Map license server LLM types to the expected provider names
-			llmType := activationData.LLMType
-			baseURL := activationData.LLMBaseURL
-			switch strings.ToLower(llmType) {
-			case "openai":
-				llmType = "OpenAI"
-			case "anthropic":
-				llmType = "Anthropic"
-			case "gemini":
-				llmType = "Gemini"
-			case "deepseek":
-				// DeepSeek uses OpenAI-compatible API
-				llmType = "OpenAI-Compatible"
-				// Set default BaseURL for DeepSeek if not provided
-				if baseURL == "" {
-					baseURL = "https://api.deepseek.com"
-				}
-			case "openai-compatible":
-				llmType = "OpenAI-Compatible"
-			case "claude-compatible":
-				llmType = "Claude-Compatible"
-			}
-			cfg.LLMProvider = llmType
-			cfg.APIKey = activationData.LLMAPIKey
-			cfg.BaseURL = baseURL
-			cfg.ModelName = activationData.LLMModel
-		}
+		applyActivatedLLMConfig(&cfg, activationData)
 
-		// Merge activated search config if available
+		// Also merge activated search config if available
 		if activationData != nil && activationData.SearchAPIKey != "" && activationData.SearchType != "" {
 			// Update the search API config based on activation data
 			found := false
@@ -1779,34 +1776,9 @@ func (a *App) reinitializeServices(cfg config.Config) {
 	// Check if we have activated license with LLM config
 	if a.licenseClient != nil && a.licenseClient.IsActivated() {
 		activationData := a.licenseClient.GetData()
-		if activationData != nil && activationData.LLMAPIKey != "" {
-			// Use activated LLM config
-			a.Log("[REINIT] Using activated license LLM configuration")
-			// Map license server LLM types to the expected provider names
-			llmType := activationData.LLMType
-			baseURL := activationData.LLMBaseURL
-			switch strings.ToLower(llmType) {
-			case "openai":
-				llmType = "OpenAI"
-			case "anthropic":
-				llmType = "Anthropic"
-			case "gemini":
-				llmType = "Gemini"
-			case "deepseek":
-				llmType = "OpenAI-Compatible"
-				if baseURL == "" {
-					baseURL = "https://api.deepseek.com"
-				}
-			case "openai-compatible":
-				llmType = "OpenAI-Compatible"
-			case "claude-compatible":
-				llmType = "Claude-Compatible"
-			}
-			cfg.LLMProvider = llmType
-			cfg.APIKey = activationData.LLMAPIKey
-			cfg.BaseURL = baseURL
-			cfg.ModelName = activationData.LLMModel
-			a.Log(fmt.Sprintf("[REINIT] Mapped LLM config: Provider=%s, Model=%s, BaseURL=%s", cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
+		if applyActivatedLLMConfig(&cfg, activationData) {
+			a.Log(fmt.Sprintf("[REINIT] Using activated license LLM config: Provider=%s, Model=%s, BaseURL=%s",
+				cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
 		}
 	}
 
@@ -3321,17 +3293,13 @@ func (a *App) GetDataSourceTableDataWithCount(id string, tableName string) (*Tab
 // SelectExcelFile opens a file dialog to select an Excel file
 
 func (a *App) SelectExcelFile() (string, error) {
-
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-
 		Title: "Select Excel File",
-
 		Filters: []runtime.FileFilter{
 			// Support both .xlsx (Excel 2007+) and .xls (Excel 97-2003) formats
 			{DisplayName: "Excel Files", Pattern: "*.xlsx;*.xls;*.xlsm"},
 		},
 	})
-
 }
 
 // SelectCSVFile opens a file dialog to select a CSV file
@@ -3357,19 +3325,13 @@ func (a *App) SelectJSONFile() (string, error) {
 // SelectSaveFile opens a save file dialog
 
 func (a *App) SelectSaveFile(filename string, filterPattern string) (string, error) {
-
 	return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-
-		Title: "Save File",
-
+		Title:           "Save File",
 		DefaultFilename: filename,
-
 		Filters: []runtime.FileFilter{
-
 			{DisplayName: "Files", Pattern: filterPattern},
 		},
 	})
-
 }
 
 // ExportToCSV exports one or more data source tables to CSV
