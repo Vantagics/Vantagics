@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Draggable Dashboard Component
  * 
  * 完整的可拖拽仪表盘，整合真实数据展示和拖拽功能
@@ -347,12 +347,12 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             setIsGeneratingReport(false);
             setPreparedReportId(reportId);
             setExportDropdownOpen(true);
-            setToast({ message: t('report_ready') || '报告已生成，请选择导出格式', type: 'success' });
+            setToast({ message: t('report_ready'), type: 'success' });
         } catch (error) {
             setIsGeneratingReport(false);
             console.error('[DraggableDashboard] Report preparation failed:', error);
             setToast({
-                message: (t('generate_report_failed') || '报告生成失败：') + (error instanceof Error ? error.message : String(error)),
+                message: (t('generate_report_failed')) + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -363,11 +363,11 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         if (!preparedReportId) return;
         try {
             await ExportReport(preparedReportId, format);
-            setToast({ message: t('generate_report_success') || '报告导出成功！', type: 'success' });
+            setToast({ message: t('generate_report_success'), type: 'success' });
         } catch (error) {
             console.error('[DraggableDashboard] Report export failed:', error);
             setToast({
-                message: (t('generate_report_failed') || '报告导出失败：') + (error instanceof Error ? error.message : String(error)),
+                message: (t('generate_report_failed')) + (error instanceof Error ? error.message : String(error)),
                 type: 'error'
             });
         }
@@ -1498,7 +1498,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     <div className="px-3 py-2 bg-slate-50 dark:bg-[#252526] border-b border-slate-200 dark:border-[#3c3c3c]">
                                         <div className="flex items-center gap-2">
                                             <span className="flex-1 text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{renderInlineMarkdown(tableTitle)}</span>
-                                            <span className="text-xs text-slate-400 dark:text-[#808080]">{tableData.rows.length} {t('rows') || '行'}</span>
+                                            <span className="text-xs text-slate-400 dark:text-[#808080]">{tableData.rows.length} {t('rows')}</span>
                                         </div>
                                         {stepDescription && (
                                             <div className="mt-1 text-xs text-slate-500 dark:text-[#999]">📋 {stepDescription}</div>
@@ -1834,36 +1834,36 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                             ? 'bg-green-50 border border-green-200 text-green-600 hover:bg-green-100'
                                             : 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100'
                                     }`}
-                                    title={preparedReportId ? (t('report_ready_title') || '报告已就绪，选择导出格式') : (t('reports_button_title') || '生成分析报告')}
+                                    title={preparedReportId ? (t('report_ready_title')) : (t('reports_button_title'))}
                                 >
                                     <ClipboardList size={14} />
-                                    <span>{preparedReportId ? (t('export_report') || '导出报告') : (t('reports') || '报告')}</span>
+                                    <span>{preparedReportId ? (t('export_report')) : (t('reports'))}</span>
                                 </button>
 
                                 {/* 格式选择下拉菜单 - 仅在报告已生成后显示 */}
                                 {exportDropdownOpen && preparedReportId && (
                                     <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-[#252526] rounded-xl shadow-xl border border-slate-200 dark:border-[#3c3c3c] py-1.5 z-50">
-                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 dark:text-[#808080] uppercase tracking-wider">{t('select_export_format') || '选择导出格式'}</div>
+                                        <div className="px-3 py-1.5 text-xs font-medium text-slate-400 dark:text-[#808080] uppercase tracking-wider">{t('select_export_format')}</div>
                                         <button
                                             onClick={() => exportReportAs('word')}
                                             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-indigo-500" />
-                                            <span className="whitespace-nowrap">{t('export_as_word') || '导出为 Word'}</span>
+                                            <span className="whitespace-nowrap">{t('export_as_word')}</span>
                                         </button>
                                         <button
                                             onClick={() => exportReportAs('pdf')}
                                             className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                         >
                                             <FileChartColumn size={16} className="flex-shrink-0 text-rose-500" />
-                                            <span className="whitespace-nowrap">{t('export_as_pdf') || '导出为 PDF'}</span>
+                                            <span className="whitespace-nowrap">{t('export_as_pdf')}</span>
                                         </button>
                                         <div className="border-t border-slate-100 dark:border-[#3c3c3c] mt-1 pt-1">
                                             <button
                                                 onClick={() => { setPreparedReportId(null); setExportDropdownOpen(false); prepareReport(); }}
                                                 className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-400 dark:text-[#808080] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                             >
-                                                <span className="whitespace-nowrap">{t('regenerate_report') || '重新生成报告'}</span>
+                                                <span className="whitespace-nowrap">{t('regenerate_report')}</span>
                                             </button>
                                         </div>
                                     </div>
@@ -2104,8 +2104,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         <div className="w-full bg-slate-100 dark:bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-[#5b7a9d] via-[#7b9bb8] to-[#5b7a9d] rounded-full animate-pulse" style={{ width: '100%', animation: 'reportProgress 2s ease-in-out infinite' }}></div>
                         </div>
-                        <p className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{t('generate_report_processing') || '正在生成报告，请稍候...'}</p>
-                        <p className="text-xs text-slate-400 dark:text-[#808080]">{t('generate_report_llm_hint') || 'AI 正在分析数据并撰写报告'}</p>
+                        <p className="text-sm font-medium text-slate-700 dark:text-[#d4d4d4]">{t('generate_report_processing')}</p>
+                        <p className="text-xs text-slate-400 dark:text-[#808080]">{t('generate_report_llm_hint')}</p>
                         <style>{`
                             @keyframes reportProgress {
                                 0% { transform: translateX(-100%); }

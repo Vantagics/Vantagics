@@ -20,13 +20,14 @@ func TestStartDataSourceAnalysis_InvalidDataSourceID(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create app with data source service
-	service := agent.NewDataSourceService(tmpDir, func(msg string) {})
+	// Create app with datasource facade service
+	dsService := agent.NewDataSourceService(tmpDir, func(msg string) {})
+	chatSvc := NewChatService(tmpDir)
+	configSvc := NewConfigService(func(msg string) {})
+	dsFacade := NewDataSourceFacadeService(dsService, configSvc, chatSvc, nil, nil, func(msg string) {})
 	app := &App{
-		dataSourceService: service,
-		chatService:       NewChatService(tmpDir),
-		logger:            logger.NewLogger(),
-		activeThreads:     make(map[string]bool),
+		dataSourceFacadeService: dsFacade,
+		logger:                  logger.NewLogger(),
 	}
 
 	// Add a test data source
@@ -35,7 +36,7 @@ func TestStartDataSourceAnalysis_InvalidDataSourceID(t *testing.T) {
 		Name: "Test MySQL Database",
 		Type: "mysql",
 	}
-	if err := service.AddDataSource(testDS); err != nil {
+	if err := dsService.AddDataSource(testDS); err != nil {
 		t.Fatalf("Failed to add test data source: %v", err)
 	}
 
@@ -53,10 +54,10 @@ func TestStartDataSourceAnalysis_InvalidDataSourceID(t *testing.T) {
 
 // TestStartDataSourceAnalysis_ServiceNotInitialized tests error handling when service is nil
 func TestStartDataSourceAnalysis_ServiceNotInitialized(t *testing.T) {
-	// Create app without data source service
+	// Create app without datasource facade service
 	app := &App{
-		dataSourceService: nil,
-		logger:            logger.NewLogger(),
+		dataSourceFacadeService: nil,
+		logger:                  logger.NewLogger(),
 	}
 
 	// Try to start analysis
@@ -65,9 +66,8 @@ func TestStartDataSourceAnalysis_ServiceNotInitialized(t *testing.T) {
 		t.Fatal("Expected error when service not initialized, got nil")
 	}
 
-	expectedMsg := "data source service not initialized"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
+	if !strings.Contains(err.Error(), "datasource facade service not initialized") {
+		t.Errorf("Expected error to contain 'datasource facade service not initialized', got '%s'", err.Error())
 	}
 }
 
@@ -80,13 +80,14 @@ func TestStartDataSourceAnalysis_LoadDataSourcesError(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Create app with data source service
-	service := agent.NewDataSourceService(tmpDir, func(msg string) {})
+	// Create app with datasource facade service
+	dsService := agent.NewDataSourceService(tmpDir, func(msg string) {})
+	chatSvc := NewChatService(tmpDir)
+	configSvc := NewConfigService(func(msg string) {})
+	dsFacade := NewDataSourceFacadeService(dsService, configSvc, chatSvc, nil, nil, func(msg string) {})
 	app := &App{
-		dataSourceService: service,
-		chatService:       NewChatService(tmpDir),
-		logger:            logger.NewLogger(),
-		activeThreads:     make(map[string]bool),
+		dataSourceFacadeService: dsFacade,
+		logger:                  logger.NewLogger(),
 	}
 
 	// Create an invalid datasources.json file to trigger error

@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bufio"
+	"crypto/tls"
 	"database/sql"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	"sync"
 	"time"
 	"vantagedata/dbpool"
+	"vantagedata/i18n"
 
 	"github.com/extrame/xls"
 	"github.com/google/uuid"
@@ -611,6 +614,22 @@ func (s *DataSourceService) ImportDataSource(name string, driverType string, con
 		return s.ImportSnowflake(name, config)
 	case "bigquery":
 		return s.ImportBigQuery(name, config)
+	case "iex_cloud":
+		return s.ImportIEXCloud(name, config)
+	case "alpha_vantage":
+		return s.ImportAlphaVantage(name, config)
+	case "quandl":
+		return s.ImportQuandl(name, config)
+	case "morningstar":
+		return s.ImportMorningstar(name, config)
+	case "sp_global":
+		return s.ImportSPGlobal(name, config)
+	case "lseg":
+		return s.ImportLSEG(name, config)
+	case "pitchbook":
+		return s.ImportPitchBook(name, config)
+	case "bloomberg":
+		return s.ImportBloomberg(name, config)
 	case "postgresql":
 		return nil, fmt.Errorf("postgresql driver not supported yet")
 	default:
@@ -1231,7 +1250,7 @@ func (s *DataSourceService) ImportExcel(name string, filePath string, headerGen 
 		// Use GoExcel for new Excel format
 		return s.importXLSX(name, filePath, headerGen)
 	default:
-		return nil, fmt.Errorf("不支持的文件格式: %s。请使用 .xlsx 或 .xls 格式的 Excel 文件", ext)
+		return nil, fmt.Errorf("%s", i18n.T("datasource.unsupported_format", ext))
 	}
 }
 
@@ -1242,7 +1261,7 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 	if err != nil {
 		// Provide more helpful error message
 		if strings.Contains(err.Error(), "unsupported") || strings.Contains(err.Error(), "format") {
-			return nil, fmt.Errorf("无法打开 Excel 文件：文件格式不受支持。请确保文件是有效的 .xlsx 格式（Excel 2007 或更高版本）")
+			return nil, fmt.Errorf("%s", i18n.T("datasource.excel_format_error"))
 		}
 		return nil, fmt.Errorf("failed to open excel file: %v", err)
 	}
@@ -1398,11 +1417,11 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 	// Open XLS file
 	xlsFile, err := xls.Open(filePath, "utf-8")
 	if err != nil {
-		return nil, fmt.Errorf("无法打开 Excel 文件: %v", err)
+		return nil, fmt.Errorf("%s", i18n.T("datasource.excel_open_failed", err))
 	}
 
 	if xlsFile.NumSheets() == 0 {
-		return nil, fmt.Errorf("Excel 文件中没有找到工作表")
+		return nil, fmt.Errorf("%s", i18n.T("datasource.no_sheets"))
 	}
 
 	// Prepare Metadata
@@ -1472,7 +1491,7 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 
 	if processedSheets == 0 {
 		cleanupOnError()
-		return nil, fmt.Errorf("Excel 文件中没有找到有效数据")
+		return nil, fmt.Errorf("%s", i18n.T("datasource.no_valid_data"))
 	}
 
 	// Save to Registry
@@ -2650,10 +2669,10 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 	// 4. Add metadata
 	wb.Properties.Title = target.Name
 	wb.Properties.Creator = "VantageData"
-	wb.Properties.Description = fmt.Sprintf("数据源 %s", target.Name)
-	wb.Properties.Subject = "数据源导出"
-	wb.Properties.Keywords = "数据分析,报表,Excel"
-	wb.Properties.Category = "数据分析"
+	wb.Properties.Description = i18n.T("datasource.export_description", target.Name)
+	wb.Properties.Subject = i18n.T("datasource.export_subject")
+	wb.Properties.Keywords = i18n.T("excel.report_keywords")
+	wb.Properties.Category = i18n.T("excel.report_category")
 	wb.Properties.LastModifiedBy = "VantageData"
 
 	// 5. Save to file
@@ -6483,10 +6502,23 @@ func (s *DataSourceService) IsEcommerceDataSource(dsType string) bool {
 	}
 }
 
+// IsFinancialDataSource checks if a data source type is a financial data source
+func (s *DataSourceService) IsFinancialDataSource(dsType string) bool {
+	switch strings.ToLower(dsType) {
+	case "sp_global", "lseg", "pitchbook", "bloomberg",
+		"morningstar", "iex_cloud", "alpha_vantage", "quandl":
+		return true
+	default:
+		return false
+	}
+}
+
 // IsRefreshableDataSource checks if a data source type supports incremental refresh
 func (s *DataSourceService) IsRefreshableDataSource(dsType string) bool {
 	switch strings.ToLower(dsType) {
-	case "shopify", "bigcommerce", "ebay", "etsy", "jira":
+	case "shopify", "bigcommerce", "ebay", "etsy", "jira",
+		"sp_global", "lseg", "pitchbook", "bloomberg",
+		"morningstar", "iex_cloud", "alpha_vantage", "quandl":
 		return true
 	default:
 		return false
@@ -6582,6 +6614,22 @@ func (s *DataSourceService) RefreshDataSource(id string) (*RefreshResult, error)
 		return s.refreshEtsyData(ds)
 	case "jira":
 		return s.refreshJiraData(ds)
+	case "sp_global":
+		return s.refreshSPGlobalData(ds)
+	case "lseg":
+		return s.refreshLSEGData(ds)
+	case "pitchbook":
+		return s.refreshPitchBookData(ds)
+	case "bloomberg":
+		return s.refreshBloombergData(ds)
+	case "morningstar":
+		return s.refreshMorningstarData(ds)
+	case "iex_cloud":
+		return s.refreshIEXCloudData(ds)
+	case "alpha_vantage":
+		return s.refreshAlphaVantageData(ds)
+	case "quandl":
+		return s.refreshQuandlData(ds)
 	default:
 		return nil, fmt.Errorf("data source type '%s' does not support refresh", ds.Type)
 	}
@@ -8199,4 +8247,2177 @@ func (s *DataSourceService) ImportBigQuery(name string, config DataSourceConfig)
 	// 3. List tables in the specified dataset (or all datasets if not specified)
 	// 4. Query each table and copy data to local SQLite
 	// 5. Create and return the DataSource record
+}
+
+// ImportIEXCloud imports data from IEX Cloud API
+func (s *DataSourceService) ImportIEXCloud(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportIEXCloud: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialToken == "" {
+		return nil, fmt.Errorf("IEX Cloud API token is required")
+	}
+	if config.FinancialSymbols == "" {
+		return nil, fmt.Errorf("at least one stock symbol is required for IEX Cloud")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import IEX Cloud data
+	if err := s.fetchIEXCloudData(db, config.FinancialToken, config.FinancialSymbols); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch IEX Cloud data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "iex_cloud",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "iex_cloud",
+			FinancialToken:    config.FinancialToken,
+			FinancialSymbols:  config.FinancialSymbols,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("IEX Cloud data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchIEXCloudData fetches quotes, historical prices, and financials from IEX Cloud API
+func (s *DataSourceService) fetchIEXCloudData(db *sql.DB, token, symbols string) error {
+	baseURL := "https://cloud.iexapis.com/stable"
+
+	s.log(fmt.Sprintf("[IEX_CLOUD] Starting data fetch for symbols: %s", symbols))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated symbols
+	symbolList := strings.Split(symbols, ",")
+	for i := range symbolList {
+		symbolList[i] = strings.TrimSpace(symbolList[i])
+	}
+
+	// Collect data for each table across all symbols
+	var allQuotes []map[string]interface{}
+	var allHistoricalPrices []map[string]interface{}
+	var allFinancials []map[string]interface{}
+
+	for _, symbol := range symbolList {
+		if symbol == "" {
+			continue
+		}
+		s.log(fmt.Sprintf("[IEX_CLOUD] Fetching data for symbol: %s", symbol))
+
+		// Fetch quote data
+		quoteURL := fmt.Sprintf("%s/stock/%s/quote?token=%s", baseURL, symbol, token)
+		quoteData, err := s.fetchIEXCloudEndpoint(client, quoteURL)
+		if err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to fetch quote for %s: %v", symbol, err))
+		} else if quoteData != nil {
+			allQuotes = append(allQuotes, quoteData...)
+		}
+
+		// Fetch historical prices (chart)
+		chartURL := fmt.Sprintf("%s/stock/%s/chart?token=%s", baseURL, symbol, token)
+		chartData, err := s.fetchIEXCloudEndpoint(client, chartURL)
+		if err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to fetch historical prices for %s: %v", symbol, err))
+		} else if chartData != nil {
+			allHistoricalPrices = append(allHistoricalPrices, chartData...)
+		}
+
+		// Fetch financials
+		financialsURL := fmt.Sprintf("%s/stock/%s/financials?token=%s", baseURL, symbol, token)
+		financialsData, err := s.fetchIEXCloudEndpoint(client, financialsURL)
+		if err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to fetch financials for %s: %v", symbol, err))
+		} else if financialsData != nil {
+			allFinancials = append(allFinancials, financialsData...)
+		}
+	}
+
+	// Create tables from collected data
+	importedCount := 0
+
+	if len(allQuotes) > 0 {
+		if err := s.createTableFromJSON(db, "iex_quotes", allQuotes); err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to create iex_quotes table: %v", err))
+		} else {
+			importedCount++
+			s.log(fmt.Sprintf("[IEX_CLOUD] Successfully imported %d rows into iex_quotes", len(allQuotes)))
+		}
+	}
+
+	if len(allHistoricalPrices) > 0 {
+		if err := s.createTableFromJSON(db, "iex_historical_prices", allHistoricalPrices); err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to create iex_historical_prices table: %v", err))
+		} else {
+			importedCount++
+			s.log(fmt.Sprintf("[IEX_CLOUD] Successfully imported %d rows into iex_historical_prices", len(allHistoricalPrices)))
+		}
+	}
+
+	if len(allFinancials) > 0 {
+		if err := s.createTableFromJSON(db, "iex_financials", allFinancials); err != nil {
+			s.log(fmt.Sprintf("[IEX_CLOUD] Warning: Failed to create iex_financials table: %v", err))
+		} else {
+			importedCount++
+			s.log(fmt.Sprintf("[IEX_CLOUD] Successfully imported %d rows into iex_financials", len(allFinancials)))
+		}
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any IEX Cloud data")
+	}
+
+	s.log(fmt.Sprintf("[IEX_CLOUD] Successfully imported %d table types", importedCount))
+	return nil
+}
+
+// fetchIEXCloudEndpoint fetches data from a single IEX Cloud API endpoint
+func (s *DataSourceService) fetchIEXCloudEndpoint(client *http.Client, url string) ([]map[string]interface{}, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Handle authentication errors
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return nil, fmt.Errorf("IEX Cloud authentication failed: invalid or expired API token (HTTP %d)", resp.StatusCode)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("IEX Cloud API returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Try to parse as array first (chart endpoint returns array)
+	var arrayResult []map[string]interface{}
+	if err := json.Unmarshal(body, &arrayResult); err == nil {
+		return arrayResult, nil
+	}
+
+	// Try to parse as single object (quote endpoint returns single object)
+	var singleResult map[string]interface{}
+	if err := json.Unmarshal(body, &singleResult); err == nil {
+		return []map[string]interface{}{singleResult}, nil
+	}
+
+	// Try to parse as object with nested data (financials endpoint returns {financials: [...]})
+	var nestedResult map[string]interface{}
+	if err := json.Unmarshal(body, &nestedResult); err == nil {
+		// Look for array values in the response
+		for _, v := range nestedResult {
+			if arr, ok := v.([]interface{}); ok {
+				var result []map[string]interface{}
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						result = append(result, m)
+					}
+				}
+				if len(result) > 0 {
+					return result, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("unexpected response format from IEX Cloud API")
+}
+
+
+// ImportAlphaVantage imports financial data from Alpha Vantage API
+func (s *DataSourceService) ImportAlphaVantage(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportAlphaVantage: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Alpha Vantage API key is required")
+	}
+	if config.FinancialSymbols == "" {
+		return nil, fmt.Errorf("at least one symbol is required for Alpha Vantage")
+	}
+	if config.FinancialDataType == "" {
+		return nil, fmt.Errorf("data type selection is required for Alpha Vantage")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Alpha Vantage data
+	if err := s.fetchAlphaVantageData(db, config.FinancialAPIKey, config.FinancialDataType, config.FinancialSymbols); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Alpha Vantage data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "alpha_vantage",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "alpha_vantage",
+			FinancialAPIKey:   config.FinancialAPIKey,
+			FinancialSymbols:  config.FinancialSymbols,
+			FinancialDataType: config.FinancialDataType,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Alpha Vantage data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchAlphaVantageData fetches data from Alpha Vantage API based on the selected data type
+func (s *DataSourceService) fetchAlphaVantageData(db *sql.DB, apiKey, dataType, symbols string) error {
+	baseURL := "https://www.alphavantage.co/query"
+
+	s.log(fmt.Sprintf("[ALPHA_VANTAGE] Starting data fetch for symbols: %s, data type: %s", symbols, dataType))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated symbols
+	symbolList := strings.Split(symbols, ",")
+	for i := range symbolList {
+		symbolList[i] = strings.TrimSpace(symbolList[i])
+	}
+
+	// Determine API function and table name based on data type
+	type avEndpoint struct {
+		function  string
+		tableName string
+	}
+
+	var endpoint avEndpoint
+	switch strings.ToLower(dataType) {
+	case "time_series":
+		endpoint = avEndpoint{function: "TIME_SERIES_DAILY", tableName: "av_daily_prices"}
+	case "forex":
+		endpoint = avEndpoint{function: "FX_DAILY", tableName: "av_fx_rates"}
+	case "crypto":
+		endpoint = avEndpoint{function: "DIGITAL_CURRENCY_DAILY", tableName: "av_crypto_prices"}
+	case "technical_indicators":
+		endpoint = avEndpoint{function: "SMA", tableName: "av_indicators"}
+	default:
+		return fmt.Errorf("unsupported Alpha Vantage data type: %s", dataType)
+	}
+
+	var allData []map[string]interface{}
+
+	for _, symbol := range symbolList {
+		if symbol == "" {
+			continue
+		}
+		s.log(fmt.Sprintf("[ALPHA_VANTAGE] Fetching %s data for symbol: %s", dataType, symbol))
+
+		// Build request URL based on data type
+		var reqURL string
+		switch strings.ToLower(dataType) {
+		case "forex":
+			// For forex, symbol format is "FROM/TO" e.g. "EUR/USD"
+			parts := strings.SplitN(symbol, "/", 2)
+			if len(parts) != 2 {
+				s.log(fmt.Sprintf("[ALPHA_VANTAGE] Warning: Invalid forex symbol format '%s', expected 'FROM/TO'", symbol))
+				continue
+			}
+			reqURL = fmt.Sprintf("%s?function=%s&from_symbol=%s&to_symbol=%s&apikey=%s",
+				baseURL, endpoint.function, strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1]), apiKey)
+		case "crypto":
+			reqURL = fmt.Sprintf("%s?function=%s&symbol=%s&market=USD&apikey=%s",
+				baseURL, endpoint.function, symbol, apiKey)
+		case "technical_indicators":
+			reqURL = fmt.Sprintf("%s?function=%s&symbol=%s&interval=daily&time_period=20&series_type=close&apikey=%s",
+				baseURL, endpoint.function, symbol, apiKey)
+		default:
+			// time_series
+			reqURL = fmt.Sprintf("%s?function=%s&symbol=%s&outputsize=compact&apikey=%s",
+				baseURL, endpoint.function, symbol, apiKey)
+		}
+
+		data, err := s.fetchAlphaVantageEndpoint(client, reqURL, dataType, symbol)
+		if err != nil {
+			s.log(fmt.Sprintf("[ALPHA_VANTAGE] Warning: Failed to fetch data for %s: %v", symbol, err))
+			continue
+		}
+		if data != nil {
+			allData = append(allData, data...)
+		}
+	}
+
+	if len(allData) == 0 {
+		return fmt.Errorf("failed to import any Alpha Vantage data")
+	}
+
+	// Create table from collected data
+	if err := s.createTableFromJSON(db, endpoint.tableName, allData); err != nil {
+		return fmt.Errorf("failed to create %s table: %v", endpoint.tableName, err)
+	}
+
+	s.log(fmt.Sprintf("[ALPHA_VANTAGE] Successfully imported %d rows into %s", len(allData), endpoint.tableName))
+	return nil
+}
+
+// fetchAlphaVantageEndpoint fetches data from a single Alpha Vantage API endpoint with retry logic for rate limiting
+func (s *DataSourceService) fetchAlphaVantageEndpoint(client *http.Client, url, dataType, symbol string) ([]map[string]interface{}, error) {
+	maxRetries := 3
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := time.Duration(attempt*20) * time.Second
+			s.log(fmt.Sprintf("[ALPHA_VANTAGE] Rate limited, retrying in %v (attempt %d/%d)", delay, attempt, maxRetries))
+			time.Sleep(delay)
+		}
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %v", err)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %v", err)
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response body: %v", err)
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return nil, fmt.Errorf("Alpha Vantage authentication failed: invalid API key (HTTP %d)", resp.StatusCode)
+		}
+
+		// Handle rate limiting with retry
+		if resp.StatusCode == 429 {
+			if attempt < maxRetries {
+				continue
+			}
+			return nil, fmt.Errorf("Alpha Vantage rate limit exceeded after %d retries. Please try again later", maxRetries)
+		}
+
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("Alpha Vantage API returned HTTP %d", resp.StatusCode)
+		}
+
+		// Parse the JSON response
+		var rawResponse map[string]interface{}
+		if err := json.Unmarshal(body, &rawResponse); err != nil {
+			return nil, fmt.Errorf("failed to parse Alpha Vantage response: %v", err)
+		}
+
+		// Check for API error messages (Alpha Vantage returns 200 with error in body for rate limits)
+		if errMsg, ok := rawResponse["Note"]; ok {
+			if strings.Contains(fmt.Sprintf("%v", errMsg), "call frequency") {
+				if attempt < maxRetries {
+					continue
+				}
+				return nil, fmt.Errorf("Alpha Vantage rate limit exceeded: %v", errMsg)
+			}
+		}
+		if errMsg, ok := rawResponse["Error Message"]; ok {
+			return nil, fmt.Errorf("Alpha Vantage API error: %v", errMsg)
+		}
+
+		// Extract time series data based on data type
+		return s.parseAlphaVantageResponse(rawResponse, dataType, symbol)
+	}
+
+	return nil, fmt.Errorf("Alpha Vantage request failed after %d retries", maxRetries)
+}
+
+// parseAlphaVantageResponse parses the Alpha Vantage API response into a flat row format
+func (s *DataSourceService) parseAlphaVantageResponse(rawResponse map[string]interface{}, dataType, symbol string) ([]map[string]interface{}, error) {
+	// Find the time series data key in the response
+	var timeSeriesKey string
+	for key := range rawResponse {
+		if key == "Meta Data" {
+			continue
+		}
+		// The data key varies: "Time Series (Daily)", "Time Series FX (Daily)", "Time Series (Digital Currency Daily)", "Technical Analysis: SMA", etc.
+		timeSeriesKey = key
+		break
+	}
+
+	if timeSeriesKey == "" {
+		return nil, fmt.Errorf("no time series data found in Alpha Vantage response")
+	}
+
+	timeSeriesData, ok := rawResponse[timeSeriesKey].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected time series data format from Alpha Vantage")
+	}
+
+	var results []map[string]interface{}
+
+	switch strings.ToLower(dataType) {
+	case "time_series":
+		for date, values := range timeSeriesData {
+			valMap, ok := values.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			row := map[string]interface{}{
+				"symbol": symbol,
+				"date":   date,
+				"open":   valMap["1. open"],
+				"high":   valMap["2. high"],
+				"low":    valMap["3. low"],
+				"close":  valMap["4. close"],
+				"volume": valMap["5. volume"],
+			}
+			results = append(results, row)
+		}
+
+	case "forex":
+		parts := strings.SplitN(symbol, "/", 2)
+		fromCurrency := symbol
+		toCurrency := ""
+		if len(parts) == 2 {
+			fromCurrency = strings.TrimSpace(parts[0])
+			toCurrency = strings.TrimSpace(parts[1])
+		}
+		for date, values := range timeSeriesData {
+			valMap, ok := values.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			row := map[string]interface{}{
+				"from_currency": fromCurrency,
+				"to_currency":   toCurrency,
+				"date":          date,
+				"open":          valMap["1. open"],
+				"high":          valMap["2. high"],
+				"low":           valMap["3. low"],
+				"close":         valMap["4. close"],
+			}
+			results = append(results, row)
+		}
+
+	case "crypto":
+		for date, values := range timeSeriesData {
+			valMap, ok := values.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			row := map[string]interface{}{
+				"symbol":     symbol,
+				"date":       date,
+				"open":       valMap["1a. open (USD)"],
+				"high":       valMap["2a. high (USD)"],
+				"low":        valMap["3a. low (USD)"],
+				"close":      valMap["4a. close (USD)"],
+				"volume":     valMap["5. volume"],
+				"market_cap": valMap["6. market cap (USD)"],
+			}
+			results = append(results, row)
+		}
+
+	case "technical_indicators":
+		for date, values := range timeSeriesData {
+			valMap, ok := values.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			// Technical indicator responses have the indicator name as the key (e.g., "SMA")
+			for indicatorName, indicatorValue := range valMap {
+				row := map[string]interface{}{
+					"symbol":         symbol,
+					"date":           date,
+					"indicator_name": indicatorName,
+					"value":          indicatorValue,
+				}
+				results = append(results, row)
+			}
+		}
+	}
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no data rows found in Alpha Vantage response for %s", symbol)
+	}
+
+	return results, nil
+}
+
+// ImportQuandl imports data from Quandl (Nasdaq Data Link) API
+func (s *DataSourceService) ImportQuandl(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportQuandl: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Quandl API key is required")
+	}
+	if config.FinancialDatasetCode == "" {
+		return nil, fmt.Errorf("dataset code is required for Quandl (e.g., WIKI/AAPL)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Quandl data
+	if err := s.fetchQuandlData(db, config.FinancialAPIKey, config.FinancialDatasetCode); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Quandl data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "quandl",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:               relDBPath,
+			FinancialProvider:    "quandl",
+			FinancialAPIKey:      config.FinancialAPIKey,
+			FinancialDatasetCode: config.FinancialDatasetCode,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Quandl data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchQuandlData fetches data from Nasdaq Data Link (Quandl) API for the specified dataset code
+func (s *DataSourceService) fetchQuandlData(db *sql.DB, apiKey, datasetCode string) error {
+	baseURL := "https://data.nasdaq.com/api/v3"
+
+	s.log(fmt.Sprintf("[QUANDL] Starting data fetch for dataset: %s", datasetCode))
+
+	// Parse dataset code (format: DATABASE_CODE/DATASET_CODE, e.g., WIKI/AAPL)
+	parts := strings.SplitN(datasetCode, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("invalid Quandl dataset code format '%s', expected 'DATABASE_CODE/DATASET_CODE' (e.g., WIKI/AAPL)", datasetCode)
+	}
+	databaseCode := strings.TrimSpace(parts[0])
+	datasetName := strings.TrimSpace(parts[1])
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Fetch data from Nasdaq Data Link API
+	reqURL := fmt.Sprintf("%s/datasets/%s/%s.json?api_key=%s", baseURL, databaseCode, datasetName, apiKey)
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Handle authentication errors
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return fmt.Errorf("Quandl authentication failed: invalid API key (HTTP %d)", resp.StatusCode)
+	}
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("Quandl API returned HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	// Parse the JSON response
+	// Quandl returns: { "dataset": { "column_names": [...], "data": [[...], ...] } }
+	var rawResponse map[string]interface{}
+	if err := json.Unmarshal(body, &rawResponse); err != nil {
+		return fmt.Errorf("failed to parse Quandl response: %v", err)
+	}
+
+	datasetObj, ok := rawResponse["dataset"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("unexpected Quandl response format: missing 'dataset' field")
+	}
+
+	// Extract column names
+	columnNamesRaw, ok := datasetObj["column_names"].([]interface{})
+	if !ok || len(columnNamesRaw) == 0 {
+		return fmt.Errorf("unexpected Quandl response format: missing or empty 'column_names'")
+	}
+
+	columnNames := make([]string, len(columnNamesRaw))
+	for i, col := range columnNamesRaw {
+		columnNames[i] = fmt.Sprintf("%v", col)
+	}
+
+	// Extract data rows
+	dataRowsRaw, ok := datasetObj["data"].([]interface{})
+	if !ok || len(dataRowsRaw) == 0 {
+		return fmt.Errorf("no data found in Quandl dataset %s", datasetCode)
+	}
+
+	// Convert to row format using column names
+	var rows []map[string]interface{}
+	for _, rowRaw := range dataRowsRaw {
+		rowArr, ok := rowRaw.([]interface{})
+		if !ok {
+			continue
+		}
+		row := make(map[string]interface{})
+		for i, val := range rowArr {
+			if i < len(columnNames) {
+				row[columnNames[i]] = val
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	if len(rows) == 0 {
+		return fmt.Errorf("no valid data rows found in Quandl dataset %s", datasetCode)
+	}
+
+	// Create table name from dataset code (e.g., WIKI/AAPL -> quandl_wiki_aapl)
+	tableName := fmt.Sprintf("quandl_%s_%s", strings.ToLower(databaseCode), strings.ToLower(datasetName))
+
+	// Store data in DuckDB
+	if err := s.createTableFromJSON(db, tableName, rows); err != nil {
+		return fmt.Errorf("failed to create %s table: %v", tableName, err)
+	}
+
+	s.log(fmt.Sprintf("[QUANDL] Successfully imported %d rows into %s", len(rows), tableName))
+	return nil
+}
+
+func (s *DataSourceService) ImportMorningstar(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportMorningstar: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Morningstar API key is required")
+	}
+	if config.FinancialDatasets == "" {
+		return nil, fmt.Errorf("at least one dataset is required for Morningstar (funds, stocks, portfolio)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Morningstar data
+	if err := s.fetchMorningstarData(db, config.FinancialAPIKey, config.FinancialDatasets); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Morningstar data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "morningstar",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "morningstar",
+			FinancialAPIKey:   config.FinancialAPIKey,
+			FinancialDatasets: config.FinancialDatasets,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Morningstar data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+// fetchMorningstarData fetches fund, stock, and portfolio data from Morningstar API
+func (s *DataSourceService) fetchMorningstarData(db *sql.DB, apiKey, datasets string) error {
+	baseURL := "https://api.morningstar.com/v2"
+
+	s.log(fmt.Sprintf("[MORNINGSTAR] Starting data fetch for datasets: %s", datasets))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated datasets
+	datasetList := strings.Split(datasets, ",")
+	for i := range datasetList {
+		datasetList[i] = strings.TrimSpace(datasetList[i])
+	}
+
+	// Dataset to endpoint/table mapping
+	type datasetMapping struct {
+		endpoint  string
+		tableName string
+		jsonKey   string
+	}
+
+	datasetMap := map[string]datasetMapping{
+		"funds":     {endpoint: "/funds", tableName: "ms_funds", jsonKey: "funds"},
+		"stocks":    {endpoint: "/stocks", tableName: "ms_stocks", jsonKey: "stocks"},
+		"portfolio": {endpoint: "/portfolio", tableName: "ms_portfolio", jsonKey: "portfolio"},
+	}
+
+	importedCount := 0
+
+	for _, dataset := range datasetList {
+		if dataset == "" {
+			continue
+		}
+
+		mapping, ok := datasetMap[dataset]
+		if !ok {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Unknown dataset '%s', skipping", dataset))
+			continue
+		}
+
+		s.log(fmt.Sprintf("[MORNINGSTAR] Fetching %s data", dataset))
+
+		reqURL := fmt.Sprintf("%s%s", baseURL, mapping.endpoint)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Failed to create request for %s: %v", dataset, err))
+			continue
+		}
+		req.Header.Set("apikey", apiKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Failed to fetch %s data: %v", dataset, err))
+			continue
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			resp.Body.Close()
+			return fmt.Errorf("Morningstar authentication failed: invalid API key (HTTP %d)", resp.StatusCode)
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: API returned HTTP %d for %s", resp.StatusCode, dataset))
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Failed to read response for %s: %v", dataset, err))
+			continue
+		}
+
+		// Parse JSON response - try array first, then nested object
+		var records []map[string]interface{}
+
+		// Try parsing as array
+		if err := json.Unmarshal(body, &records); err != nil {
+			// Try parsing as object with nested data key
+			var objResponse map[string]interface{}
+			if err := json.Unmarshal(body, &objResponse); err != nil {
+				s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Failed to parse response for %s: %v", dataset, err))
+				continue
+			}
+
+			// Look for the expected key or any array value
+			if arr, ok := objResponse[mapping.jsonKey].([]interface{}); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						records = append(records, m)
+					}
+				}
+			} else {
+				// Fallback: look for any array value in the response
+				for _, v := range objResponse {
+					if arr, ok := v.([]interface{}); ok {
+						for _, item := range arr {
+							if m, ok := item.(map[string]interface{}); ok {
+								records = append(records, m)
+							}
+						}
+						if len(records) > 0 {
+							break
+						}
+					}
+				}
+			}
+
+			// If still no records, treat the whole object as a single record
+			if len(records) == 0 {
+				records = []map[string]interface{}{objResponse}
+			}
+		}
+
+		if len(records) == 0 {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: No data found for %s", dataset))
+			continue
+		}
+
+		// Flatten nested JSON fields
+		var flatRecords []map[string]interface{}
+		for _, record := range records {
+			flat := make(map[string]interface{})
+			s.flattenJSON("", record, flat)
+			flatRecords = append(flatRecords, flat)
+		}
+
+		// Store data in DuckDB
+		if err := s.createTableFromJSON(db, mapping.tableName, flatRecords); err != nil {
+			s.log(fmt.Sprintf("[MORNINGSTAR] Warning: Failed to create %s table: %v", mapping.tableName, err))
+			continue
+		}
+
+		importedCount++
+		s.log(fmt.Sprintf("[MORNINGSTAR] Successfully imported %d rows into %s", len(flatRecords), mapping.tableName))
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any Morningstar data")
+	}
+
+	s.log(fmt.Sprintf("[MORNINGSTAR] Successfully imported %d dataset(s)", importedCount))
+	return nil
+}
+
+func (s *DataSourceService) ImportSPGlobal(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportSPGlobal: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("S&P Global API key is required")
+	}
+	if config.FinancialAPISecret == "" {
+		return nil, fmt.Errorf("S&P Global API secret is required")
+	}
+	if config.FinancialDatasets == "" {
+		return nil, fmt.Errorf("at least one dataset is required for S&P Global (companies, financials, credit_ratings, market_data)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import S&P Global data
+	if err := s.fetchSPGlobalData(db, config.FinancialAPIKey, config.FinancialAPISecret, config.FinancialDatasets); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch S&P Global data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "sp_global",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:             relDBPath,
+			FinancialProvider:  "sp_global",
+			FinancialAPIKey:    config.FinancialAPIKey,
+			FinancialAPISecret: config.FinancialAPISecret,
+			FinancialDatasets:  config.FinancialDatasets,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("S&P Global data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+func (s *DataSourceService) fetchSPGlobalData(db *sql.DB, apiKey, apiSecret, datasets string) error {
+	baseURL := "https://api.spglobal.com/marketintelligence/v1"
+
+	s.log(fmt.Sprintf("[SP_GLOBAL] Starting data fetch for datasets: %s", datasets))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated datasets
+	datasetList := strings.Split(datasets, ",")
+	for i := range datasetList {
+		datasetList[i] = strings.TrimSpace(datasetList[i])
+	}
+
+	// Dataset to endpoint/table mapping
+	type datasetMapping struct {
+		endpoint  string
+		tableName string
+		jsonKey   string
+	}
+
+	datasetMap := map[string]datasetMapping{
+		"companies":      {endpoint: "/companies", tableName: "sp_companies", jsonKey: "companies"},
+		"financials":     {endpoint: "/financials", tableName: "sp_financials", jsonKey: "financials"},
+		"credit_ratings": {endpoint: "/credit-ratings", tableName: "sp_credit_ratings", jsonKey: "credit_ratings"},
+		"market_data":    {endpoint: "/market-data", tableName: "sp_market_data", jsonKey: "market_data"},
+	}
+
+	importedCount := 0
+
+	for _, dataset := range datasetList {
+		if dataset == "" {
+			continue
+		}
+
+		mapping, ok := datasetMap[dataset]
+		if !ok {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Unknown dataset '%s', skipping", dataset))
+			continue
+		}
+
+		s.log(fmt.Sprintf("[SP_GLOBAL] Fetching %s data", dataset))
+
+		reqURL := fmt.Sprintf("%s%s", baseURL, mapping.endpoint)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Failed to create request for %s: %v", dataset, err))
+			continue
+		}
+		req.Header.Set("X-API-Key", apiKey)
+		req.Header.Set("X-API-Secret", apiSecret)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Failed to fetch %s data: %v", dataset, err))
+			continue
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			resp.Body.Close()
+			return fmt.Errorf("S&P Global authentication failed: invalid API key or secret (HTTP %d)", resp.StatusCode)
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: API returned HTTP %d for %s", resp.StatusCode, dataset))
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Failed to read response for %s: %v", dataset, err))
+			continue
+		}
+
+		// Parse JSON response - try array first, then nested object
+		var records []map[string]interface{}
+
+		// Try parsing as array
+		if err := json.Unmarshal(body, &records); err != nil {
+			// Try parsing as object with nested data key
+			var objResponse map[string]interface{}
+			if err := json.Unmarshal(body, &objResponse); err != nil {
+				s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Failed to parse response for %s: %v", dataset, err))
+				continue
+			}
+
+			// Look for the expected key or any array value
+			if arr, ok := objResponse[mapping.jsonKey].([]interface{}); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						records = append(records, m)
+					}
+				}
+			} else {
+				// Fallback: look for any array value in the response
+				for _, v := range objResponse {
+					if arr, ok := v.([]interface{}); ok {
+						for _, item := range arr {
+							if m, ok := item.(map[string]interface{}); ok {
+								records = append(records, m)
+							}
+						}
+						if len(records) > 0 {
+							break
+						}
+					}
+				}
+			}
+
+			// If still no records, treat the whole object as a single record
+			if len(records) == 0 {
+				records = []map[string]interface{}{objResponse}
+			}
+		}
+
+		if len(records) == 0 {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: No data found for %s", dataset))
+			continue
+		}
+
+		// Flatten nested JSON fields
+		var flatRecords []map[string]interface{}
+		for _, record := range records {
+			flat := make(map[string]interface{})
+			s.flattenJSON("", record, flat)
+			flatRecords = append(flatRecords, flat)
+		}
+
+		// Store data in DuckDB
+		if err := s.createTableFromJSON(db, mapping.tableName, flatRecords); err != nil {
+			s.log(fmt.Sprintf("[SP_GLOBAL] Warning: Failed to create %s table: %v", mapping.tableName, err))
+			continue
+		}
+
+		importedCount++
+		s.log(fmt.Sprintf("[SP_GLOBAL] Successfully imported %d rows into %s", len(flatRecords), mapping.tableName))
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any S&P Global data")
+	}
+
+	s.log(fmt.Sprintf("[SP_GLOBAL] Successfully imported %d dataset(s)", importedCount))
+	return nil
+}
+
+func (s *DataSourceService) ImportLSEG(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportLSEG: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("LSEG App Key is required")
+	}
+	if config.FinancialUsername == "" {
+		return nil, fmt.Errorf("LSEG username is required")
+	}
+	if config.FinancialPassword == "" {
+		return nil, fmt.Errorf("LSEG password is required")
+	}
+	if config.FinancialDatasets == "" {
+		return nil, fmt.Errorf("at least one dataset is required for LSEG (historical_prices, fundamentals, esg)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import LSEG data
+	if err := s.fetchLSEGData(db, config.FinancialAPIKey, config.FinancialUsername, config.FinancialPassword, config.FinancialDatasets); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch LSEG data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "lseg",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "lseg",
+			FinancialAPIKey:   config.FinancialAPIKey,
+			FinancialUsername: config.FinancialUsername,
+			FinancialPassword: config.FinancialPassword,
+			FinancialDatasets: config.FinancialDatasets,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("LSEG data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+func (s *DataSourceService) fetchLSEGData(db *sql.DB, appKey, username, password, datasets string) error {
+	baseURL := "https://api.refinitiv.com/data/v1"
+
+	s.log(fmt.Sprintf("[LSEG] Starting data fetch for datasets: %s", datasets))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated datasets
+	datasetList := strings.Split(datasets, ",")
+	for i := range datasetList {
+		datasetList[i] = strings.TrimSpace(datasetList[i])
+	}
+
+	// Dataset to endpoint/table mapping
+	type datasetMapping struct {
+		endpoint  string
+		tableName string
+		jsonKey   string
+	}
+
+	datasetMap := map[string]datasetMapping{
+		"historical_prices": {endpoint: "/data/historical-pricing", tableName: "lseg_historical_prices", jsonKey: "historical_prices"},
+		"fundamentals":      {endpoint: "/data/fundamentals", tableName: "lseg_fundamentals", jsonKey: "fundamentals"},
+		"esg":               {endpoint: "/data/esg", tableName: "lseg_esg_scores", jsonKey: "esg"},
+	}
+
+	importedCount := 0
+
+	for _, dataset := range datasetList {
+		if dataset == "" {
+			continue
+		}
+
+		mapping, ok := datasetMap[dataset]
+		if !ok {
+			s.log(fmt.Sprintf("[LSEG] Warning: Unknown dataset '%s', skipping", dataset))
+			continue
+		}
+
+		s.log(fmt.Sprintf("[LSEG] Fetching %s data", dataset))
+
+		reqURL := fmt.Sprintf("%s%s", baseURL, mapping.endpoint)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			s.log(fmt.Sprintf("[LSEG] Warning: Failed to create request for %s: %v", dataset, err))
+			continue
+		}
+		req.Header.Set("X-App-Key", appKey)
+		req.Header.Set("Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(username+":"+password))))
+
+		resp, err := client.Do(req)
+		if err != nil {
+			s.log(fmt.Sprintf("[LSEG] Warning: Failed to fetch %s data: %v", dataset, err))
+			continue
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			resp.Body.Close()
+			return fmt.Errorf("LSEG authentication failed: invalid App Key or credentials (HTTP %d)", resp.StatusCode)
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[LSEG] Warning: API returned HTTP %d for %s", resp.StatusCode, dataset))
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			s.log(fmt.Sprintf("[LSEG] Warning: Failed to read response for %s: %v", dataset, err))
+			continue
+		}
+
+		// Parse JSON response - try array first, then nested object
+		var records []map[string]interface{}
+
+		// Try parsing as array
+		if err := json.Unmarshal(body, &records); err != nil {
+			// Try parsing as object with nested data key
+			var objResponse map[string]interface{}
+			if err := json.Unmarshal(body, &objResponse); err != nil {
+				s.log(fmt.Sprintf("[LSEG] Warning: Failed to parse response for %s: %v", dataset, err))
+				continue
+			}
+
+			// Look for the expected key or any array value
+			if arr, ok := objResponse[mapping.jsonKey].([]interface{}); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						records = append(records, m)
+					}
+				}
+			} else {
+				// Fallback: look for any array value in the response
+				for _, v := range objResponse {
+					if arr, ok := v.([]interface{}); ok {
+						for _, item := range arr {
+							if m, ok := item.(map[string]interface{}); ok {
+								records = append(records, m)
+							}
+						}
+						if len(records) > 0 {
+							break
+						}
+					}
+				}
+			}
+
+			// If still no records, treat the whole object as a single record
+			if len(records) == 0 {
+				records = []map[string]interface{}{objResponse}
+			}
+		}
+
+		if len(records) == 0 {
+			s.log(fmt.Sprintf("[LSEG] Warning: No data found for %s", dataset))
+			continue
+		}
+
+		// Flatten nested JSON fields
+		var flatRecords []map[string]interface{}
+		for _, record := range records {
+			flat := make(map[string]interface{})
+			s.flattenJSON("", record, flat)
+			flatRecords = append(flatRecords, flat)
+		}
+
+		// Store data in DuckDB
+		if err := s.createTableFromJSON(db, mapping.tableName, flatRecords); err != nil {
+			s.log(fmt.Sprintf("[LSEG] Warning: Failed to create %s table: %v", mapping.tableName, err))
+			continue
+		}
+
+		importedCount++
+		s.log(fmt.Sprintf("[LSEG] Successfully imported %d rows into %s", len(flatRecords), mapping.tableName))
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any LSEG data")
+	}
+
+	s.log(fmt.Sprintf("[LSEG] Successfully imported %d dataset(s)", importedCount))
+	return nil
+}
+
+func (s *DataSourceService) ImportPitchBook(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportPitchBook: %s", name))
+
+	// Validate required configuration fields
+	if config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("PitchBook API key is required")
+	}
+	if config.FinancialDatasets == "" {
+		return nil, fmt.Errorf("at least one dataset is required for PitchBook (companies, deals, funds, investors)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import PitchBook data
+	if err := s.fetchPitchBookData(db, config.FinancialAPIKey, config.FinancialDatasets); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch PitchBook data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "pitchbook",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "pitchbook",
+			FinancialAPIKey:   config.FinancialAPIKey,
+			FinancialDatasets: config.FinancialDatasets,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("PitchBook data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+func (s *DataSourceService) fetchPitchBookData(db *sql.DB, apiKey, datasets string) error {
+	baseURL := "https://api.pitchbook.com/v1"
+
+	s.log(fmt.Sprintf("[PITCHBOOK] Starting data fetch for datasets: %s", datasets))
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Parse comma-separated datasets
+	datasetList := strings.Split(datasets, ",")
+	for i := range datasetList {
+		datasetList[i] = strings.TrimSpace(datasetList[i])
+	}
+
+	// Dataset to endpoint/table mapping
+	type datasetMapping struct {
+		endpoint  string
+		tableName string
+		jsonKey   string
+	}
+
+	datasetMap := map[string]datasetMapping{
+		"companies": {endpoint: "/companies", tableName: "pb_companies", jsonKey: "companies"},
+		"deals":     {endpoint: "/deals", tableName: "pb_deals", jsonKey: "deals"},
+		"funds":     {endpoint: "/funds", tableName: "pb_funds", jsonKey: "funds"},
+		"investors": {endpoint: "/investors", tableName: "pb_investors", jsonKey: "investors"},
+	}
+
+	importedCount := 0
+
+	for _, dataset := range datasetList {
+		if dataset == "" {
+			continue
+		}
+
+		mapping, ok := datasetMap[dataset]
+		if !ok {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: Unknown dataset '%s', skipping", dataset))
+			continue
+		}
+
+		s.log(fmt.Sprintf("[PITCHBOOK] Fetching %s data", dataset))
+
+		reqURL := fmt.Sprintf("%s%s", baseURL, mapping.endpoint)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: Failed to create request for %s: %v", dataset, err))
+			continue
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+		resp, err := client.Do(req)
+		if err != nil {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: Failed to fetch %s data: %v", dataset, err))
+			continue
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			resp.Body.Close()
+			return fmt.Errorf("PitchBook authentication failed: invalid API key (HTTP %d)", resp.StatusCode)
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: API returned HTTP %d for %s", resp.StatusCode, dataset))
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: Failed to read response for %s: %v", dataset, err))
+			continue
+		}
+
+		// Parse JSON response - try array first, then nested object
+		var records []map[string]interface{}
+
+		// Try parsing as array
+		if err := json.Unmarshal(body, &records); err != nil {
+			// Try parsing as object with nested data key
+			var objResponse map[string]interface{}
+			if err := json.Unmarshal(body, &objResponse); err != nil {
+				s.log(fmt.Sprintf("[PITCHBOOK] Warning: Failed to parse response for %s: %v", dataset, err))
+				continue
+			}
+
+			// Look for the expected key or any array value
+			if arr, ok := objResponse[mapping.jsonKey].([]interface{}); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						records = append(records, m)
+					}
+				}
+			} else {
+				// Fallback: look for any array value in the response
+				for _, v := range objResponse {
+					if arr, ok := v.([]interface{}); ok {
+						for _, item := range arr {
+							if m, ok := item.(map[string]interface{}); ok {
+								records = append(records, m)
+							}
+						}
+						if len(records) > 0 {
+							break
+						}
+					}
+				}
+			}
+
+			// If still no records, treat the whole object as a single record
+			if len(records) == 0 {
+				records = []map[string]interface{}{objResponse}
+			}
+		}
+
+		if len(records) == 0 {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: No data found for %s", dataset))
+			continue
+		}
+
+		// Flatten nested JSON fields
+		var flatRecords []map[string]interface{}
+		for _, record := range records {
+			flat := make(map[string]interface{})
+			s.flattenJSON("", record, flat)
+			flatRecords = append(flatRecords, flat)
+		}
+
+		// Store data in DuckDB
+		if err := s.createTableFromJSON(db, mapping.tableName, flatRecords); err != nil {
+			s.log(fmt.Sprintf("[PITCHBOOK] Warning: Failed to create %s table: %v", mapping.tableName, err))
+			continue
+		}
+
+		importedCount++
+		s.log(fmt.Sprintf("[PITCHBOOK] Successfully imported %d rows into %s", len(flatRecords), mapping.tableName))
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any PitchBook data")
+	}
+
+	s.log(fmt.Sprintf("[PITCHBOOK] Successfully imported %d dataset(s)", importedCount))
+	return nil
+}
+
+func (s *DataSourceService) ImportBloomberg(name string, config DataSourceConfig) (*DataSource, error) {
+	s.log(fmt.Sprintf("ImportBloomberg: %s", name))
+
+	// Validate required configuration fields - either API key or cert path must be provided
+	if config.FinancialAPIKey == "" && config.FinancialCertPath == "" {
+		return nil, fmt.Errorf("Bloomberg API key or certificate path is required")
+	}
+	if config.FinancialDatasets == "" {
+		return nil, fmt.Errorf("at least one dataset is required for Bloomberg (reference_data, pricing, corporate_actions)")
+	}
+
+	// Create data source ID
+	id := uuid.New().String()
+
+	// Create local storage directory
+	relDBDir := filepath.Join("sources", id)
+	absDBDir := filepath.Join(s.dataCacheDir, relDBDir)
+	if err := os.MkdirAll(absDBDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %v", err)
+	}
+
+	// Create DuckDB database
+	dbName := "data.duckdb"
+	relDBPath := filepath.Join(relDBDir, dbName)
+	absDBPath := filepath.Join(absDBDir, dbName)
+
+	db, err := s.DB.OpenNew(absDBPath)
+	if err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to create local database: %v", err)
+	}
+	defer db.Close()
+
+	// Fetch and import Bloomberg data
+	if err := s.fetchBloombergData(db, config.FinancialAPIKey, config.FinancialCertPath, config.FinancialDatasets); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, fmt.Errorf("failed to fetch Bloomberg data: %v", err)
+	}
+
+	// Create data source object
+	ds := DataSource{
+		ID:        id,
+		Name:      name,
+		Type:      "bloomberg",
+		CreatedAt: time.Now().UnixMilli(),
+		Config: DataSourceConfig{
+			DBPath:            relDBPath,
+			FinancialProvider: "bloomberg",
+			FinancialAPIKey:   config.FinancialAPIKey,
+			FinancialCertPath: config.FinancialCertPath,
+			FinancialDatasets: config.FinancialDatasets,
+		},
+	}
+
+	// Save to registry
+	if err := s.AddDataSource(ds); err != nil {
+		_ = os.RemoveAll(absDBDir)
+		return nil, err
+	}
+
+	s.log(fmt.Sprintf("Bloomberg data source imported successfully: %s", name))
+	return &ds, nil
+}
+
+func (s *DataSourceService) fetchBloombergData(db *sql.DB, apiKey, certPath, datasets string) error {
+	baseURL := "https://api.bloomberg.com/eap/catalogs/v1"
+
+	s.log(fmt.Sprintf("[BLOOMBERG] Starting data fetch for datasets: %s", datasets))
+
+	// Build HTTP client with 30-second timeout
+	var client *http.Client
+	if certPath != "" {
+		// Use mutual TLS with certificate
+		cert, err := tls.LoadX509KeyPair(certPath, certPath)
+		if err != nil {
+			return fmt.Errorf("Bloomberg certificate load failed: %v", err)
+		}
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+		client = &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		}
+	} else {
+		client = &http.Client{
+			Timeout: 30 * time.Second,
+		}
+	}
+
+	// Parse comma-separated datasets
+	datasetList := strings.Split(datasets, ",")
+	for i := range datasetList {
+		datasetList[i] = strings.TrimSpace(datasetList[i])
+	}
+
+	// Dataset to endpoint/table mapping
+	type datasetMapping struct {
+		endpoint  string
+		tableName string
+		jsonKey   string
+	}
+
+	datasetMap := map[string]datasetMapping{
+		"reference_data":    {endpoint: "/reference-data", tableName: "bb_reference_data", jsonKey: "reference_data"},
+		"pricing":           {endpoint: "/pricing", tableName: "bb_pricing", jsonKey: "pricing"},
+		"corporate_actions": {endpoint: "/corporate-actions", tableName: "bb_corporate_actions", jsonKey: "corporate_actions"},
+	}
+
+	importedCount := 0
+
+	for _, dataset := range datasetList {
+		if dataset == "" {
+			continue
+		}
+
+		mapping, ok := datasetMap[dataset]
+		if !ok {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: Unknown dataset '%s', skipping", dataset))
+			continue
+		}
+
+		s.log(fmt.Sprintf("[BLOOMBERG] Fetching %s data", dataset))
+
+		reqURL := fmt.Sprintf("%s%s", baseURL, mapping.endpoint)
+		req, err := http.NewRequest("GET", reqURL, nil)
+		if err != nil {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: Failed to create request for %s: %v", dataset, err))
+			continue
+		}
+
+		// Set API key auth header if no cert path (cert auth uses mutual TLS)
+		if certPath == "" && apiKey != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: Failed to fetch %s data: %v", dataset, err))
+			continue
+		}
+
+		// Handle authentication errors
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			resp.Body.Close()
+			return fmt.Errorf("Bloomberg authentication failed: invalid credentials (HTTP %d)", resp.StatusCode)
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: API returned HTTP %d for %s", resp.StatusCode, dataset))
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: Failed to read response for %s: %v", dataset, err))
+			continue
+		}
+
+		// Parse JSON response - try array first, then nested object
+		var records []map[string]interface{}
+
+		if err := json.Unmarshal(body, &records); err != nil {
+			var objResponse map[string]interface{}
+			if err := json.Unmarshal(body, &objResponse); err != nil {
+				s.log(fmt.Sprintf("[BLOOMBERG] Warning: Failed to parse response for %s: %v", dataset, err))
+				continue
+			}
+
+			// Look for the expected key or any array value
+			if arr, ok := objResponse[mapping.jsonKey].([]interface{}); ok {
+				for _, item := range arr {
+					if m, ok := item.(map[string]interface{}); ok {
+						records = append(records, m)
+					}
+				}
+			} else {
+				for _, v := range objResponse {
+					if arr, ok := v.([]interface{}); ok {
+						for _, item := range arr {
+							if m, ok := item.(map[string]interface{}); ok {
+								records = append(records, m)
+							}
+						}
+						if len(records) > 0 {
+							break
+						}
+					}
+				}
+			}
+
+			if len(records) == 0 {
+				records = []map[string]interface{}{objResponse}
+			}
+		}
+
+		if len(records) == 0 {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: No data found for %s", dataset))
+			continue
+		}
+
+		// Flatten nested JSON fields
+		var flatRecords []map[string]interface{}
+		for _, record := range records {
+			flat := make(map[string]interface{})
+			s.flattenJSON("", record, flat)
+			flatRecords = append(flatRecords, flat)
+		}
+
+		// Store data in DuckDB
+		if err := s.createTableFromJSON(db, mapping.tableName, flatRecords); err != nil {
+			s.log(fmt.Sprintf("[BLOOMBERG] Warning: Failed to create %s table: %v", mapping.tableName, err))
+			continue
+		}
+
+		importedCount++
+		s.log(fmt.Sprintf("[BLOOMBERG] Successfully imported %d rows into %s", len(flatRecords), mapping.tableName))
+	}
+
+	if importedCount == 0 {
+		return fmt.Errorf("failed to import any Bloomberg data")
+	}
+
+	s.log(fmt.Sprintf("[BLOOMBERG] Successfully imported %d dataset(s)", importedCount))
+	return nil
+}
+
+// refreshSPGlobalData performs a full refresh for S&P Global data source
+func (s *DataSourceService) refreshSPGlobalData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[SP_GLOBAL-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" || ds.Config.FinancialAPISecret == "" {
+		return nil, fmt.Errorf("S&P Global API key and secret are required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchSPGlobalData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialAPISecret, ds.Config.FinancialDatasets); err != nil {
+		return nil, fmt.Errorf("failed to refresh S&P Global data: %v", err)
+	}
+
+	// Count rows in all tables
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[SP_GLOBAL-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshLSEGData performs a full refresh for LSEG data source
+func (s *DataSourceService) refreshLSEGData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[LSEG-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" || ds.Config.FinancialUsername == "" || ds.Config.FinancialPassword == "" {
+		return nil, fmt.Errorf("LSEG App Key, username, and password are required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchLSEGData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialUsername, ds.Config.FinancialPassword, ds.Config.FinancialDatasets); err != nil {
+		return nil, fmt.Errorf("failed to refresh LSEG data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[LSEG-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshPitchBookData performs a full refresh for PitchBook data source
+func (s *DataSourceService) refreshPitchBookData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[PITCHBOOK-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("PitchBook API key is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchPitchBookData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialDatasets); err != nil {
+		return nil, fmt.Errorf("failed to refresh PitchBook data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[PITCHBOOK-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshBloombergData performs a full refresh for Bloomberg data source
+func (s *DataSourceService) refreshBloombergData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[BLOOMBERG-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" && ds.Config.FinancialCertPath == "" {
+		return nil, fmt.Errorf("Bloomberg API key or certificate path is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchBloombergData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialCertPath, ds.Config.FinancialDatasets); err != nil {
+		return nil, fmt.Errorf("failed to refresh Bloomberg data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[BLOOMBERG-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshMorningstarData performs a full refresh for Morningstar data source
+func (s *DataSourceService) refreshMorningstarData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[MORNINGSTAR-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Morningstar API key is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchMorningstarData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialDatasets); err != nil {
+		return nil, fmt.Errorf("failed to refresh Morningstar data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[MORNINGSTAR-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshIEXCloudData performs a full refresh for IEX Cloud data source
+func (s *DataSourceService) refreshIEXCloudData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[IEX_CLOUD-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialToken == "" {
+		return nil, fmt.Errorf("IEX Cloud API token is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchIEXCloudData(db, ds.Config.FinancialToken, ds.Config.FinancialSymbols); err != nil {
+		return nil, fmt.Errorf("failed to refresh IEX Cloud data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[IEX_CLOUD-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshAlphaVantageData performs a full refresh for Alpha Vantage data source
+func (s *DataSourceService) refreshAlphaVantageData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[ALPHA_VANTAGE-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Alpha Vantage API key is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchAlphaVantageData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialDataType, ds.Config.FinancialSymbols); err != nil {
+		return nil, fmt.Errorf("failed to refresh Alpha Vantage data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[ALPHA_VANTAGE-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// refreshQuandlData performs a full refresh for Quandl data source
+func (s *DataSourceService) refreshQuandlData(ds *DataSource) (*RefreshResult, error) {
+	s.log(fmt.Sprintf("[QUANDL-REFRESH] Starting refresh for %s", ds.Name))
+
+	result := &RefreshResult{
+		DataSourceID:   ds.ID,
+		DataSourceName: ds.Name,
+		TablesUpdated:  make(map[string]int),
+	}
+
+	if ds.Config.FinancialAPIKey == "" {
+		return nil, fmt.Errorf("Quandl API key is required")
+	}
+
+	absDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
+	db, err := s.DB.OpenWritable(absDBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	if err := s.fetchQuandlData(db, ds.Config.FinancialAPIKey, ds.Config.FinancialDatasetCode); err != nil {
+		return nil, fmt.Errorf("failed to refresh Quandl data: %v", err)
+	}
+
+	tables, err := s.getTableNames(db)
+	if err == nil {
+		for _, table := range tables {
+			var count int
+			if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM \"%s\"", table)).Scan(&count); err == nil {
+				result.TablesUpdated[table] = count
+				result.TotalNewRows += count
+			}
+		}
+	}
+
+	s.InvalidateCache(ds.ID)
+	s.log(fmt.Sprintf("[QUANDL-REFRESH] Completed. Total rows: %d", result.TotalNewRows))
+	return result, nil
+}
+
+// getTableNames returns all table names in the given DuckDB database
+func (s *DataSourceService) getTableNames(db *sql.DB) ([]string, error) {
+	rows, err := db.Query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		tables = append(tables, name)
+	}
+	return tables, nil
 }

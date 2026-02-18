@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2, CheckSquare, Square, AlertTriangle } from 'lucide-react';
@@ -12,7 +12,7 @@ interface ExportPackDialogProps {
     threadId: string;
 }
 
-type DialogStep = 'loading' | 'select' | 'form' | 'exporting';
+type DialogStep = 'loading' | 'select' | 'form';
 
 const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
     isOpen,
@@ -34,49 +34,44 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
 
     // Load exportable requests when dialog opens
     useEffect(() => {
-        if (isOpen) {
-            setStep('loading');
-            setPackName('');
-            setAuthor('');
-            setIsExporting(false);
-            setError(null);
-            setSuccessPath(null);
-            setLoadError(null);
-            setRequests([]);
-            setSelectedIds(new Set());
+        if (!isOpen) return;
 
-            // Load author signature from config
-            GetConfig().then(cfg => {
-                if (cfg.authorSignature) {
-                    setAuthor(cfg.authorSignature);
-                }
-            }).catch(console.error);
+        setStep('loading');
+        setPackName('');
+        setAuthor('');
+        setIsExporting(false);
+        setError(null);
+        setSuccessPath(null);
+        setLoadError(null);
+        setRequests([]);
+        setSelectedIds(new Set());
 
-            // Load exportable requests
-            GetThreadExportableRequests(threadId)
-                .then((result) => {
-                    const reqs = result || [];
-                    setRequests(reqs);
-                    // Default: select all except auto-suggestion (first system-generated suggestion)
-                    const selected = new Set<string>();
-                    for (const req of reqs) {
-                        if (!req.is_auto_suggestion) {
-                            selected.add(req.request_id);
-                        }
+        GetConfig().then(cfg => {
+            if (cfg.authorSignature) {
+                setAuthor(cfg.authorSignature);
+            }
+        }).catch(console.error);
+
+        GetThreadExportableRequests(threadId)
+            .then((result) => {
+                const reqs = result || [];
+                setRequests(reqs);
+                const selected = new Set<string>();
+                for (const req of reqs) {
+                    if (!req.is_auto_suggestion) {
+                        selected.add(req.request_id);
                     }
-                    setSelectedIds(selected);
-                    setStep('select');
-                })
-                .catch((err: any) => {
-                    setLoadError(err?.message || err?.toString() || 'Failed to load requests');
-                    setStep('select');
-                });
-        }
+                }
+                setSelectedIds(selected);
+                setStep('select');
+            })
+            .catch((err: any) => {
+                setLoadError(err?.message || err?.toString() || t('operation_failed'));
+                setStep('select');
+            });
     }, [isOpen, threadId]);
 
-    if (!isOpen) return null;
-
-    const toggleRequest = (requestId: string) => {
+    const toggleRequest = useCallback((requestId: string) => {
         setSelectedIds(prev => {
             const next = new Set(prev);
             if (next.has(requestId)) {
@@ -86,32 +81,33 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
             }
             return next;
         });
-    };
+    }, []);
 
-    const toggleAll = () => {
-        if (selectedIds.size === requests.length) {
-            setSelectedIds(new Set());
-        } else {
-            setSelectedIds(new Set(requests.map(r => r.request_id)));
-        }
-    };
+    const toggleAll = useCallback(() => {
+        setSelectedIds(prev => {
+            if (prev.size === requests.length) {
+                return new Set();
+            }
+            return new Set(requests.map(r => r.request_id));
+        });
+    }, [requests]);
 
-    const handleNext = () => {
+    const handleNext = useCallback(() => {
         if (selectedIds.size === 0) return;
         setStep('form');
-    };
+    }, [selectedIds.size]);
 
-    const handleBack = () => {
+    const handleBack = useCallback(() => {
         setStep('select');
         setError(null);
         setSuccessPath(null);
-    };
+    }, []);
 
     const packNameTrimmed = packName.trim();
     const authorTrimmed = author.trim();
-    const canSubmit = packNameTrimmed !== '' && authorTrimmed !== '' && !isExporting;
+    const canSubmit = step === 'form' && packNameTrimmed !== '' && authorTrimmed !== '' && !isExporting;
 
-    const handleConfirm = async () => {
+    const handleConfirm = useCallback(async () => {
         if (!canSubmit) return;
 
         setIsExporting(true);
@@ -124,25 +120,28 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
             setSuccessPath(savedPath);
             onConfirm(authorTrimmed);
         } catch (err: any) {
-            setError(err?.message || err?.toString() || 'Export failed');
+            setError(err?.message || err?.toString() || t('export_failed_title'));
         } finally {
             setIsExporting(false);
         }
-    };
+    }, [canSubmit, threadId, packNameTrimmed, authorTrimmed, selectedIds, onConfirm]);
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'Escape' && !isExporting) {
             onClose();
         } else if (e.key === 'Enter') {
             if (step === 'select' && selectedIds.size > 0) {
                 handleNext();
-            } else if (step === 'form' && canSubmit) {
+            } else if (canSubmit) {
                 handleConfirm();
             }
         }
-    };
+    }, [isExporting, onClose, step, selectedIds.size, handleNext, canSubmit, handleConfirm]);
 
     const isBusy = step === 'loading' || isExporting;
+    const allSelected = useMemo(() => selectedIds.size === requests.length && requests.length > 0, [selectedIds.size, requests.length]);
+
+    if (!isOpen) return null;
 
     return ReactDOM.createPortal(
         <div
@@ -199,11 +198,11 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                                     className="flex items-center gap-2 mb-2 pb-2 border-b border-slate-200 dark:border-[#3e3e42] cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-[#2d2d30] rounded px-2 py-1 -mx-2"
                                     onClick={toggleAll}
                                     role="checkbox"
-                                    aria-checked={selectedIds.size === requests.length}
+                                    aria-checked={allSelected}
                                     tabIndex={0}
                                     onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleAll(); } }}
                                 >
-                                    {selectedIds.size === requests.length ? (
+                                    {allSelected ? (
                                         <CheckSquare className="w-4 h-4 text-blue-500 flex-shrink-0" />
                                     ) : (
                                         <Square className="w-4 h-4 text-slate-400 dark:text-[#6e6e6e] flex-shrink-0" />
@@ -215,38 +214,41 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
 
                                 {/* Request list */}
                                 <div className="overflow-y-auto max-h-[40vh] space-y-1">
-                                    {requests.map((req) => (
-                                        <div
-                                            key={req.request_id}
-                                            className="flex items-start gap-2 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-[#2d2d30] rounded px-2 py-2 -mx-2"
-                                            onClick={() => toggleRequest(req.request_id)}
-                                            role="checkbox"
-                                            aria-checked={selectedIds.has(req.request_id)}
-                                            tabIndex={0}
-                                            onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleRequest(req.request_id); } }}
-                                        >
-                                            {selectedIds.has(req.request_id) ? (
-                                                <CheckSquare className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                                            ) : (
-                                                <Square className="w-4 h-4 text-slate-400 dark:text-[#6e6e6e] flex-shrink-0 mt-0.5" />
-                                            )}
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm text-slate-800 dark:text-[#d4d4d4] break-words leading-snug">
-                                                    {req.user_request}
-                                                </p>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-xs text-slate-400 dark:text-[#6e6e6e]">
-                                                        {req.step_count} {t('export_pack_steps')}
-                                                    </span>
-                                                    {req.is_auto_suggestion && (
-                                                        <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
-                                                            {t('export_pack_auto_suggestion')}
+                                    {requests.map((req) => {
+                                        const checked = selectedIds.has(req.request_id);
+                                        return (
+                                            <div
+                                                key={req.request_id}
+                                                className="flex items-start gap-2 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-[#2d2d30] rounded px-2 py-2 -mx-2"
+                                                onClick={() => toggleRequest(req.request_id)}
+                                                role="checkbox"
+                                                aria-checked={checked}
+                                                tabIndex={0}
+                                                onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleRequest(req.request_id); } }}
+                                            >
+                                                {checked ? (
+                                                    <CheckSquare className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                                                ) : (
+                                                    <Square className="w-4 h-4 text-slate-400 dark:text-[#6e6e6e] flex-shrink-0 mt-0.5" />
+                                                )}
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm text-slate-800 dark:text-[#d4d4d4] break-words leading-snug">
+                                                        {req.user_request}
+                                                    </p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-xs text-slate-400 dark:text-[#6e6e6e]">
+                                                            {req.step_count} {t('export_pack_steps')}
                                                         </span>
-                                                    )}
+                                                        {req.is_auto_suggestion && (
+                                                            <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400">
+                                                                {t('export_pack_auto_suggestion')}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </>
                         )}
@@ -271,7 +273,7 @@ const ExportPackDialog: React.FC<ExportPackDialogProps> = ({
                 )}
 
                 {/* Step 3: Form (pack name + author) */}
-                {(step === 'form' || step === 'exporting') && (
+                {step === 'form' && (
                     <>
                         <p className="text-sm text-slate-500 dark:text-[#8e8e8e] mb-3">
                             {t('export_pack_selected_count').replace('{0}', String(selectedIds.size)).replace('{1}', String(requests.length))}

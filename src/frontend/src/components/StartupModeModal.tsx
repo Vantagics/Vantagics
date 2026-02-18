@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Building2, Code2, Key, Mail, Loader2, CheckCircle, AlertCircle, ArrowLeft, Settings, ExternalLink } from 'lucide-react';
 import { GetConfig, SaveConfig, GetActivationStatus, ActivateLicense, TestLLMConnection, RequestSN, LoadSavedActivation } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsEmit } from '../../wailsjs/runtime/runtime';
@@ -64,7 +64,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 const loadResult = await LoadSavedActivation(config.licenseSN);
                 if (loadResult.success) {
                     // Successfully loaded from local storage
-                    setSuccessMessage(t('activation_loaded') || '已从本地加载激活信息');
+                    setSuccessMessage(t('activation_loaded'));
                     await verifyAndComplete();
                     return;
                 }
@@ -89,7 +89,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 onComplete();
             } else {
                 setSuccessMessage(null);
-                setError(t('llm_connection_failed') || 'LLM连接失败，请检查配置');
+                setError(t('llm_connection_failed'));
                 setCommercialStep('check');
             }
         } catch (err: any) {
@@ -130,22 +130,22 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const handleActivate = async (snToUse?: string) => {
         const activateSN = snToUse || sn;
         if (!activateSN) {
-            setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
+            setError(t('please_fill_server_and_sn'));
             return;
         }
 
         if (!activationEmail) {
-            setError(t('activation_email_required') || '请输入邮箱地址');
+            setError(t('activation_email_required'));
             return;
         }
         const atIndex = activationEmail.indexOf('@');
         if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
-            setError(t('please_enter_valid_email') || '请输入有效的邮箱地址');
+            setError(t('please_enter_valid_email'));
             return;
         }
 
         if (!serverURL) {
-            setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
+            setError(t('please_fill_server_and_sn'));
             return;
         }
 
@@ -163,7 +163,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 config.licenseEmail = activationEmail;
                 await SaveConfig(config);
                 
-                setSuccessMessage(t('activation_success') || '激活成功！');
+                setSuccessMessage(t('activation_success'));
                 
                 // Emit event to notify AboutModal to refresh activation status
                 EventsEmit('activation-status-changed');
@@ -184,7 +184,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
     const handleRequestSN = async () => {
         if (!email || !email.includes('@')) {
-            setError(t('please_enter_valid_email') || '请输入有效的邮箱地址');
+            setError(t('please_enter_valid_email'));
             setIsNotInvitedError(false);
             return;
         }
@@ -198,15 +198,15 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
             const result = await RequestSN(serverURL, email);
             
             if (result.success) {
-                setSN(result.sn || '');
+                setSN(result.sn);
                 setActivationEmail(email);
-                setSuccessMessage(t('sn_request_success') || '序列号申请成功！');
+                setSuccessMessage(t('sn_request_success'));
                 // Auto-switch to activation step with the new SN
                 setCommercialStep('check');
             } else {
                 // Check if it's an "not invited" error
                 if (result.code === 'not_invited' || result.message?.includes('not invited') || result.message?.includes('未被邀请')) {
-                    setError(t('email_not_invited_text') || '当前未被邀请使用，请点击下方链接获取帮助。');
+                    setError(t('email_not_invited_text'));
                     setIsNotInvitedError(true);
                 } else if (result.code) {
                     // Use localized error message based on error code
@@ -219,7 +219,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                 }
             }
         } catch (err: any) {
-            setError(t('server_connection_failed') || '连接服务器失败: ' + err.toString());
+            setError(t('server_connection_failed'));
             setIsNotInvitedError(false);
         } finally {
             setIsLoading(false);
@@ -255,13 +255,13 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                         )}
                         <div>
                             <h1 className="text-xl font-bold">
-                                {mode === 'select' && (t('welcome_to_vantagedata') || '欢迎使用 VantageData')}
-                                {mode === 'commercial' && (t('commercial_mode') || '商业软件模式')}
-                                {mode === 'opensource' && (t('opensource_mode') || '开源模式')}
+                                {mode === 'select' && (t('welcome_to_vantagedata'))}
+                                {mode === 'commercial' && (t('commercial_mode'))}
+                                {mode === 'opensource' && (t('opensource_mode'))}
                             </h1>
                             <p className="text-blue-100 text-sm mt-1">
-                                {mode === 'select' && (t('select_usage_mode') || '请选择您的使用模式')}
-                                {mode === 'commercial' && (t('activate_with_sn') || '使用序列号激活')}
+                                {mode === 'select' && (t('select_usage_mode'))}
+                                {mode === 'commercial' && (t('activate_with_sn'))}
                             </p>
                         </div>
                     </div>
@@ -273,7 +273,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                     {mode === 'select' && (
                         <div className="space-y-4">
                             <p className="text-slate-600 text-sm mb-6">
-                                {t('mode_selection_desc') || '首次使用需要选择使用模式。商业模式提供云端LLM服务，开源模式需要自行配置LLM。'}
+                                {t('mode_selection_desc')}
                             </p>
                             
                             {/* Commercial Mode Card */}
@@ -287,16 +287,16 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-semibold text-slate-800 text-lg">
-                                            {t('commercial_mode') || '商业软件模式'}
+                                            {t('commercial_mode')}
                                         </h3>
                                         <p className="text-slate-500 text-sm mt-1">
-                                            {t('commercial_mode_desc') || '使用序列号激活，享受云端LLM服务，无需自行配置'}
+                                            {t('commercial_mode_desc')}
                                         </p>
                                         <div className="flex items-center gap-2 mt-3 text-xs text-blue-600">
                                             <CheckCircle className="w-4 h-4" />
-                                            <span>{t('no_config_needed') || '无需配置'}</span>
+                                            <span>{t('no_config_needed')}</span>
                                             <CheckCircle className="w-4 h-4 ml-2" />
-                                            <span>{t('cloud_llm_service') || '云端LLM服务'}</span>
+                                            <span>{t('cloud_llm_service')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -313,16 +313,16 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                     </div>
                                     <div className="flex-1">
                                         <h3 className="font-semibold text-slate-800 text-lg">
-                                            {t('opensource_mode') || '开源模式'}
+                                            {t('opensource_mode')}
                                         </h3>
                                         <p className="text-slate-500 text-sm mt-1">
-                                            {t('opensource_mode_desc') || '自行配置LLM API，支持OpenAI、Anthropic、本地模型等'}
+                                            {t('opensource_mode_desc')}
                                         </p>
                                         <div className="flex items-center gap-2 mt-3 text-xs text-green-600">
                                             <Settings className="w-4 h-4" />
-                                            <span>{t('custom_llm_config') || '自定义LLM配置'}</span>
+                                            <span>{t('custom_llm_config')}</span>
                                             <Code2 className="w-4 h-4 ml-2" />
-                                            <span>{t('full_control') || '完全控制'}</span>
+                                            <span>{t('full_control')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -363,13 +363,13 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                     <div>
                                         <div className="flex items-center justify-between mb-1">
                                             <label className="block text-sm font-medium text-slate-700">
-                                                {t('serial_number') || '序列号 (SN)'}
+                                                {t('serial_number')}
                                             </label>
                                             <button
                                                 onClick={() => setCommercialStep('request')}
                                                 className="text-xs text-blue-600 hover:text-blue-800"
                                             >
-                                                {t('no_sn_request_trial') || '没有序列号？申请试用'}
+                                                {t('no_sn_request_trial')}
                                             </button>
                                         </div>
                                         <input
@@ -383,14 +383,14 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">
-                                            {t('activation_email_label') || '邮箱'}
+                                            {t('activation_email_label')}
                                         </label>
                                         <input
                                             type="email"
                                             value={activationEmail}
                                             onChange={(e) => setActivationEmail(e.target.value)}
                                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            placeholder={t('activation_email_placeholder') || '请输入您的邮箱地址'}
+                                            placeholder={t('activation_email_placeholder')}
                                         />
                                     </div>
 
@@ -402,12 +402,12 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                         {isLoading ? (
                                             <>
                                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                                {t('activating') || '正在激活...'}
+                                                {t('activating')}
                                             </>
                                         ) : (
                                             <>
                                                 <Key className="w-4 h-4" />
-                                                {t('activate') || '激活'}
+                                                {t('activate')}
                                             </>
                                         )}
                                     </button>
@@ -417,12 +417,12 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                             {commercialStep === 'request' && (
                                 <>
                                     <p className="text-sm text-slate-600">
-                                        {t('request_trial_desc') || '输入您的邮箱地址，我们将发送试用序列号给您。'}
+                                        {t('request_trial_desc')}
                                     </p>
                                     
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">
-                                            {t('email_address') || '邮箱地址'}
+                                            {t('email_address')}
                                         </label>
                                         <input
                                             type="email"
@@ -441,18 +441,18 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                         {isLoading ? (
                                             <>
                                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                                {t('requesting') || '正在申请...'}
+                                                {t('requesting')}
                                             </>
                                         ) : (
                                             <>
                                                 <Mail className="w-4 h-4" />
-                                                {t('request_trial_sn') || '申请试用序列号'}
+                                                {t('request_trial_sn')}
                                             </>
                                         )}
                                     </button>
 
                                     <p className="text-xs text-slate-400 text-center">
-                                        {t('trial_limit_note') || '* 每个邮箱仅可申请一次试用'}
+                                        {t('trial_limit_note')}
                                     </p>
                                 </>
                             )}
@@ -461,7 +461,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                 <div className="py-8 text-center">
                                     <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
                                     <p className="text-slate-600">
-                                        {t('activating_and_verifying') || '正在激活并验证LLM服务...'}
+                                        {t('activating_and_verifying')}
                                     </p>
                                 </div>
                             )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, BarChart3, CreditCard, Globe } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { GetActivationStatus, DeactivateLicense } from '../../wailsjs/go/main/App';
@@ -230,7 +230,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                                             ? 'bg-gradient-to-r from-orange-400 to-amber-500 text-white shadow-sm' 
                                             : 'bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-sm'
                                     }`}>
-                                        {isTrial ? (t('trial_license') || '试用版') : (t('official_license') || '正式版')}
+                                        {isTrial ? (t('trial_license')) : (t('official_license'))}
                                     </span>
                                 ) : (
                                     <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gradient-to-r from-slate-500 to-slate-600 text-white shadow-sm">
@@ -270,8 +270,8 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                                 <span className="text-slate-500 text-xs">{t('expires')}</span>
                                 <span className={`text-xs ${isExpired ? 'text-red-600 font-medium' : daysUntilExpiration !== null && daysUntilExpiration <= 31 ? 'text-orange-600' : 'text-slate-700'}`}>
                                     {activationStatus.expires_at}
-                                    {isExpired && ` (${t('expired') || '已过期'})`}
-                                    {!isExpired && daysUntilExpiration !== null && daysUntilExpiration <= 31 && ` (${daysUntilExpiration}${t('days_remaining') || '天后到期'})`}
+                                    {isExpired && ` (${t('expired')})`}
+                                    {!isExpired && daysUntilExpiration !== null && daysUntilExpiration <= 31 && ` (${daysUntilExpiration}${t('days_remaining')})`}
                                 </span>
                             </div>
                         )}
@@ -289,8 +289,8 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                         >
                             <CreditCard className="w-4 h-4" />
                             {isExpired 
-                                ? (t('renew_subscription') || '续订授权') 
-                                : (t('subscribe_now') || '立即订阅')}
+                                ? (t('renew_subscription')) 
+                                : (t('subscribe_now'))}
                         </button>
                     )}
 

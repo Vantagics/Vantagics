@@ -20,7 +20,9 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2136,16 +2138,17 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 	captchaAns := strings.TrimSpace(r.FormValue("captcha"))
 
 	errMsg := ""
+	lang := i18n.DetectLang(r)
 	if username == "" || len(username) < 3 {
-		errMsg = "用户名至少3个字符"
+		errMsg = i18n.T(lang, "admin_username_min3_err")
 	} else if password == "" || len(password) < 6 {
-		errMsg = "密码至少6个字符"
+		errMsg = i18n.T(lang, "admin_password_min6_err")
 	} else if len(password) > 72 {
-		errMsg = "密码最多72个字符"
+		errMsg = i18n.T(lang, "admin_password_max72_err")
 	} else if password != password2 {
-		errMsg = "两次输入的密码不一致"
+		errMsg = i18n.T(lang, "admin_password_mismatch_err")
 	} else if !verifyCaptcha(captchaID, captchaAns) {
-		errMsg = "验证码错误"
+		errMsg = i18n.T(lang, "captcha_error_admin")
 	}
 
 	if errMsg != "" {
@@ -2167,7 +2170,7 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.SetupTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
-			"Error":     "保存失败，请重试",
+			"Error":     i18n.T(lang, "save_failed"),
 			"Username":  username,
 		})
 		return
@@ -2212,19 +2215,20 @@ func handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[LOGIN] attempt: username=%q, captchaID=%q, captchaAns=%q", username, captchaID, captchaAns)
 
 	errMsg := ""
+	lang := i18n.DetectLang(r)
 	var adminID int64
 	if !verifyCaptcha(captchaID, captchaAns) {
 		log.Printf("[LOGIN] captcha verification failed for ID=%q answer=%q", captchaID, captchaAns)
-		errMsg = "验证码错误"
+		errMsg = i18n.T(lang, "captcha_error_admin")
 	} else {
 		var storedHash string
 		err := db.QueryRow("SELECT id, password_hash FROM admin_credentials WHERE username = ?", username).Scan(&adminID, &storedHash)
 		if err != nil {
 			log.Printf("[LOGIN] db query error for username=%q: %v", username, err)
-			errMsg = "用户名或密码错误"
+			errMsg = i18n.T(lang, "admin_login_error")
 		} else if !checkPassword(password, storedHash) {
 			log.Printf("[LOGIN] password check failed for username=%q adminID=%d", username, adminID)
-			errMsg = "用户名或密码错误"
+			errMsg = i18n.T(lang, "admin_login_error")
 		} else {
 			log.Printf("[LOGIN] success for username=%q adminID=%d", username, adminID)
 		}
@@ -2531,6 +2535,10 @@ type PurchasedPackInfo struct {
 	ExpiresAt      string
 	UsedCount      int
 	TotalPurchased int
+	SourceName     string
+	AuthorName     string
+	DownloadCount  int
+	Version        int
 }
 
 // BillingRecord holds a single billing/transaction record for the user billing page.
@@ -2553,6 +2561,7 @@ type AuthorPackInfo struct {
 	Status       string
 	SoldCount    int
 	TotalRevenue float64
+	Version      int
 }
 
 // AuthorDashboardData holds all author panel data for the user dashboard.
@@ -2565,6 +2574,19 @@ type AuthorDashboardData struct {
 	CreditCashRate     float64
 	WithdrawalEnabled  bool
 	RevenueSplitPct    float64
+}
+
+// TopPackInfo holds info about a top-ranked analysis pack for the TOP分析包 tab.
+type TopPackInfo struct {
+	Rank          int
+	ListingID     int64
+	PackName      string
+	AuthorName    string
+	CategoryName  string
+	ShareMode     string
+	CreditsPrice  int
+	DownloadCount int
+	TotalRevenue  float64
 }
 
 // handleUserDashboard renders the user dashboard page showing account info and purchased packs.
@@ -2585,7 +2607,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("[USER-DASHBOARD] failed to query user id=%d: %v", userID, err)
-		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "load_data_failed"), http.StatusInternalServerError)
 		return
 	}
 
@@ -2596,7 +2618,9 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	allRows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
 		       COALESCE(c.name, '') as category_name, COALESCE(src.purchase_date, upp.created_at) as purchase_date,
-		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
+		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0),
+		       COALESCE(pl.source_name, ''), COALESCE(pl.author_name, ''), COALESCE(pl.download_count, 0),
+		       COALESCE(pl.version, 1)
 		FROM user_purchased_packs upp
 		JOIN pack_listings pl ON upp.listing_id = pl.id
 		LEFT JOIN categories c ON pl.category_id = c.id
@@ -2616,7 +2640,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	`, userID)
 	if err != nil {
 		log.Printf("[USER-DASHBOARD] failed to query purchased packs for user %d: %v", userID, err)
-		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "load_data_failed"), http.StatusInternalServerError)
 		return
 	}
 	defer allRows.Close()
@@ -2628,7 +2652,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	for allRows.Next() {
 		var p PurchasedPackInfo
 		var purchaseDateStr string
-		if err := allRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
+		if err := allRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased, &p.SourceName, &p.AuthorName, &p.DownloadCount, &p.Version); err != nil {
 			log.Printf("[USER-DASHBOARD] failed to scan purchased pack row: %v", err)
 			continue
 		}
@@ -2663,7 +2687,9 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	legacyRows, err := db.Query(`
 		SELECT DISTINCT pl.id, pl.pack_name, pl.share_mode, pl.credits_price, COALESCE(pl.valid_days, 0),
 		       COALESCE(c.name, '') as category_name, src.purchase_date,
-		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0)
+		       COALESCE(pur.used_count, 0), COALESCE(pur.total_purchased, 0),
+		       COALESCE(pl.source_name, ''), COALESCE(pl.author_name, ''), COALESCE(pl.download_count, 0),
+		       COALESCE(pl.version, 1)
 		FROM (
 		    SELECT user_id, listing_id, MIN(created_at) as purchase_date FROM credits_transactions
 		    WHERE user_id = ? AND transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew_subscription') AND listing_id IS NOT NULL
@@ -2688,7 +2714,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		for legacyRows.Next() {
 			var p PurchasedPackInfo
 			var purchaseDateStr string
-			if err := legacyRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased); err != nil {
+			if err := legacyRows.Scan(&p.ListingID, &p.PackName, &p.ShareMode, &p.CreditsPrice, &p.ValidDays, &p.CategoryName, &purchaseDateStr, &p.UsedCount, &p.TotalPurchased, &p.SourceName, &p.AuthorName, &p.DownloadCount, &p.Version); err != nil {
 				log.Printf("[USER-DASHBOARD] failed to scan legacy pack row: %v", err)
 				continue
 			}
@@ -2719,9 +2745,57 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// For ALL subscription packs (both main and legacy), calculate the correct cumulative expiry date.
-	// Start from the original purchase date, add the initial period,
-	// then for each renew transaction, extend from the previous expiry (if still valid at renew time)
-	// or from the renew time (if expired at renew time).
+	// Batch-fetch all renew transactions for this user's subscription packs in a single query
+	// to avoid N+1 query problem.
+	subListingIDs := make([]int64, 0)
+	subIndexMap := make(map[int64][]int) // listing_id -> indices in packs slice
+	for i := range packs {
+		if packs[i].ShareMode == "subscription" {
+			subListingIDs = append(subListingIDs, packs[i].ListingID)
+			subIndexMap[packs[i].ListingID] = append(subIndexMap[packs[i].ListingID], i)
+		}
+	}
+
+	// Batch query all renew transactions for subscription packs
+	type renewRecord struct {
+		ListingID int64
+		CreatedAt string
+		Desc      string
+	}
+	renewsByListing := make(map[int64][]renewRecord)
+	if len(subListingIDs) > 0 {
+		// Build placeholder string for IN clause
+		placeholders := make([]string, len(subListingIDs))
+		args := make([]interface{}, 0, len(subListingIDs)+1)
+		args = append(args, userID)
+		for i, lid := range subListingIDs {
+			placeholders[i] = "?"
+			args = append(args, lid)
+		}
+		renewQuery := `SELECT listing_id, created_at, COALESCE(description, '')
+			FROM credits_transactions
+			WHERE user_id = ? AND listing_id IN (` + strings.Join(placeholders, ",") + `)
+			  AND transaction_type = 'renew'
+			ORDER BY listing_id, created_at ASC`
+		renewRows, err := db.Query(renewQuery, args...)
+		if err != nil {
+			log.Printf("[USER-DASHBOARD] failed to batch query renew transactions for user %d: %v", userID, err)
+		} else {
+			defer renewRows.Close()
+			for renewRows.Next() {
+				var rr renewRecord
+				if err := renewRows.Scan(&rr.ListingID, &rr.CreatedAt, &rr.Desc); err != nil {
+					continue
+				}
+				renewsByListing[rr.ListingID] = append(renewsByListing[rr.ListingID], rr)
+			}
+			if err := renewRows.Err(); err != nil {
+				log.Printf("[handleUserDashboard] renewRows iteration error: %v", err)
+			}
+		}
+	}
+
+	// Apply renewal calculations using the batch-fetched data
 	for i := range packs {
 		if packs[i].ShareMode != "subscription" {
 			continue
@@ -2745,45 +2819,29 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		currentExpiry := baseTime.AddDate(0, 0, effectiveDays)
 
-		// Query ALL renew transactions in chronological order
-		renewRows, err := db.Query(`
-			SELECT created_at, COALESCE(description, '')
-			FROM credits_transactions
-			WHERE user_id = ? AND listing_id = ? AND transaction_type = 'renew'
-			ORDER BY created_at ASC
-		`, userID, packs[i].ListingID)
-		if err == nil {
-			for renewRows.Next() {
-				var renewDateStr, desc string
-				if err := renewRows.Scan(&renewDateStr, &desc); err != nil {
-					continue
-				}
-				renewMonths := 1
-				if strings.Contains(desc, "yearly") || strings.Contains(desc, "14 month") {
-					renewMonths = 14
-				} else if strings.Contains(desc, "12 month") {
-					renewMonths = 12
-				}
-				var renewTime time.Time
-				if t, err := time.Parse("2006-01-02 15:04:05", renewDateStr); err == nil {
-					renewTime = t
-				} else if t, err := time.Parse("2006-01-02T15:04:05Z", renewDateStr); err == nil {
-					renewTime = t
-				}
-				if renewTime.IsZero() {
-					continue
-				}
-				// If subscription was still valid at renew time, extend from current expiry
-				// Otherwise extend from the renew time
-				if currentExpiry.After(renewTime) {
-					currentExpiry = currentExpiry.AddDate(0, renewMonths, 0)
-				} else {
-					currentExpiry = renewTime.AddDate(0, renewMonths, 0)
-				}
-				// Update PurchaseDate to latest renew for display
-				packs[i].PurchaseDate = renewDateStr
+		// Apply renew transactions from batch-fetched data
+		for _, rr := range renewsByListing[packs[i].ListingID] {
+			renewMonths := 1
+			if strings.Contains(rr.Desc, "yearly") || strings.Contains(rr.Desc, "14 month") {
+				renewMonths = 14
+			} else if strings.Contains(rr.Desc, "12 month") {
+				renewMonths = 12
 			}
-			renewRows.Close()
+			var renewTime time.Time
+			if t, err := time.Parse("2006-01-02 15:04:05", rr.CreatedAt); err == nil {
+				renewTime = t
+			} else if t, err := time.Parse("2006-01-02T15:04:05Z", rr.CreatedAt); err == nil {
+				renewTime = t
+			}
+			if renewTime.IsZero() {
+				continue
+			}
+			if currentExpiry.After(renewTime) {
+				currentExpiry = currentExpiry.AddDate(0, renewMonths, 0)
+			} else {
+				currentExpiry = renewTime.AddDate(0, renewMonths, 0)
+			}
+			packs[i].PurchaseDate = rr.CreatedAt
 		}
 
 		packs[i].ExpiresAt = currentExpiry.Format("2006-01-02 15:04:05")
@@ -2794,56 +2852,51 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
 	hasPassword := passwordHash.Valid && passwordHash.String != ""
 
-	// --- Task 3.1: Author role detection ---
-	var authorPackCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE user_id = ?", userID).Scan(&authorPackCount)
-	if err != nil {
-		log.Printf("[USER-DASHBOARD] failed to query author pack count for user %d: %v", userID, err)
-		authorPackCount = 0
-	}
-	isAuthor := authorPackCount > 0
-
+	// --- Task 3.1: Author role detection + Task 3.3: Author packs ---
+	// Combine into a single flow: query author packs directly, derive isAuthor from result.
 	var authorData AuthorDashboardData
+
+	// Query author's shared packs with sales data
+	splitPctStr := getSetting("revenue_split_publisher_pct")
+	splitPct, _ := strconv.ParseFloat(splitPctStr, 64)
+	if splitPct <= 0 {
+		splitPct = 70 // default 70%
+	}
+	authorRows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, pl.pack_description, pl.share_mode, pl.credits_price, pl.status,
+		       COALESCE(sales.sold_count, 0), COALESCE(sales.total_revenue, 0) * ? / 100,
+		       COALESCE(pl.version, 1)
+		FROM pack_listings pl
+		LEFT JOIN (
+		    SELECT listing_id, COUNT(*) as sold_count, SUM(ABS(amount)) as total_revenue
+		    FROM credits_transactions
+		    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+		      AND amount < 0
+		    GROUP BY listing_id
+		) sales ON sales.listing_id = pl.id
+		WHERE pl.user_id = ?
+		ORDER BY pl.created_at DESC
+	`, splitPct, userID)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query author packs for user %d: %v", userID, err)
+	} else {
+		defer authorRows.Close()
+		for authorRows.Next() {
+			var ap AuthorPackInfo
+			if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode, &ap.CreditsPrice, &ap.Status, &ap.SoldCount, &ap.TotalRevenue, &ap.Version); err != nil {
+				log.Printf("[USER-DASHBOARD] failed to scan author pack row: %v", err)
+				continue
+			}
+			authorData.AuthorPacks = append(authorData.AuthorPacks, ap)
+		}
+		if err := authorRows.Err(); err != nil {
+			log.Printf("[handleUserDashboard] authorRows iteration error: %v", err)
+		}
+	}
+	isAuthor := len(authorData.AuthorPacks) > 0
 	authorData.IsAuthor = isAuthor
 
 	if isAuthor {
-		// --- Task 3.3: Query author's shared packs with sales data ---
-		// Apply revenue split at query time so per-pack revenue matches the total
-		splitPctStr := getSetting("revenue_split_publisher_pct")
-		splitPct, _ := strconv.ParseFloat(splitPctStr, 64)
-		if splitPct <= 0 {
-			splitPct = 70 // default 70%
-		}
-		authorRows, err := db.Query(`
-			SELECT pl.id, pl.pack_name, pl.pack_description, pl.share_mode, pl.credits_price, pl.status,
-			       COALESCE(sales.sold_count, 0), COALESCE(sales.total_revenue, 0) * ? / 100
-			FROM pack_listings pl
-			LEFT JOIN (
-			    SELECT listing_id, COUNT(*) as sold_count, SUM(ABS(amount)) as total_revenue
-			    FROM credits_transactions
-			    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
-			      AND amount < 0
-			    GROUP BY listing_id
-			) sales ON sales.listing_id = pl.id
-			WHERE pl.user_id = ?
-			ORDER BY pl.created_at DESC
-		`, splitPct, userID)
-		if err != nil {
-			log.Printf("[USER-DASHBOARD] failed to query author packs for user %d: %v", userID, err)
-		} else {
-			defer authorRows.Close()
-			for authorRows.Next() {
-				var ap AuthorPackInfo
-				if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode, &ap.CreditsPrice, &ap.Status, &ap.SoldCount, &ap.TotalRevenue); err != nil {
-					log.Printf("[USER-DASHBOARD] failed to scan author pack row: %v", err)
-					continue
-				}
-				authorData.AuthorPacks = append(authorData.AuthorPacks, ap)
-			}
-			if err := authorRows.Err(); err != nil {
-				log.Printf("[handleUserDashboard] authorRows iteration error: %v", err)
-			}
-		}
 
 		// --- Task 3.4: Calculate total revenue, total withdrawn, unwithdrawn credits ---
 		var totalRevenue float64
@@ -2927,19 +2980,85 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[USER-DASHBOARD] user %d: email=%q, credits=%.0f, packs=%d, hasPassword=%v, isAuthor=%v", userID, user.Email, user.CreditsBalance, len(packs), hasPassword, isAuthor)
 
+	// --- Query top 100 packs by downloads and by revenue for the TOP分析包 tab ---
+	// Single query fetching all published packs with revenue data; sort in Go to avoid duplicate subquery.
+	var allTopPacks []TopPackInfo
+	topRows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, COALESCE(pl.author_name, ''), COALESCE(c.name, ''),
+		       pl.share_mode, pl.credits_price, pl.download_count,
+		       COALESCE(sales.total_revenue, 0)
+		FROM pack_listings pl
+		LEFT JOIN categories c ON c.id = pl.category_id
+		LEFT JOIN (
+		    SELECT listing_id, SUM(ABS(amount)) as total_revenue
+		    FROM credits_transactions
+		    WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+		      AND amount < 0
+		    GROUP BY listing_id
+		) sales ON sales.listing_id = pl.id
+		WHERE pl.status = 'published'
+		ORDER BY pl.download_count DESC
+	`)
+	if err != nil {
+		log.Printf("[USER-DASHBOARD] failed to query top packs: %v", err)
+	} else {
+		defer topRows.Close()
+		for topRows.Next() {
+			var tp TopPackInfo
+			if err := topRows.Scan(&tp.ListingID, &tp.PackName, &tp.AuthorName, &tp.CategoryName,
+				&tp.ShareMode, &tp.CreditsPrice, &tp.DownloadCount, &tp.TotalRevenue); err != nil {
+				log.Printf("[USER-DASHBOARD] failed to scan top pack row: %v", err)
+				continue
+			}
+			allTopPacks = append(allTopPacks, tp)
+		}
+		if err := topRows.Err(); err != nil {
+			log.Printf("[USER-DASHBOARD] topRows iteration error: %v", err)
+		}
+	}
+
+	// Build top-by-downloads (already sorted by DB query)
+	topPacksByDownloads := allTopPacks
+	if len(topPacksByDownloads) > 100 {
+		topPacksByDownloads = topPacksByDownloads[:100]
+	}
+	for i := range topPacksByDownloads {
+		topPacksByDownloads[i].Rank = i + 1
+	}
+
+	// Build top-by-revenue: copy and sort descending by TotalRevenue
+	topPacksByRevenue := make([]TopPackInfo, len(allTopPacks))
+	copy(topPacksByRevenue, allTopPacks)
+	sort.Slice(topPacksByRevenue, func(i, j int) bool {
+		return topPacksByRevenue[i].TotalRevenue > topPacksByRevenue[j].TotalRevenue
+	})
+	if len(topPacksByRevenue) > 100 {
+		topPacksByRevenue = topPacksByRevenue[:100]
+	}
+	for i := range topPacksByRevenue {
+		topPacksByRevenue[i].Rank = i + 1
+	}
+
 	// --- Task 3.6: Pass author data to template ---
 	successMsg := r.URL.Query().Get("success")
 	errorMsg := r.URL.Query().Get("error")
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	defaultLang := getSetting("default_language")
+	if defaultLang == "" {
+		defaultLang = "zh-CN"
+	}
 	templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
-		"User":           user,
-		"PurchasedPacks": packs,
-		"HasPassword":    hasPassword,
-		"AuthorData":     authorData,
+		"User":                user,
+		"PurchasedPacks":      packs,
+		"HasPassword":         hasPassword,
+		"AuthorData":          authorData,
+		"TopPacksByDownloads": topPacksByDownloads,
+		"TopPacksByRevenue":   topPacksByRevenue,
 		"Notifications":  notifications,
 		"SuccessMsg":     successMsg,
 		"ErrorMsg":       errorMsg,
+		"DefaultLang":    defaultLang,
 	})
 }
 
@@ -2963,7 +3082,7 @@ func handleUserBilling(w http.ResponseWriter, r *http.Request) {
 	`, userID)
 	if err != nil {
 		log.Printf("[USER-BILLING] failed to query transactions for user %d: %v", userID, err)
-		http.Error(w, "加载帐单数据失败", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "load_billing_failed"), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -4350,6 +4469,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 	path = strings.TrimSuffix(path, "/")
 	listingID, err := strconv.ParseInt(path, 10, 64)
 	if err != nil || listingID <= 0 {
+		lang := i18n.DetectLang(r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
 			"ListingID":    int64(0),
@@ -4363,7 +4483,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 			"CategoryName": "",
 			"IsLoggedIn":   false,
 			"HasPurchased": false,
-			"Error":        "无效的分析包链接",
+			"Error":        i18n.T(lang, "invalid_pack_link"),
 			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		})
 		return
@@ -4382,6 +4502,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 		listingID,
 	).Scan(&packName, &packDesc, &sourceName, &authorName, &shareMode, &creditsPrice, &downloadCount, &categoryName)
 	if err == sql.ErrNoRows {
+		lang := i18n.DetectLang(r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
 			"ListingID":    listingID,
@@ -4395,14 +4516,14 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 			"CategoryName": "",
 			"IsLoggedIn":   false,
 			"HasPurchased": false,
-			"Error":        "分析包不存在或已下架",
+			"Error":        i18n.T(lang, "pack_not_found"),
 			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		})
 		return
 	}
 	if err != nil {
 		log.Printf("[PACK-DETAIL-PAGE] failed to query pack id=%d: %v", listingID, err)
-		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+		http.Error(w, i18n.T(i18n.DetectLang(r), "server_internal_error"), http.StatusInternalServerError)
 		return
 	}
 
@@ -4508,7 +4629,7 @@ func handleClaimFreePack(w http.ResponseWriter, r *http.Request) {
 		// Non-critical: purchase record already created, so we still return success
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
@@ -7013,6 +7134,7 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"RevenueSplitPlatformPct":    revenueSplitPlatformPct,
 		"AdminID":                    adminID,
 		"PermissionsJSON":            template.JS(string(permsJSON)),
+		"DefaultLang":                getSetting("default_language"),
 	})
 }
 
@@ -7045,6 +7167,33 @@ func handleSetInitialCredits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleSetDefaultLanguage updates the default_language setting.
+// POST /admin/api/settings/default-language
+func handleSetDefaultLanguage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	value := r.FormValue("value")
+	if value != "zh-CN" && value != "en-US" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value must be zh-CN or en-US"})
+		return
+	}
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('default_language', ?)", value)
+	if err != nil {
+		log.Printf("Failed to update default_language: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	// Update runtime default
+	if value == "en-US" {
+		i18n.DefaultLang = i18n.EnUS
+	} else {
+		i18n.DefaultLang = i18n.ZhCN
+	}
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
 }
 
@@ -7327,13 +7476,14 @@ func handleAdminExportWithdrawals(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create Excel file
+	lang := i18n.DetectLang(r)
 	f := excelize.NewFile()
 	defer f.Close()
-	sheetName := "提现记录"
+	sheetName := i18n.T(lang, "excel_withdraw_sheet")
 	f.SetSheetName("Sheet1", sheetName)
 
 	// Write header row
-	headers := []string{"作者名称", "收款方式", "收款详情", "提现金额", "手续费率", "手续费金额", "实付金额"}
+	headers := []string{i18n.T(lang, "excel_author_name"), i18n.T(lang, "excel_payment_method"), i18n.T(lang, "excel_payment_detail"), i18n.T(lang, "excel_withdraw_amount"), i18n.T(lang, "excel_fee_rate"), i18n.T(lang, "excel_fee_amount"), i18n.T(lang, "excel_net_amount")}
 	for i, h := range headers {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue(sheetName, cell, h)
@@ -7341,7 +7491,7 @@ func handleAdminExportWithdrawals(w http.ResponseWriter, r *http.Request) {
 
 	// Payment type labels
 	typeLabels := map[string]string{
-		"paypal": "PayPal", "wechat": "微信", "alipay": "AliPay", "check": "支票",
+		"paypal": "PayPal", "wechat": i18n.T(lang, "excel_wechat"), "alipay": "AliPay", "check": i18n.T(lang, "excel_check"),
 	}
 
 	// Write data rows
@@ -7424,17 +7574,19 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[AUTHOR-WITHDRAW] user %d: starting withdrawal request (isAjax=%v)", userID, isAjax)
 
+	lang := i18n.DetectLang(r)
+
 	// Payment info pre-check: user must have payment info set before withdrawing
 	var paymentType, paymentDetailsStr string
 	err = db.QueryRow("SELECT payment_type, payment_details FROM user_payment_info WHERE user_id = ?", userID).Scan(&paymentType, &paymentDetailsStr)
 	if err == sql.ErrNoRows {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - no payment info", userID)
-		withdrawError("no_payment_info", "请先设置收款信息")
+		withdrawError("no_payment_info", i18n.T(lang, "withdraw_no_payment"))
 		return
 	}
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to query payment info for user %d: %v", userID, err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7443,7 +7595,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	err = db.QueryRow("SELECT display_name FROM users WHERE id = ?", userID).Scan(&displayName)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to query display_name for user %d: %v", userID, err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7452,7 +7604,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	err = db.QueryRow("SELECT COUNT(*) FROM pack_listings WHERE user_id = ?", userID).Scan(&authorPackCount)
 	if err != nil || authorPackCount == 0 {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - not author (count=%d, err=%v)", userID, authorPackCount, err)
-		withdrawError("not_author", "仅作者可以申请提现")
+		withdrawError("not_author", i18n.T(lang, "withdraw_not_author"))
 		return
 	}
 
@@ -7461,7 +7613,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	creditsAmount, err := strconv.ParseFloat(creditsAmountStr, 64)
 	if err != nil || creditsAmount <= 0 {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - invalid amount %q (err=%v)", userID, creditsAmountStr, err)
-		withdrawError("invalid_withdraw_amount", "提现金额无效")
+		withdrawError("invalid_withdraw_amount", i18n.T(lang, "withdraw_invalid_amount"))
 		return
 	}
 
@@ -7470,7 +7622,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	cashRate, _ := strconv.ParseFloat(cashRateStr, 64)
 	if cashRate <= 0 {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - withdraw disabled (cashRate=%s)", userID, cashRateStr)
-		withdrawError("withdraw_disabled", "提现功能暂未开放")
+		withdrawError("withdraw_disabled", i18n.T(lang, "withdraw_not_open"))
 		return
 	}
 
@@ -7493,7 +7645,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	`, userID).Scan(&totalRevenue)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to query total revenue for user %d: %v", userID, err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7513,7 +7665,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	`, userID).Scan(&totalWithdrawn)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to query total withdrawn for user %d: %v", userID, err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7528,7 +7680,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	// Verify credits_amount does not exceed unwithdrawn
 	if creditsAmount > unwithdrawn {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - amount %.2f exceeds unwithdrawn %.2f", userID, creditsAmount, unwithdrawn)
-		withdrawError("withdraw_exceeds_balance", "提现数量超过可提现余额")
+		withdrawError("withdraw_exceeds_balance", i18n.T(lang, "withdraw_exceeds"))
 		return
 	}
 
@@ -7541,7 +7693,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	// Minimum withdrawal: net_amount must be at least 100 元
 	if netAmount < 100 {
 		log.Printf("[AUTHOR-WITHDRAW] user %d: rejected - netAmount %.2f < 100", userID, netAmount)
-		withdrawError("withdraw_below_minimum", "扣除手续费后实付金额低于最低提现金额 100 元")
+		withdrawError("withdraw_below_minimum", i18n.T(lang, "withdraw_below_min_net"))
 		return
 	}
 
@@ -7549,7 +7701,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to begin transaction: %v", err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 	defer tx.Rollback()
@@ -7563,7 +7715,7 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to insert withdrawal record: %v", err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7573,13 +7725,13 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to update credits_balance: %v", err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to commit transaction: %v", err)
-		withdrawError("internal", "系统错误")
+		withdrawError("internal", i18n.T(lang, "system_error"))
 		return
 	}
 
@@ -7625,7 +7777,7 @@ func handleAuthorWithdrawRecords(w http.ResponseWriter, r *http.Request) {
 		if isAjax {
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		} else {
-			http.Error(w, "加载提现记录失败", http.StatusInternalServerError)
+			http.Error(w, i18n.T(i18n.DetectLang(r), "load_withdraw_records_failed"), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -8992,17 +9144,18 @@ func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build Excel file
+	lang := i18n.DetectLang(r)
 	f := excelize.NewFile()
 	defer f.Close()
 
 	typeLabels := map[string]string{
-		"purchase": "购买", "purchase_uses": "购买次数", "renew": "续订", "download": "免费领取",
+		"purchase": i18n.T(lang, "excel_tx_purchase"), "purchase_uses": i18n.T(lang, "excel_tx_purchase_uses"), "renew": i18n.T(lang, "excel_tx_renew"), "download": i18n.T(lang, "excel_tx_free_claim"),
 	}
 
 	// Sheet 1: 订单详表
-	sheet1 := "订单详表"
+	sheet1 := i18n.T(lang, "excel_order_sheet")
 	f.SetSheetName("Sheet1", sheet1)
-	orderHeaders := []string{"订单ID", "买家名称", "买家邮箱", "分析包名称", "分类", "作者", "金额(Credits)", "交易类型", "买家IP", "时间"}
+	orderHeaders := []string{i18n.T(lang, "excel_order_id"), i18n.T(lang, "excel_buyer_name"), i18n.T(lang, "excel_buyer_email"), i18n.T(lang, "excel_pack_name"), i18n.T(lang, "excel_category"), i18n.T(lang, "excel_author"), i18n.T(lang, "excel_amount_credits"), i18n.T(lang, "excel_tx_type"), i18n.T(lang, "excel_buyer_ip"), i18n.T(lang, "excel_time")}
 	for i, h := range orderHeaders {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue(sheet1, cell, h)
@@ -9021,9 +9174,9 @@ func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sheet 2: 用户汇总
-	sheet2 := "用户汇总"
+	sheet2 := i18n.T(lang, "excel_user_sheet")
 	f.NewSheet(sheet2)
-	userHeaders := []string{"用户ID", "名称", "邮箱", "订单数", "总消费(Credits)"}
+	userHeaders := []string{i18n.T(lang, "excel_user_id"), i18n.T(lang, "excel_name"), i18n.T(lang, "excel_email"), i18n.T(lang, "excel_order_count"), i18n.T(lang, "excel_total_spent")}
 	for i, h := range userHeaders {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue(sheet2, cell, h)
@@ -9038,9 +9191,9 @@ func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sheet 3: 作者汇总
-	sheet3 := "作者汇总"
+	sheet3 := i18n.T(lang, "excel_author_sheet")
 	f.NewSheet(sheet3)
-	authorHeaders := []string{"作者ID", "名称", "邮箱", "订单数", "总销售额(Credits)", "分析包数"}
+	authorHeaders := []string{i18n.T(lang, "excel_author_id"), i18n.T(lang, "excel_name"), i18n.T(lang, "excel_email"), i18n.T(lang, "excel_order_count"), i18n.T(lang, "excel_total_sales"), i18n.T(lang, "excel_pack_count")}
 	for i, h := range authorHeaders {
 		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
 		f.SetCellValue(sheet3, cell, h)
@@ -9071,6 +9224,9 @@ func handleAdminSalesExport(w http.ResponseWriter, r *http.Request) {
 func handleTranslationsAPI(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.DetectLang(r)
 	translations := i18n.AllTranslations(lang)
+	// Cache per-user (language depends on cookie), not shared
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("Vary", "Cookie")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"lang":         string(lang),
@@ -9095,11 +9251,25 @@ func handleSetLang(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 	})
-	referer := r.Header.Get("Referer")
-	if referer == "" {
-		referer = "/"
+	// Use redirect query param first, then Referer header (validated to be same-origin)
+	redirect := r.URL.Query().Get("redirect")
+	if redirect == "" {
+		redirect = r.Header.Get("Referer")
 	}
-	http.Redirect(w, r, referer, http.StatusFound)
+	// Security: only allow relative paths to prevent open redirect
+	if redirect == "" || !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
+		// Parse Referer to extract path if it's an absolute URL on the same host
+		if redirect != "" && strings.Contains(redirect, "://") {
+			if u, err := url.Parse(redirect); err == nil && u.Host == r.Host {
+				redirect = u.RequestURI()
+			} else {
+				redirect = "/"
+			}
+		} else {
+			redirect = "/"
+		}
+	}
+	http.Redirect(w, r, redirect, http.StatusFound)
 }
 
 // securityHeaders adds standard security headers to all responses.
@@ -9124,6 +9294,13 @@ func main() {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
+
+	// Load default language setting
+	if dl := getSetting("default_language"); dl == "en-US" {
+		i18n.DefaultLang = i18n.EnUS
+	} else {
+		i18n.DefaultLang = i18n.ZhCN
+	}
 
 	// Start background goroutine to clean up expired sessions and captchas
 	go func() {
@@ -9258,6 +9435,7 @@ func main() {
 	http.HandleFunc("/admin/settings/credit-cash-rate", permissionAuth("settings")(handleSetCreditCashRate))
 	http.HandleFunc("/admin/api/settings/revenue-split", permissionAuth("settings")(handleAdminSaveRevenueSplit))
 	http.HandleFunc("/admin/api/settings/withdrawal-fees", permissionAuth("settings")(handleAdminSaveWithdrawalFees))
+	http.HandleFunc("/admin/api/settings/default-language", permissionAuth("settings")(handleSetDefaultLanguage))
 	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals/approve", permissionAuth("settings")(handleAdminApproveWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals", permissionAuth("settings")(handleAdminGetWithdrawals))

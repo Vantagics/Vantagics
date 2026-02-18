@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Server, AlertCircle, CheckCircle, Loader } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { TestMCPService } from '../../wailsjs/go/main/App';
@@ -65,13 +65,13 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
         const newErrors: { [key: string]: string } = {};
 
         if (!formData.name.trim()) {
-            newErrors.name = t('mcp_service_name_required') || 'Service name is required';
+            newErrors.name = t('mcp_service_name_required');
         }
 
         if (!formData.url.trim()) {
-            newErrors.url = t('mcp_service_url_required') || 'Service URL is required';
+            newErrors.url = t('mcp_service_url_required');
         } else if (!formData.url.match(/^https?:\/\/.+/)) {
-            newErrors.url = t('mcp_service_url_invalid') || 'Please enter a valid URL';
+            newErrors.url = t('mcp_service_url_invalid');
         }
 
         setErrors(newErrors);
@@ -82,7 +82,7 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
         if (!formData.url.trim()) {
             setTestResult({
                 success: false,
-                message: t('mcp_service_url_required') || 'Service URL is required'
+                message: t('mcp_service_url_required')
             });
             return;
         }
@@ -117,7 +117,7 @@ const MCPServiceModal: React.FC<MCPServiceModalProps> = ({
         if (!testResult || !testResult.success) {
             setErrors({
                 ...errors,
-                url: t('mcp_test_required') || 'Please test the service connection before saving'
+                url: t('mcp_test_required')
             });
             return;
         }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Upload, RefreshCw, Package, AlertCircle, CheckCircle, Trash2, Search } from 'lucide-react';
 import { ListSkills, InstallSkillsFromZip, EnableSkill, DisableSkill, DeleteSkill } from '../../wailsjs/go/main/App';
 import { useLanguage } from '../i18n';
@@ -147,10 +147,10 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                         </div>
                         <div>
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                                {t('skills_management') || 'Skills 管理'}
+                                {t('skills_management')}
                             </h2>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                                {skills.length} {t('skills_installed') || '个已安装'} · {skills.filter(s => s.enabled).length} {t('skills_enabled') || '个已启用'}
+                                {skills.length} {t('skills_installed')} · {skills.filter(s => s.enabled).length} {t('skills_enabled')}
                                 {searchQuery && ` · ${filteredSkills.length} 个匹配`}
                             </p>
                         </div>
@@ -160,7 +160,7 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                             onClick={loadSkills}
                             disabled={loading}
                             className="p-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-                            title={t('refresh') || '刷新'}
+                            title={t('refresh')}
                         >
                             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                         </button>
@@ -174,7 +174,7 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                             ) : (
                                 <Upload className="w-4 h-4" />
                             )}
-                            <span>{installing ? (t('installing') || '安装中...') : (t('install_skills') || '安装 Skills')}</span>
+                            <span>{installing ? (t('installing')) : (t('install_skills'))}</span>
                         </button>
                         <button
                             onClick={onClose}
@@ -222,7 +222,7 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                             <input
                                 type="text"
-                                placeholder={t('search_skills') || '搜索 Skills（按名称或描述）...'}
+                                placeholder={t('search_skills')}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -248,8 +248,8 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                     ) : skills.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-500">
                             <Package className="w-16 h-16 mb-4 opacity-20" />
-                            <p className="text-lg font-medium">{t('no_skills') || '暂无已安装的 Skills'}</p>
-                            <p className="text-sm mt-2">{t('install_skills_hint') || '点击上方"安装 Skills"按钮来安装新的 Skills'}</p>
+                            <p className="text-lg font-medium">{t('no_skills')}</p>
+                            <p className="text-sm mt-2">{t('install_skills_hint')}</p>
                         </div>
                     ) : filteredSkills.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-gray-500">
@@ -302,13 +302,13 @@ const SkillsManagementPage: React.FC<SkillsManagementPageProps> = ({ isOpen, onC
                     <div className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-400">
                         <div className="flex items-center gap-2">
                             <AlertCircle className="w-4 h-4" />
-                            <span>{t('skills_info') || 'Skills 包必须包含 SKILL.md 文件'}</span>
+                            <span>{t('skills_info')}</span>
                         </div>
                         <button
                             onClick={onClose}
                             className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
                         >
-                            {t('close') || '关闭'}
+                            {t('close')}
                         </button>
                     </div>
                 </div>

@@ -58,11 +58,26 @@ func (t *Translator) T(key string, params ...interface{}) string {
 
 	langMap, ok := t.translations[t.language]
 	if !ok {
-		return key
+		// Fallback to English if current language not found
+		langMap, ok = t.translations[English]
+		if !ok {
+			return key
+		}
 	}
 
 	text, ok := langMap[key]
 	if !ok {
+		// Fallback to English for missing keys in non-English languages
+		if t.language != English {
+			if enMap, enOk := t.translations[English]; enOk {
+				if enText, found := enMap[key]; found {
+					if len(params) > 0 {
+						return fmt.Sprintf(enText, params...)
+					}
+					return enText
+				}
+			}
+		}
 		return key
 	}
 
@@ -76,6 +91,46 @@ func (t *Translator) T(key string, params ...interface{}) string {
 // T is a convenience function for translation
 func T(key string, params ...interface{}) string {
 	return GetTranslator().T(key, params...)
+}
+
+// TForLang translates a key for a specific language, useful when generating
+// content that must be in a particular language regardless of global setting.
+func TForLang(lang Language, key string, params ...interface{}) string {
+	return GetTranslator().TForLang(lang, key, params...)
+}
+
+// TForLang translates a key for a specific language
+func (t *Translator) TForLang(lang Language, key string, params ...interface{}) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	langMap, ok := t.translations[lang]
+	if !ok {
+		langMap, ok = t.translations[English]
+		if !ok {
+			return key
+		}
+	}
+
+	text, ok := langMap[key]
+	if !ok {
+		if lang != English {
+			if enMap, enOk := t.translations[English]; enOk {
+				if enText, found := enMap[key]; found {
+					if len(params) > 0 {
+						return fmt.Sprintf(enText, params...)
+					}
+					return enText
+				}
+			}
+		}
+		return key
+	}
+
+	if len(params) > 0 {
+		return fmt.Sprintf(text, params...)
+	}
+	return text
 }
 
 // SetLanguage is a convenience function to set language

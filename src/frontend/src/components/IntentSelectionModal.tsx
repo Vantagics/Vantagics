@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { X } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -32,10 +32,10 @@ const IntentSelectionModal: React.FC<IntentSelectionModalProps> = ({
                 <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-[#3c3c3c]">
                     <div>
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-[#d4d4d4]">
-                            {t('select_your_intent') || '请选择您的分析意图'}
+                            {t('select_your_intent')}
                         </h3>
                         <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mt-1">
-                            {t('intent_selection_desc') || '系统理解了您的请求，请选择最符合您意图的分析方向'}
+                            {t('intent_selection_desc')}
                         </p>
                     </div>
                     <button
@@ -84,13 +84,13 @@ const IntentSelectionModal: React.FC<IntentSelectionModalProps> = ({
                         onClick={onSkip}
                         className="text-sm text-slate-600 dark:text-[#808080] hover:text-slate-900 dark:hover:text-[#d4d4d4] underline"
                     >
-                        {t('skip_and_analyze') || '跳过并直接分析'}
+                        {t('skip_and_analyze')}
                     </button>
                     <button
                         onClick={onCancel}
                         className="px-4 py-2 text-sm text-slate-600 dark:text-[#808080] hover:text-slate-900 dark:hover:text-[#d4d4d4] font-medium"
                     >
-                        {t('cancel') || '取消'}
+                        {t('cancel')}
                     </button>
                 </div>
             </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2 } from 'lucide-react';
@@ -72,7 +72,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
                         className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
-                        {isDeleting ? t('deleting') || '删除中...' : getConfirmButton()}
+                        {isDeleting ? t('deleting') : getConfirmButton()}
                     </button>
                 </div>
             </div>

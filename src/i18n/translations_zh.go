@@ -434,6 +434,14 @@ var chineseTranslations = map[string]string{
 	"license_client.connect_failed":        "连接服务器失败: %v",
 	"license_client.read_response_failed":  "读取响应失败: %v",
 	"license_client.parse_response_failed": "解析响应失败: %v",
+	"license_client.decrypt_failed":        "解密失败: %v",
+	"license_client.parse_config_failed":   "解析配置失败: %v",
+	"license_client.credits_insufficient":  "Credits 不足，剩余 %.1f credits，每次分析需要 %.1f credits",
+	"license_client.daily_limit_reached":   "今日分析次数已达上限（%d次），请明天再试",
+	"license_client.first_use":             "首次使用，需要验证授权",
+	"license_client.trial_label":           "试用版",
+	"license_client.official_label":        "正式版",
+	"license_client.refresh_needed":        "%s授权需要刷新（已超过%d天）",
 
 	// 使用授权
 	"usage.expired":                   "使用权限已过期，请续费",
@@ -447,4 +455,93 @@ var chineseTranslations = map[string]string{
 
 	// SQL 验证
 	"sql.readonly_violation":          "检测到非只读SQL操作: %s (只允许SELECT查询)",
+
+	// 仪表盘导出对话框
+	"dashboard.export_pdf_title":        "导出仪表盘为PDF",
+	"dashboard.export_excel_title":      "导出仪表盘数据为Excel",
+	"dashboard.export_ppt_title":        "导出仪表盘为PPT",
+	"dashboard.export_word_title":       "导出仪表盘为Word",
+	"dashboard.export_table_title":      "导出表格为Excel",
+	"dashboard.export_message_pdf_title": "导出分析结果为PDF",
+	"dashboard.filter_pdf":              "PDF文件",
+	"dashboard.filter_excel":            "Excel文件",
+	"dashboard.filter_ppt":              "PowerPoint文件",
+	"dashboard.filter_word":             "Word文件",
+	"dashboard.sheet_fallback":          "表格%d",
+	"dashboard.sheet_default":           "数据分析",
+	"dashboard.export_result_label":     "分析结果导出",
+	"dashboard.generate_excel_failed":   "Excel生成失败: %v",
+	"dashboard.generate_pdf_failed":     "PDF生成失败: %v",
+	"dashboard.generate_ppt_failed":     "PPT生成失败: %v",
+	"dashboard.generate_word_failed":    "Word生成失败: %v",
+	"dashboard.refresh_failed":          "刷新失败: %v",
+
+	// 分析上下文
+	"context.message_number":            "%s %s (消息 #%d):\n%s",
+	"context.tables_involved":           "📊 涉及数据表: %s",
+	"context.analysis_topic":            "🎯 分析主题: %s",
+	"context.key_data":                  "📈 关键数据: %s",
+
+	// 分析错误
+	"analysis.error_format":             "❌ **错误** [%s]\n\n%s",
+	"analysis.timeout_detail":           "分析超时（已运行 %d分%d秒）。请尝试简化查询或稍后重试。",
+	"analysis.timeout_request":          "分析请求超时。请尝试简化查询或稍后重试。",
+	"analysis.network_error_msg":        "网络连接错误。请检查网络连接后重试。",
+	"analysis.database_error_msg":       "数据库查询错误。请检查数据源配置或查询条件。",
+	"analysis.python_error_msg":         "Python 执行错误。请检查分析代码或数据格式。",
+	"analysis.llm_error_msg":            "AI 模型调用错误。请检查 API 配置或稍后重试。",
+	"analysis.error_detail":             "分析过程中发生错误: %s",
+	"analysis.cancelled_msg":            "⚠️ 分析已取消。",
+	"analysis.error_with_detail":        "❌ **分析出错** [%s]\n\n%s\n\n<details><summary>详细错误信息</summary>\n\n```\n%s\n```\n</details>",
+	"analysis.timing":                   "\n\n---\n⏱️ 分析耗时: %d分%d秒",
+	"analysis.timing_check":             "⏱️ 分析耗时:",
+	"analysis.queue_wait":               "等待分析队列中...（当前 %d/%d 个任务进行中）",
+	"analysis.queue_timeout":            "等待分析队列超时（已等待 %v）。当前有 %d 个分析任务进行中。请稍后重试。",
+	"analysis.queue_wait_elapsed":       "等待分析队列中...（已等待 %v，当前 %d/%d 个任务进行中）",
+	"analysis.max_concurrent":           "当前已有 %d 个分析会话进行中（最大并发数：%d）。请等待部分分析完成后再开始新的分析，或在设置中增加最大并发分析任务数。",
+
+	// 会话
+	"session.analysis_prefix":           "分析: %s",
+	"session.analysis_prompt":           "请分析数据源 '%s' (%s)，提供数据概览、关键指标和洞察。",
+
+	// 位置
+	"location.label":                    "📍 位置: %s",
+
+	// 授权刷新
+	"license_refresh.not_activated":     "未激活，无法刷新",
+	"license_refresh.no_sn":             "未找到序列号",
+	"license_refresh.no_server":         "未找到授权服务器地址",
+	"license_refresh.failed":            "刷新失败: %v",
+	"license_refresh.invalid_sn":        "序列号无效，已切换到开源模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.sn_expired":        "序列号已过期，已切换到开源模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.sn_disabled":       "序列号已被禁用，已切换到开源模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.default_invalid":   "授权已失效，已切换到开源模式。请使用您自己的 LLM API 配置。",
+
+	// 数据源导出元数据
+	"datasource.export_description":     "数据源 %s",
+	"datasource.export_subject":         "数据源导出",
+
+	// 位置工具
+	"location.current_city":             "当前位置: %s, %s (精度: %.0f米)",
+	"location.current_address":          "当前位置: %s (精度: %.0f米)",
+	"location.current_coords":           "当前位置: 纬度 %.6f, 经度 %.6f (精度: %.0f米)",
+	"location.config":                   "用户设置位置: %s, %s",
+	"location.ip_based":                 "IP定位: %s, %s (精度: 约%.0f米)",
+	"location.unavailable":              "无法获取位置信息: %s。请直接询问用户所在城市，或使用默认城市（如北京）进行查询。",
+
+	// 导出工具
+	"export.file_generated":             "✅ %s文件已生成: %s (%.2f KB)\n\n文件已保存到会话目录，可以在界面中下载。",
+
+	// 内存提取器
+	"memory.table_columns":              "表 %s 包含字段: %s",
+	"memory.field_values":               "字段 %s 的可能值: %s",
+
+	// 排除管理器
+	"exclusion.header":                  "已排除%d个分析方向，分为%d类：\n",
+	"exclusion.footer":                  "请从其他角度理解用户意图。",
+	"exclusion.count_format":            "- %s（%d项）\n",
+
+	// 上下文记忆
+	"context.no_compressed_history":     "暂无压缩历史（对话足够短，全部保留在短期记忆中）",
+	"context.ai_summary_header":         "📚 AI 自动生成的对话摘要:",
 }

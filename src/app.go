@@ -3,21 +3,16 @@ package main
 import (
 	"archive/zip"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	gort "runtime"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"vantagedata/agent"
@@ -105,45 +100,36 @@ type DashboardData struct {
 // App struct
 type App struct {
 	ctx                      context.Context
+	registry                 *ServiceRegistry
+	configService            *ConfigService
+	chatFacadeService        *ChatFacadeService
+	dataSourceFacadeService  *DataSourceFacadeService
+	analysisFacadeService    *AnalysisFacadeService
+	exportFacadeService      *ExportFacadeService
+	dashboardFacadeService   *DashboardFacadeService
+	licenseFacadeService     *LicenseFacadeService
+	marketplaceFacadeService *MarketplaceFacadeService
+	skillFacadeService       *SkillFacadeService
+	pythonFacadeService      *PythonFacadeService
+	connectionTestService    *ConnectionTestService
 	chatService              *ChatService
 	pythonService            *agent.PythonService
 	dataSourceService        *agent.DataSourceService
 	memoryService            *agent.MemoryService
 	workingContextManager    *agent.WorkingContextManager
 	analysisPathManager      *agent.AnalysisPathManager
-	preferenceLearner          *agent.PreferenceLearner
-	intentEnhancementService   *agent.IntentEnhancementService
-	intentUnderstandingService *agent.IntentUnderstandingService
-	einoService                *agent.EinoService
-	skillService             *agent.SkillService
+	einoService              *agent.EinoService
 	searchKeywordsManager    *agent.SearchKeywordsManager
 	storageDir               string
 	logger                   *logger.Logger
-	activeThreads            map[string]bool // Track active analysis sessions by thread ID
-	activeThreadsMutex       sync.RWMutex    // Protect activeThreads map
-	isChatOpen               bool
-	cancelAnalysisMutex      sync.Mutex
-	cancelAnalysis           bool
-	activeThreadID           string
-	// Dashboard drag-drop layout services
-	layoutService *database.LayoutService
-	dataService   *database.DataService
-	fileService   *database.FileService
-	exportService *database.ExportService
 	// Event aggregator for analysis results
 	eventAggregator *EventAggregator
 	// License client for activation
-	licenseClient             *agent.LicenseClient
-	licenseActivationFailed   bool   // True if license activation/refresh failed
-	licenseActivationError    string // Error message to show user
-	// Marketplace client for pack sharing
-	marketplaceClient *MarketplaceClient
+	licenseClient           *agent.LicenseClient
+	licenseActivationFailed bool   // True if license activation/refresh failed
+	licenseActivationError  string // Error message to show user
 	// Usage license store for local billing enforcement
 	usageLicenseStore *UsageLicenseStore
-	// Pending usage queue for offline usage report retry
-	pendingUsageQueue *PendingUsageQueue
-	// flushUsageMu prevents concurrent FlushPendingUsageReports calls
-	flushUsageMu sync.Mutex
 	// Pack passwords from marketplace downloads (filePath -> encryption password)
 	packPasswords map[string]string
 	// Persistent pack password store (survives app restarts)
@@ -159,18 +145,23 @@ type AgentMemoryView struct {
 
 // NewApp creates a new App application struct
 func NewApp() *App {
+	l := logger.NewLogger()
+	ps := agent.NewPythonService()
 	return &App{
-		pythonService: agent.NewPythonService(),
-		logger:        logger.NewLogger(),
-		activeThreads: make(map[string]bool),
-		isChatOpen:    false,
-		packPasswords: make(map[string]string),
+		configService:       NewConfigService(l.Log),
+		pythonService:       ps,
+		pythonFacadeService: NewPythonFacadeService(ps, l.Log),
+		logger:              l,
+		packPasswords:       make(map[string]string),
 	}
 }
 
 // SetChatOpen updates the chat open state
 func (a *App) SetChatOpen(isOpen bool) {
-	a.isChatOpen = isOpen
+	if a.chatFacadeService == nil {
+		return
+	}
+	a.chatFacadeService.SetChatOpen(isOpen)
 }
 
 // ShowAbout displays the about dialog
@@ -196,84 +187,27 @@ func (a *App) OpenDevTools() {
 // tryLicenseActivationWithRetry attempts license activation with exponential backoff retry.
 // operation should be "Activation" or "Refresh" for logging purposes.
 func (a *App) tryLicenseActivationWithRetry(cfg *config.Config, operation string) {
-	const maxRetries = 10
-	const maxBackoff = 60 * time.Second
-
-	success := false
-	var lastErr error
-	var serverRejected bool
-	var rejectionCode string
-
-	for retry := 0; retry < maxRetries; retry++ {
-		if retry > 0 {
-			backoff := time.Duration(1<<retry) * time.Second
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-			a.Log(fmt.Sprintf("[STARTUP] %s retry %d/%d in %v...", operation, retry+1, maxRetries, backoff))
-			time.Sleep(backoff)
-		}
-		result, err := a.licenseClient.Activate(cfg.LicenseServerURL, cfg.LicenseSN)
-		if err != nil {
-			lastErr = err
-			a.Log(fmt.Sprintf("[STARTUP] %s attempt %d failed: %v", operation, retry+1, err))
-			continue
-		}
-		if !result.Success {
-			lastErr = fmt.Errorf("%s", result.Message)
-			a.Log(fmt.Sprintf("[STARTUP] %s attempt %d rejected: %s (code: %s)", operation, retry+1, result.Message, result.Code))
-			if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
-				serverRejected = true
-				rejectionCode = result.Code
-				break
-			}
-			continue
-		}
-		success = true
-		a.Log(fmt.Sprintf("[STARTUP] License %s successful", strings.ToLower(operation)))
-		if saveErr := a.licenseClient.SaveActivationData(); saveErr != nil {
-			a.Log(fmt.Sprintf("[STARTUP] Warning: failed to save %s data: %v", strings.ToLower(operation), saveErr))
-		}
-		break
+	if a.licenseFacadeService == nil {
+		a.Log("[STARTUP] License facade service not initialized, skipping license activation")
+		return
 	}
-
-	if !success {
-		if serverRejected {
-			a.Log(fmt.Sprintf("[STARTUP] License rejected by server (code: %s), switching to open source mode", rejectionCode))
-			a.licenseClient.ClearSavedData()
-			a.licenseClient.Clear()
-			cfg.LicenseSN = ""
-			cfg.LicenseServerURL = ""
-			a.SaveConfig(*cfg)
-		} else {
-			a.Log(fmt.Sprintf("[STARTUP] FATAL: License %s failed after %d retries: %v", strings.ToLower(operation), maxRetries, lastErr))
-			a.licenseActivationFailed = true
-			i18nKey := "app.license_activation_failed"
-			if operation == "Refresh" {
-				i18nKey = "app.license_refresh_failed"
-			}
-			a.licenseActivationError = i18n.T(i18nKey, lastErr)
-		}
-	}
+	a.licenseFacadeService.tryLicenseActivationWithRetry(cfg, operation)
+	// Sync activation failure state back to App for startup flow
+	a.licenseActivationFailed = a.licenseFacadeService.CheckLicenseActivationFailed()
+	a.licenseActivationError = a.licenseFacadeService.GetLicenseActivationError()
 }
 
 // onBeforeClose is called when the application is about to close
 func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 	// Check if cancellation was requested - if so, wait a moment for cleanup
-	a.cancelAnalysisMutex.Lock()
-	cancelRequested := a.cancelAnalysis
-	a.cancelAnalysisMutex.Unlock()
-
-	if cancelRequested {
+	if a.chatFacadeService != nil && a.chatFacadeService.IsCancelRequested() {
 		// Wait briefly for the cancellation to complete
 		a.Log("[CLOSE-DIALOG] Cancel was requested, waiting for cleanup...")
 		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Only prevent close if there's an active analysis running
-	a.activeThreadsMutex.RLock()
-	hasActiveAnalysis := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
+	hasActiveAnalysis := a.chatFacadeService != nil && a.chatFacadeService.HasActiveAnalysis()
 
 	if hasActiveAnalysis {
 		title := i18n.T("app.confirm_exit_title")
@@ -360,7 +294,11 @@ func (a *App) shutdown(ctx context.Context) {
 			a.Log("[SHUTDOWN] EinoService close timed out after 5s, forcing shutdown")
 		}
 	}
-	// Close logger
+	// Shutdown all registered services via ServiceRegistry (reverse registration order)
+	if a.registry != nil {
+		a.registry.ShutdownAll()
+	}
+	// Close logger last - other services may need to log during shutdown
 	a.logger.Close()
 }
 
@@ -374,6 +312,10 @@ func (a *App) startup(ctx context.Context) {
 
 	// Start system tray (Windows/Linux only, handled by build tags)
 	runSystray(ctx)
+
+	// Create ServiceRegistry for lifecycle management
+	a.registry = NewServiceRegistry(ctx, a.Log)
+	a.Log("[STARTUP] ServiceRegistry created")
 
 	// Load config to get DataCacheDir
 	cfg, err := a.GetConfig()
@@ -418,17 +360,17 @@ func (a *App) startup(ctx context.Context) {
 		a.Log("[STARTUP] Analysis path manager initialized")
 
 		// Initialize preference learner for user behavior tracking
-		a.preferenceLearner = agent.NewPreferenceLearner(dataDir)
+		preferenceLearner := agent.NewPreferenceLearner(dataDir)
 		a.Log("[STARTUP] Preference learner initialized")
 
 		// Initialize intent enhancement service for improved intent understanding
-		a.intentEnhancementService = agent.NewIntentEnhancementService(
+		intentEnhancementService := agent.NewIntentEnhancementService(
 			dataDir,
-			a.preferenceLearner,
+			preferenceLearner,
 			a.memoryService,
 			a.Log,
 		)
-		if err := a.intentEnhancementService.Initialize(); err != nil {
+		if err := intentEnhancementService.Initialize(); err != nil {
 			a.Log(fmt.Sprintf("[STARTUP] Intent enhancement service initialization warning: %v", err))
 		} else {
 			a.Log("[STARTUP] Intent enhancement service initialized successfully")
@@ -436,19 +378,19 @@ func (a *App) startup(ctx context.Context) {
 
 		// Initialize new intent understanding service (simplified architecture)
 		// Validates: Requirements 7.1
-		a.intentUnderstandingService = agent.NewIntentUnderstandingService(
+		intentUnderstandingService := agent.NewIntentUnderstandingService(
 			dataDir,
 			a.dataSourceService,
 			a.Log,
 		)
-		if err := a.intentUnderstandingService.Initialize(); err != nil {
+		if err := intentUnderstandingService.Initialize(); err != nil {
 			a.Log(fmt.Sprintf("[STARTUP] Intent understanding service initialization warning: %v", err))
 		} else {
 			a.Log("[STARTUP] Intent understanding service initialized successfully")
 		}
 
 		// Initialize skill service for skills management
-		a.skillService = agent.NewSkillService(dataDir, a.Log)
+		skillService := agent.NewSkillService(dataDir, a.Log)
 		a.Log("[STARTUP] Skill service initialized")
 
 		// Initialize search keywords manager for intelligent web search detection
@@ -557,26 +499,130 @@ func (a *App) startup(ctx context.Context) {
 		}
 
 		// Initialize dashboard drag-drop layout services after all other services are ready
-		a.fileService = database.NewFileService(dataDir)
+		fileService := database.NewFileService(dataDir)
 		a.Log("[STARTUP] FileService initialized successfully")
 
-		a.dataService = database.NewDataService(dataDir, a.fileService)
+		dataService := database.NewDataService(dataDir, fileService)
 		// Set the data source service to avoid circular dependency
 		if a.dataSourceService != nil {
-			a.dataService.SetDataSourceService(a.dataSourceService)
+			dataService.SetDataSourceService(a.dataSourceService)
 		}
 		a.Log("[STARTUP] DataService initialized successfully")
 
-		a.layoutService = database.NewLayoutService(dataDir)
+		layoutService := database.NewLayoutService(dataDir)
 		a.Log("[STARTUP] LayoutService initialized successfully")
 
-		a.exportService = database.NewExportService(a.dataService, a.layoutService)
+		exportService := database.NewExportService(dataService, layoutService)
 		a.Log("[STARTUP] ExportService initialized successfully")
 
 		// Initialize event aggregator for analysis results
 		a.eventAggregator = NewEventAggregator(ctx)
 		a.eventAggregator.SetLogger(a.Log)
 		a.Log("[STARTUP] EventAggregator initialized successfully")
+
+		// === CREATE AND REGISTER SERVICES WITH ServiceRegistry ===
+		// Services are registered in dependency order:
+		// ConfigService → basic services → business services
+		// Requirements: 2.1, 2.2, 2.4
+
+		// 1. Register ConfigService (critical - already created in NewApp)
+		if err := a.registry.RegisterCritical(a.configService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register ConfigService: %v", err))
+		}
+
+		// 2. Create and register ChatFacadeService (critical)
+		a.chatFacadeService = NewChatFacadeService(
+			a.chatService,
+			a.configService,
+			a.einoService,
+			a.eventAggregator,
+			a.Log,
+		)
+		a.chatFacadeService.SetContext(ctx)
+		if a.licenseClient != nil {
+			a.chatFacadeService.SetLicenseClient(a.licenseClient)
+		}
+		if a.searchKeywordsManager != nil {
+			a.chatFacadeService.SetSearchKeywordsManager(a.searchKeywordsManager)
+		}
+		if a.dataSourceService != nil {
+			a.chatFacadeService.SetDataSourceService(a.dataSourceService)
+		}
+		a.chatFacadeService.SetSaveChartDataToFileFn(a.saveChartDataToFile)
+		if err := a.registry.RegisterCritical(a.chatFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register ChatFacadeService: %v", err))
+		}
+
+		// 3. Create and register DataSourceFacadeService (critical)
+		a.dataSourceFacadeService = NewDataSourceFacadeService(
+			a.dataSourceService,
+			a.configService,
+			a.chatService,
+			a.einoService,
+			a.eventAggregator,
+			a.Log,
+		)
+		a.dataSourceFacadeService.SetContext(ctx)
+		if err := a.registry.RegisterCritical(a.dataSourceFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register DataSourceFacadeService: %v", err))
+		}
+
+		// 4. Create and register LicenseFacadeService (non-critical)
+		a.licenseFacadeService = NewLicenseFacadeService(
+			a.configService,
+			a.Log,
+		)
+		a.licenseFacadeService.SetContext(ctx)
+		a.licenseFacadeService.SetChatFacadeService(a.chatFacadeService)
+		a.licenseFacadeService.SetReinitializeServicesFn(a.reinitializeServices)
+		if a.licenseClient != nil {
+			a.licenseFacadeService.SetLicenseClient(a.licenseClient)
+		}
+		if err := a.registry.Register(a.licenseFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register LicenseFacadeService: %v", err))
+		}
+
+		// 5. Create and register AnalysisFacadeService (non-critical)
+		a.analysisFacadeService = NewAnalysisFacadeService(
+			a.chatService,
+			a.configService,
+			a.dataSourceService,
+			a.einoService,
+			a.eventAggregator,
+			dataDir,
+			a.Log,
+		)
+		a.analysisFacadeService.SetContext(ctx)
+		if err := a.registry.Register(a.analysisFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register AnalysisFacadeService: %v", err))
+		}
+
+		// 6. Create and register ExportFacadeService (non-critical)
+		a.exportFacadeService = NewExportFacadeService(
+			a.dataSourceService,
+			a.chatService,
+			a.einoService,
+			a.Log,
+		)
+		a.exportFacadeService.SetContext(ctx)
+		if err := a.registry.Register(a.exportFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register ExportFacadeService: %v", err))
+		}
+
+		// 7. Create and register DashboardFacadeService (non-critical)
+		a.dashboardFacadeService = NewDashboardFacadeService(
+			a.dataSourceService,
+			a.configService,
+			layoutService,
+			dataService,
+			fileService,
+			exportService,
+			a.Log,
+		)
+		a.dashboardFacadeService.SetContext(ctx)
+		if err := a.registry.Register(a.dashboardFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register DashboardFacadeService: %v", err))
+		}
 
 		// Initialize usage license store for local billing enforcement
 		uls, err := NewUsageLicenseStore()
@@ -588,26 +634,6 @@ func (a *App) startup(ctx context.Context) {
 			}
 			a.usageLicenseStore = uls
 			a.Log("[STARTUP] UsageLicenseStore initialized successfully")
-		}
-
-		// Initialize pending usage queue for offline usage report retry
-		puq, err := NewPendingUsageQueue()
-		if err != nil {
-			a.Log(fmt.Sprintf("[STARTUP] Failed to create PendingUsageQueue: %v", err))
-		} else {
-			if err := puq.Load(); err != nil {
-				a.Log(fmt.Sprintf("[STARTUP] Failed to load pending usage queue: %v", err))
-			}
-			a.pendingUsageQueue = puq
-			a.Log("[STARTUP] PendingUsageQueue initialized successfully")
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						a.Log(fmt.Sprintf("[STARTUP] FlushPendingUsageReports goroutine recovered from panic: %v", r))
-					}
-				}()
-				a.FlushPendingUsageReports()
-			}()
 		}
 
 		// Initialize pack password store (persists marketplace pack passwords across restarts)
@@ -622,6 +648,65 @@ func (a *App) startup(ctx context.Context) {
 			// Load persisted passwords into the in-memory map for backward compatibility
 			pps.LoadIntoMap(a.packPasswords)
 			a.Log("[STARTUP] PackPasswordStore initialized successfully")
+		}
+
+		// 8. Create and register MarketplaceFacadeService (non-critical)
+		a.marketplaceFacadeService = NewMarketplaceFacadeService(
+			a.configService,
+			a.Log,
+		)
+		a.marketplaceFacadeService.SetContext(ctx)
+		if a.licenseClient != nil {
+			a.marketplaceFacadeService.SetLicenseClient(a.licenseClient)
+		}
+		if err := a.registry.Register(a.marketplaceFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register MarketplaceFacadeService: %v", err))
+		}
+
+		// 9. Create and register SkillFacadeService (non-critical)
+		a.skillFacadeService = NewSkillFacadeService(
+			skillService,
+			a.einoService,
+			a.chatFacadeService,
+			a.Log,
+		)
+		a.skillFacadeService.SetContext(ctx)
+		if err := a.registry.Register(a.skillFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register SkillFacadeService: %v", err))
+		}
+
+		// 10. Create and register PythonFacadeService (non-critical)
+		a.pythonFacadeService = NewPythonFacadeService(
+			a.pythonService,
+			a.Log,
+		)
+		a.pythonFacadeService.SetContext(ctx)
+		if err := a.registry.Register(a.pythonFacadeService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register PythonFacadeService: %v", err))
+		}
+
+		// 11. Create and register ConnectionTestService (non-critical)
+		a.connectionTestService = NewConnectionTestService(
+			a.configService,
+			a.Log,
+		)
+		if a.licenseClient != nil {
+			a.connectionTestService.SetLicenseClient(a.licenseClient)
+		}
+		a.connectionTestService.SetContext(ctx)
+		if err := a.registry.Register(a.connectionTestService); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Failed to register ConnectionTestService: %v", err))
+		}
+
+		// === INITIALIZE ALL REGISTERED SERVICES ===
+		// InitializeAll() calls Initialize(ctx) on each service in registration order.
+		// Critical services (ConfigService, ChatFacadeService, DataSourceFacadeService)
+		// will cause startup failure if they fail. Non-critical services degrade gracefully.
+		// Requirements: 2.1, 2.2, 2.4
+		if err := a.registry.InitializeAll(); err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] ServiceRegistry initialization failed: %v", err))
+		} else {
+			a.Log("[STARTUP] All services initialized via ServiceRegistry")
 		}
 	}
 
@@ -1688,7 +1773,9 @@ func (a *App) UpdateApplicationMenu(language string) {
 	a.Log(fmt.Sprintf("Application menu updated to language: %s", language))
 }
 
-// reinitializeServices reinitializes services that depend on configuration
+// reinitializeServices reinitializes services that depend on configuration.
+// Uses the ServiceRegistry to look up and update affected facade services.
+// Requirements: 2.1
 func (a *App) reinitializeServices(cfg config.Config) {
 	// Check if we have activated license with LLM config
 	if a.licenseClient != nil && a.licenseClient.IsActivated() {
@@ -1723,9 +1810,9 @@ func (a *App) reinitializeServices(cfg config.Config) {
 			a.Log(fmt.Sprintf("[REINIT] Mapped LLM config: Provider=%s, Model=%s, BaseURL=%s", cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
 		}
 	}
-	
+
 	// Reinitialize MemoryService if configuration changed
-	if a.memoryService != nil { // Original condition, keeping it as the provided `oldPath != path` is out of context.
+	if a.memoryService != nil {
 		a.memoryService = agent.NewMemoryService(cfg)
 		a.Log("MemoryService reinitialized with new configuration")
 	}
@@ -1759,10 +1846,62 @@ func (a *App) reinitializeServices(cfg config.Config) {
 			}
 			a.einoService = es
 			a.Log("EinoService reinitialized with new configuration")
+
+			// Update all facade services that depend on EinoService via the registry
+			a.updateRegisteredServicesEino(es)
 		}
 	}
 
 	// Note: LLMService is created fresh for each request in SendMessage, so no reinitialization needed
+}
+
+// updateRegisteredServicesEino updates all registered facade services that hold
+// an EinoService reference. Uses the ServiceRegistry to look up services by name.
+func (a *App) updateRegisteredServicesEino(es *agent.EinoService) {
+	if a.registry == nil {
+		a.Log("[REINIT] ServiceRegistry not available, skipping facade service updates")
+		return
+	}
+
+	// Update ChatFacadeService
+	if svc, ok := a.registry.Get("chat"); ok {
+		if chatSvc, ok := svc.(*ChatFacadeService); ok {
+			chatSvc.SetEinoService(es)
+			a.Log("[REINIT] ChatFacadeService updated with new EinoService")
+		}
+	}
+
+	// Update DataSourceFacadeService
+	if svc, ok := a.registry.Get("datasource"); ok {
+		if dsSvc, ok := svc.(*DataSourceFacadeService); ok {
+			dsSvc.SetEinoService(es)
+			a.Log("[REINIT] DataSourceFacadeService updated with new EinoService")
+		}
+	}
+
+	// Update AnalysisFacadeService
+	if svc, ok := a.registry.Get("analysis"); ok {
+		if analysisSvc, ok := svc.(*AnalysisFacadeService); ok {
+			analysisSvc.SetEinoService(es)
+			a.Log("[REINIT] AnalysisFacadeService updated with new EinoService")
+		}
+	}
+
+	// Update ExportFacadeService
+	if svc, ok := a.registry.Get("export"); ok {
+		if exportSvc, ok := svc.(*ExportFacadeService); ok {
+			exportSvc.SetEinoService(es)
+			a.Log("[REINIT] ExportFacadeService updated with new EinoService")
+		}
+	}
+
+	// Update SkillFacadeService
+	if svc, ok := a.registry.Get("skill"); ok {
+		if skillSvc, ok := svc.(*SkillFacadeService); ok {
+			skillSvc.SetEinoService(es)
+			a.Log("[REINIT] SkillFacadeService updated with new EinoService")
+		}
+	}
 }
 
 func (a *App) Greet(name string) string {
@@ -1777,123 +1916,26 @@ type ConnectionResult struct {
 
 // TestLLMConnection tests the connection to an LLM provider
 func (a *App) TestLLMConnection(cfg config.Config) ConnectionResult {
-	// Check if we have activated license with LLM config
-	if a.licenseClient != nil && a.licenseClient.IsActivated() {
-		activationData := a.licenseClient.GetData()
-		if activationData != nil && activationData.LLMAPIKey != "" {
-			// Use activated LLM config
-			a.Log("[TEST-LLM] Using activated license LLM configuration")
-			cfg.LLMProvider = activationData.LLMType
-			cfg.APIKey = activationData.LLMAPIKey
-			cfg.BaseURL = activationData.LLMBaseURL
-			cfg.ModelName = activationData.LLMModel
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-	
-	llm := agent.NewLLMService(cfg, a.Log)
-	_, err := llm.Chat(a.ctx, "hi LLM, I'm just test the connection. Just answer ok to me without other infor.")
-	if err != nil {
-		return ConnectionResult{
-			Success: false,
-			Message: err.Error(),
-		}
-	}
-
-	return ConnectionResult{
-		Success: true,
-		Message: "Connection successful!",
-	}
+	return a.connectionTestService.TestLLMConnection(cfg)
 }
 
 // TestMCPService tests the connection to an MCP service
 func (a *App) TestMCPService(url string) ConnectionResult {
-	if url == "" {
-		return ConnectionResult{
-			Success: false,
-			Message: "MCP service URL is required",
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// Try to make a simple GET request to check if the service is reachable
-	resp, err := client.Get(url)
-	if err != nil {
-		return ConnectionResult{
-			Success: false,
-			Message: fmt.Sprintf("Failed to connect: %v", err),
-		}
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return ConnectionResult{
-			Success: true,
-			Message: fmt.Sprintf("MCP service is reachable (HTTP %d)", resp.StatusCode),
-		}
-	}
-
-	// Even if status is not 2xx, if we got a response, the service is reachable
-	return ConnectionResult{
-		Success: true,
-		Message: fmt.Sprintf("MCP service responded (HTTP %d)", resp.StatusCode),
-	}
+	return a.connectionTestService.TestMCPService(url)
 }
 
 // TestSearchEngine tests if a search engine is accessible
 func (a *App) TestSearchEngine(url string) ConnectionResult {
-	if url == "" {
-		return ConnectionResult{
-			Success: false,
-			Message: "Search engine URL is required",
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	// Ensure URL has protocol
-	testURL := url
-	if !strings.HasPrefix(testURL, "http://") && !strings.HasPrefix(testURL, "https://") {
-		testURL = "https://" + testURL
-	}
-
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Allow redirects
-			return nil
-		},
-	}
-
-	// Try to make a HEAD request first (faster)
-	resp, err := client.Head(testURL)
-	if err != nil {
-		// Try GET if HEAD fails
-		resp, err = client.Get(testURL)
-		if err != nil {
-			return ConnectionResult{
-				Success: false,
-				Message: fmt.Sprintf("Failed to connect: %v", err),
-			}
-		}
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		return ConnectionResult{
-			Success: true,
-			Message: fmt.Sprintf("Search engine is accessible (HTTP %d)", resp.StatusCode),
-		}
-	}
-
-	return ConnectionResult{
-		Success: false,
-		Message: fmt.Sprintf("Search engine returned HTTP %d", resp.StatusCode),
-	}
+	return a.connectionTestService.TestSearchEngine(url)
 }
 
 // TestSearchTools tests web_search and web_fetch tools with a sample query
@@ -1901,275 +1943,49 @@ func (a *App) TestSearchEngine(url string) ConnectionResult {
 // Search functionality now uses Search API (search_api_tool.go)
 // Web fetch functionality now uses HTTP client (web_fetch_tool.go)
 func (a *App) TestSearchTools(engineURL string) ConnectionResult {
-	// Get user's language preference
-	cfg, _ := a.GetConfig()
-	lang := cfg.Language
-	isChinese := lang == "简体中文"
-
-	msg := "Search tools test is deprecated. Please use Search API configuration instead."
-	if isChinese {
-		msg = "搜索工具测试已弃用。请改用搜索API配置。"
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	return ConnectionResult{
-		Success: false,
-		Message: msg,
-	}
+	return a.connectionTestService.TestSearchTools(engineURL)
 }
 
 // TestProxy tests if a proxy server is accessible
 func (a *App) TestProxy(proxyConfig config.ProxyConfig) ConnectionResult {
-	if proxyConfig.Host == "" {
-		return ConnectionResult{
-			Success: false,
-			Message: "Proxy host is required",
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	if proxyConfig.Port <= 0 || proxyConfig.Port > 65535 {
-		return ConnectionResult{
-			Success: false,
-			Message: "Invalid proxy port",
-		}
-	}
-
-	// Determine protocol
-	protocol := strings.ToLower(proxyConfig.Protocol)
-	if protocol == "" {
-		protocol = "http"
-	}
-
-	// Test proxy by making a request through it
-	// Use a reliable test URL
-	testURL := "https://www.google.com"
-
-	// Build proxy URL for http.Transport
-	var proxyUser *url.Userinfo
-	if proxyConfig.Username != "" {
-		if proxyConfig.Password != "" {
-			proxyUser = url.UserPassword(proxyConfig.Username, proxyConfig.Password)
-		} else {
-			proxyUser = url.User(proxyConfig.Username)
-		}
-	}
-
-	// Create HTTP client with proxy
-	client := &http.Client{
-		Timeout: 15 * time.Second,
-		Transport: &http.Transport{
-			Proxy: http.ProxyURL(&url.URL{
-				Scheme: protocol,
-				Host:   fmt.Sprintf("%s:%d", proxyConfig.Host, proxyConfig.Port),
-				User:   proxyUser,
-			}),
-		},
-	}
-
-	// Try to make a HEAD request
-	resp, err := client.Head(testURL)
-	if err != nil {
-		return ConnectionResult{
-			Success: false,
-			Message: fmt.Sprintf("Proxy connection failed: %v", err),
-		}
-	}
-	defer resp.Body.Close()
-
-	// Check status code
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		return ConnectionResult{
-			Success: true,
-			Message: fmt.Sprintf("Proxy is working (HTTP %d)", resp.StatusCode),
-		}
-	}
-
-	return ConnectionResult{
-		Success: true,
-		Message: fmt.Sprintf("Proxy connected but returned HTTP %d", resp.StatusCode),
-	}
+	return a.connectionTestService.TestProxy(proxyConfig)
 }
 
 // TestUAPIConnection tests the connection to UAPI service
 func (a *App) TestUAPIConnection(apiToken, baseURL string) ConnectionResult {
-	if apiToken == "" {
-		return ConnectionResult{
-			Success: false,
-			Message: "API Token is required",
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	a.logger.Log("[UAPI-TEST] Starting UAPI connection test...")
-
-	// Create UAPI search tool
-	uapiTool, err := agent.NewUAPISearchTool(a.logger.Log, apiToken)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to create UAPI tool: %v", err)
-		a.logger.Log(fmt.Sprintf("[UAPI-TEST] %s", errMsg))
-		return ConnectionResult{
-			Success: false,
-			Message: errMsg,
-		}
-	}
-
-	// Test with a simple search query
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	testInput := `{"query": "test", "max_results": 1, "source": "general"}`
-	result, err := uapiTool.InvokableRun(ctx, testInput)
-	if err != nil {
-		errMsg := fmt.Sprintf("UAPI search test failed: %v", err)
-		a.logger.Log(fmt.Sprintf("[UAPI-TEST] %s", errMsg))
-		return ConnectionResult{
-			Success: false,
-			Message: errMsg,
-		}
-	}
-
-	a.logger.Log(fmt.Sprintf("[UAPI-TEST] Test successful, result: %s", result))
-
-	return ConnectionResult{
-		Success: true,
-		Message: "UAPI connection successful",
-	}
+	return a.connectionTestService.TestUAPIConnection(apiToken, baseURL)
 }
 
 // TestSearchAPI tests a search API configuration
 func (a *App) TestSearchAPI(apiConfig config.SearchAPIConfig) ConnectionResult {
-	a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] Testing %s...", apiConfig.Name))
-
-	// Load proxy config for search API testing
-	currentCfg, _ := a.GetConfig()
-
-	// Create search API tool
-	searchTool, err := agent.NewSearchAPITool(a.logger.Log, &apiConfig, currentCfg.ProxyConfig)
-	if err != nil {
-		errMsg := fmt.Sprintf("Failed to create search tool: %v", err)
-		a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s", errMsg))
-		return ConnectionResult{
-			Success: false,
-			Message: errMsg,
-		}
+	if a.connectionTestService == nil {
+		return ConnectionResult{Success: false, Message: "connection test service not initialized"}
 	}
-
-	// Test with a simple search query
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	testInput := `{"query": "test search", "max_results": 3}`
-	result, err := searchTool.InvokableRun(ctx, testInput)
-	if err != nil {
-		errMsg := fmt.Sprintf("%s test failed: %v", apiConfig.Name, err)
-		a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s", errMsg))
-		return ConnectionResult{
-			Success: false,
-			Message: errMsg,
-		}
-	}
-
-	a.logger.Log(fmt.Sprintf("[SEARCH-API-TEST] %s test successful, result: %s", apiConfig.Name, result))
-
-	return ConnectionResult{
-		Success: true,
-		Message: fmt.Sprintf("%s connection successful", apiConfig.Name),
-	}
+	return a.connectionTestService.TestSearchAPI(apiConfig)
 }
 
 func (a *App) getDashboardTranslations(lang string) map[string]string {
-	if lang == "简体中文" {
-		return map[string]string{
-			"Data Sources":  "数据源",
-			"Total":         "总计",
-			"Files":         "文件",
-			"Local":         "本地",
-			"Databases":     "数据库",
-			"Connected":     "已连接",
-			"Tables":        "数据表",
-			"Analyzed":      "已分析",
-			"ConnectPrompt": "连接数据源以开始使用。",
-			"Analyze":       "分析",
-		}
+	if a.dashboardFacadeService == nil {
+		return map[string]string{}
 	}
-	return map[string]string{
-		"Data Sources":  "Data Sources",
-		"Total":         "Total",
-		"Files":         "Files",
-		"Local":         "Local",
-		"Databases":     "Databases",
-		"Connected":     "Connected",
-		"Tables":        "Tables",
-		"Analyzed":      "Analyzed",
-		"ConnectPrompt": "Connect a data source to get started.",
-		"Analyze":       "Analyze",
-	}
+	return a.dashboardFacadeService.getDashboardTranslations(lang)
 }
 
 // GetDashboardData returns summary statistics and insights about data sources
 func (a *App) GetDashboardData() DashboardData {
-	if a.dataSourceService == nil {
+	if a.dashboardFacadeService == nil {
 		return DashboardData{}
 	}
-
-	cfg, _ := a.GetConfig()
-	tr := a.getDashboardTranslations(cfg.Language)
-
-	sources, _ := a.dataSourceService.LoadDataSources()
-
-	var excelCount, dbCount int
-	var totalTables int
-
-	for _, ds := range sources {
-		if ds.Type == "excel" || ds.Type == "csv" {
-			excelCount++
-		} else {
-			dbCount++
-		}
-
-		if ds.Analysis != nil {
-			totalTables += len(ds.Analysis.Schema)
-		}
-	}
-
-	metrics := []Metric{
-		{Title: tr["Data Sources"], Value: fmt.Sprintf("%d", len(sources)), Change: tr["Total"]},
-		{Title: tr["Files"], Value: fmt.Sprintf("%d", excelCount), Change: tr["Local"]},
-		{Title: tr["Databases"], Value: fmt.Sprintf("%d", dbCount), Change: tr["Connected"]},
-		{Title: tr["Tables"], Value: fmt.Sprintf("%d", totalTables), Change: tr["Analyzed"]},
-	}
-
-	var insights []Insight
-	for _, ds := range sources {
-		desc := ds.Name
-		if ds.Analysis != nil && ds.Analysis.Summary != "" {
-			desc = ds.Analysis.Summary
-			if len(desc) > 80 {
-				desc = desc[:77] + "..."
-			}
-		}
-
-		icon := "info"
-		if ds.Type == "excel" {
-			icon = "file-text"
-		} else if ds.Type == "mysql" {
-			icon = "database"
-		}
-
-		insights = append(insights, Insight{
-			Text:         fmt.Sprintf("%s %s (%s)", tr["Analyze"], ds.Name, ds.Type),
-			Icon:         icon,
-			DataSourceID: ds.ID,
-			SourceName:   ds.Name,
-		})
-	}
-
-	if len(insights) == 0 {
-		insights = append(insights, Insight{Text: tr["ConnectPrompt"], Icon: "info"})
-	}
-
-	return DashboardData{
-		Metrics:  metrics,
-		Insights: insights,
-	}
+	return a.dashboardFacadeService.GetDashboardData()
 }
 
 func (a *App) getLangPrompt(cfg config.Config) string {
@@ -2188,244 +2004,20 @@ func (a *App) getLangPromptFromMessage(message string) string {
 
 // GenerateIntentSuggestions generates possible interpretations of user's intent
 func (a *App) GenerateIntentSuggestions(threadID, userMessage string) ([]IntentSuggestion, error) {
-	return a.GenerateIntentSuggestionsWithExclusions(threadID, userMessage, nil)
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "GenerateIntentSuggestions", fmt.Errorf("analysis facade service not initialized"))
+	}
+	return a.analysisFacadeService.GenerateIntentSuggestions(threadID, userMessage)
 }
 
 // GenerateIntentSuggestionsWithExclusions generates possible interpretations of user's intent,
 // excluding previously generated suggestions
 // Validates: Requirements 5.1, 5.2, 5.3, 2.3, 6.5, 2.2, 7.1
 func (a *App) GenerateIntentSuggestionsWithExclusions(threadID, userMessage string, excludedSuggestions []IntentSuggestion) ([]IntentSuggestion, error) {
-	// Check analysis limit before proceeding (but don't increment yet - only on success)
-	if a.licenseClient != nil && a.licenseClient.IsActivated() {
-		canAnalyze, limitMsg := a.licenseClient.CanAnalyze()
-		if !canAnalyze {
-			return nil, fmt.Errorf("%s", limitMsg)
-		}
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "GenerateIntentSuggestionsWithExclusions", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	cfg, err := a.GetEffectiveConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	// Get data source information for context
-	var dataSourceID string
-	var tableName string
-	var columns []string
-
-	if threadID != "" && a.chatService != nil {
-		threads, _ := a.chatService.LoadThreads()
-		for _, t := range threads {
-			if t.ID == threadID {
-				dataSourceID = t.DataSourceID
-				break
-			}
-		}
-	}
-
-	if dataSourceID != "" && a.dataSourceService != nil {
-		// Get data source
-		dataSources, err := a.dataSourceService.LoadDataSources()
-		if err == nil {
-			for _, ds := range dataSources {
-				if ds.ID == dataSourceID {
-					if ds.Analysis != nil && len(ds.Analysis.Schema) > 0 {
-						tableName = ds.Analysis.Schema[0].TableName
-						columns = ds.Analysis.Schema[0].Columns
-					}
-					break
-				}
-			}
-		}
-
-		// If no analysis available, try to get table info directly
-		if tableName == "" {
-			tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
-			if err == nil && len(tables) > 0 {
-				tableName = tables[0]
-				cols, err := a.dataSourceService.GetDataSourceTableColumns(dataSourceID, tableName)
-				if err == nil {
-					columns = cols
-				}
-			}
-		}
-	}
-
-	// Try to use the new IntentUnderstandingService if available and enabled
-	// Validates: Requirements 7.1, 7.2 - Use new service with fallback to old implementation
-	if a.intentUnderstandingService != nil && a.intentUnderstandingService.IsEnabled() {
-		a.Log("[INTENT] Using new IntentUnderstandingService")
-
-		// Convert language setting
-		language := "en"
-		if cfg.Language == "简体中文" {
-			language = "zh"
-		}
-
-		// Convert excluded suggestions to agent.IntentSuggestion
-		agentExclusions := convertToAgentSuggestions(excludedSuggestions)
-
-		// Create LLM call function
-		llmCall := func(ctx context.Context, prompt string) (string, error) {
-			llm := agent.NewLLMService(cfg, a.Log)
-			return llm.Chat(ctx, prompt)
-		}
-
-		// Generate suggestions using the new service
-		agentSuggestions, err := a.intentUnderstandingService.GenerateSuggestions(
-			a.ctx,
-			threadID,
-			userMessage,
-			dataSourceID,
-			language,
-			agentExclusions,
-			llmCall,
-		)
-		if err != nil {
-			a.Log(fmt.Sprintf("[INTENT] IntentUnderstandingService failed: %v, falling back to old implementation", err))
-			// Fall through to old implementation
-		} else {
-			// Convert agent.IntentSuggestion to IntentSuggestion
-			suggestions := convertAgentSuggestions(agentSuggestions)
-			a.Log(fmt.Sprintf("[INTENT] Generated %d suggestions using new service", len(suggestions)))
-			// Increment analysis count on successful suggestion generation
-			if a.licenseClient != nil && a.licenseClient.IsActivated() {
-				a.licenseClient.IncrementAnalysis()
-				a.Log("[LICENSE] Analysis count incremented for successful intent suggestion generation")
-			}
-			return suggestions, nil
-		}
-	}
-
-	// Fallback to old implementation using IntentEnhancementService
-	// Validates: Requirements 7.2 - Fallback when new service is disabled or fails
-	a.Log("[INTENT] Using legacy IntentEnhancementService")
-
-	// Check cache for similar requests (Requirement 5.1, 5.2, 5.3)
-	// IMPORTANT: Skip cache when there are exclusions - we need fresh suggestions from LLM
-	// This ensures "Retry Understanding" actually generates new suggestions
-	if a.intentEnhancementService != nil && dataSourceID != "" && len(excludedSuggestions) == 0 {
-		cachedSuggestions, cacheHit := a.intentEnhancementService.GetCachedSuggestions(dataSourceID, userMessage)
-		if cacheHit && len(cachedSuggestions) > 0 {
-			a.Log("[INTENT] Cache hit for intent suggestions (no exclusions)")
-			// Convert agent.IntentSuggestion to IntentSuggestion
-			suggestions := make([]IntentSuggestion, len(cachedSuggestions))
-			for i, s := range cachedSuggestions {
-				suggestions[i] = IntentSuggestion{
-					ID:          s.ID,
-					Title:       s.Title,
-					Description: s.Description,
-					Icon:        s.Icon,
-					Query:       s.Query,
-				}
-			}
-			// Apply preference ranking even for cached results (Requirement 2.3)
-			agentSuggestions := make([]agent.IntentSuggestion, len(suggestions))
-			for i, s := range suggestions {
-				agentSuggestions[i] = agent.IntentSuggestion{
-					ID:          s.ID,
-					Title:       s.Title,
-					Description: s.Description,
-					Icon:        s.Icon,
-					Query:       s.Query,
-				}
-			}
-			rankedSuggestions := a.intentEnhancementService.RankSuggestions(dataSourceID, agentSuggestions)
-			for i, s := range rankedSuggestions {
-				suggestions[i] = IntentSuggestion{
-					ID:          s.ID,
-					Title:       s.Title,
-					Description: s.Description,
-					Icon:        s.Icon,
-					Query:       s.Query,
-				}
-			}
-			return suggestions, nil
-		}
-	} else if len(excludedSuggestions) > 0 {
-		a.Log(fmt.Sprintf("[INTENT] Skipping cache - retry with %d exclusions, will call LLM for fresh suggestions", len(excludedSuggestions)))
-	}
-
-	// Create ExclusionSummarizer and check if summarization is needed
-	// Validates: Requirements 6.5, 2.2 - Use summary when exclusions exceed threshold
-	summarizer := agent.NewExclusionSummarizer()
-	var exclusionSummary string
-
-	// Convert IntentSuggestion to ExclusionIntentSuggestion for the summarizer
-	exclusionIntents := make([]agent.ExclusionIntentSuggestion, len(excludedSuggestions))
-	for i, s := range excludedSuggestions {
-		exclusionIntents[i] = agent.ExclusionIntentSuggestion{
-			ID:          s.ID,
-			Title:       s.Title,
-			Description: s.Description,
-			Icon:        s.Icon,
-			Query:       s.Query,
-		}
-	}
-
-	if summarizer.NeedsSummarization(exclusionIntents) {
-		// Generate summary when exclusions exceed threshold (Requirement 6.5)
-		exclusionSummary = summarizer.SummarizeExclusions(exclusionIntents)
-		a.Log(fmt.Sprintf("[INTENT] Using exclusion summary for %d excluded suggestions (threshold: %d)",
-			len(excludedSuggestions), summarizer.GetThreshold()))
-	}
-
-	// Build prompt for LLM - pass summary if available, otherwise pass full list
-	// Validates: Requirement 2.2 - Pass exclusion list to LLM
-	prompt := a.buildIntentUnderstandingPrompt(userMessage, tableName, columns, cfg.Language, excludedSuggestions, dataSourceID, exclusionSummary)
-
-	// Call LLM
-	llm := agent.NewLLMService(cfg, a.Log)
-	response, err := llm.Chat(a.ctx, prompt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate intent suggestions: %v", err)
-	}
-
-	// Parse response
-	suggestions, err := a.parseIntentSuggestions(response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse intent suggestions: %v", err)
-	}
-
-	// Apply preference ranking (Requirement 2.3)
-	if a.intentEnhancementService != nil && dataSourceID != "" && len(suggestions) > 0 {
-		// Convert to agent.IntentSuggestion for ranking
-		agentSuggestions := make([]agent.IntentSuggestion, len(suggestions))
-		for i, s := range suggestions {
-			agentSuggestions[i] = agent.IntentSuggestion{
-				ID:          s.ID,
-				Title:       s.Title,
-				Description: s.Description,
-				Icon:        s.Icon,
-				Query:       s.Query,
-			}
-		}
-
-		// Rank suggestions based on user preferences
-		rankedSuggestions := a.intentEnhancementService.RankSuggestions(dataSourceID, agentSuggestions)
-
-		// Convert back to IntentSuggestion
-		for i, s := range rankedSuggestions {
-			suggestions[i] = IntentSuggestion{
-				ID:          s.ID,
-				Title:       s.Title,
-				Description: s.Description,
-				Icon:        s.Icon,
-				Query:       s.Query,
-			}
-		}
-
-		// Cache the suggestions for future similar requests
-		a.intentEnhancementService.CacheSuggestions(dataSourceID, userMessage, agentSuggestions)
-	}
-
-	// Increment analysis count on successful suggestion generation
-	if a.licenseClient != nil && a.licenseClient.IsActivated() {
-		a.licenseClient.IncrementAnalysis()
-		a.Log("[LICENSE] Analysis count incremented for successful intent suggestion generation (legacy)")
-	}
-
-	return suggestions, nil
+	return a.analysisFacadeService.GenerateIntentSuggestionsWithExclusions(threadID, userMessage, excludedSuggestions)
 }
 
 // convertAgentSuggestions converts agent.IntentSuggestion to IntentSuggestion
@@ -2465,1420 +2057,38 @@ func convertToAgentSuggestions(suggestions []IntentSuggestion) []agent.IntentSug
 // buildIntentUnderstandingPrompt builds the prompt for intent understanding
 // Validates: Requirements 6.5, 2.2 - Use summary when available to prevent context overload
 func (a *App) buildIntentUnderstandingPrompt(userMessage, tableName string, columns []string, language string, excludedSuggestions []IntentSuggestion, dataSourceID string, exclusionSummary string) string {
-	outputLangInstruction := "Respond in English"
-	langCode := "en"
-	if language == "简体中文" {
-		outputLangInstruction = "用简体中文回复"
-		langCode = "zh"
+	if a.analysisFacadeService == nil {
+		return ""
 	}
-
-	columnsStr := strings.Join(columns, ", ")
-	if columnsStr == "" {
-		columnsStr = "No schema information available"
-	}
-	if tableName == "" {
-		tableName = "Unknown"
-	}
-
-	// Build excluded suggestions section
-	// Validates: Requirement 6.5 - Use summary when available to prevent context overload
-	excludedSection := ""
-	retryGuidance := ""
-	if len(excludedSuggestions) > 0 {
-		excludedSection = "\n\n## Previously Rejected Interpretations\n"
-		excludedSection += "The user has indicated that the following interpretations DO NOT match their intent:\n\n"
-
-		// Use summary if available (when exclusions exceed threshold), otherwise use full list
-		// Validates: Requirement 6.5 - Use summarized exclusion description instead of full list
-		if exclusionSummary != "" {
-			// Use the compressed summary to prevent context overload
-			excludedSection += exclusionSummary + "\n"
-		} else {
-			// Use full list when under threshold (Requirement 2.2)
-			for i, suggestion := range excludedSuggestions {
-				excludedSection += fmt.Sprintf("%d. **%s**: %s\n", i+1, suggestion.Title, suggestion.Description)
-			}
-		}
-		retryGuidance = `
-
-## Critical Instruction for Retry
-The user rejected ALL previous suggestions. This means:
-1. Your previous interpretations were off-target
-2. You need to think from COMPLETELY DIFFERENT angles
-3. Consider alternative meanings, contexts, or analysis approaches
-4. Avoid similar patterns or themes from rejected suggestions
-5. Be more creative and explore edge cases or unconventional interpretations`
-	}
-
-	// Build "stick to original" guidance based on language
-	// Validates: Requirements 1.4, 9.1 - Bilingual support for prompt guidance
-	stickToOriginalGuidance := ""
-	if language == "简体中文" {
-		stickToOriginalGuidance = `
-
-# 关于"坚持我的请求"选项
-用户可以选择"坚持我的请求"来直接使用他们的原始输入进行分析。因此：
-1. 你的建议应该提供与原始请求不同的分析角度
-2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方向
-3. 不要简单地重复或轻微改写用户的原始请求
-4. 每个建议都应该为用户提供独特的价值`
-	} else {
-		stickToOriginalGuidance = `
-
-# About "Stick to My Request" Option
-The user can choose "Stick to My Request" to use their original input directly for analysis. Therefore:
-1. Your suggestions should offer different analytical angles from the original request
-2. If the original request is already specific, your suggestions should explore related but different analysis directions
-3. Do not simply repeat or slightly rephrase the user's original request
-4. Each suggestion should provide unique value to the user`
-	}
-
-	basePrompt := fmt.Sprintf(`# Role
-You are an expert data analysis intent interpreter. Your task is to understand ambiguous user requests and generate multiple plausible interpretations.
-
-# User's Request
-"%s"
-
-# Available Data Context
-- **Table**: %s
-- **Columns**: %s%s%s%s
-
-# Task
-Generate 3-5 distinct interpretations of the user's intent. Each interpretation should:
-1. Represent a different analytical perspective or approach
-2. Be specific and actionable
-3. Align with the available data structure
-4. Be sorted by likelihood (most probable first)
-
-# Interpretation Dimensions to Consider
-- **Temporal Analysis**: Trends over time, period comparisons, seasonality
-- **Segmentation**: By category, region, product, customer type, etc.
-- **Aggregation Level**: Summary statistics, detailed breakdowns, rankings
-- **Comparison**: Year-over-year, benchmarking, A/B testing
-- **Correlation**: Relationships between variables, cause-effect analysis
-- **Anomaly Detection**: Outliers, unusual patterns, exceptions
-- **Forecasting**: Predictions, projections, what-if scenarios
-
-# Output Format
-Return a JSON array with 3-5 interpretations. Each object must include:
-
-[
-  {
-    "title": "Short descriptive title (max 10 words)",
-    "description": "Clear explanation of what this interpretation means (max 30 words)",
-    "icon": "Relevant emoji (📊, 📈, 📉, 🔍, 💡, 📅, 🎯, etc.)",
-    "query": "Specific, detailed analysis request that can be executed (be explicit about metrics, dimensions, and filters)"
-  }
-]
-
-# Quality Requirements
-- **Specificity**: Each query should be detailed enough to execute without ambiguity
-- **Diversity**: Interpretations should cover different analytical angles
-- **Feasibility**: Only suggest analyses that can be performed with the available columns
-- **Clarity**: Descriptions should be clear and jargon-free
-- **Language**: %s
-
-# Output Rules
-- Return ONLY the JSON array
-- No markdown code blocks, no explanations, no additional text
-- Ensure valid JSON syntax
-- Start with [ and end with ]
-
-Generate the interpretations now:`, userMessage, tableName, columnsStr, excludedSection, retryGuidance, stickToOriginalGuidance, outputLangInstruction)
-
-	// Enhance prompt with context, dimensions, and examples using IntentEnhancementService
-	// Validates: Requirements 6.1, 6.4 - backward compatibility maintained
-	if a.intentEnhancementService != nil && dataSourceID != "" {
-		// Convert columns to ColumnSchema for enhanced analysis
-		columnSchemas := make([]agent.ColumnSchema, len(columns))
-		for i, col := range columns {
-			columnSchemas[i] = agent.ColumnSchema{Name: col}
-		}
-
-		enhancedPrompt, err := a.intentEnhancementService.EnhancePromptWithColumns(
-			a.ctx,
-			basePrompt,
-			dataSourceID,
-			userMessage,
-			langCode,
-			columnSchemas,
-			tableName,
-		)
-		if err != nil {
-			a.Log(fmt.Sprintf("[INTENT] Failed to enhance prompt: %v, using base prompt", err))
-			return basePrompt
-		}
-		return enhancedPrompt
-	}
-
-	return basePrompt
+	return a.analysisFacadeService.buildIntentUnderstandingPrompt(userMessage, tableName, columns, language, excludedSuggestions, dataSourceID, exclusionSummary)
 }
 
 func (a *App) parseIntentSuggestions(response string) ([]IntentSuggestion, error) {
-	// Extract JSON from response
-	start := strings.Index(response, "[")
-	end := strings.LastIndex(response, "]")
-
-	if start == -1 || end == -1 || start >= end {
-		return nil, fmt.Errorf("no valid JSON array found in response")
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "parseIntentSuggestions", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	jsonStr := response[start : end+1]
-
-	// Parse JSON
-	var rawSuggestions []map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &rawSuggestions); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %v", err)
-	}
-
-	// Convert to IntentSuggestion
-	suggestions := make([]IntentSuggestion, 0, len(rawSuggestions))
-	for i, raw := range rawSuggestions {
-		suggestion := IntentSuggestion{
-			ID:          fmt.Sprintf("intent_%d_%d", time.Now().Unix(), i),
-			Title:       a.getString(raw, "title"),
-			Description: a.getString(raw, "description"),
-			Icon:        a.getString(raw, "icon"),
-			Query:       a.getString(raw, "query"),
-		}
-
-		// Validate
-		if suggestion.Title != "" && suggestion.Query != "" {
-			suggestions = append(suggestions, suggestion)
-		}
-	}
-
-	if len(suggestions) == 0 {
-		return nil, fmt.Errorf("no valid suggestions generated")
-	}
-
-	return suggestions, nil
+	return a.analysisFacadeService.parseIntentSuggestions(response)
 }
 
 func (a *App) getString(m map[string]interface{}, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
+	return getStringFromMap(m, key)
 }
 
 // saveErrorToChatThread saves an error message as an assistant chat message so the user can see it in the chat area.
 func (a *App) saveErrorToChatThread(threadID, errorCode, message string) {
-	if a.chatService == nil || threadID == "" {
+	if a.chatFacadeService == nil || threadID == "" {
 		return
 	}
-	chatMsg := ChatMessage{
-		ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
-		Role:      "assistant",
-		Content:   fmt.Sprintf("❌ **错误** [%s]\n\n%s", errorCode, message),
-		Timestamp: time.Now().Unix(),
-	}
-	if err := a.chatService.AddMessage(threadID, chatMsg); err != nil {
-		a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat thread %s: %v", threadID, err))
-	}
+	a.chatFacadeService.SaveErrorToChatThread(threadID, errorCode, message)
 }
 
 // SendMessage sends a message to the AI
 // Task 3.1: Added requestId parameter for request tracking (Requirements 1.3, 4.3, 4.4)
 func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (string, error) {
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return "", WrapError("App", "SendMessage", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	cfg, err := a.GetEffectiveConfig()
-	if err != nil {
-		return "", err
-	}
-
-	startTotal := time.Now()
-
-	// Log user message if threadID provided
-	if threadID != "" && cfg.DetailedLog {
-		a.logChatToFile(threadID, "USER REQUEST", message)
-	}
-
-	// Save user message to thread file BEFORE processing
-	// This ensures the message is visible when frontend reloads the thread
-	// Check if message already exists to prevent duplicates
-	if threadID != "" && userMessageID != "" {
-		// Load thread to check if message already exists
-		threads, err := a.chatService.LoadThreads()
-		if err == nil {
-			messageExists := false
-			for _, t := range threads {
-				if t.ID == threadID {
-					for _, m := range t.Messages {
-						if m.ID == userMessageID {
-							messageExists = true
-							a.Log(fmt.Sprintf("[CHAT] User message already exists in thread: %s", userMessageID))
-							break
-						}
-					}
-					break
-				}
-			}
-
-			// Only add message if it doesn't exist
-			if !messageExists {
-				userMsg := ChatMessage{
-					ID:        userMessageID,
-					Role:      "user",
-					Content:   message,
-					Timestamp: time.Now().Unix(),
-				}
-				if err := a.chatService.AddMessage(threadID, userMsg); err != nil {
-					a.Log(fmt.Sprintf("[ERROR] Failed to save user message: %v", err))
-					// Continue anyway - this is not a fatal error
-				} else {
-					a.Log(fmt.Sprintf("[CHAT] Saved user message to thread: %s", userMessageID))
-				}
-			}
-		}
-	}
-
-	// Wait for concurrent analysis slot if needed
-	// This implements queuing behavior instead of rejecting requests
-	// Re-fetch config to get latest maxConcurrentAnalysis setting
-	cfg, _ = a.GetConfig()
-	maxConcurrent := cfg.MaxConcurrentAnalysis
-	if maxConcurrent <= 0 {
-		maxConcurrent = 5 // Default to 5
-	}
-	if maxConcurrent > 10 {
-		maxConcurrent = 10 // Cap at 10
-	}
-
-	// Check if we need to wait for a slot
-	waitStartTime := time.Now()
-	maxWaitTime := 5 * time.Minute // Maximum wait time before giving up
-	checkInterval := 500 * time.Millisecond
-	notifiedWaiting := false
-
-	// First check if we need to wait
-	a.activeThreadsMutex.RLock()
-	activeCount := len(a.activeThreads)
-	a.activeThreadsMutex.RUnlock()
-
-	if activeCount >= maxConcurrent {
-		// Immediately notify frontend that we're entering waiting state
-		// This ensures the loading indicator shows up right away
-		a.Log(fmt.Sprintf("[CONCURRENT] Need to wait for slot. Active: %d, Max: %d, Thread: %s", activeCount, maxConcurrent, threadID))
-
-		// First, emit chat-loading to show the loading indicator
-		if threadID != "" {
-			a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading true (waiting) for threadId: %s", threadID))
-			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-				"loading":  true,
-				"threadId": threadID,
-			})
-		}
-
-		// Then emit the queue status with waiting message
-		var waitMessage string
-		if cfg.Language == "简体中文" {
-			waitMessage = fmt.Sprintf("等待分析队列中...（当前 %d/%d 个任务进行中）", activeCount, maxConcurrent)
-		} else {
-			waitMessage = fmt.Sprintf("Waiting in analysis queue... (%d/%d tasks in progress)", activeCount, maxConcurrent)
-		}
-		runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
-			"threadId": threadID,
-			"status":   "waiting",
-			"message":  waitMessage,
-			"position": activeCount - maxConcurrent + 1,
-		})
-		notifiedWaiting = true
-	}
-
-	for {
-		a.activeThreadsMutex.RLock()
-		activeCount = len(a.activeThreads)
-		a.activeThreadsMutex.RUnlock()
-
-		if activeCount < maxConcurrent {
-			// Slot available, proceed
-			if notifiedWaiting {
-				a.Log(fmt.Sprintf("[CONCURRENT] Slot available after waiting, proceeding with analysis for thread: %s", threadID))
-				// Notify frontend that waiting is over
-				runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
-					"threadId": threadID,
-					"status":   "starting",
-					"message":  "开始分析",
-				})
-			}
-			break
-		}
-
-		// Check if we've waited too long
-		if time.Since(waitStartTime) > maxWaitTime {
-			a.Log(fmt.Sprintf("[CONCURRENT] Timeout waiting for analysis slot for thread: %s", threadID))
-			// Clear loading state on timeout
-			if threadID != "" {
-				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-					"loading":  false,
-					"threadId": threadID,
-				})
-			}
-			var errorMessage string
-			if cfg.Language == "简体中文" {
-				errorMessage = fmt.Sprintf("等待分析队列超时（已等待 %v）。当前有 %d 个分析任务进行中。请稍后重试。", time.Since(waitStartTime).Round(time.Second), activeCount)
-			} else {
-				errorMessage = fmt.Sprintf("Timeout waiting for analysis queue (waited %v). There are currently %d analysis tasks in progress. Please try again later.", time.Since(waitStartTime).Round(time.Second), activeCount)
-			}
-			if threadID != "" {
-				a.saveErrorToChatThread(threadID, "QUEUE_TIMEOUT", errorMessage)
-			}
-			return "", fmt.Errorf("%s", errorMessage)
-		}
-
-		// Check if cancellation was requested
-		if a.IsCancelRequested() {
-			a.Log(fmt.Sprintf("[CONCURRENT] Cancellation requested while waiting for slot, aborting for thread: %s", threadID))
-			// Clear loading state on cancellation
-			if threadID != "" {
-				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-					"loading":  false,
-					"threadId": threadID,
-				})
-				a.saveErrorToChatThread(threadID, "QUEUE_CANCELLED", "⚠️ 分析已取消（等待队列中取消）。")
-			}
-			return "", fmt.Errorf("analysis cancelled while waiting in queue")
-		}
-
-		// Update waiting message periodically (every 5 seconds)
-		if notifiedWaiting && int(time.Since(waitStartTime).Seconds())%5 == 0 {
-			var waitMessage string
-			waitedTime := time.Since(waitStartTime).Round(time.Second)
-			if cfg.Language == "简体中文" {
-				waitMessage = fmt.Sprintf("等待分析队列中...（已等待 %v，当前 %d/%d 个任务进行中）", waitedTime, activeCount, maxConcurrent)
-			} else {
-				waitMessage = fmt.Sprintf("Waiting in analysis queue... (waited %v, %d/%d tasks in progress)", waitedTime, activeCount, maxConcurrent)
-			}
-			runtime.EventsEmit(a.ctx, "analysis-queue-status", map[string]interface{}{
-				"threadId": threadID,
-				"status":   "waiting",
-				"message":  waitMessage,
-				"position": activeCount - maxConcurrent + 1,
-			})
-		}
-
-		time.Sleep(checkInterval)
-	}
-
-	// Mark this thread as having active analysis
-	a.activeThreadsMutex.Lock()
-	a.activeThreads[threadID] = true
-	a.activeThreadsMutex.Unlock()
-
-	// Check license analysis limit before proceeding
-	if a.licenseClient != nil && a.licenseClient.IsActivated() {
-		canAnalyze, limitMsg := a.licenseClient.CanAnalyze()
-		if !canAnalyze {
-			// Remove from active threads since we're not proceeding
-			a.activeThreadsMutex.Lock()
-			delete(a.activeThreads, threadID)
-			a.activeThreadsMutex.Unlock()
-			
-			// Clear loading state
-			if threadID != "" {
-				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-					"loading":  false,
-					"threadId": threadID,
-				})
-				a.saveErrorToChatThread(threadID, "LICENSE_LIMIT", limitMsg)
-			}
-			
-			return "", fmt.Errorf("%s", limitMsg)
-		}
-		// Analysis count will be incremented after successful completion
-		a.Log("[LICENSE] Analysis limit check passed, count will be incremented on success")
-	}
-
-	// Notify frontend that loading has started
-	if threadID != "" {
-		a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading true for threadId: %s", threadID))
-		runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-			"loading":  true,
-			"threadId": threadID,
-		})
-		
-		// Notify frontend to clear current dashboard display for new analysis
-		// This ensures the dashboard shows fresh results for the new request
-		// Note: We emit analysis-result-loading instead of clearing all data,
-		// so historical data is preserved and can be restored when user clicks old messages
-		if a.eventAggregator != nil {
-			a.Log(fmt.Sprintf("[DASHBOARD] Setting loading state for thread: %s, requestId: %s", threadID, requestID))
-			a.eventAggregator.SetLoading(threadID, true, requestID)
-		}
-	}
-
-	defer func() {
-		a.activeThreadsMutex.Lock()
-		delete(a.activeThreads, threadID)
-		a.activeThreadsMutex.Unlock()
-
-		// Notify frontend that loading is complete
-		if threadID != "" {
-			a.Log(fmt.Sprintf("[LOADING-DEBUG] Backend emitting chat-loading false for threadId: %s", threadID))
-			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-				"loading":  false,
-				"threadId": threadID,
-			})
-		}
-	}()
-
-	// Set active thread and reset cancel flag
-	a.cancelAnalysisMutex.Lock()
-	a.activeThreadID = threadID
-	a.cancelAnalysis = false
-	a.cancelAnalysisMutex.Unlock()
-
-	// Check if we should use Eino (if thread has DataSourceID)
-	var useEino bool
-	var dataSourceID string
-	if threadID != "" && a.einoService != nil {
-		startCheck := time.Now()
-		threads, _ := a.chatService.LoadThreads()
-		for _, t := range threads {
-			if t.ID == threadID && t.DataSourceID != "" {
-				useEino = true
-				dataSourceID = t.DataSourceID
-				break
-			}
-		}
-		a.Log(fmt.Sprintf("[TIMING] Checking Eino eligibility took: %v", time.Since(startCheck)))
-	} else if threadID != "" && a.einoService == nil {
-		a.Log("[ERROR] EinoService is nil - cannot use advanced analysis features")
-		// Log current configuration for debugging
-		if cfg, err := a.GetConfig(); err == nil {
-			a.Log(fmt.Sprintf("[DEBUG] Current config - Provider: %s, Model: %s", cfg.LLMProvider, cfg.ModelName))
-		}
-	}
-
-	if useEino {
-		// Load history
-		startHist := time.Now()
-		var history []*schema.Message
-		threads, _ := a.chatService.LoadThreads()
-		for _, t := range threads {
-			if t.ID == threadID {
-				for _, m := range t.Messages {
-					role := schema.User
-					if m.Role == "assistant" {
-						role = schema.Assistant
-					}
-					history = append(history, &schema.Message{
-						Role:    role,
-						Content: m.Content,
-					})
-				}
-				break
-			}
-		}
-		a.Log(fmt.Sprintf("[TIMING] Loading history took: %v", time.Since(startHist)))
-
-		// Add current message (Eino expects the new user message in the input list for the chain we built)
-		history = append(history, &schema.Message{Role: schema.User, Content: message})
-
-		// Create progress callback to emit events to frontend with threadId
-		progressCallback := func(update agent.ProgressUpdate) {
-			// Include threadId in progress events for multi-session support
-			progressWithThread := map[string]interface{}{
-				"threadId":    threadID,
-				"stage":       update.Stage,
-				"progress":    update.Progress,
-				"message":     update.Message,
-				"step":        update.Step,
-				"total":       update.Total,
-				"tool_name":   update.ToolName,
-				"tool_output": update.ToolOutput,
-			}
-			runtime.EventsEmit(a.ctx, "analysis-progress", progressWithThread)
-		}
-
-		// Get session directory for file storage
-		sessionDir := a.chatService.GetSessionDirectory(threadID)
-
-		// Capture existing session files before analysis (to identify new files later)
-		existingFiles := make(map[string]bool)
-		if preAnalysisFiles, err := a.chatService.GetSessionFiles(threadID); err == nil {
-			for _, file := range preAnalysisFiles {
-				existingFiles[file.Name] = true
-			}
-			a.Log(fmt.Sprintf("[CHART] Pre-analysis: %d existing files in session", len(existingFiles)))
-		}
-
-		// Create file saved callback to track generated files
-		fileSavedCallback := func(fileName, fileType string, fileSize int64) {
-			// Register the file in the chat thread
-			file := SessionFile{
-				Name:      fileName,
-				Path:      fmt.Sprintf("files/%s", fileName),
-				Type:      fileType,
-				Size:      fileSize,
-				CreatedAt: time.Now().Unix(),
-			}
-			if err := a.chatService.AddSessionFile(threadID, file); err != nil {
-				a.Log(fmt.Sprintf("[ERROR] Failed to register session file: %v", err))
-			} else {
-				a.Log(fmt.Sprintf("[SESSION] Registered file: %s (%s, %d bytes)", fileName, fileType, fileSize))
-			}
-		}
-
-		// Double-check EinoService is still available before using it (prevent race condition)
-		if a.einoService == nil {
-			a.Log("[WARNING] EinoService became nil during request processing, falling back to standard LLM")
-			// Fall through to standard LLM processing
-		} else {
-			a.Log(fmt.Sprintf("[EINO-CHECK] EinoService is available, proceeding with analysis for thread: %s, dataSource: %s", threadID, dataSourceID))
-
-			// Start timing for analysis
-			analysisStartTime := time.Now()
-
-			respMsg, err := a.einoService.RunAnalysisWithProgress(a.ctx, history, dataSourceID, threadID, sessionDir, userMessageID, progressCallback, fileSavedCallback, a.IsCancelRequested)
-
-			// Calculate analysis duration
-			analysisDuration := time.Since(analysisStartTime)
-			minutes := int(analysisDuration.Minutes())
-			seconds := int(analysisDuration.Seconds()) % 60
-
-			var resp string
-			if err != nil {
-				resp = fmt.Sprintf("Error: %v", err)
-				if cfg.DetailedLog {
-					a.logChatToFile(threadID, "SYSTEM ERROR", resp)
-				}
-
-				// Determine error type and emit appropriate event
-				errStr := err.Error()
-				var errorCode string
-				var userFriendlyMessage string
-				
-				// Check if this was a cancellation
-				if strings.Contains(errStr, "cancelled by user") || strings.Contains(errStr, "cancelled while waiting") {
-					errorCode = "CANCELLED"
-					userFriendlyMessage = "分析已取消"
-					a.Log(fmt.Sprintf("[CANCEL] Analysis cancelled for thread: %s", threadID))
-				} else {
-					// Determine error code based on error message
-					switch {
-					case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "Timeout"):
-						errorCode = "ANALYSIS_TIMEOUT"
-						userFriendlyMessage = fmt.Sprintf("分析超时（已运行 %d分%d秒）。请尝试简化查询或稍后重试。", minutes, seconds)
-					case strings.Contains(errStr, "context canceled") || strings.Contains(errStr, "context deadline exceeded"):
-						errorCode = "ANALYSIS_TIMEOUT"
-						userFriendlyMessage = "分析请求超时。请尝试简化查询或稍后重试。"
-					case strings.Contains(errStr, "connection") || strings.Contains(errStr, "network"):
-						errorCode = "NETWORK_ERROR"
-						userFriendlyMessage = "网络连接错误。请检查网络连接后重试。"
-					case strings.Contains(errStr, "database") || strings.Contains(errStr, "sqlite") || strings.Contains(errStr, "SQL"):
-						errorCode = "DATABASE_ERROR"
-						userFriendlyMessage = "数据库查询错误。请检查数据源配置或查询条件。"
-					case strings.Contains(errStr, "Python") || strings.Contains(errStr, "python"):
-						errorCode = "PYTHON_ERROR"
-						userFriendlyMessage = "Python 执行错误。请检查分析代码或数据格式。"
-					case strings.Contains(errStr, "LLM") || strings.Contains(errStr, "API") || strings.Contains(errStr, "model"):
-						errorCode = "LLM_ERROR"
-						userFriendlyMessage = "AI 模型调用错误。请检查 API 配置或稍后重试。"
-					default:
-						errorCode = "ANALYSIS_ERROR"
-						userFriendlyMessage = fmt.Sprintf("分析过程中发生错误: %s", errStr)
-					}
-					
-					a.Log(fmt.Sprintf("[ERROR] Analysis error for thread %s: code=%s, message=%s", threadID, errorCode, errStr))
-				}
-
-				// CRITICAL: Save error message to database BEFORE emitting events.
-				// The frontend event handlers call loadThreads() which reads from the
-				// database. If we emit events first, the frontend may load threads before
-				// the error message is persisted, causing a brief flash of "分析已中止"
-				// instead of showing the actual error reason.
-				if threadID != "" {
-					var chatErrorMsg string
-					if errorCode == "CANCELLED" {
-						chatErrorMsg = "⚠️ 分析已取消。"
-					} else {
-						chatErrorMsg = fmt.Sprintf("❌ **分析出错** [%s]\n\n%s\n\n<details><summary>详细错误信息</summary>\n\n```\n%s\n```\n</details>",
-							errorCode, userFriendlyMessage, errStr)
-					}
-					errChatMsg := ChatMessage{
-						ID:        fmt.Sprintf("error_%d", time.Now().UnixNano()),
-						Role:      "assistant",
-						Content:   chatErrorMsg,
-						Timestamp: time.Now().Unix(),
-					}
-					if addErr := a.chatService.AddMessage(threadID, errChatMsg); addErr != nil {
-						a.Log(fmt.Sprintf("[ERROR] Failed to save error message to chat: %v", addErr))
-					}
-				}
-
-				// NOW emit events — the error message is already in the database,
-				// so frontend loadThreads() will find it.
-				// Emit progress complete event to ensure frontend progress bar clears
-				runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
-					"threadId": threadID,
-					"stage":    "complete",
-					"progress": 100,
-					"message":  "progress.analysis_cancelled",
-					"step":     0,
-					"total":    0,
-				})
-
-				if errorCode == "CANCELLED" {
-					if a.eventAggregator != nil {
-						a.eventAggregator.EmitCancelled(threadID, requestID)
-						a.eventAggregator.SetLoading(threadID, false, requestID)
-					} else {
-						runtime.EventsEmit(a.ctx, "analysis-cancelled", map[string]interface{}{
-							"threadId":  threadID,
-							"requestId": requestID,
-							"message":   "分析已取消",
-							"timestamp": time.Now().UnixMilli(),
-						})
-						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
-							"sessionId": threadID,
-							"loading":   false,
-							"requestId": requestID,
-						})
-					}
-				} else {
-					if a.eventAggregator != nil {
-						a.eventAggregator.EmitErrorWithCode(threadID, requestID, errorCode, userFriendlyMessage)
-						a.eventAggregator.SetLoading(threadID, false, requestID)
-					} else {
-						runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
-							"threadId":  threadID,
-							"sessionId": threadID,
-							"requestId": requestID,
-							"code":      errorCode,
-							"error":     userFriendlyMessage,
-							"message":   userFriendlyMessage,
-							"timestamp": time.Now().UnixMilli(),
-						})
-						runtime.EventsEmit(a.ctx, "analysis-result-loading", map[string]interface{}{
-							"sessionId": threadID,
-							"loading":   false,
-							"requestId": requestID,
-						})
-					}
-				}
-				// Emit chat-loading false to update App.tsx loading state
-				runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-					"loading":  false,
-					"threadId": threadID,
-				})
-
-				return "", err
-			}
-			resp = respMsg.Content
-
-			// Check if timing information is already present before adding
-			if !strings.Contains(resp, "⏱️ 分析耗时:") {
-				// Append timing information to response
-				timingInfo := fmt.Sprintf("\n\n---\n⏱️ 分析耗时: %d分%d秒", minutes, seconds)
-				resp = resp + timingInfo
-				a.Log(fmt.Sprintf("[TIMING] Analysis completed in: %d分%d秒 (%v)", minutes, seconds, analysisDuration))
-			} else {
-				a.Log(fmt.Sprintf("[TIMING] Timing info already present in response, skipping addition. Duration: %d分%d秒 (%v)", minutes, seconds, analysisDuration))
-			}
-
-			if cfg.DetailedLog {
-				a.logChatToFile(threadID, "LLM RESPONSE", resp)
-			}
-
-			// Detect and emit images from the response
-			a.detectAndEmitImages(resp, threadID, userMessageID, requestID)
-
-			// Filter out false file generation claims when ECharts is used
-			// LLM sometimes hallucinates file generation when using ECharts
-			resp = a.filterFalseFileClaimsIfECharts(resp)
-
-			startPost := time.Now()
-			// Detect and store chart data
-			var chartData *ChartData
-			var chartItems []ChartItem // Collect all chart types
-
-			// Collect all chart types (ECharts, Images, Tables, CSV)
-			// Changed from priority-based to collection-based approach
-
-			// 1. ECharts JSON - Extract ALL matches (not just the first)
-			// Match until closing ``` to handle deeply nested objects
-			// Allow optional newline after json:echarts
-			reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-			allEChartsMatches := reECharts.FindAllStringSubmatch(resp, -1)
-			reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\s*\\n(?:---|###)|\\s*$)")
-			allEChartsNoBTMatches := reEChartsNoBT.FindAllStringSubmatch(resp, -1)
-
-			// Combine both matches
-			for _, match := range allEChartsNoBTMatches {
-				allEChartsMatches = append(allEChartsMatches, match)
-			}
-
-			for matchIdx, matchECharts := range allEChartsMatches {
-				if len(matchECharts) > 1 {
-					jsonStr := strings.TrimSpace(matchECharts[1])
-					// Validate it's valid JSON before using
-					var testJSON map[string]interface{}
-					parsedJSON := jsonStr
-					parseErr := json.Unmarshal([]byte(jsonStr), &testJSON)
-					if parseErr != nil {
-						// JSON parse failed - likely contains JavaScript functions (formatter, color, etc.)
-						// Try cleaning JS functions and re-parsing
-						a.Log(fmt.Sprintf("[CHART] Initial JSON parse failed for echarts #%d: %v, attempting to clean JavaScript functions", matchIdx+1, parseErr))
-						cleanedJSON := cleanEChartsJSON(jsonStr)
-						if cleanErr := json.Unmarshal([]byte(cleanedJSON), &testJSON); cleanErr == nil {
-							parsedJSON = cleanedJSON
-							parseErr = nil
-							a.Log(fmt.Sprintf("[CHART] Successfully parsed echarts #%d after cleaning JavaScript functions", matchIdx+1))
-						} else {
-							a.Log(fmt.Sprintf("[CHART] Still failed to parse echarts #%d after cleaning: %v", matchIdx+1, cleanErr))
-						}
-					}
-					if parseErr == nil {
-						// Check if data is large and should be saved to file
-						fileRef, saveErr := a.saveChartDataToFile(threadID, "echarts", parsedJSON)
-
-						var chartDataStr string
-						if saveErr != nil {
-							// Log error but continue with inline storage as fallback
-							a.Log(fmt.Sprintf("[CHART-FILE] Failed to save to file, using inline storage: %v", saveErr))
-							chartDataStr = parsedJSON
-						} else if fileRef != "" {
-							// Use file reference (large data saved to file)
-							chartDataStr = fileRef
-							a.Log(fmt.Sprintf("[CHART-FILE] Using file reference: %s", fileRef))
-						} else {
-							// Small data, use inline storage
-							chartDataStr = parsedJSON
-						}
-
-						chartItems = append(chartItems, ChartItem{Type: "echarts", Data: chartDataStr})
-						a.Log(fmt.Sprintf("[CHART] Detected ECharts JSON #%d", matchIdx+1))
-						// Use event aggregator for new unified event system
-						if a.eventAggregator != nil {
-							a.eventAggregator.AddECharts(threadID, userMessageID, requestID, parsedJSON)
-						}
-					} else {
-						maxLen := 500
-						if len(jsonStr) < maxLen {
-							maxLen = len(jsonStr)
-						}
-						a.Log(fmt.Sprintf("[CHART] Failed to parse echarts JSON #%d: %v\nJSON string (first 500 chars): %s", matchIdx+1, parseErr, jsonStr[:maxLen]))
-					}
-				}
-			}
-			if len(allEChartsMatches) > 0 {
-				a.Log(fmt.Sprintf("[CHART] Total ECharts blocks found: %d", len(allEChartsMatches)))
-			}
-
-			// 2. Markdown Image (Base64) - Extract ALL matches (not just the first)
-			reImage := regexp.MustCompile(`!\[.*?\]\((data:image\/.*?;base64,.*?)\)`)
-			allImageMatches := reImage.FindAllStringSubmatch(resp, -1)
-			for matchIdx, matchImage := range allImageMatches {
-				if len(matchImage) > 1 {
-					chartItems = append(chartItems, ChartItem{Type: "image", Data: matchImage[1]})
-					a.Log(fmt.Sprintf("[CHART] Detected inline base64 image #%d", matchIdx+1))
-					// Use event aggregator for new unified event system
-					if a.eventAggregator != nil {
-						a.eventAggregator.AddImage(threadID, userMessageID, requestID, matchImage[1], "")
-					}
-				}
-			}
-			if len(allImageMatches) > 0 {
-				a.Log(fmt.Sprintf("[CHART] Total inline base64 images found: %d", len(allImageMatches)))
-			}
-
-			// 3. Check for saved chart files (e.g., chart_timestamp.png from Python tool)
-			// Always check, don't skip if ECharts exists
-			if threadID != "" {
-				// Get session files to see if chart images were saved
-				sessionFiles, err := a.chatService.GetSessionFiles(threadID)
-				if err == nil {
-					// Collect ONLY NEWLY CREATED chart image files (not pre-existing ones)
-					newFileCount := 0
-					for _, file := range sessionFiles {
-						// Skip files that existed before the analysis started
-						if existingFiles[file.Name] {
-							continue
-						}
-
-						if file.Type == "image" && (file.Name == "chart.png" || strings.HasPrefix(file.Name, "chart")) {
-							// Read the image file and encode as base64
-							filePath := filepath.Join(sessionDir, "files", file.Name)
-							if imageData, err := os.ReadFile(filePath); err == nil {
-								base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
-								chartItems = append(chartItems, ChartItem{Type: "image", Data: base64Data})
-								newFileCount++
-								a.Log(fmt.Sprintf("[CHART] Detected NEW chart file from this analysis: %s", file.Name))
-							}
-						}
-					}
-
-					if newFileCount > 0 {
-						a.Log(fmt.Sprintf("[CHART] Added %d new chart file(s) to chart items", newFileCount))
-					} else {
-						a.Log("[CHART] No new chart files generated in this analysis")
-					}
-				}
-			}
-
-			// NOTE: Don't create chartData here yet - wait until all chart types are collected
-			// Table and CSV data are processed below and need to be included
-			a.Log(fmt.Sprintf("[CHART] Charts collected so far (ECharts + Images): %d", len(chartItems)))
-
-			// 4. Dashboard Data Update (Metrics & Insights)
-			// Match until closing ``` to handle nested objects (same fix as echarts/table)
-			reDashboard := regexp.MustCompile("(?s)```\\s*json:dashboard\\s*\\n([\\s\\S]+?)\\n\\s*```")
-			matchDashboard := reDashboard.FindStringSubmatch(resp)
-			if len(matchDashboard) > 1 {
-				jsonStr := strings.TrimSpace(matchDashboard[1])
-				var data DashboardData
-				if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
-					// Use event aggregator for new unified event system
-					if a.eventAggregator != nil {
-						for _, metric := range data.Metrics {
-							a.eventAggregator.AddMetric(threadID, userMessageID, requestID, metric)
-						}
-						for _, insight := range data.Insights {
-							a.eventAggregator.AddInsight(threadID, userMessageID, requestID, insight)
-						}
-					}
-				} else {
-					a.Log(fmt.Sprintf("[DASHBOARD] Failed to unmarshal dashboard data: %v\nJSON (first 500 chars): %s", err, jsonStr[:min(500, len(jsonStr))]))
-				}
-			}
-
-			// 5. Table Data (JSON array from SQL results or analysis) - Extract ALL matches
-			// Use [\s\S] instead of . to match newlines, match until closing ``` not first ]
-			// Allow optional newline after json:table
-			// Also capture the table title from the line before the code block
-			
-			// First, use the simple pattern to find all table blocks (with backticks)
-			reTable := regexp.MustCompile("(?s)```\\s*json:table\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
-			allTableMatches := reTable.FindAllStringSubmatchIndex(resp, -1)
-
-			// Also match json:table without backticks (LLM sometimes omits them)
-			reTableNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:table\\s*\\n((?:\\{[\\s\\S]+?\\n\\}|\\[[\\s\\S]+?\\n\\]))(?:\\s*\\n(?:---|###)|\\s*$)")
-			allTableNoBTMatches := reTableNoBT.FindAllStringSubmatchIndex(resp, -1)
-			allTableMatches = append(allTableMatches, allTableNoBTMatches...)
-			
-			for matchIdx, matchIndices := range allTableMatches {
-				if len(matchIndices) >= 4 {
-					// matchIndices[0:2] is the full match, matchIndices[2:4] is the JSON content
-					fullMatchStart := matchIndices[0]
-					jsonContent := strings.TrimSpace(resp[matchIndices[2]:matchIndices[3]])
-					
-					// Look for the title in the line before the code block
-					tableTitle := ""
-					if fullMatchStart > 0 {
-						// Find the start of the line before the code block
-						textBefore := resp[:fullMatchStart]
-						// Find the last newline before the code block
-						lastNewline := strings.LastIndex(textBefore, "\n")
-						if lastNewline >= 0 {
-							// Get the line before the code block
-							lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
-							// Clean up the title: remove markdown formatting like **, ##, -, etc.
-							tableTitle = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
-							tableTitle = strings.TrimRight(tableTitle, ":：")
-							tableTitle = strings.TrimSpace(tableTitle)
-							// Skip if it looks like code or JSON
-							if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
-								tableTitle = ""
-							}
-						}
-					}
-					
-					a.Log(fmt.Sprintf("[CHART] Table #%d title extracted: '%s'", matchIdx+1, tableTitle))
-					
-					// Try to parse as object array first (standard format)
-					var tableData []map[string]interface{}
-					var parseErr error
-					var columnsOrder []string
-					if parseErr = json.Unmarshal([]byte(jsonContent), &tableData); parseErr != nil {
-						// Try to parse as {columns: [...], data: [[...], ...]} format
-						var colDataFormat struct {
-							Columns []string        `json:"columns"`
-							Data    [][]interface{} `json:"data"`
-						}
-						if err := json.Unmarshal([]byte(jsonContent), &colDataFormat); err == nil && len(colDataFormat.Columns) > 0 && len(colDataFormat.Data) > 0 {
-							columnsOrder = colDataFormat.Columns
-							tableData = make([]map[string]interface{}, 0, len(colDataFormat.Data))
-							for _, row := range colDataFormat.Data {
-								rowMap := make(map[string]interface{})
-								for i, val := range row {
-									if i < len(colDataFormat.Columns) {
-										rowMap[colDataFormat.Columns[i]] = val
-									}
-								}
-								tableData = append(tableData, rowMap)
-							}
-							parseErr = nil
-							a.Log(fmt.Sprintf("[CHART] Converted columns/data format table #%d: %d columns, %d rows", matchIdx+1, len(colDataFormat.Columns), len(tableData)))
-						} else {
-							// Try to parse as 2D array (first row is headers)
-							var arrayData [][]interface{}
-							if err := json.Unmarshal([]byte(jsonContent), &arrayData); err == nil && len(arrayData) > 1 {
-								// Convert 2D array to object array
-								// First row is headers
-								headers := make([]string, len(arrayData[0]))
-								for i, h := range arrayData[0] {
-									headers[i] = fmt.Sprintf("%v", h)
-								}
-								columnsOrder = headers
-								
-								// Remaining rows are data
-								tableData = make([]map[string]interface{}, 0, len(arrayData)-1)
-								for _, row := range arrayData[1:] {
-									rowMap := make(map[string]interface{})
-									for i, val := range row {
-										if i < len(headers) {
-											rowMap[headers[i]] = val
-										}
-									}
-									tableData = append(tableData, rowMap)
-								}
-								parseErr = nil
-								a.Log(fmt.Sprintf("[CHART] Converted 2D array table #%d: %d columns, %d rows", matchIdx+1, len(headers), len(tableData)))
-							}
-						}
-					} else {
-						// Extract column order from original JSON object keys
-						columnsOrder = extractJSONObjectKeysOrdered(jsonContent)
-					}
-					
-					if parseErr == nil && len(tableData) > 0 {
-						// Create table data with title and ordered columns
-						tableDataWithTitle := map[string]interface{}{
-							"title":   tableTitle,
-							"columns": columnsOrder,
-							"rows":    tableData,
-						}
-						
-						tableDataJSON, _ := json.Marshal(tableData)
-						tableDataStr := string(tableDataJSON)
-
-						// Check if table data is large and should be saved to file
-						fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
-
-						var finalTableData string
-						if saveErr != nil {
-							// Log error but continue with inline storage as fallback
-							a.Log(fmt.Sprintf("[CHART-FILE] Failed to save table data to file, using inline storage: %v", saveErr))
-							finalTableData = tableDataStr
-						} else if fileRef != "" {
-							// Use file reference (large data saved to file)
-							finalTableData = fileRef
-							a.Log(fmt.Sprintf("[CHART-FILE] Using file reference for table data: %s", fileRef))
-						} else {
-							// Small data, use inline storage
-							finalTableData = tableDataStr
-						}
-
-						chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
-						a.Log(fmt.Sprintf("[CHART] Detected table data #%d with title: %s", matchIdx+1, tableTitle))
-
-						// Use event aggregator for new unified event system
-						if a.eventAggregator != nil {
-							a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableDataWithTitle)
-						}
-					} else {
-						maxLen := 500
-						if len(jsonContent) < maxLen {
-							maxLen = len(jsonContent)
-						}
-						a.Log(fmt.Sprintf("[CHART] Failed to parse table JSON #%d: %v\nJSON string (first 500 chars): %s", matchIdx+1, parseErr, jsonContent[:maxLen]))
-					}
-				}
-			}
-			if len(allTableMatches) > 0 {
-				a.Log(fmt.Sprintf("[CHART] Total table blocks found: %d", len(allTableMatches)))
-			}
-
-			// 6. CSV Download Link (data URL) - Extract ALL matches (not just the first)
-			reCSV := regexp.MustCompile(`\[.*?\]\((data:text/csv;base64,[A-Za-z0-9+/=]+)\)`)
-			allCSVMatches := reCSV.FindAllStringSubmatch(resp, -1)
-			for matchIdx, matchCSV := range allCSVMatches {
-				if len(matchCSV) > 1 {
-					chartItems = append(chartItems, ChartItem{Type: "csv", Data: matchCSV[1]})
-					a.Log(fmt.Sprintf("[CHART] Detected CSV data #%d", matchIdx+1))
-					// Use event aggregator for new unified event system
-					if a.eventAggregator != nil {
-						a.eventAggregator.AddCSV(threadID, userMessageID, requestID, matchCSV[1], "")
-					}
-				}
-			}
-			if len(allCSVMatches) > 0 {
-				a.Log(fmt.Sprintf("[CHART] Total CSV links found: %d", len(allCSVMatches)))
-			}
-
-			// 7. Extract standard Markdown tables (| col1 | col2 | format) from the response text
-			// These tables appear in the LLM's analysis text but are not wrapped in json:table code blocks
-			mdTables := extractMarkdownTablesFromText(resp)
-			if len(mdTables) > 0 {
-				a.Log(fmt.Sprintf("[CHART] Found %d markdown tables in response text", len(mdTables)))
-				for mdIdx, mdTable := range mdTables {
-					tableDataWithTitle := map[string]interface{}{
-						"title":   mdTable.Title,
-						"columns": mdTable.Columns,
-						"rows":    mdTable.Rows,
-					}
-
-					tableDataJSON, _ := json.Marshal(mdTable.Rows)
-					tableDataStr := string(tableDataJSON)
-
-					fileRef, saveErr := a.saveChartDataToFile(threadID, "table", tableDataStr)
-					var finalTableData string
-					if saveErr != nil {
-						finalTableData = tableDataStr
-					} else if fileRef != "" {
-						finalTableData = fileRef
-					} else {
-						finalTableData = tableDataStr
-					}
-
-					chartItems = append(chartItems, ChartItem{Type: "table", Data: finalTableData})
-					a.Log(fmt.Sprintf("[CHART] Markdown table #%d: title='%s', %d rows", mdIdx+1, mdTable.Title, len(mdTable.Rows)))
-
-					if a.eventAggregator != nil {
-						a.eventAggregator.AddTable(threadID, userMessageID, requestID, tableDataWithTitle)
-					}
-				}
-			}
-
-			// Create chartData with ALL collected items (ECharts, Images, Tables, CSV)
-			// This is done AFTER all chart types are processed to ensure nothing is missed
-			if len(chartItems) > 0 {
-				chartData = &ChartData{Charts: chartItems}
-				a.Log(fmt.Sprintf("[CHART] Final total charts: %d (ECharts + Images + Tables + CSV)", len(chartItems)))
-			}
-
-			// Attach chart data to the user's request message (specific user message ID)
-			if chartData != nil && threadID != "" {
-				if userMessageID != "" {
-					a.attachChartToUserMessage(threadID, userMessageID, chartData)
-				} else {
-					// Fallback to old behavior (last user message) only if ID is missing (backward compatibility)
-					a.Log("[WARNING] SendMessage called without userMessageID, falling back to last user message")
-					a.attachChartToUserMessage(threadID, "", chartData)
-				}
-			}
-
-			// Create and save assistant message with chart data BEFORE returning
-			// This ensures chart_data is available when frontend reloads the thread
-			if threadID != "" {
-				// Prepare timing data with stage breakdown
-				// Use the same analysisDuration that was used for the response timing info
-				totalSecs := analysisDuration.Seconds()
-
-				// Estimate stage durations (rough approximation)
-				// Typical breakdown: AI ~60%, SQL ~20%, Python ~15%, Other ~5%
-				aiTime := totalSecs * 0.60
-				sqlTime := totalSecs * 0.20
-				pythonTime := totalSecs * 0.15
-				otherTime := totalSecs * 0.05
-
-				timingData := map[string]interface{}{
-					"total_seconds":           totalSecs,
-					"total_minutes":           minutes,
-					"total_seconds_remainder": seconds,
-					"analysis_type":           "eino_service",
-					"timestamp":               analysisStartTime.Add(analysisDuration).Unix(), // Use analysis end time, not current time
-					"stages": []map[string]interface{}{
-						{
-							"name":        "AI 分析",
-							"duration":    aiTime,
-							"percentage":  60.0,
-							"description": "LLM 理解需求、生成代码和分析结果",
-						},
-						{
-							"name":        "SQL 查询",
-							"duration":    sqlTime,
-							"percentage":  20.0,
-							"description": "数据库查询和数据提取",
-						},
-						{
-							"name":        "Python 处理",
-							"duration":    pythonTime,
-							"percentage":  15.0,
-							"description": "数据处理和图表生成",
-						},
-						{
-							"name":        "其他",
-							"duration":    otherTime,
-							"percentage":  5.0,
-							"description": "初始化和后处理",
-						},
-					},
-				}
-
-				assistantMsg := ChatMessage{
-					ID:         strconv.FormatInt(time.Now().UnixNano(), 10),
-					Role:       "assistant",
-					Content:    resp,
-					Timestamp:  time.Now().Unix(),
-					ChartData:  chartData,  // Attach chart data to assistant message
-					TimingData: timingData, // Attach timing data
-				}
-
-				if err := a.chatService.AddMessage(threadID, assistantMsg); err != nil {
-					a.Log(fmt.Sprintf("[CHART] Failed to save assistant message: %v", err))
-				} else {
-					a.Log(fmt.Sprintf("[CHART] Saved assistant message with chart_data: %v, timing_data: %v", chartData != nil, timingData != nil))
-
-					// Associate newly created files with the USER message (not assistant message)
-					// This makes more sense as files are generated in response to the user's analysis request
-					if userMessageID != "" {
-						if err := a.associateNewFilesWithMessage(threadID, userMessageID, existingFiles); err != nil {
-							a.Log(fmt.Sprintf("[SESSION] Failed to associate files with user message: %v", err))
-						} else {
-							a.Log(fmt.Sprintf("[SESSION] Associated new files with user message: %s", userMessageID))
-						}
-					} else {
-						a.Log("[WARNING] No userMessageID available, cannot associate files")
-					}
-
-					// Emit analysis-completed event to trigger automatic dashboard update
-					// Task 3.1: Added requestId to event payload (Requirements 1.3, 4.3, 4.4)
-
-					// Flush all pending analysis results before emitting completion
-					if a.eventAggregator != nil {
-						a.eventAggregator.FlushNow(threadID, true)
-					}
-
-					// Save ALL analysis results (including those flushed by timer earlier)
-					// to the user message for persistence.
-					// Note: FlushNow only returns items pending at call time, but timer-based
-					// flushes may have already sent items to the frontend. GetAllFlushedItems
-					// returns the complete set of items flushed during this analysis session.
-					if a.eventAggregator != nil && userMessageID != "" {
-						allItems := a.eventAggregator.GetAllFlushedItems(threadID)
-						
-						// Log item types for debugging
-						typeCount := make(map[string]int)
-						for _, item := range allItems {
-							typeCount[item.Type]++
-						}
-						a.Log(fmt.Sprintf("[PERSISTENCE] GetAllFlushedItems returned %d items, types: %v", len(allItems), typeCount))
-						
-						// Safety net: if flushed items don't contain echarts/table but chartItems does,
-						// create AnalysisResultItem entries from chartItems as fallback
-						hasECharts := typeCount["echarts"] > 0
-						hasTable := typeCount["table"] > 0
-						if (!hasECharts || !hasTable) && len(chartItems) > 0 {
-							a.Log(fmt.Sprintf("[PERSISTENCE] Flushed items missing echarts=%v table=%v, extracting from chartItems (%d items)", !hasECharts, !hasTable, len(chartItems)))
-							for idx, ci := range chartItems {
-								if ci.Type == "echarts" && !hasECharts {
-									allItems = append(allItems, AnalysisResultItem{
-										ID:   fmt.Sprintf("fallback_echarts_%s_%d", userMessageID, idx),
-										Type: "echarts",
-										Data: ci.Data,
-										Metadata: map[string]interface{}{
-											"sessionId": threadID,
-											"messageId": userMessageID,
-											"timestamp": time.Now().UnixMilli(),
-										},
-										Source: "realtime",
-									})
-								} else if ci.Type == "table" && !hasTable {
-									// Parse table data from JSON string
-									var tableData []map[string]interface{}
-									if json.Unmarshal([]byte(ci.Data), &tableData) == nil {
-										allItems = append(allItems, AnalysisResultItem{
-											ID:   fmt.Sprintf("fallback_table_%s_%d", userMessageID, idx),
-											Type: "table",
-											Data: map[string]interface{}{"title": "", "rows": tableData},
-											Metadata: map[string]interface{}{
-												"sessionId": threadID,
-												"messageId": userMessageID,
-												"timestamp": time.Now().UnixMilli(),
-											},
-											Source: "realtime",
-										})
-									}
-								}
-							}
-						}
-						
-						if len(allItems) > 0 {
-							if err := a.chatService.SaveAnalysisResults(threadID, userMessageID, allItems); err != nil {
-								a.Log(fmt.Sprintf("[PERSISTENCE] Failed to save analysis results: %v", err))
-							} else {
-								a.Log(fmt.Sprintf("[PERSISTENCE] Saved %d analysis results to message %s", len(allItems), userMessageID))
-							}
-						}
-						a.eventAggregator.ClearFlushedItems(threadID)
-					}
-
-					runtime.EventsEmit(a.ctx, "analysis-completed", map[string]interface{}{
-						"threadId":       threadID,
-						"userMessageId":  userMessageID,
-						"assistantMsgId": assistantMsg.ID,
-						"hasChartData":   chartData != nil,
-						"requestId":      requestID, // Task 3.1: Include requestId for frontend validation
-					})
-					a.Log(fmt.Sprintf("[DASHBOARD] Emitted analysis-completed event for message %s with requestId %s", userMessageID, requestID))
-
-					// Increment analysis count on successful completion
-					if a.licenseClient != nil && a.licenseClient.IsActivated() {
-						a.licenseClient.IncrementAnalysis()
-						a.Log("[LICENSE] Analysis count incremented after successful completion")
-					}
-
-					// Record analysis completion for intent enhancement (Requirement 1.1)
-					if a.intentEnhancementService != nil && dataSourceID != "" {
-						go func(dsID string, respContent string) {
-							// Get available columns from the data source
-							var availableColumns []string
-							if a.dataSourceService != nil {
-								// Get all tables for the data source
-								if tables, err := a.dataSourceService.GetDataSourceTables(dsID); err == nil {
-									// Get columns from all tables
-									for _, tableName := range tables {
-										if cols, err := a.dataSourceService.GetDataSourceTableColumns(dsID, tableName); err == nil {
-											availableColumns = append(availableColumns, cols...)
-										}
-									}
-								}
-							}
-
-							// Extract analysis type and key findings from the response
-							analysisType := a.detectAnalysisType(respContent)
-							keyFindings := a.extractKeyFindings(respContent)
-							targetColumns := a.extractTargetColumns(respContent, availableColumns)
-
-							record := agent.AnalysisRecord{
-								DataSourceID:  dsID,
-								AnalysisType:  analysisType,
-								TargetColumns: targetColumns,
-								KeyFindings:   keyFindings,
-							}
-
-							// Record the analysis history
-							a.recordAnalysisHistory(dsID, record)
-						}(dataSourceID, resp)
-					}
-				}
-			}
-
-			a.Log(fmt.Sprintf("[TIMING] Post-processing response took: %v", time.Since(startPost)))
-			a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Eino) took: %v", time.Since(startTotal)))
-
-			// Auto-extract metrics from analysis response
-			if resp != "" && userMessageID != "" {
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							a.Log(fmt.Sprintf("[PANIC] Recovered in metrics extraction goroutine: %v", r))
-						}
-					}()
-					// Small delay to ensure frontend has processed the response
-					time.Sleep(1 * time.Second)
-
-					// Notify frontend that metrics extraction is starting
-					runtime.EventsEmit(a.ctx, "metrics-extracting", userMessageID)
-
-					if err := a.ExtractMetricsFromAnalysis(threadID, userMessageID, resp); err != nil {
-						a.Log(fmt.Sprintf("Failed to extract metrics for message %s: %v", userMessageID, err))
-					}
-					// Extract and emit suggestions to dashboard
-					suggestions := a.ExtractSuggestionsAsItems(threadID, userMessageID, resp)
-					if len(suggestions) > 0 {
-						// Persist the extracted suggestions to the message's analysis_results
-						if err := a.chatService.AppendAnalysisResults(threadID, userMessageID, suggestions); err != nil {
-							a.Log(fmt.Sprintf("[PERSISTENCE] Failed to append extracted suggestions: %v", err))
-						} else {
-							a.Log(fmt.Sprintf("[PERSISTENCE] Appended %d extracted suggestions to message %s", len(suggestions), userMessageID))
-						}
-					}
-				}()
-			}
-
-			a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Returning response length: %d characters", len(resp)))
-			if len(resp) > 500 {
-				a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (first 200 chars): %s", resp[:200]))
-				a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (last 200 chars): %s", resp[len(resp)-200:]))
-			}
-			return resp, nil
-		}
-	}
-
-	langPrompt := a.getLangPromptFromMessage(message)
-	fullMessage := fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
-
-	llm := agent.NewLLMService(cfg, a.Log)
-
-	// Start timing for standard LLM chat
-	chatStartTime := time.Now()
-	startChat := time.Now()
-	resp, err := llm.Chat(a.ctx, fullMessage)
-
-	// Calculate chat duration
-	chatDuration := time.Since(chatStartTime)
-	minutes := int(chatDuration.Minutes())
-	seconds := int(chatDuration.Seconds()) % 60
-
-	a.Log(fmt.Sprintf("[TIMING] LLM Chat (Standard) took: %v", time.Since(startChat)))
-
-	// Append timing information to response if successful
-	if err == nil && resp != "" {
-		// Check if timing information is already present (from EinoService fallback)
-		if !strings.Contains(resp, "⏱️ 分析耗时:") {
-			timingInfo := fmt.Sprintf("\n\n---\n⏱️ 分析耗时: %d分%d秒", minutes, seconds)
-			resp = resp + timingInfo
-		}
-		a.Log(fmt.Sprintf("[TIMING] Chat completed in: %d分%d秒 (%v)", minutes, seconds, chatDuration))
-	}
-
-	// Log LLM response if threadID provided
-	if threadID != "" && cfg.DetailedLog {
-		if err != nil {
-			a.logChatToFile(threadID, "SYSTEM ERROR", fmt.Sprintf("Error: %v", err))
-		} else {
-			a.logChatToFile(threadID, "LLM RESPONSE", resp)
-		}
-	}
-
-	// Auto-extract metrics from analysis response (for standard LLM path)
-	if resp != "" && err == nil && threadID != "" {
-		// For standard path, we don't have userMessageID, so we'll use a generated one
-		// This is less ideal but provides fallback functionality
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					a.Log(fmt.Sprintf("[PANIC] Recovered in standard LLM metrics extraction goroutine: %v", r))
-				}
-			}()
-			// Small delay to ensure frontend has processed the response
-			time.Sleep(1 * time.Second)
-
-			// Generate a message ID based on timestamp and thread
-			messageID := fmt.Sprintf("%s_%d", threadID, time.Now().UnixNano())
-
-			// Notify frontend that metrics extraction is starting
-			runtime.EventsEmit(a.ctx, "metrics-extracting", messageID)
-
-			if err := a.ExtractMetricsFromAnalysis(threadID, messageID, resp); err != nil {
-				a.Log(fmt.Sprintf("Failed to extract metrics for standard LLM response: %v", err))
-			}
-		}()
-	}
-
-	a.Log(fmt.Sprintf("[TIMING] Total SendMessage (Standard) took: %v", time.Since(startTotal)))
-	a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Returning response length: %d characters", len(resp)))
-	if len(resp) > 500 {
-		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (first 200 chars): %s", resp[:200]))
-		a.Log(fmt.Sprintf("[DEBUG-TRUNCATION] Response preview (last 200 chars): %s", resp[len(resp)-200:]))
-	}
-
-	// Increment analysis count on successful completion (standard LLM path)
-	if err == nil && a.licenseClient != nil && a.licenseClient.IsActivated() {
-		a.licenseClient.IncrementAnalysis()
-		a.Log("[LICENSE] Analysis count incremented after successful completion (standard LLM)")
-	}
-
-	return resp, err
+	return a.chatFacadeService.SendMessage(threadID, message, userMessageID, requestID)
 }
 
 // SendFreeChatMessage sends a message to the LLM without data source context (free chat mode)
@@ -3886,247 +2096,10 @@ func (a *App) SendMessage(threadID, message, userMessageID, requestID string) (s
 // Uses streaming for better user experience
 // Supports web search and fetch tools for information retrieval (e.g., weather queries)
 func (a *App) SendFreeChatMessage(threadID, message, userMessageID string) (string, error) {
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return "", WrapError("App", "SendFreeChatMessage", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	cfg, err := a.GetEffectiveConfig()
-	if err != nil {
-		return "", err
-	}
-
-	startTotal := time.Now()
-
-	// Log user message if threadID provided
-	if threadID != "" && cfg.DetailedLog {
-		a.logChatToFile(threadID, "FREE CHAT USER", message)
-	}
-
-	// Save user message to thread file BEFORE processing
-	if threadID != "" && userMessageID != "" {
-		threads, err := a.chatService.LoadThreads()
-		if err == nil {
-			messageExists := false
-			for _, t := range threads {
-				if t.ID == threadID {
-					for _, m := range t.Messages {
-						if m.ID == userMessageID {
-							messageExists = true
-							break
-						}
-					}
-					break
-				}
-			}
-
-			if !messageExists {
-				userMsg := ChatMessage{
-					ID:        userMessageID,
-					Role:      "user",
-					Content:   message,
-					Timestamp: time.Now().Unix(),
-				}
-				if err := a.chatService.AddMessage(threadID, userMsg); err != nil {
-					a.Log(fmt.Sprintf("[ERROR] Failed to save free chat user message: %v", err))
-				}
-			}
-		}
-	}
-
-	// NOTE: For free chat with streaming, we don't emit chat-loading events
-	// because the streaming output itself serves as progress feedback
-
-	// Build conversation history for context
-	var historyContext strings.Builder
-	if threadID != "" {
-		threads, _ := a.chatService.LoadThreads()
-		for _, t := range threads {
-			if t.ID == threadID {
-				// Include last 10 messages for context
-				startIdx := 0
-				if len(t.Messages) > 10 {
-					startIdx = len(t.Messages) - 10
-				}
-				for _, m := range t.Messages[startIdx:] {
-					if m.Role == "user" {
-						historyContext.WriteString(fmt.Sprintf("User: %s\n", m.Content))
-					} else if m.Role == "assistant" {
-						// Truncate long assistant responses
-						content := m.Content
-						if len(content) > 500 {
-							content = content[:500] + "..."
-						}
-						historyContext.WriteString(fmt.Sprintf("Assistant: %s\n", content))
-					}
-				}
-				break
-			}
-		}
-	}
-
-	// Use smart tool router to determine if tools are needed
-	toolRouter := agent.NewToolRouter(a.Log)
-	routerResult := toolRouter.Route(message)
-	
-	// Also check legacy keyword detection as fallback
-	legacyNeedsSearch := a.detectWebSearchNeed(message)
-	
-	// Check if conversation history suggests analysis context
-	// (e.g., user previously asked to analyze something and is now replying with a data source name)
-	historyStr := historyContext.String()
-	historyHasAnalysisContext := strings.Contains(historyStr, "分析") ||
-		strings.Contains(historyStr, "数据源") ||
-		strings.Contains(historyStr, "analyze") ||
-		strings.Contains(historyStr, "data source") ||
-		strings.Contains(historyStr, "start_datasource_analysis")
-	
-	// Combine both methods: use tools if either method suggests it, or if history has analysis context
-	needsTools := routerResult.NeedsTools || legacyNeedsSearch || historyHasAnalysisContext
-	
-	a.Log(fmt.Sprintf("[FREE-CHAT] Tool routing: router=%v (confidence=%.2f, reason=%s), legacy=%v, historyAnalysis=%v, final=%v",
-		routerResult.NeedsTools, routerResult.Confidence, routerResult.Reason, legacyNeedsSearch, historyHasAnalysisContext, needsTools))
-
-	// Build the prompt with conversation history
-	// Detect language from user's message to respond in the same language
-	langPrompt := a.getLangPromptFromMessage(message)
-	var fullMessage string
-	if historyContext.Len() > 0 {
-		fullMessage = fmt.Sprintf("Previous conversation:\n%s\nUser: %s\n\n(Please answer in %s)", historyContext.String(), message, langPrompt)
-	} else {
-		fullMessage = fmt.Sprintf("%s\n\n(Please answer in %s)", message, langPrompt)
-	}
-
-	// Create assistant message ID for streaming updates
-	assistantMsgID := fmt.Sprintf("assistant_%d", time.Now().UnixNano())
-
-	// Emit initial empty message for streaming
-	if threadID != "" {
-		runtime.EventsEmit(a.ctx, "free-chat-stream-start", map[string]interface{}{
-			"threadId":  threadID,
-			"messageId": assistantMsgID,
-		})
-	}
-
-	chatStartTime := time.Now()
-
-	// Stream callback to emit chunks to frontend
-	onChunk := func(content string) {
-		if threadID != "" {
-			runtime.EventsEmit(a.ctx, "free-chat-stream-chunk", map[string]interface{}{
-				"threadId":  threadID,
-				"messageId": assistantMsgID,
-				"content":   content,
-			})
-		}
-	}
-
-	var resp string
-
-	// Two-path approach for optimal user experience:
-	// 1. For queries needing tools: Use agent mode with tools (slower, no real streaming, but can use tools)
-	// 2. For general conversation: Use streaming LLM chat (fast, real streaming)
-	if needsTools && a.einoService != nil {
-		// Path 1: Agent mode with tools for queries that need external information
-		a.Log("[FREE-CHAT] Tool router detected tool need, using agent with tools (non-streaming)")
-		
-		// Emit chat-loading event to show loading indicator in chat area
-		if threadID != "" {
-			a.Log(fmt.Sprintf("[LOADING-DEBUG] Free chat emitting chat-loading true for threadId: %s", threadID))
-			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-				"loading":  true,
-				"threadId": threadID,
-			})
-		}
-		
-		// Emit search status event to frontend (will show spinner)
-		if threadID != "" {
-			runtime.EventsEmit(a.ctx, "free-chat-search-status", map[string]interface{}{
-				"threadId":  threadID,
-				"messageId": assistantMsgID,
-				"searching": true,
-			})
-			// Also emit progress update for the loading indicator
-			runtime.EventsEmit(a.ctx, "analysis-progress", map[string]interface{}{
-				"threadId": threadID,
-				"stage":    "analyzing",
-				"progress": 0,
-				"message":  "正在搜索网络信息...",
-				"step":     1,
-				"total":    1,
-			})
-		}
-		resp, err = a.runFreeChatWithTools(a.ctx, message, historyContext.String(), langPrompt, onChunk)
-		
-		// If tool-based chat failed, try falling back to simple streaming chat
-		if err != nil {
-			a.Log(fmt.Sprintf("[FREE-CHAT] Tool-based chat failed: %v, falling back to streaming chat", err))
-			llm := agent.NewLLMService(cfg, a.Log)
-			resp, err = llm.ChatStream(a.ctx, fullMessage, onChunk)
-		}
-		
-		// Emit search complete event
-		if threadID != "" {
-			runtime.EventsEmit(a.ctx, "free-chat-search-status", map[string]interface{}{
-				"threadId":  threadID,
-				"messageId": assistantMsgID,
-				"searching": false,
-			})
-			// Emit chat-loading false to hide loading indicator
-			a.Log(fmt.Sprintf("[LOADING-DEBUG] Free chat emitting chat-loading false for threadId: %s", threadID))
-			runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-				"loading":  false,
-				"threadId": threadID,
-			})
-		}
-	} else {
-		// Path 2: Streaming LLM chat for general conversation (fast, real streaming)
-		a.Log("[FREE-CHAT] No search keyword detected, using streaming LLM chat for better UX")
-		llm := agent.NewLLMService(cfg, a.Log)
-		resp, err = llm.ChatStream(a.ctx, fullMessage, onChunk)
-	}
-
-	chatDuration := time.Since(chatStartTime)
-
-	// Emit stream end
-	if threadID != "" {
-		runtime.EventsEmit(a.ctx, "free-chat-stream-end", map[string]interface{}{
-			"threadId":  threadID,
-			"messageId": assistantMsgID,
-		})
-	}
-
-	if err != nil {
-		if threadID != "" && cfg.DetailedLog {
-			a.logChatToFile(threadID, "FREE CHAT ERROR", fmt.Sprintf("Error: %v", err))
-		}
-		return "", err
-	}
-
-	// Save assistant response to thread
-	if threadID != "" && resp != "" {
-		assistantMsg := ChatMessage{
-			ID:        assistantMsgID,
-			Role:      "assistant",
-			Content:   resp,
-			Timestamp: time.Now().Unix(),
-		}
-		if err := a.chatService.AddMessage(threadID, assistantMsg); err != nil {
-			a.Log(fmt.Sprintf("[ERROR] Failed to save free chat assistant message: %v", err))
-		}
-
-		// Emit thread-updated event to refresh the UI
-		runtime.EventsEmit(a.ctx, "thread-updated", threadID)
-	}
-
-	// Log response
-	if threadID != "" && cfg.DetailedLog {
-		a.logChatToFile(threadID, "FREE CHAT RESPONSE", resp)
-	}
-
-	a.Log(fmt.Sprintf("[FREE-CHAT] Completed in %v", chatDuration))
-	a.Log(fmt.Sprintf("[TIMING] Total SendFreeChatMessage took: %v", time.Since(startTotal)))
-
-	return resp, nil
+	return a.chatFacadeService.SendFreeChatMessage(threadID, message, userMessageID)
 }
 
 // detectWebSearchNeed checks if the user's message requires web search
@@ -4789,285 +2762,53 @@ Please respond in %s.`, toolDescriptions.String(), langPrompt)
 // CancelAnalysis cancels the ongoing analysis for the active thread
 // It sets the cancel flag and waits for the analysis to actually stop
 func (a *App) CancelAnalysis() error {
-	a.cancelAnalysisMutex.Lock()
-
-	// Check if there's any active analysis
-	a.activeThreadsMutex.RLock()
-	hasActiveAnalysis := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
-
-	if !hasActiveAnalysis {
-		a.cancelAnalysisMutex.Unlock()
-		return fmt.Errorf("no analysis is currently running")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "CancelAnalysis", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	a.cancelAnalysis = true
-	a.Log(fmt.Sprintf("[CANCEL] Analysis cancellation requested for thread: %s", a.activeThreadID))
-	a.cancelAnalysisMutex.Unlock()
-
-	// Wait for the analysis to actually stop (with timeout)
-	// This ensures activeThreads is properly cleaned up before returning
-	maxWaitTime := 5 * time.Second
-	checkInterval := 100 * time.Millisecond
-	startTime := time.Now()
-
-	for {
-		a.activeThreadsMutex.RLock()
-		stillActive := len(a.activeThreads) > 0
-		a.activeThreadsMutex.RUnlock()
-
-		if !stillActive {
-			a.Log("[CANCEL] Analysis successfully cancelled and cleaned up")
-			return nil
-		}
-
-		if time.Since(startTime) > maxWaitTime {
-			a.Log("[CANCEL] Timeout waiting for analysis to stop, forcing cleanup")
-			// Force cleanup of activeThreads
-			a.activeThreadsMutex.Lock()
-			for threadID := range a.activeThreads {
-				delete(a.activeThreads, threadID)
-				a.Log(fmt.Sprintf("[CANCEL] Force removed thread from activeThreads: %s", threadID))
-			}
-			a.activeThreadsMutex.Unlock()
-			return nil
-		}
-
-		time.Sleep(checkInterval)
-	}
+	return a.chatFacadeService.CancelAnalysis()
 }
 
 // IsCancelRequested checks if analysis cancellation has been requested
 func (a *App) IsCancelRequested() bool {
-	a.cancelAnalysisMutex.Lock()
-	defer a.cancelAnalysisMutex.Unlock()
-	return a.cancelAnalysis
+	if a.chatFacadeService == nil {
+		return false
+	}
+	return a.chatFacadeService.IsCancelRequested()
 }
 
 // GetActiveThreadID returns the currently active thread ID
 func (a *App) GetActiveThreadID() string {
-	a.cancelAnalysisMutex.Lock()
-	defer a.cancelAnalysisMutex.Unlock()
-	return a.activeThreadID
+	if a.chatFacadeService == nil {
+		return ""
+	}
+	return a.chatFacadeService.GetActiveThreadID()
 }
 
 // GetActiveAnalysisCount returns the current number of active analysis sessions
 func (a *App) GetActiveAnalysisCount() int {
-	a.activeThreadsMutex.RLock()
-	defer a.activeThreadsMutex.RUnlock()
-	return len(a.activeThreads)
+	if a.chatFacadeService == nil {
+		return 0
+	}
+	return a.chatFacadeService.GetActiveAnalysisCount()
 }
 
 // CanStartNewAnalysis checks if a new analysis can be started based on concurrent limit
 func (a *App) CanStartNewAnalysis() (bool, string) {
-	cfg, _ := a.GetConfig()
-	maxConcurrent := cfg.MaxConcurrentAnalysis
-	if maxConcurrent <= 0 {
-		maxConcurrent = 5 // Default to 5
+	if a.chatFacadeService == nil {
+		return false, "chat facade service not initialized"
 	}
-	if maxConcurrent > 10 {
-		maxConcurrent = 10 // Cap at 10
-	}
-
-	a.activeThreadsMutex.RLock()
-	activeCount := len(a.activeThreads)
-	a.activeThreadsMutex.RUnlock()
-
-	if activeCount >= maxConcurrent {
-		// Get current language configuration
-		var errorMessage string
-		if cfg.Language == "简体中文" {
-			errorMessage = fmt.Sprintf("当前已有 %d 个分析会话进行中（最大并发数：%d）。请等待部分分析完成后再开始新的分析，或在设置中增加最大并发分析任务数。", activeCount, maxConcurrent)
-		} else {
-			errorMessage = fmt.Sprintf("There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before starting a new analysis, or increase the max concurrent analysis limit in settings.", activeCount, maxConcurrent)
-		}
-		return false, errorMessage
-	}
-
-	return true, ""
+	return a.chatFacadeService.CanStartNewAnalysis()
 }
 
 // attachChartToUserMessage attaches chart data to a specific user message in a thread
 func (a *App) attachChartToUserMessage(threadID, messageID string, chartData *ChartData) {
-	if a.chatService == nil {
+	if a.chatFacadeService == nil {
 		return
 	}
-
-	threads, err := a.chatService.LoadThreads()
-	if err != nil {
-		a.Log(fmt.Sprintf("attachChartToUserMessage: Failed to load threads: %v", err))
-		return
-	}
-
-	// Find the target thread
-	var targetThread *ChatThread
-	for i := range threads {
-		if threads[i].ID == threadID {
-			targetThread = &threads[i]
-			break
-		}
-	}
-
-	if targetThread == nil {
-		a.Log(fmt.Sprintf("attachChartToUserMessage: Thread %s not found", threadID))
-		return
-	}
-
-	// Find the target message
-	found := false
-	if messageID != "" {
-		// Strict mode: Find exact message ID
-		for i := range targetThread.Messages {
-			if targetThread.Messages[i].ID == messageID {
-				targetThread.Messages[i].ChartData = chartData
-				a.Log(fmt.Sprintf("[CHART] Attached chart to specific user message: %s", messageID))
-				found = true
-				break
-			}
-		}
-		if !found {
-			a.Log(fmt.Sprintf("attachChartToUserMessage: Message %s not found in thread %s", messageID, threadID))
-		}
-	} else {
-		// Legacy mode: Find last user message
-		for i := len(targetThread.Messages) - 1; i >= 0; i-- {
-			if targetThread.Messages[i].Role == "user" {
-				targetThread.Messages[i].ChartData = chartData
-				a.Log(fmt.Sprintf("[CHART] Attached chart to last user message: %s (Fallback)", targetThread.Messages[i].ID))
-				found = true
-				break
-			}
-		}
-	}
-
-	// Save the updated thread
-	if found {
-		if err := a.chatService.SaveThreads([]ChatThread{*targetThread}); err != nil {
-			a.Log(fmt.Sprintf("attachChartToUserMessage: Failed to save thread: %v", err))
-		}
-	}
+	a.chatFacadeService.attachChartToUserMessage(threadID, messageID, chartData)
 }
 
-// attachChartToLastAssistantMessage attaches chart data to the last assistant message in a thread
-func (a *App) attachChartToLastAssistantMessage(threadID string, chartData *ChartData) {
-	if a.chatService == nil {
-		return
-	}
 
-	threads, err := a.chatService.LoadThreads()
-	if err != nil {
-		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Failed to load threads: %v", err))
-		return
-	}
-
-	// Find the target thread
-	var targetThread *ChatThread
-	for i := range threads {
-		if threads[i].ID == threadID {
-			targetThread = &threads[i]
-			break
-		}
-	}
-
-	if targetThread == nil {
-		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Thread %s not found", threadID))
-		return
-	}
-
-	// Find the last assistant message
-	found := false
-	for i := len(targetThread.Messages) - 1; i >= 0; i-- {
-		if targetThread.Messages[i].Role == "assistant" {
-			targetThread.Messages[i].ChartData = chartData
-			a.Log(fmt.Sprintf("[CHART] Attached chart to last assistant message: %s", targetThread.Messages[i].ID))
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: No assistant message found in thread %s", threadID))
-		return
-	}
-
-	// Save the updated thread
-	if err := a.chatService.SaveThreads([]ChatThread{*targetThread}); err != nil {
-		a.Log(fmt.Sprintf("attachChartToLastAssistantMessage: Failed to save thread: %v", err))
-	}
-}
-
-// detectAndEmitImages detects images in the response and emits analysis-result-update events
-// It uses the ImageDetector to find images in various formats (base64, markdown, file references)
-// and emits separate events for each detected image
-func (a *App) detectAndEmitImages(response string, threadID string, userMessageID string, requestID string) {
-	if response == "" || threadID == "" {
-		return
-	}
-
-	// Create a new ImageDetector
-	detector := agent.NewImageDetector()
-
-	// Detect all images in the response
-	images := detector.DetectAllImages(response)
-
-	if len(images) == 0 {
-		a.Log("[CHART] No images detected in response")
-		return
-	}
-
-	a.Log(fmt.Sprintf("[CHART] Detected %d image(s) in response", len(images)))
-
-	// Emit separate events for each detected image
-	for i, img := range images {
-		// Extract the image data based on type
-		var imageData string
-
-		switch img.Type {
-		case "base64":
-			// For base64 images, use the full data URL
-			imageData = img.Data
-			a.Log(fmt.Sprintf("[CHART] Detected inline base64 image (%d/%d)", i+1, len(images)))
-
-		case "markdown":
-			// For markdown images, the data is the path
-			// Check if it's already a data URL or needs conversion
-			if strings.HasPrefix(img.Data, "data:") {
-				imageData = img.Data
-			} else if strings.HasPrefix(img.Data, "http://") || strings.HasPrefix(img.Data, "https://") {
-				// HTTP URL - use directly
-				imageData = img.Data
-				a.Log(fmt.Sprintf("[CHART] Detected markdown image with HTTP URL (%d/%d)", i+1, len(images)))
-			} else {
-				// File path - will be handled by frontend
-				imageData = img.Data
-				a.Log(fmt.Sprintf("[CHART] Detected markdown image with file path (%d/%d): %s", i+1, len(images), img.Data))
-			}
-
-		case "file_reference":
-			// For file references, the data is the filename
-			// Construct a file reference that the frontend can use
-			imageData = "files/" + img.Data
-			a.Log(fmt.Sprintf("[CHART] Detected file reference image (%d/%d): %s", i+1, len(images), img.Data))
-
-		case "sandbox":
-			// For sandbox paths (OpenAI code interpreter format), the data is the filename
-			// Construct a file reference that the frontend can use
-			imageData = "files/" + img.Data
-			a.Log(fmt.Sprintf("[CHART] Detected sandbox path image (%d/%d): %s", i+1, len(images), img.Data))
-
-		default:
-			a.Log(fmt.Sprintf("[CHART] Unknown image type: %s", img.Type))
-			continue
-		}
-
-		// Use event aggregator for new unified event system
-		if a.eventAggregator != nil {
-			a.eventAggregator.AddImage(threadID, userMessageID, requestID, imageData, "")
-		}
-
-		a.Log(fmt.Sprintf("[CHART] Emitted analysis-result-update event for image (%d/%d)", i+1, len(images)))
-	}
-}
 
 // cleanEChartsJSON removes JavaScript function expressions from ECharts JSON strings
 // so they can be parsed by Go's json.Unmarshal. LLMs sometimes generate ECharts configs
@@ -5173,95 +2914,6 @@ func cleanEChartsJSON(jsonStr string) string {
 	return result
 }
 
-// filterFalseFileClaimsIfECharts filters out false file generation claims when ECharts is used
-// LLM sometimes hallucinates file generation (e.g., "图表已生成: xxx.pdf") when using ECharts,
-// but ECharts only renders in the frontend and doesn't generate any files.
-func (a *App) filterFalseFileClaimsIfECharts(response string) string {
-	// Check if response contains ECharts
-	hasECharts := strings.Contains(response, "json:echarts")
-	
-	if !hasECharts {
-		return response // No ECharts, no filtering needed
-	}
-	
-	// Check if response also contains python_executor output (actual file generation)
-	// If python_executor was used, files might be real
-	hasPythonOutput := strings.Contains(response, "✅ 图表已保存") || 
-		strings.Contains(response, "✅ Chart saved") ||
-		strings.Contains(response, "plt.savefig") ||
-		strings.Contains(response, "FILES_DIR")
-	
-	if hasPythonOutput {
-		return response // Python was used, files might be real
-	}
-	
-	// ECharts is used but no Python execution - filter false file claims
-	a.Log("[FILTER] Detected ECharts without Python execution, filtering false file claims")
-	
-	// Patterns that indicate false file generation claims
-	// These patterns match common LLM hallucinations about file generation
-	falseClaimPatterns := []string{
-		// Chinese patterns - match file generation claims with file sizes
-		"(?i)图表文件已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg|xlsx|csv)`?\\s*\\([^)]*\\)",
-		"(?i)✅\\s*[^：:\\n]+[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?\\s*\\([^)]*\\)",
-		"(?i)图表已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
-		"(?i)已保存[到至]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
-		"(?i)文件已生成[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg|xlsx|csv)`?",
-		// English patterns
-		"(?i)chart\\s+(?:file\\s+)?generated[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
-		"(?i)saved\\s+(?:to|as)[：:]\\s*`?[^`\\n]+\\.(pdf|png|jpg|jpeg)`?",
-	}
-	
-	result := response
-	for _, pattern := range falseClaimPatterns {
-		re := regexp.MustCompile(pattern)
-		if re.MatchString(result) {
-			a.Log(fmt.Sprintf("[FILTER] Removing false file claim matching pattern: %s", pattern))
-			result = re.ReplaceAllString(result, "")
-		}
-	}
-	
-	// Also remove lines that look like file size claims without actual files
-	// e.g., "(32.18 KB)" or "(28.47 KB)" standalone
-	// fileSizePattern := regexp.MustCompile(`\s*\(\d+\.?\d*\s*[KMG]?B\)\s*`)
-	
-	// Only remove file size if it appears after a filename pattern that was removed
-	// This is a more conservative approach
-	
-	// Clean up any double newlines created by removal
-	result = regexp.MustCompile("\\n{3,}").ReplaceAllString(result, "\n\n")
-	
-	if result != response {
-		a.Log("[FILTER] False file claims were filtered from response")
-	}
-	
-	return result
-}
-
-func (a *App) logChatToFile(threadID, role, content string) {
-	// Use DataCacheDir for logs
-	cfg, _ := a.GetConfig()
-
-	// Construct path: sessions/<threadID>/chat.log
-	logPath := filepath.Join(cfg.DataCacheDir, "sessions", threadID, "chat.log")
-
-	// Ensure dir exists
-	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
-		a.Log(fmt.Sprintf("logChatToFile: Failed to create log directory: %v", err))
-		return
-	}
-
-	// Append log
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		a.Log(fmt.Sprintf("logChatToFile: Failed to open log file %s: %v", logPath, err))
-		return
-	}
-	defer f.Close()
-
-	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "[%s] [%s]\n%s\n\n--------------------------------------------------\n\n", timestamp, role, content)
-}
 
 // SelectDirectory opens a directory dialog
 func (a *App) SelectDirectory() (string, error) {
@@ -5279,604 +2931,197 @@ func (a *App) SelectFolder(title string) (string, error) {
 
 // GetPythonEnvironments returns detected Python environments
 func (a *App) GetPythonEnvironments() []agent.PythonEnvironment {
-	return a.pythonService.ProbePythonEnvironments()
+	if a.pythonFacadeService == nil {
+		return nil
+	}
+	return a.pythonFacadeService.GetPythonEnvironments()
 }
 
 // ValidatePython checks the given Python path
 func (a *App) ValidatePython(path string) agent.PythonValidationResult {
-	return a.pythonService.ValidatePythonEnvironment(path)
+	if a.pythonFacadeService == nil {
+		return agent.PythonValidationResult{Valid: false, Version: "", MissingPackages: []string{}}
+	}
+	return a.pythonFacadeService.ValidatePython(path)
 }
 
 // InstallPythonPackages installs missing packages for the given Python environment
 func (a *App) InstallPythonPackages(pythonPath string, packages []string) error {
-	return a.pythonService.InstallMissingPackages(pythonPath, packages)
+	if a.pythonFacadeService == nil {
+		return WrapError("App", "InstallPythonPackages", fmt.Errorf("python facade service not initialized"))
+	}
+	return a.pythonFacadeService.InstallPythonPackages(pythonPath, packages)
 }
 
 // CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
 func (a *App) CreateVantageDataEnvironment() (string, error) {
-	return a.pythonService.CreateVantageDataEnvironment()
+	if a.pythonFacadeService == nil {
+		return "", WrapError("App", "CreateVantageDataEnvironment", fmt.Errorf("python facade service not initialized"))
+	}
+	return a.pythonFacadeService.CreateVantageDataEnvironment()
 }
 
 // CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
 func (a *App) CheckVantageDataEnvironmentExists() bool {
-	return a.pythonService.CheckVantageDataEnvironmentExists()
+	if a.pythonFacadeService == nil {
+		return false
+	}
+	return a.pythonFacadeService.CheckVantageDataEnvironmentExists()
 }
 
 // DiagnosePythonInstallation provides detailed diagnostic information about Python installations
 func (a *App) DiagnosePythonInstallation() map[string]interface{} {
-	return a.pythonService.DiagnosePythonInstallation()
+	if a.pythonFacadeService == nil {
+		return map[string]interface{}{"error": "python facade service not initialized"}
+	}
+	return a.pythonFacadeService.DiagnosePythonInstallation()
 }
 
 // GetChatHistory loads the chat history
 func (a *App) GetChatHistory() ([]ChatThread, error) {
-	if a.chatService == nil {
-		return nil, fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return nil, WrapError("App", "GetChatHistory", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.LoadThreads()
+	return a.chatFacadeService.GetChatHistory()
 }
 
 // GetChatHistoryByDataSource loads chat history for a specific data source
 func (a *App) GetChatHistoryByDataSource(dataSourceID string) ([]ChatThread, error) {
-	if a.chatService == nil {
-		return nil, fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return nil, WrapError("App", "GetChatHistoryByDataSource", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.GetThreadsByDataSource(dataSourceID)
+	return a.chatFacadeService.GetChatHistoryByDataSource(dataSourceID)
 }
 
 // CheckSessionNameExists checks if a session name already exists for a data source
 func (a *App) CheckSessionNameExists(dataSourceID string, sessionName string, excludeThreadID string) (bool, error) {
-	if a.chatService == nil {
-		return false, fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return false, WrapError("App", "CheckSessionNameExists", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.CheckSessionNameExists(dataSourceID, sessionName, excludeThreadID)
+	return a.chatFacadeService.CheckSessionNameExists(dataSourceID, sessionName, excludeThreadID)
 }
 
 // SaveChatHistory saves the chat history
 func (a *App) SaveChatHistory(threads []ChatThread) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "SaveChatHistory", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.SaveThreads(threads)
+	return a.chatFacadeService.SaveChatHistory(threads)
 }
 
 // DeleteThread deletes a specific chat thread
 func (a *App) DeleteThread(threadID string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "DeleteThread", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	// Check if this thread is currently running analysis
-	a.cancelAnalysisMutex.Lock()
-	isActiveThread := a.activeThreadID == threadID
-
-	a.activeThreadsMutex.RLock()
-	isGenerating := a.activeThreads[threadID]
-	a.activeThreadsMutex.RUnlock()
-
-	if isActiveThread && isGenerating {
-		// Cancel the ongoing analysis for this thread
-		a.cancelAnalysis = true
-		a.Log(fmt.Sprintf("[DELETE-THREAD] Cancelling ongoing analysis for thread: %s", threadID))
-	}
-	a.cancelAnalysisMutex.Unlock()
-
-	// Wait a moment for cancellation to take effect if needed
-	if isActiveThread && isGenerating {
-		time.Sleep(100 * time.Millisecond)
-		a.Log(fmt.Sprintf("[DELETE-THREAD] Waited for analysis cancellation"))
-	}
-
-	// Delete the thread
-	err := a.chatService.DeleteThread(threadID)
-	if err != nil {
-		return err
-	}
-
-	// If the deleted thread was active, clear dashboard data
-	if isActiveThread {
-		a.Log(fmt.Sprintf("[DELETE-THREAD] Clearing dashboard data for deleted active thread: %s", threadID))
-		// Use new unified event system
-		if a.eventAggregator != nil {
-			a.eventAggregator.Clear(threadID)
-		}
-	}
-
-	return nil
+	return a.chatFacadeService.DeleteThread(threadID)
 }
 
 // CreateChatThread creates a new chat thread with a unique title
 func (a *App) CreateChatThread(dataSourceID, title string) (ChatThread, error) {
-	if a.chatService == nil {
-		return ChatThread{}, fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return ChatThread{}, WrapError("App", "CreateChatThread", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	// Note: We no longer check concurrent analysis limit here.
-	// The limit is enforced in SendMessage, where the analysis will wait in queue
-	// if the limit is reached. This allows users to create sessions freely,
-	// and the waiting indicator will be shown in the chat area.
-
-	thread, err := a.chatService.CreateThread(dataSourceID, title)
-	if err != nil {
-		return ChatThread{}, err
-	}
-
-	// If data source is selected, check for existing analysis and inject into memory
-	/*
-		if dataSourceID != "" {
-			sources, _ := a.dataSourceService.LoadDataSources()
-			var target *agent.DataSource
-			for _, ds := range sources {
-				if ds.ID == dataSourceID {
-					target = &ds
-					break
-				}
-			}
-
-			if target != nil && target.Analysis != nil {
-				// Generate suggestions based on this analysis
-				go a.generateAnalysisSuggestions(thread.ID, target.Analysis)
-			}
-		}
-	*/
-
-	return thread, nil
+	return a.chatFacadeService.CreateChatThread(dataSourceID, title)
 }
 
 func (a *App) generateAnalysisSuggestions(threadID string, analysis *agent.DataSourceAnalysis) {
-	if a.chatService == nil {
+	if a.dataSourceFacadeService == nil {
 		return
 	}
-
-	// Notify frontend that background task started
-	runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-		"loading":  true,
-		"threadId": threadID,
-	})
-	defer runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-		"loading":  false,
-		"threadId": threadID,
-	})
-
-	cfg, _ := a.GetEffectiveConfig()
-	langPrompt := a.getLangPrompt(cfg)
-
-	// Construct prompt
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Based on the following data source summary and schema, please suggest 3-5 distinct business analysis questions that would provide valuable insights for decision-making. Please answer in %s.\n\nIMPORTANT GUIDELINES:\n- Focus on BUSINESS VALUE and INSIGHTS, not technical implementation\n- Use simple, non-technical language that any business user can understand\n- Frame suggestions as business questions or outcomes (e.g., \"Understand customer purchasing patterns\" instead of \"Run RFM analysis\")\n- DO NOT mention SQL, Python, data processing, or any technical terms\n- Focus on what insights can be discovered, not how to discover them\n\nProvide the suggestions as a clear, structured, numbered list (1., 2., 3...). Each suggestion should include:\n- A clear, business-focused title\n- A one-sentence description of what business insights this would reveal\n\nEnd your response by telling the user (in %s) that they can select one or more analysis questions by replying with the corresponding number(s).", langPrompt, langPrompt))
-	sb.WriteString(fmt.Sprintf("Summary: %s\n\n", analysis.Summary))
-	sb.WriteString("Schema:\n")
-	for _, table := range analysis.Schema {
-		sb.WriteString(fmt.Sprintf("- Table: %s, Columns: %s\n", table.TableName, strings.Join(table.Columns, ", ")))
-	}
-
-	prompt := sb.String()
-	llm := agent.NewLLMService(cfg, a.Log)
-
-	resp, err := llm.Chat(context.Background(), prompt)
-	if err != nil {
-		a.Log(fmt.Sprintf("Failed to generate suggestions: %v", err))
-		return
-	}
-
-	// Add message to chat
-	msg := ChatMessage{
-		ID:        strconv.FormatInt(time.Now().UnixNano(), 10),
-		Role:      "assistant",
-		Content:   resp, // LLM response already contains the suggestions and instructions
-		Timestamp: time.Now().Unix(),
-	}
-
-	if err := a.chatService.AddMessage(threadID, msg); err != nil {
-		a.Log(fmt.Sprintf("Failed to add suggestion message: %v", err))
-		return
-	}
-
-	// Parse suggestions and emit to dashboard insights area
-	// Note: analysis struct doesn't have ID/Name fields, insights will be generic
-	insights := a.parseSuggestionsToInsights(resp, "", "")
-	if len(insights) > 0 {
-		a.Log(fmt.Sprintf("Emitting %d suggestions to dashboard insights", len(insights)))
-		// Use event aggregator for new unified event system
-		if a.eventAggregator != nil {
-			for _, insight := range insights {
-				a.eventAggregator.AddInsight(threadID, msg.ID, "", insight)
-			}
-			a.eventAggregator.FlushNow(threadID, true)
-		}
-	}
-
-	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
+	a.dataSourceFacadeService.GenerateAnalysisSuggestions(threadID, analysis)
 }
 
 // parseSuggestionsToInsights extracts numbered suggestions from LLM response and converts to Insight objects
 func (a *App) parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceName string) []Insight {
-	var insights []Insight
-	lines := strings.Split(llmResponse, "\n")
-
-	// Match numbered items: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
-	// Match markdown list items: "- xxx", "* xxx", "• xxx"
-	listPattern := regexp.MustCompile(`^\s*[-*•]\s+(.+)`)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		var suggestionText string
-		if matches := numberPattern.FindStringSubmatch(line); len(matches) > 2 {
-			suggestionText = strings.TrimSpace(matches[2])
-		} else if matches := listPattern.FindStringSubmatch(line); len(matches) > 1 {
-			suggestionText = strings.TrimSpace(matches[1])
-		}
-		// Clean up markdown formatting
-		if suggestionText != "" {
-			suggestionText = strings.TrimPrefix(suggestionText, "**")
-			suggestionText = strings.TrimSuffix(suggestionText, "**")
-			suggestionText = strings.TrimSpace(suggestionText)
-		}
-		if suggestionText != "" {
-			insights = append(insights, Insight{
-				Text:         suggestionText,
-				Icon:         "lightbulb",
-				DataSourceID: dataSourceID,
-				SourceName:   dataSourceName,
-			})
-		}
+	if a.dataSourceFacadeService == nil {
+		return nil
 	}
-
-	return insights
+	return a.dataSourceFacadeService.parseSuggestionsToInsights(llmResponse, dataSourceID, dataSourceName)
 }
 
 func (a *App) analyzeDataSource(dataSourceID string) {
-	startTotal := time.Now()
-	if a.dataSourceService == nil {
+	if a.dataSourceFacadeService == nil {
 		return
 	}
-
-	a.Log(fmt.Sprintf("Starting analysis for source %s", dataSourceID))
-
-	// 1. Get Tables
-	startTables := time.Now()
-	tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
-	if err != nil {
-		a.Log(fmt.Sprintf("Failed to get tables: %v", err))
-		return
-	}
-	a.Log(fmt.Sprintf("[TIMING] Getting tables took: %v", time.Since(startTables)))
-
-	// 2. Sample Data & Construct Prompt
-	startSample := time.Now()
-	cfg, _ := a.GetEffectiveConfig()
-	langPrompt := a.getLangPrompt(cfg)
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("I am starting a new analysis on this database. Based on the following schema and first row of data, please provide exactly two sentences in %s: the first sentence should describe the industry background of this data, and the second sentence should provide a concise overview of the data source content.\n\n", langPrompt))
-
-	var tableSchemas []agent.TableSchema
-
-	for _, tableName := range tables {
-		sb.WriteString(fmt.Sprintf("Table: %s\n", tableName))
-
-		// Get 1 row
-		data, err := a.dataSourceService.GetDataSourceTableData(dataSourceID, tableName, 1)
-		if err != nil {
-			sb.WriteString("(Failed to fetch data)\n")
-			continue
-		}
-
-		var cols []string
-		if len(data) > 0 {
-			// Extract columns from first row keys
-			for k := range data[0] {
-				cols = append(cols, k)
-			}
-			sb.WriteString(fmt.Sprintf("Columns: %s\nData:\n", strings.Join(cols, ", ")))
-
-			for _, row := range data {
-				// Simple values formatting
-				var vals []string
-				for _, col := range cols {
-					if val, ok := row[col]; ok {
-						vals = append(vals, fmt.Sprintf("%v", val))
-					} else {
-						vals = append(vals, "NULL")
-					}
-				}
-				sb.WriteString(fmt.Sprintf("[%s]\n", strings.Join(vals, ", ")))
-			}
-		} else {
-			sb.WriteString("(Empty table)\n")
-		}
-		sb.WriteString("\n")
-
-		// Add to schema list
-		if len(cols) > 0 {
-			tableSchemas = append(tableSchemas, agent.TableSchema{
-				TableName: tableName,
-				Columns:   cols,
-			})
-		}
-	}
-	a.Log(fmt.Sprintf("[TIMING] Data sampling and prompt construction took: %v", time.Since(startSample)))
-
-	// 3. Call LLM
-	prompt := sb.String()
-
-	// Log prompt to system log if detailed logging is on (or creates a special log file?)
-	// Since we don't have a threadID, logChatToFile needs a path.
-	// We can log to "system_analysis.log" or similar?
-	// Or just skip file logging for background tasks and use main log.
-	if cfg.DetailedLog {
-		a.Log("Sending Analysis Prompt to LLM...")
-	}
-
-	llm := agent.NewLLMService(cfg, a.Log)
-	startLLM := time.Now()
-	description, err := llm.Chat(context.Background(), prompt)
-	a.Log(fmt.Sprintf("[TIMING] Background LLM Analysis took: %v", time.Since(startLLM)))
-
-	if err != nil {
-		a.Log(fmt.Sprintf("LLM Analysis failed: %v", err))
-		return
-	}
-
-	if description == "" {
-		a.Log("LLM returned empty response during analysis.")
-		description = "No description provided by LLM."
-	}
-
-	// 4. Save Analysis to DataSource
-	startSave := time.Now()
-	analysis := agent.DataSourceAnalysis{
-		Summary: description,
-		Schema:  tableSchemas,
-	}
-
-	if err := a.dataSourceService.UpdateAnalysis(dataSourceID, analysis); err != nil {
-		a.Log(fmt.Sprintf("Failed to update data source analysis: %v", err))
-		return
-	}
-	a.Log(fmt.Sprintf("[TIMING] Saving analysis result took: %v", time.Since(startSave)))
-	a.Log(fmt.Sprintf("[TIMING] Total Background Analysis took: %v", time.Since(startTotal)))
-
-	a.Log("Data Source Analysis complete and saved.")
+	a.dataSourceFacadeService.analyzeDataSource(dataSourceID)
 }
 
 // UpdateThreadTitle updates the title of a chat thread
 func (a *App) UpdateThreadTitle(threadID, newTitle string) (string, error) {
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return "", WrapError("App", "UpdateThreadTitle", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.UpdateThreadTitle(threadID, newTitle)
+	return a.chatFacadeService.UpdateThreadTitle(threadID, newTitle)
 }
 
 // ClearHistory clears all chat history
 func (a *App) ClearHistory() error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "ClearHistory", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	// Check if there's an ongoing analysis and cancel it
-	a.cancelAnalysisMutex.Lock()
-	a.activeThreadsMutex.RLock()
-	hasActiveAnalysis := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
-
-	if hasActiveAnalysis {
-		// Cancel any ongoing analysis
-		a.cancelAnalysis = true
-		a.Log("[CLEAR-HISTORY] Cancelling ongoing analysis before clearing history")
-	}
-	a.cancelAnalysisMutex.Unlock()
-
-	// Wait for cancellation to take effect if needed
-	if hasActiveAnalysis {
-		time.Sleep(100 * time.Millisecond)
-		a.Log("[CLEAR-HISTORY] Waited for analysis cancellation")
-	}
-
-	// Clear all history
-	err := a.chatService.ClearHistory()
-	if err != nil {
-		return err
-	}
-
-	// Clear dashboard data since all threads are deleted
-	a.Log("[CLEAR-HISTORY] Clearing dashboard data after clearing all history")
-	// Use new unified event system
-	if a.eventAggregator != nil {
-		a.eventAggregator.Clear("")
-	}
-
-	return nil
+	return a.chatFacadeService.ClearHistory()
 }
 
 // ClearThreadMessages clears all messages from a thread but keeps the thread itself
 func (a *App) ClearThreadMessages(threadID string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "ClearThreadMessages", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.ClearThreadMessages(threadID)
+	return a.chatFacadeService.ClearThreadMessages(threadID)
 }
 
 // --- Data Source Management ---
 
 // GetDataSources returns the list of registered data sources
 func (a *App) GetDataSources() ([]agent.DataSource, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetDataSources", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.LoadDataSources()
+	return a.dataSourceFacadeService.GetDataSources()
 }
 
 // GetDataSourceStatistics returns aggregated statistics about all data sources
 // Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5
 func (a *App) GetDataSourceStatistics() (*agent.DataSourceStatistics, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetDataSourceStatistics", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	// Load all data sources
-	dataSources, err := a.dataSourceService.LoadDataSources()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load data sources: %w", err)
-	}
-
-	// Calculate statistics
-	stats := &agent.DataSourceStatistics{
-		TotalCount:      len(dataSources),
-		BreakdownByType: make(map[string]int),
-		DataSources:     make([]agent.DataSourceSummary, 0, len(dataSources)),
-	}
-
-	// Group by type and build summaries
-	for _, ds := range dataSources {
-		stats.BreakdownByType[ds.Type]++
-		stats.DataSources = append(stats.DataSources, agent.DataSourceSummary{
-			ID:   ds.ID,
-			Name: ds.Name,
-			Type: ds.Type,
-		})
-	}
-
-	return stats, nil
+	return a.dataSourceFacadeService.GetDataSourceStatistics()
 }
 
 // StartDataSourceAnalysis initiates analysis for a specific data source
 // Returns the analysis session/thread ID
 // Validates: Requirements 4.1, 4.2, 4.5
 func (a *App) StartDataSourceAnalysis(dataSourceID string) (string, error) {
-	if a.dataSourceService == nil {
-		return "", fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return "", WrapError("App", "StartDataSourceAnalysis", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
-	}
-
-	// Validate data source exists
-	dataSources, err := a.dataSourceService.LoadDataSources()
-	if err != nil {
-		return "", fmt.Errorf("failed to load data sources: %w", err)
-	}
-
-	var targetDS *agent.DataSource
-	for i := range dataSources {
-		if dataSources[i].ID == dataSourceID {
-			targetDS = &dataSources[i]
-			break
-		}
-	}
-
-	if targetDS == nil {
-		return "", fmt.Errorf("data source not found: %s", dataSourceID)
-	}
-
-	// Create a new chat thread for this data source analysis
-	// Use data source name as the session title
-	sessionTitle := fmt.Sprintf("分析: %s", targetDS.Name)
-	thread, err := a.chatService.CreateThread(dataSourceID, sessionTitle)
-	if err != nil {
-		return "", fmt.Errorf("failed to create chat thread: %w", err)
-	}
-
-	threadID := thread.ID
-
-	// Construct analysis prompt in Chinese (mention data source name and type)
-	prompt := fmt.Sprintf("请分析数据源 '%s' (%s)，提供数据概览、关键指标和洞察。", 
-		targetDS.Name, targetDS.Type)
-
-	// Generate unique message ID for tracking
-	userMessageID := fmt.Sprintf("ds-msg-%d", time.Now().UnixNano())
-
-	// Log analysis initiation
-	a.Log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Starting analysis for %s (thread: %s, msgId: %s)", 
-		dataSourceID, threadID, userMessageID))
-
-	// Emit event to notify frontend that analysis is starting
-	runtime.EventsEmit(a.ctx, "chat-loading", map[string]interface{}{
-		"loading":  true,
-		"threadId": threadID,
-	})
-
-	// Notify frontend that a new analysis thread was created (so it can reload and switch)
-	runtime.EventsEmit(a.ctx, "analysis-session-created", map[string]interface{}{
-		"threadId":       threadID,
-		"dataSourceId":   dataSourceID,
-		"dataSourceName": targetDS.Name,
-		"title":          sessionTitle,
-	})
-
-	// Call SendMessage asynchronously so we can return the threadID immediately
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				a.Log(fmt.Sprintf("[PANIC] Recovered in async SendMessage goroutine: %v", r))
-			}
-		}()
-		_, err := a.SendMessage(threadID, prompt, userMessageID, "")
-		if err != nil {
-			a.Log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Error: %v", err))
-			// Emit error event to frontend
-			runtime.EventsEmit(a.ctx, "analysis-error", map[string]interface{}{
-				"threadId": threadID,
-				"message":  err.Error(),
-				"code":     "ANALYSIS_ERROR",
-			})
-		}
-	}()
-
-	// Return thread ID immediately (analysis runs in background)
-	return threadID, nil
+	return a.dataSourceFacadeService.StartDataSourceAnalysis(dataSourceID)
 }
 
 // ImportExcelDataSource imports an Excel file as a data source
 func (a *App) ImportExcelDataSource(name string, filePath string) (*agent.DataSource, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "ImportExcelDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
-	}
-
-	ds, err := a.dataSourceService.ImportExcel(name, filePath, headerGen)
-	if err == nil && ds != nil {
-		go a.analyzeDataSource(ds.ID)
-	}
-	return ds, err
+	return a.dataSourceFacadeService.ImportExcelDataSource(name, filePath)
 }
 
 // ImportCSVDataSource imports a CSV directory as a data source
 func (a *App) ImportCSVDataSource(name string, dirPath string) (*agent.DataSource, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "ImportCSVDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
-	}
-
-	ds, err := a.dataSourceService.ImportCSV(name, dirPath, headerGen)
-	if err == nil && ds != nil {
-		go a.analyzeDataSource(ds.ID)
-	}
-	return ds, err
+	return a.dataSourceFacadeService.ImportCSVDataSource(name, dirPath)
 }
 
 // ImportJSONDataSource imports a JSON file as a data source
 func (a *App) ImportJSONDataSource(name string, filePath string) (*agent.DataSource, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "ImportJSONDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
-	}
-
-	ds, err := a.dataSourceService.ImportJSON(name, filePath, headerGen)
-	if err == nil && ds != nil {
-		go a.analyzeDataSource(ds.ID)
-	}
-	return ds, err
+	return a.dataSourceFacadeService.ImportJSONDataSource(name, filePath)
 }
 
 // ShopifyOAuthConfig holds the Shopify OAuth configuration
@@ -5885,178 +3130,80 @@ type ShopifyOAuthConfig struct {
 	ClientSecret string `json:"client_secret"`
 }
 
-// shopifyOAuthService holds the active OAuth service instance
-var shopifyOAuthService *agent.ShopifyOAuthService
-var shopifyOAuthMutex sync.Mutex
-
 // GetShopifyOAuthConfig returns the Shopify OAuth configuration
 // Developer should set these values
 func (a *App) GetShopifyOAuthConfig() ShopifyOAuthConfig {
-	// These should be configured by the developer
-	// For now, return empty - developer needs to set these
-	cfg, _ := a.GetConfig()
-	return ShopifyOAuthConfig{
-		ClientID:     cfg.ShopifyClientID,
-		ClientSecret: cfg.ShopifyClientSecret,
+	if a.dataSourceFacadeService == nil {
+		return ShopifyOAuthConfig{}
 	}
+	return a.dataSourceFacadeService.GetShopifyOAuthConfig()
 }
 
 // StartShopifyOAuth initiates the Shopify OAuth flow
 // Returns the authorization URL that should be opened in browser
 func (a *App) StartShopifyOAuth(shop string) (string, error) {
-	shopifyOAuthMutex.Lock()
-	defer shopifyOAuthMutex.Unlock()
-
-	// Get OAuth config
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return "", fmt.Errorf("failed to get config: %v", err)
+	if a.dataSourceFacadeService == nil {
+		return "", WrapError("App", "StartShopifyOAuth", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	if cfg.ShopifyClientID == "" || cfg.ShopifyClientSecret == "" {
-		return "", fmt.Errorf("Shopify OAuth not configured. Please set Client ID and Client Secret in settings.")
-	}
-
-	// Create OAuth service
-	oauthConfig := agent.ShopifyOAuthConfig{
-		ClientID:     cfg.ShopifyClientID,
-		ClientSecret: cfg.ShopifyClientSecret,
-		Scopes:       "read_orders,read_products,read_customers,read_inventory",
-	}
-	shopifyOAuthService = agent.NewShopifyOAuthService(oauthConfig, a.Log)
-
-	// Get authorization URL
-	authURL, _, err := shopifyOAuthService.GetAuthURL(shop)
-	if err != nil {
-		return "", err
-	}
-
-	// Start callback server
-	if err := shopifyOAuthService.StartCallbackServer(a.ctx); err != nil {
-		return "", err
-	}
-
-	a.Log(fmt.Sprintf("[SHOPIFY-OAUTH] Started OAuth flow for shop: %s", shop))
-	return authURL, nil
+	return a.dataSourceFacadeService.StartShopifyOAuth(shop)
 }
 
 // WaitForShopifyOAuth waits for the OAuth flow to complete
 // Returns the access token and shop URL on success
 func (a *App) WaitForShopifyOAuth() (map[string]string, error) {
-	shopifyOAuthMutex.Lock()
-	service := shopifyOAuthService
-	shopifyOAuthMutex.Unlock()
-
-	if service == nil {
-		return nil, fmt.Errorf("OAuth flow not started")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "WaitForShopifyOAuth", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	// Wait for result with 5 minute timeout
-	result := service.WaitForResult(5 * time.Minute)
-
-	// Stop the callback server
-	service.StopCallbackServer()
-
-	// Clear the service
-	shopifyOAuthMutex.Lock()
-	shopifyOAuthService = nil
-	shopifyOAuthMutex.Unlock()
-
-	if result.Error != "" {
-		return nil, fmt.Errorf("%s", result.Error)
-	}
-
-	return map[string]string{
-		"accessToken": result.AccessToken,
-		"shop":        result.Shop,
-		"scope":       result.Scope,
-	}, nil
+	return a.dataSourceFacadeService.WaitForShopifyOAuth()
 }
 
 // CancelShopifyOAuth cancels the ongoing OAuth flow
 func (a *App) CancelShopifyOAuth() {
-	shopifyOAuthMutex.Lock()
-	defer shopifyOAuthMutex.Unlock()
-
-	if shopifyOAuthService != nil {
-		shopifyOAuthService.StopCallbackServer()
-		shopifyOAuthService = nil
-		a.Log("[SHOPIFY-OAUTH] OAuth flow cancelled")
+	if a.dataSourceFacadeService == nil {
+		return
 	}
+	a.dataSourceFacadeService.CancelShopifyOAuth()
 }
 
 // OpenShopifyOAuthInBrowser opens the Shopify OAuth URL in the default browser
 func (a *App) OpenShopifyOAuthInBrowser(url string) {
-	runtime.BrowserOpenURL(a.ctx, url)
+	if a.dataSourceFacadeService == nil {
+		return
+	}
+	a.dataSourceFacadeService.OpenShopifyOAuthInBrowser(url)
 }
 
 // AddDataSource adds a new data source with generic configuration
 func (a *App) AddDataSource(name string, driverType string, config map[string]string) (*agent.DataSource, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "AddDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-
-	dsConfig := agent.DataSourceConfig{
-		OriginalFile:           config["filePath"],
-		Host:                   config["host"],
-		Port:                   config["port"],
-		User:                   config["user"],
-		Password:               config["password"],
-		Database:               config["database"],
-		StoreLocally:           config["storeLocally"] == "true",
-		ShopifyStore:           config["shopifyStore"],
-		ShopifyAccessToken:     config["shopifyAccessToken"],
-		ShopifyAPIVersion:      config["shopifyAPIVersion"],
-		BigCommerceStoreHash:   config["bigcommerceStoreHash"],
-		BigCommerceAccessToken: config["bigcommerceAccessToken"],
-		EbayAccessToken:        config["ebayAccessToken"],
-		EbayEnvironment:        config["ebayEnvironment"],
-		EbayApiFulfillment:     config["ebayApiFulfillment"] != "false",
-		EbayApiFinances:        config["ebayApiFinances"] != "false",
-		EbayApiAnalytics:       config["ebayApiAnalytics"] != "false",
-		EtsyShopId:             config["etsyShopId"],
-		EtsyAccessToken:        config["etsyAccessToken"],
-		JiraInstanceType:       config["jiraInstanceType"],
-		JiraBaseUrl:            config["jiraBaseUrl"],
-		JiraUsername:           config["jiraUsername"],
-		JiraApiToken:           config["jiraApiToken"],
-		JiraProjectKey:         config["jiraProjectKey"],
-	}
-
-	headerGen := func(prompt string) (string, error) {
-		return a.SendMessage("", prompt, "", "") // Task 3.1: Added empty requestId for internal call
-	}
-
-	ds, err := a.dataSourceService.ImportDataSource(name, driverType, dsConfig, headerGen)
-	if err == nil && ds != nil {
-		go a.analyzeDataSource(ds.ID)
-	}
-	return ds, err
+	return a.dataSourceFacadeService.AddDataSource(name, driverType, config)
 }
 
 // DeleteDataSource deletes a data source
 func (a *App) DeleteDataSource(id string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "DeleteDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.DeleteDataSource(id)
+	return a.dataSourceFacadeService.DeleteDataSource(id)
 }
 
 // RefreshEcommerceDataSource performs incremental update for e-commerce data sources
 // Returns the refresh result with information about new data fetched
 func (a *App) RefreshEcommerceDataSource(id string) (*agent.RefreshResult, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "RefreshEcommerceDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.RefreshEcommerceDataSource(id)
+	return a.dataSourceFacadeService.RefreshEcommerceDataSource(id)
 }
 
 // IsEcommerceDataSource checks if a data source type supports incremental refresh
 func (a *App) IsEcommerceDataSource(dsType string) bool {
-	if a.dataSourceService == nil {
+	if a.dataSourceFacadeService == nil {
 		return false
 	}
-	return a.dataSourceService.IsEcommerceDataSource(dsType)
+	return a.dataSourceFacadeService.IsEcommerceDataSource(dsType)
 }
 
 // JiraProject represents a Jira project for selection
@@ -6069,113 +3216,92 @@ type JiraProject struct {
 // GetJiraProjects fetches available projects from Jira using provided credentials
 // This allows users to select which project(s) to import
 func (a *App) GetJiraProjects(instanceType, baseUrl, username, apiToken string) ([]JiraProject, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetJiraProjects", fmt.Errorf("datasource facade service not initialized"))
 	}
-	projects, err := a.dataSourceService.GetJiraProjects(instanceType, baseUrl, username, apiToken)
-	if err != nil {
-		return nil, err
-	}
-	// Convert agent.JiraProject to JiraProject
-	result := make([]JiraProject, len(projects))
-	for i, p := range projects {
-		result[i] = JiraProject{
-			Key:  p.Key,
-			Name: p.Name,
-			ID:   p.ID,
-		}
-	}
-	return result, nil
+	return a.dataSourceFacadeService.GetJiraProjects(instanceType, baseUrl, username, apiToken)
 }
 
 // IsRefreshableDataSource checks if a data source type supports incremental refresh
 // This includes both e-commerce platforms and project management tools like Jira
 func (a *App) IsRefreshableDataSource(dsType string) bool {
-	if a.dataSourceService == nil {
+	if a.dataSourceFacadeService == nil {
 		return false
 	}
-	return a.dataSourceService.IsRefreshableDataSource(dsType)
+	return a.dataSourceFacadeService.IsRefreshableDataSource(dsType)
 }
 
 // RefreshDataSource performs incremental update for supported data sources
 // Works for both e-commerce platforms and Jira
 func (a *App) RefreshDataSource(id string) (*agent.RefreshResult, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "RefreshDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.RefreshDataSource(id)
+	return a.dataSourceFacadeService.RefreshDataSource(id)
 }
 
 // RenameDataSource renames a data source
 func (a *App) RenameDataSource(id string, newName string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "RenameDataSource", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.RenameDataSource(id, newName)
+	return a.dataSourceFacadeService.RenameDataSource(id, newName)
 }
 
 // DeleteTable removes a table from a data source
 func (a *App) DeleteTable(id string, tableName string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "DeleteTable", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.DeleteTable(id, tableName)
+	return a.dataSourceFacadeService.DeleteTable(id, tableName)
 }
 
 // RenameColumn renames a column in a table
 func (a *App) RenameColumn(id string, tableName string, oldColumnName string, newColumnName string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "RenameColumn", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.RenameColumn(id, tableName, oldColumnName, newColumnName)
+	return a.dataSourceFacadeService.RenameColumn(id, tableName, oldColumnName, newColumnName)
 }
 
 // DeleteColumn deletes a column from a table
 func (a *App) DeleteColumn(id string, tableName string, columnName string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "DeleteColumn", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.DeleteColumn(id, tableName, columnName)
+	return a.dataSourceFacadeService.DeleteColumn(id, tableName, columnName)
 }
 
 // UpdateMySQLExportConfig updates the MySQL export configuration for a data source
 func (a *App) UpdateMySQLExportConfig(id string, host, port, user, password, database string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return WrapError("App", "UpdateMySQLExportConfig", fmt.Errorf("datasource facade service not initialized"))
 	}
-	config := agent.MySQLExportConfig{
-		Host:     host,
-		Port:     port,
-		User:     user,
-		Password: password,
-		Database: database,
-	}
-	return a.dataSourceService.UpdateMySQLExportConfig(id, config)
+	return a.dataSourceFacadeService.UpdateMySQLExportConfig(id, host, port, user, password, database)
 }
 
 // GetDataSourceTables returns all table names for a data source
 func (a *App) GetDataSourceTables(id string) ([]string, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetDataSourceTables", fmt.Errorf("datasource facade service not initialized"))
 	}
-	return a.dataSourceService.GetDataSourceTables(id)
+	return a.dataSourceFacadeService.GetDataSourceTables(id)
 }
 
 // GetDataSourceTableData returns preview data for a table
 func (a *App) GetDataSourceTableData(id string, tableName string) ([]map[string]interface{}, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetDataSourceTableData", fmt.Errorf("datasource facade service not initialized"))
 	}
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return nil, err
-	}
-	return a.dataSourceService.GetDataSourceTableData(id, tableName, cfg.MaxPreviewRows)
+	return a.dataSourceFacadeService.GetDataSourceTableData(id, tableName)
 }
 
 // GetDataSourceTableCount returns the total number of rows in a table
 func (a *App) GetDataSourceTableCount(id string, tableName string) (int, error) {
-	return a.dataSourceService.GetDataSourceTableCount(id, tableName)
+	if a.dataSourceFacadeService == nil {
+		return 0, WrapError("App", "GetDataSourceTableCount", fmt.Errorf("datasource facade service not initialized"))
+	}
+	return a.dataSourceFacadeService.GetDataSourceTableCount(id, tableName)
 }
 
 // TableDataWithCount holds table preview data and total row count
@@ -6187,19 +3313,10 @@ type TableDataWithCount struct {
 // GetDataSourceTableDataWithCount returns preview data and row count in a single DB connection.
 // This avoids DuckDB concurrent access lock conflicts.
 func (a *App) GetDataSourceTableDataWithCount(id string, tableName string) (*TableDataWithCount, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.dataSourceFacadeService == nil {
+		return nil, WrapError("App", "GetDataSourceTableDataWithCount", fmt.Errorf("datasource facade service not initialized"))
 	}
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return nil, err
-	}
-	data, count, err := a.dataSourceService.GetDataSourceTableDataWithCount(id, tableName, cfg.MaxPreviewRows)
-	if err != nil {
-		a.Log(fmt.Sprintf("[DataBrowser] Failed to load table data for %s.%s: %v", id, tableName, err))
-		return nil, err
-	}
-	return &TableDataWithCount{Data: data, RowCount: count}, nil
+	return a.dataSourceFacadeService.GetDataSourceTableDataWithCount(id, tableName)
 }
 
 // SelectExcelFile opens a file dialog to select an Excel file
@@ -6259,100 +3376,58 @@ func (a *App) SelectSaveFile(filename string, filterPattern string) (string, err
 // ExportToCSV exports one or more data source tables to CSV
 
 func (a *App) ExportToCSV(id string, tableNames []string, outputPath string) error {
-
-	if a.dataSourceService == nil {
-
-		return fmt.Errorf("data source service not initialized")
-
+	if a.exportFacadeService == nil {
+		return WrapError("App", "ExportToCSV", fmt.Errorf("export facade service not initialized"))
 	}
-
-	return a.dataSourceService.ExportToCSV(id, tableNames, outputPath)
-
+	return a.exportFacadeService.ExportToCSV(id, tableNames, outputPath)
 }
 
 // ExportToJSON exports one or more data source tables to JSON
-
 func (a *App) ExportToJSON(id string, tableNames []string, outputPath string) error {
-
-	if a.dataSourceService == nil {
-
-		return fmt.Errorf("data source service not initialized")
-
+	if a.exportFacadeService == nil {
+		return WrapError("App", "ExportToJSON", fmt.Errorf("export facade service not initialized"))
 	}
-
-	return a.dataSourceService.ExportToJSON(id, tableNames, outputPath)
-
+	return a.exportFacadeService.ExportToJSON(id, tableNames, outputPath)
 }
 
 // ExportToSQL exports one or more data source tables to SQL
-
 func (a *App) ExportToSQL(id string, tableNames []string, outputPath string) error {
-
-	if a.dataSourceService == nil {
-
-		return fmt.Errorf("data source service not initialized")
-
+	if a.exportFacadeService == nil {
+		return WrapError("App", "ExportToSQL", fmt.Errorf("export facade service not initialized"))
 	}
-
-	return a.dataSourceService.ExportToSQL(id, tableNames, outputPath)
-
+	return a.exportFacadeService.ExportToSQL(id, tableNames, outputPath)
 }
 
 // ExportToExcel exports one or more data source tables to Excel (.xlsx)
-
 func (a *App) ExportToExcel(id string, tableNames []string, outputPath string) error {
-
-	if a.dataSourceService == nil {
-
-		return fmt.Errorf("data source service not initialized")
-
+	if a.exportFacadeService == nil {
+		return WrapError("App", "ExportToExcel", fmt.Errorf("export facade service not initialized"))
 	}
-
-	return a.dataSourceService.ExportToExcel(id, tableNames, outputPath)
-
+	return a.exportFacadeService.ExportToExcel(id, tableNames, outputPath)
 }
 
 // ExportToMySQL exports one or more data source tables to MySQL
-
 func (a *App) ExportToMySQL(id string, tableNames []string, host, port, user, password, database string) error {
-
-	if a.dataSourceService == nil {
-
-		return fmt.Errorf("data source service not initialized")
-
+	if a.exportFacadeService == nil {
+		return WrapError("App", "ExportToMySQL", fmt.Errorf("export facade service not initialized"))
 	}
-
-	config := agent.DataSourceConfig{
-
-		Host: host,
-
-		Port: port,
-
-		User: user,
-
-		Password: password,
-
-		Database: database,
-	}
-
-	return a.dataSourceService.ExportToMySQL(id, tableNames, config)
-
+	return a.exportFacadeService.ExportToMySQL(id, tableNames, host, port, user, password, database)
 }
 
 // TestMySQLConnection tests the connection to a MySQL server
 func (a *App) TestMySQLConnection(host, port, user, password string) error {
-	if a.dataSourceService == nil {
-		return fmt.Errorf("data source service not initialized")
+	if a.exportFacadeService == nil {
+		return WrapError("App", "TestMySQLConnection", fmt.Errorf("export facade service not initialized"))
 	}
-	return a.dataSourceService.TestMySQLConnection(host, port, user, password)
+	return a.exportFacadeService.TestMySQLConnection(host, port, user, password)
 }
 
 // GetMySQLDatabases returns a list of databases from the MySQL server
 func (a *App) GetMySQLDatabases(host, port, user, password string) ([]string, error) {
-	if a.dataSourceService == nil {
-		return nil, fmt.Errorf("data source service not initialized")
+	if a.exportFacadeService == nil {
+		return nil, WrapError("App", "GetMySQLDatabases", fmt.Errorf("export facade service not initialized"))
 	}
-	return a.dataSourceService.GetMySQLDatabases(host, port, user, password)
+	return a.exportFacadeService.GetMySQLDatabases(host, port, user, password)
 }
 
 // ShowMessage displays a message dialog (non-modal via frontend)
@@ -6440,38 +3515,26 @@ func (a *App) GetErrorKnowledgeSummary() (*ErrorKnowledgeSummary, error) {
 
 // GetSessionFiles returns the list of files generated during a session
 func (a *App) GetSessionFiles(threadID string) ([]SessionFile, error) {
-	if a.chatService == nil {
-		return nil, fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return nil, WrapError("App", "GetSessionFiles", fmt.Errorf("chat facade service not initialized"))
 	}
-	return a.chatService.GetSessionFiles(threadID)
+	return a.chatFacadeService.GetSessionFiles(threadID)
 }
 
 // GetSessionFilePath returns the full path to a session file
 func (a *App) GetSessionFilePath(threadID, fileName string) (string, error) {
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return "", WrapError("App", "GetSessionFilePath", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	filesDir := a.chatService.GetSessionFilesDirectory(threadID)
-	filePath := filepath.Join(filesDir, fileName)
-
-	// Verify file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("file not found: %s", fileName)
-	}
-
-	return filePath, nil
+	return a.chatFacadeService.GetSessionFilePath(threadID, fileName)
 }
 
 // OpenSessionFile opens a session file in the default application
 func (a *App) OpenSessionFile(threadID, fileName string) error {
-	filePath, err := a.GetSessionFilePath(threadID, fileName)
-	if err != nil {
-		return err
+	if a.chatFacadeService == nil {
+		return WrapError("App", "OpenSessionFile", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	runtime.BrowserOpenURL(a.ctx, "file://"+filePath)
-	return nil
+	return a.chatFacadeService.OpenSessionFile(threadID, fileName)
 }
 
 // OpenExternalURL opens a URL in the system's default browser
@@ -6481,141 +3544,26 @@ func (a *App) OpenExternalURL(url string) {
 
 // DeleteSessionFile deletes a specific file from a session
 func (a *App) DeleteSessionFile(threadID, fileName string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "DeleteSessionFile", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	filePath, err := a.GetSessionFilePath(threadID, fileName)
-	if err != nil {
-		return err
-	}
-
-	// Delete the physical file
-	if err := os.Remove(filePath); err != nil {
-		return err
-	}
-
-	// Update the thread to remove the file from the list
-	// Load the thread
-	threads, err := a.chatService.LoadThreads()
-	if err != nil {
-		return err
-	}
-
-	for _, t := range threads {
-		if t.ID == threadID {
-			// Remove file from list
-			var updatedFiles []SessionFile
-			for _, f := range t.Files {
-				if f.Name != fileName {
-					updatedFiles = append(updatedFiles, f)
-				}
-			}
-			t.Files = updatedFiles
-
-			// Save the updated thread
-			return a.chatService.SaveThreads([]ChatThread{t})
-		}
-	}
-
-	return fmt.Errorf("thread not found")
+	return a.chatFacadeService.DeleteSessionFile(threadID, fileName)
 }
 
 // associateNewFilesWithMessage updates newly created files to associate them with a specific message
 func (a *App) associateNewFilesWithMessage(threadID, messageID string, existingFiles map[string]bool) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "associateNewFilesWithMessage", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	// Get current session files
-	sessionFiles, err := a.chatService.GetSessionFiles(threadID)
-	if err != nil {
-		return err
-	}
-
-	// Find new files (not in existingFiles map) and update their MessageID
-	updated := false
-	for i := range sessionFiles {
-		// Skip files that existed before this analysis
-		if existingFiles[sessionFiles[i].Name] {
-			continue
-		}
-
-		// Skip files that already have a MessageID
-		if sessionFiles[i].MessageID != "" {
-			continue
-		}
-
-		// Associate this new file with the message
-		sessionFiles[i].MessageID = messageID
-		updated = true
-		a.Log(fmt.Sprintf("[SESSION] Associated file '%s' with message %s", sessionFiles[i].Name, messageID))
-	}
-
-	// Save updated thread if any files were modified
-	if updated {
-		// Load the thread
-		threads, err := a.chatService.LoadThreads()
-		if err != nil {
-			return err
-		}
-
-		for _, t := range threads {
-			if t.ID == threadID {
-				t.Files = sessionFiles
-				return a.chatService.SaveThreads([]ChatThread{t})
-			}
-		}
-		return fmt.Errorf("thread not found")
-	}
-
-	return nil
+	return a.chatFacadeService.AssociateNewFilesWithMessage(threadID, messageID, existingFiles)
 }
 
 // OpenSessionResultsDirectory opens the session's results directory in the file explorer
 func (a *App) OpenSessionResultsDirectory(threadID string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.chatFacadeService == nil {
+		return WrapError("App", "OpenSessionResultsDirectory", fmt.Errorf("chat facade service not initialized"))
 	}
-
-	// Validate threadID to prevent path traversal and command injection
-	// threadID should only contain digits (generated from UnixNano timestamp)
-	if threadID == "" {
-		return fmt.Errorf("thread ID cannot be empty")
-	}
-	for _, r := range threadID {
-		if r < '0' || r > '9' {
-			return fmt.Errorf("invalid thread ID format")
-		}
-	}
-
-	// Get the session directory (where files are saved)
-	sessionDir := a.chatService.GetSessionDirectory(threadID)
-
-	// Check if directory exists
-	if _, err := os.Stat(sessionDir); os.IsNotExist(err) {
-		return fmt.Errorf("session directory does not exist")
-	}
-
-	// Open the directory in the file explorer using platform-specific commands
-	var cmd *exec.Cmd
-	switch gort.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", sessionDir)
-		cmd.SysProcAttr = hiddenProcAttr()
-	case "darwin":
-		cmd = exec.Command("open", sessionDir)
-	case "linux":
-		cmd = exec.Command("xdg-open", sessionDir)
-	default:
-		return fmt.Errorf("unsupported platform: %s", gort.GOOS)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to open directory: %w", err)
-	}
-
-	return nil
+	return a.chatFacadeService.OpenSessionResultsDirectory(threadID)
 }
 
 // --- Skills Management ---
@@ -6638,589 +3586,127 @@ type SkillInfo struct {
 
 // GetSkills returns all loaded skills
 func (a *App) GetSkills() ([]SkillInfo, error) {
-	if a.einoService == nil {
-		return nil, fmt.Errorf("eino service not initialized")
+	if a.skillFacadeService == nil {
+		return nil, WrapError("App", "GetSkills", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return nil, fmt.Errorf("skill manager not available")
-	}
-
-	skills := skillManager.ListSkills()
-	result := make([]SkillInfo, 0, len(skills))
-
-	for _, skill := range skills {
-		result = append(result, SkillInfo{
-			ID:              skill.Manifest.ID,
-			Name:            skill.Manifest.Name,
-			Description:     skill.Manifest.Description,
-			Version:         skill.Manifest.Version,
-			Author:          skill.Manifest.Author,
-			Category:        skill.Manifest.Category,
-			Keywords:        skill.Manifest.Keywords,
-			RequiredColumns: skill.Manifest.RequiredColumns,
-			Tools:           skill.Manifest.Tools,
-			Enabled:         skill.Manifest.Enabled,
-			Icon:            skill.Manifest.Icon,
-			Tags:            skill.Manifest.Tags,
-		})
-	}
-
-	return result, nil
+	return a.skillFacadeService.GetSkills()
 }
 
 // GetEnabledSkills returns only enabled skills
 func (a *App) GetEnabledSkills() ([]SkillInfo, error) {
-	if a.einoService == nil {
-		return nil, fmt.Errorf("eino service not initialized")
+	if a.skillFacadeService == nil {
+		return nil, WrapError("App", "GetEnabledSkills", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return nil, fmt.Errorf("skill manager not available")
-	}
-
-	skills := skillManager.ListEnabledSkills()
-	result := make([]SkillInfo, 0, len(skills))
-
-	for _, skill := range skills {
-		result = append(result, SkillInfo{
-			ID:              skill.Manifest.ID,
-			Name:            skill.Manifest.Name,
-			Description:     skill.Manifest.Description,
-			Version:         skill.Manifest.Version,
-			Author:          skill.Manifest.Author,
-			Category:        skill.Manifest.Category,
-			Keywords:        skill.Manifest.Keywords,
-			RequiredColumns: skill.Manifest.RequiredColumns,
-			Tools:           skill.Manifest.Tools,
-			Enabled:         skill.Manifest.Enabled,
-			Icon:            skill.Manifest.Icon,
-			Tags:            skill.Manifest.Tags,
-		})
-	}
-
-	return result, nil
+	return a.skillFacadeService.GetEnabledSkills()
 }
 
 // GetSkillCategories returns all skill categories
 func (a *App) GetSkillCategories() ([]string, error) {
-	if a.einoService == nil {
-		return nil, fmt.Errorf("eino service not initialized")
+	if a.skillFacadeService == nil {
+		return nil, WrapError("App", "GetSkillCategories", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return nil, fmt.Errorf("skill manager not available")
-	}
-
-	return skillManager.GetCategories(), nil
+	return a.skillFacadeService.GetSkillCategories()
 }
 
 // EnableSkill enables a skill by ID
 func (a *App) EnableSkill(skillID string) error {
-	// Check if analysis is in progress
-	a.activeThreadsMutex.RLock()
-	hasActiveAnalysis := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
-
-	if hasActiveAnalysis {
-		return fmt.Errorf("cannot enable skill while analysis is in progress")
+	if a.skillFacadeService == nil {
+		return WrapError("App", "EnableSkill", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	// Use skillService if available (for new skill management)
-	if a.skillService != nil {
-		if err := a.skillService.EnableSkill(skillID); err != nil {
-			return err
-		}
-		// Reload skills in agent after enabling
-		return a.ReloadSkills()
-	}
-
-	// Fallback to einoService for backward compatibility
-	if a.einoService == nil {
-		return fmt.Errorf("skill service not initialized")
-	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return fmt.Errorf("skill manager not available")
-	}
-
-	return skillManager.EnableSkill(skillID)
+	return a.skillFacadeService.EnableSkill(skillID)
 }
 
 // DisableSkill disables a skill by ID
 func (a *App) DisableSkill(skillID string) error {
-	// Check if analysis is in progress
-	a.activeThreadsMutex.RLock()
-	hasActiveAnalysis := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
-
-	if hasActiveAnalysis {
-		return fmt.Errorf("cannot disable skill while analysis is in progress")
+	if a.skillFacadeService == nil {
+		return WrapError("App", "DisableSkill", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	// Use skillService if available (for new skill management)
-	if a.skillService != nil {
-		if err := a.skillService.DisableSkill(skillID); err != nil {
-			return err
-		}
-		// Reload skills in agent after disabling
-		return a.ReloadSkills()
-	}
-
-	// Fallback to einoService for backward compatibility
-	if a.einoService == nil {
-		return fmt.Errorf("skill service not initialized")
-	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return fmt.Errorf("skill manager not available")
-	}
-
-	return skillManager.DisableSkill(skillID)
+	return a.skillFacadeService.DisableSkill(skillID)
 }
 
 // DeleteSkill deletes a skill by ID (removes directory and config)
 func (a *App) DeleteSkill(skillID string) error {
-	// Check if analysis is in progress
-	a.activeThreadsMutex.RLock()
-	isGenerating := len(a.activeThreads) > 0
-	a.activeThreadsMutex.RUnlock()
-
-	if isGenerating {
-		return fmt.Errorf("cannot delete skill while analysis is in progress")
+	if a.skillFacadeService == nil {
+		return WrapError("App", "DeleteSkill", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	// Use skillService if available (for new skill management)
-	if a.skillService != nil {
-		if err := a.skillService.DeleteSkill(skillID); err != nil {
-			return err
-		}
-		// Try to reload skills in agent after deleting, but don't fail if it errors
-		if err := a.ReloadSkills(); err != nil {
-			a.Log(fmt.Sprintf("[SKILLS] Warning: Failed to reload skills after deletion: %v", err))
-		}
-		return nil
-	}
-
-	return fmt.Errorf("skill service not initialized")
+	return a.skillFacadeService.DeleteSkill(skillID)
 }
 
 // ReloadSkills reloads all skills from disk
 func (a *App) ReloadSkills() error {
-	if a.einoService == nil {
-		return fmt.Errorf("eino service not initialized")
+	if a.skillFacadeService == nil {
+		return WrapError("App", "ReloadSkills", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	skillManager := a.einoService.GetSkillManager()
-	if skillManager == nil {
-		return fmt.Errorf("skill manager not available")
-	}
-
-	return skillManager.ReloadSkills()
+	return a.skillFacadeService.ReloadSkills()
 }
 
 // --- Metrics JSON Management ---
 
 // SaveMetricsJson saves metrics JSON data for a specific message
 func (a *App) SaveMetricsJson(messageId string, metricsJson string) error {
-	// Get storage directory
-	storageDir, err := a.getStorageDir()
-	if err != nil {
-		return fmt.Errorf("failed to get storage directory: %w", err)
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "SaveMetricsJson", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Create metrics directory path
-	metricsDir := filepath.Join(storageDir, "data", "metrics")
-	if err := os.MkdirAll(metricsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create metrics directory: %w", err)
-	}
-
-	// Create file path
-	filePath := filepath.Join(metricsDir, fmt.Sprintf("%s.json", messageId))
-
-	// Write JSON file
-	if err := os.WriteFile(filePath, []byte(metricsJson), 0644); err != nil {
-		return fmt.Errorf("failed to write metrics file: %w", err)
-	}
-
-	a.Log(fmt.Sprintf("Metrics JSON saved for message %s: %s", messageId, filePath))
-	return nil
+	return a.analysisFacadeService.SaveMetricsJson(messageId, metricsJson)
 }
 
 // LoadMetricsJson loads metrics JSON data for a specific message
 func (a *App) LoadMetricsJson(messageId string) (string, error) {
-	// Get storage directory
-	storageDir, err := a.getStorageDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get storage directory: %w", err)
+	if a.analysisFacadeService == nil {
+		return "", WrapError("App", "LoadMetricsJson", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Build file path
-	filePath := filepath.Join(storageDir, "data", "metrics", fmt.Sprintf("%s.json", messageId))
-
-	// Check if file exists
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("metrics file not found for message: %s", messageId)
-	}
-
-	// Read JSON file
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read metrics file: %w", err)
-	}
-
-	a.Log(fmt.Sprintf("Metrics JSON loaded for message %s: %s", messageId, filePath))
-	return string(data), nil
+	return a.analysisFacadeService.LoadMetricsJson(messageId)
 }
 
 // ExtractMetricsFromAnalysis automatically extracts key metrics from analysis results
 func (a *App) ExtractMetricsFromAnalysis(threadID string, messageId string, analysisContent string) error {
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get config: %w", err)
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "ExtractMetricsFromAnalysis", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Build metrics extraction prompt
-	var prompt string
-	if cfg.Language == "简体中文" {
-		prompt = fmt.Sprintf(`请从以下分析结果中提取最重要的数值型关键指标，以JSON格式返回。
-
-要求：
-1. 只返回JSON数组，不要其他文字说明
-2. 每个指标必须包含：name（指标名称）、value（数值）、unit（单位，可选）
-3. **重要**：只提取数值型指标，value必须是数字或包含数字的字符串
-4. **重要**：如果分析结果中没有明确的数值型指标，返回空数组 []
-5. 最多提取6个最重要的业务指标
-6. 优先提取：总量、增长率、平均值、比率、金额、数量等核心业务指标
-7. 数值要准确，来源于分析内容
-8. 单位要合适（如：个、%%、元、$、次/年、天等）
-9. 指标名称要简洁明了
-10. 不要提取非数值型的描述性内容
-
-示例格式（有数值指标时）：
-[
-  {"name":"总销售额","value":"1,234,567","unit":"元"},
-  {"name":"增长率","value":"+15.5","unit":"%%"},
-  {"name":"平均订单价值","value":"89.50","unit":"元"}
-]
-
-示例格式（无数值指标时）：
-[]
-
-分析内容：
-%s
-
-请返回JSON：`, analysisContent)
-	} else {
-		prompt = fmt.Sprintf(`Please extract the most important numerical key metrics from the following analysis results in JSON format.
-
-Requirements:
-1. Return only JSON array, no other text
-2. Each metric must include: name, value, unit (optional)
-3. **Important**: Only extract numerical metrics, value must be a number or string containing numbers
-4. **Important**: If there are no clear numerical metrics in the analysis, return empty array []
-5. Extract at most 6 most important business metrics
-6. Prioritize: totals, growth rates, averages, ratios, amounts, quantities and other core business metrics
-7. Values must be accurate from the analysis content
-8. Use appropriate units (e.g., items, %%, $, times/year, days, etc.)
-9. Metric names should be concise and clear
-10. Do not extract non-numerical descriptive content
-
-Example format (with numerical metrics):
-[
-  {"name":"Total Sales","value":"1,234,567","unit":"$"},
-  {"name":"Growth Rate","value":"+15.5","unit":"%%"},
-  {"name":"Average Order Value","value":"89.50","unit":"$"}
-]
-
-Example format (without numerical metrics):
-[]
-
-Analysis content:
-%s
-
-Please return JSON:`, analysisContent)
-	}
-
-	// Try extraction up to 3 times
-	for attempt := 1; attempt <= 3; attempt++ {
-		err := a.tryExtractMetrics(threadID, messageId, prompt, attempt)
-		if err == nil {
-			return nil
-		}
-
-		a.Log(fmt.Sprintf("Metrics extraction attempt %d failed: %v", attempt, err))
-
-		if attempt < 3 {
-			time.Sleep(time.Duration(attempt) * time.Second) // Incremental delay
-		}
-	}
-
-	// If all attempts fail, use fallback text extraction
-	return a.fallbackTextExtraction(messageId, analysisContent)
+	return a.analysisFacadeService.ExtractMetricsFromAnalysis(threadID, messageId, analysisContent)
 }
 
 // tryExtractMetrics attempts to extract metrics using LLM
 func (a *App) tryExtractMetrics(threadID string, messageId string, prompt string, attempt int) error {
-	// Call LLM to extract metrics
-	llm := agent.NewLLMService(a.getConfigForExtraction(), a.Log)
-	response, err := llm.Chat(a.ctx, prompt)
-	if err != nil {
-		return fmt.Errorf("LLM call failed: %w", err)
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "tryExtractMetrics", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Clean response and extract JSON part
-	jsonStr := a.extractJSONFromResponse(response)
-	if jsonStr == "" {
-		return fmt.Errorf("no valid JSON found in LLM response")
-	}
-
-	// Validate JSON format
-	var metrics []map[string]interface{}
-	if err := json.Unmarshal([]byte(jsonStr), &metrics); err != nil {
-		return fmt.Errorf("invalid JSON format: %w", err)
-	}
-
-	// Allow empty array - no numerical metrics found
-	if len(metrics) == 0 {
-		a.Log("No numerical metrics found in analysis, skipping metrics extraction")
-		return nil // Not an error, just no metrics to display
-	}
-
-	// Validate each metric has required fields and contains numerical value
-	validMetrics := []map[string]interface{}{}
-	for i, metric := range metrics {
-		name, hasName := metric["name"]
-		value, hasValue := metric["value"]
-
-		if !hasName {
-			a.Log(fmt.Sprintf("Metric %d missing 'name' field, skipping", i))
-			continue
-		}
-		if !hasValue {
-			a.Log(fmt.Sprintf("Metric %d missing 'value' field, skipping", i))
-			continue
-		}
-
-		// Validate that value contains numbers
-		valueStr := fmt.Sprintf("%v", value)
-		if !containsNumber(valueStr) {
-			a.Log(fmt.Sprintf("Metric %d (%s) value '%s' does not contain numbers, skipping", i, name, valueStr))
-			continue
-		}
-
-		validMetrics = append(validMetrics, metric)
-	}
-
-	// If no valid metrics after filtering, don't save or display
-	if len(validMetrics) == 0 {
-		a.Log("No valid numerical metrics after validation, skipping metrics extraction")
-		return nil
-	}
-
-	// Re-marshal valid metrics
-	validMetricsJSON, err := json.Marshal(validMetrics)
-	if err != nil {
-		return fmt.Errorf("failed to marshal valid metrics: %w", err)
-	}
-	jsonStr = string(validMetricsJSON)
-
-	// Save metrics JSON
-	if err := a.SaveMetricsJson(messageId, jsonStr); err != nil {
-		return fmt.Errorf("failed to save metrics: %w", err)
-	}
-
-	// Mark the user message with chart_data so frontend knows it has data
-	if threadID != "" {
-		a.attachChartToUserMessage(threadID, messageId, &ChartData{
-			Charts: []ChartItem{{Type: "metrics", Data: ""}},
-		})
-	}
-
-	// Use event aggregator for new unified event system
-	if a.eventAggregator != nil {
-		for _, metric := range validMetrics {
-			m := Metric{
-				Title:  fmt.Sprintf("%v", metric["name"]),
-				Value:  fmt.Sprintf("%v", metric["value"]),
-				Change: "",
-			}
-			if unit, ok := metric["unit"]; ok {
-				m.Value = fmt.Sprintf("%v%v", metric["value"], unit)
-			}
-			if change, ok := metric["change"]; ok {
-				m.Change = fmt.Sprintf("%v", change)
-			}
-			a.eventAggregator.AddMetric(threadID, messageId, "", m)
-		}
-		a.eventAggregator.FlushNow(threadID, false)
-	}
-
-	a.Log(fmt.Sprintf("Metrics extracted and saved for message %s (attempt %d)", messageId, attempt))
-	return nil
+	return a.analysisFacadeService.tryExtractMetrics(threadID, messageId, prompt, attempt)
 }
 
 // getConfigForExtraction gets config for metrics extraction
 func (a *App) getConfigForExtraction() config.Config {
-	cfg, _ := a.GetEffectiveConfig()
-	// Return config as-is since Temperature field doesn't exist
-	return cfg
+	if a.analysisFacadeService == nil {
+		cfg, _ := a.GetEffectiveConfig()
+		return cfg
+	}
+	return a.analysisFacadeService.getConfigForExtraction()
 }
 
 // ExtractSuggestionsFromAnalysis extracts next-step suggestions from analysis response
 // and emits them to the dashboard insights area
 func (a *App) ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisContent string) error {
-	// Delegate to shared extraction logic
-	insights := a.extractSuggestionInsights(analysisContent)
-
-	if len(insights) > 0 {
-		a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
-
-		if a.eventAggregator != nil {
-			for _, insight := range insights {
-				a.eventAggregator.AddInsight(threadID, userMessageID, "", insight)
-			}
-			a.eventAggregator.FlushNow(threadID, false)
-		}
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "ExtractSuggestionsFromAnalysis", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	return nil
+	return a.analysisFacadeService.ExtractSuggestionsFromAnalysis(threadID, userMessageID, analysisContent)
 }
 
 // extractSuggestionInsights is the shared extraction logic for suggestions.
-// It supports multiple formats commonly output by LLMs:
-// - Numbered: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
-// - Markdown list: "- xxx", "• xxx"
-// - Bold title with colon/dash: "**标题**：描述", "**Title** - description"
 func (a *App) extractSuggestionInsights(analysisContent string) []Insight {
-	if analysisContent == "" {
+	if a.analysisFacadeService == nil {
 		return nil
 	}
-
-	var insights []Insight
-	lines := strings.Split(analysisContent, "\n")
-
-	// Match numbered items: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
-	// Match markdown list items: "- xxx", "• xxx"
-	listPattern := regexp.MustCompile(`^\s*[-•]\s+(.+)`)
-	// Match bold title with colon/dash: "**标题**：描述" or "**标题** - 描述"
-	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[：:\-–—]\s*(.+)`)
-
-	// Suggestion section detection keywords
-	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步|后续|下一步|洞察|insight|分析方向|可以从|希望从哪)`)
-
-	inCodeBlock := false
-	foundSuggestionSection := false
-	consecutiveBoldItems := 0
-
-	for _, line := range lines {
-		trimmedLine := strings.TrimSpace(line)
-
-		// Track code blocks
-		if strings.HasPrefix(trimmedLine, "```") {
-			inCodeBlock = !inCodeBlock
-			continue
-		}
-		if inCodeBlock || trimmedLine == "" {
-			continue
-		}
-
-		// Check if this line marks a suggestion section
-		if suggestionPattern.MatchString(trimmedLine) {
-			foundSuggestionSection = true
-		}
-
-		var suggestionText string
-
-		// Strategy 1: Numbered items (only in suggestion section)
-		if matches := numberPattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
-			if foundSuggestionSection {
-				suggestionText = strings.TrimSpace(matches[2])
-			}
-		}
-
-		// Strategy 2: Bold title with colon/dash: "**季度销售趋势分析**：比较Q1-Q4的销售表现"
-		if suggestionText == "" {
-			if matches := boldTitlePattern.FindStringSubmatch(trimmedLine); len(matches) > 2 {
-				title := strings.TrimSpace(matches[1])
-				desc := strings.TrimSpace(matches[2])
-				if desc != "" {
-					suggestionText = title + "：" + desc
-				} else {
-					suggestionText = title
-				}
-				consecutiveBoldItems++
-				// 3+ consecutive bold items = likely a suggestion list
-				if consecutiveBoldItems >= 3 {
-					foundSuggestionSection = true
-				}
-			} else {
-				consecutiveBoldItems = 0
-			}
-		}
-
-		// Strategy 3: Markdown list items (only in suggestion section)
-		if suggestionText == "" && foundSuggestionSection {
-			if matches := listPattern.FindStringSubmatch(trimmedLine); len(matches) > 1 {
-				suggestionText = strings.TrimSpace(matches[1])
-			}
-		}
-
-		// Clean up markdown formatting - remove all ** markers (including incomplete ones in the middle)
-		if suggestionText != "" {
-			suggestionText = strings.ReplaceAll(suggestionText, "**", "")
-			suggestionText = strings.TrimSpace(suggestionText)
-		}
-
-		if suggestionText != "" && len([]rune(suggestionText)) > 5 {
-			insights = append(insights, Insight{
-				Text: suggestionText,
-				Icon: "lightbulb",
-			})
-		}
-	}
-
-	if len(insights) > 9 {
-		insights = insights[:9]
-	}
-
-	return insights
+	return a.analysisFacadeService.extractSuggestionInsights(analysisContent)
 }
 
 // ExtractSuggestionsAsItems extracts suggestions from analysis response,
 // emits them to the frontend, and returns them as AnalysisResultItems for persistence.
-//
-// Supported formats:
-// - Numbered: "1. xxx", "1、xxx", "1) xxx", "**1.** xxx"
-// - Markdown list: "- xxx", "* xxx", "• xxx"
-// - Bold title with colon: "**标题**：描述", "**Title**: description"
-// - Bold title with dash: "**标题** - 描述"
 func (a *App) ExtractSuggestionsAsItems(threadID, userMessageID, analysisContent string) []AnalysisResultItem {
-	// Delegate to shared extraction logic
-	insights := a.extractSuggestionInsights(analysisContent)
-
-	if len(insights) == 0 {
+	if a.analysisFacadeService == nil {
 		return nil
 	}
-
-	a.Log(fmt.Sprintf("[SUGGESTIONS] Extracted %d suggestions from analysis for message %s", len(insights), userMessageID))
-
-	// Emit to frontend via event aggregator
-	var items []AnalysisResultItem
-	if a.eventAggregator != nil {
-		for _, insight := range insights {
-			a.eventAggregator.AddInsight(threadID, userMessageID, "", insight)
-		}
-		items = a.eventAggregator.FlushNow(threadID, true)
-	}
-
-	return items
+	return a.analysisFacadeService.ExtractSuggestionsAsItems(threadID, userMessageID, analysisContent)
 }
 
 // containsNumber checks if a string contains any digit
@@ -7235,915 +3721,192 @@ func containsNumber(s string) bool {
 
 // extractJSONFromResponse extracts JSON array from LLM response
 func (a *App) extractJSONFromResponse(response string) string {
-	// Try to extract JSON array
-	jsonPattern := regexp.MustCompile(`\[[\s\S]*?\]`)
-	matches := jsonPattern.FindAllString(response, -1)
-
-	for _, match := range matches {
-		// Validate if it's valid JSON
-		var test []interface{}
-		if json.Unmarshal([]byte(match), &test) == nil {
-			return match
-		}
+	if a.analysisFacadeService == nil {
+		return ""
 	}
-
-	return ""
+	return a.analysisFacadeService.extractJSONFromResponse(response)
 }
 
 // fallbackTextExtraction uses regex patterns as fallback when LLM extraction fails
 func (a *App) fallbackTextExtraction(messageId string, content string) error {
-	metrics := []map[string]interface{}{}
-
-	// Extract common metric patterns
-	patterns := []struct {
-		regex *regexp.Regexp
-		name  string
-		unit  string
-	}{
-		{regexp.MustCompile(`总.*?[：:]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)`), "总计", ""},
-		{regexp.MustCompile(`(\d+(?:\.\d+)?)%`), "百分比", "%"},
-		{regexp.MustCompile(`\$(\d+(?:,\d{3})*(?:\.\d+)?)`), "金额", "$"},
-		{regexp.MustCompile(`平均.*?[：:]?\s*(\d+(?:\.\d+)?)`), "平均值", ""},
-		{regexp.MustCompile(`增长.*?[：:]?\s*([+\-]?\d+(?:\.\d+)?)%`), "增长率", "%"},
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "fallbackTextExtraction", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	for _, pattern := range patterns {
-		matches := pattern.regex.FindAllStringSubmatch(content, -1)
-		for i, match := range matches {
-			if len(match) > 1 && len(metrics) < 6 {
-				metrics = append(metrics, map[string]interface{}{
-					"name":  fmt.Sprintf("%s%d", pattern.name, i+1),
-					"value": match[1],
-					"unit":  pattern.unit,
-				})
-			}
-		}
-	}
-
-	if len(metrics) > 0 {
-		jsonStr, _ := json.Marshal(metrics)
-		err := a.SaveMetricsJson(messageId, string(jsonStr))
-		if err == nil {
-			// Use event aggregator for new unified event system
-			if a.eventAggregator != nil {
-				for _, metric := range metrics {
-					m := Metric{
-						Title:  fmt.Sprintf("%v", metric["name"]),
-						Value:  fmt.Sprintf("%v", metric["value"]),
-						Change: "",
-					}
-					if unit, ok := metric["unit"]; ok {
-						m.Value = fmt.Sprintf("%v%v", metric["value"], unit)
-					}
-					a.eventAggregator.AddMetric("", messageId, "", m)
-				}
-				a.eventAggregator.FlushNow("", false)
-			}
-			a.Log(fmt.Sprintf("Fallback metrics extracted for message %s", messageId))
-		}
-		return err
-	}
-
-	return fmt.Errorf("no metrics could be extracted using fallback method")
+	return a.analysisFacadeService.fallbackTextExtraction(messageId, content)
 }
 
 // SaveSessionRecording saves the current session's analysis recording to a file
 func (a *App) SaveSessionRecording(threadID, title, description string) (string, error) {
-	if a.chatService == nil {
-		return "", fmt.Errorf("chat service not initialized")
+	if a.analysisFacadeService == nil {
+		return "", WrapError("App", "SaveSessionRecording", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Get thread
-	threads, err := a.chatService.LoadThreads()
-	if err != nil {
-		return "", fmt.Errorf("failed to get threads: %w", err)
-	}
-
-	var thread *ChatThread
-	for i := range threads {
-		if threads[i].ID == threadID {
-			thread = &threads[i]
-			break
-		}
-	}
-
-	if thread == nil {
-		return "", fmt.Errorf("thread not found: %s", threadID)
-	}
-
-	// Extract data source schema
-	var schemas []agent.ReplayTableSchema
-	if thread.DataSourceID != "" {
-		tables, err := a.dataSourceService.GetDataSourceTables(thread.DataSourceID)
-		if err == nil {
-			for _, tableName := range tables {
-				data, err := a.dataSourceService.GetDataSourceTableData(thread.DataSourceID, tableName, 1)
-				if err != nil {
-					continue
-				}
-				var cols []string
-				if len(data) > 0 {
-					for k := range data[0] {
-						cols = append(cols, k)
-					}
-				}
-				schemas = append(schemas, agent.ReplayTableSchema{
-					TableName: tableName,
-					Columns:   cols,
-				})
-			}
-		}
-	}
-
-	// Get data source name
-	var sourceName string
-	if thread.DataSourceID != "" {
-		sources, err := a.dataSourceService.LoadDataSources()
-		if err == nil {
-			for _, ds := range sources {
-				if ds.ID == thread.DataSourceID {
-					sourceName = ds.Name
-					break
-				}
-			}
-		}
-	}
-
-	// Create recorder
-	recorder := agent.NewAnalysisRecorder(thread.DataSourceID, sourceName, schemas)
-	recorder.SetMetadata(title, description)
-
-	// Parse messages to extract tool calls
-	// We need to extract SQL and Python tool executions from the conversation
-	// This is a simplified version - in a real implementation, we would track these during execution
-	stepID := 0
-	for _, msg := range thread.Messages {
-		if msg.Role != "assistant" {
-			continue
-		}
-
-		// Record conversation
-		recorder.RecordConversation("assistant", msg.Content)
-
-		// Try to extract SQL queries from message content
-		if strings.Contains(msg.Content, "```sql") {
-			startSQL := strings.Index(msg.Content, "```sql")
-			endSQL := strings.Index(msg.Content[startSQL+6:], "```")
-			if endSQL > 0 {
-				sqlQuery := strings.TrimSpace(msg.Content[startSQL+6 : startSQL+6+endSQL])
-				stepID++
-				recorder.RecordStep("execute_sql", fmt.Sprintf("SQL Query Step %d", stepID), sqlQuery, "", "", "")
-			}
-		}
-
-		// Try to extract Python code from message content
-		if strings.Contains(msg.Content, "```python") {
-			startPy := strings.Index(msg.Content, "```python")
-			endPy := strings.Index(msg.Content[startPy+9:], "```")
-			if endPy > 0 {
-				pythonCode := strings.TrimSpace(msg.Content[startPy+9 : startPy+9+endPy])
-				stepID++
-				recorder.RecordStep("python_executor", fmt.Sprintf("Python Analysis Step %d", stepID), pythonCode, "", "", "")
-			}
-		}
-	}
-
-	// Save recording
-	recordingDir := filepath.Join(a.storageDir, "recordings")
-	filePath, err := recorder.SaveRecording(recordingDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to save recording: %w", err)
-	}
-
-	a.Log(fmt.Sprintf("Session recording saved: %s", filePath))
-	return filePath, nil
+	return a.analysisFacadeService.SaveSessionRecording(threadID, title, description)
 }
 
 // GetSessionRecordings returns all available session recordings
 func (a *App) GetSessionRecordings() ([]agent.AnalysisRecording, error) {
-	recordingDir := filepath.Join(a.storageDir, "recordings")
-
-	// Create directory if it doesn't exist
-	if err := os.MkdirAll(recordingDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create recordings directory: %w", err)
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "GetSessionRecordings", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// List all recording files
-	files, err := os.ReadDir(recordingDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read recordings directory: %w", err)
-	}
-
-	recordings := []agent.AnalysisRecording{}
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
-			continue
-		}
-
-		filePath := filepath.Join(recordingDir, file.Name())
-		recording, err := agent.LoadRecording(filePath)
-		if err != nil {
-			a.Log(fmt.Sprintf("Failed to load recording %s: %v", file.Name(), err))
-			continue
-		}
-
-		recordings = append(recordings, *recording)
-	}
-
-	return recordings, nil
+	return a.analysisFacadeService.GetSessionRecordings()
 }
 
 // ReplayAnalysisRecording replays a recorded analysis on a target data source
 func (a *App) ReplayAnalysisRecording(recordingID, targetSourceID string, autoFixFields bool, maxFieldDiff int) (*agent.ReplayResult, error) {
-	if a.einoService == nil {
-		return nil, fmt.Errorf("eino service not initialized")
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "ReplayAnalysisRecording", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Load recording
-	recordingDir := filepath.Join(a.storageDir, "recordings")
-	recordingPath := filepath.Join(recordingDir, fmt.Sprintf("recording_%s.json", recordingID))
-
-	recording, err := agent.LoadRecording(recordingPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load recording: %w", err)
-	}
-
-	// Get target data source name
-	var targetSourceName string
-	sources, err := a.dataSourceService.LoadDataSources()
-	if err == nil {
-		for _, ds := range sources {
-			if ds.ID == targetSourceID {
-				targetSourceName = ds.Name
-				break
-			}
-		}
-	}
-
-	// Create replay config
-	config := &agent.ReplayConfig{
-		RecordingID:      recordingID,
-		TargetSourceID:   targetSourceID,
-		TargetSourceName: targetSourceName,
-		AutoFixFields:    autoFixFields,
-		MaxFieldDiff:     maxFieldDiff,
-		TableMappings:    []agent.TableMapping{},
-	}
-
-	// Create SQL and Python tools
-	sqlTool := agent.NewSQLExecutorTool(a.dataSourceService)
-
-	cfg, _ := a.GetEffectiveConfig()
-	pythonTool := agent.NewPythonExecutorTool(cfg)
-
-	// Create LLM service for intelligent field matching
-	llmService := agent.NewLLMService(cfg, a.Log)
-
-	// Create replayer
-	replayer := agent.NewAnalysisReplayer(
-		recording,
-		config,
-		a.dataSourceService,
-		sqlTool,
-		pythonTool,
-		llmService,
-		a.Log,
-	)
-
-	// Execute replay
-	result, err := replayer.Replay()
-	if err != nil {
-		return nil, fmt.Errorf("replay failed: %w", err)
-	}
-
-	return result, nil
+	return a.analysisFacadeService.ReplayAnalysisRecording(recordingID, targetSourceID, autoFixFields, maxFieldDiff)
 }
 
 // --- Dashboard Drag-Drop Layout Wails Bridge Methods ---
 
 // SaveLayout saves a layout configuration to the database (Task 5.1)
 func (a *App) SaveLayout(config database.LayoutConfiguration) error {
-	if a.layoutService == nil {
-		return fmt.Errorf("layout service not initialized")
+	if a.dashboardFacadeService == nil {
+		return WrapError("App", "SaveLayout", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	a.Log(fmt.Sprintf("[LAYOUT] Saving layout configuration for user: %s", config.UserID))
-	err := a.layoutService.SaveLayout(config)
-	if err != nil {
-		a.Log(fmt.Sprintf("[LAYOUT] Failed to save layout: %v", err))
-		return err
-	}
-
-	a.Log("[LAYOUT] Layout configuration saved successfully")
-	return nil
+	return a.dashboardFacadeService.SaveLayout(config)
 }
 
-// LoadLayout loads a layout configuration from the database (Task 5.2)
+// LoadLayout loads a layout configuration from the database
 func (a *App) LoadLayout(userID string) (*database.LayoutConfiguration, error) {
-	if a.layoutService == nil {
-		return nil, fmt.Errorf("layout service not initialized")
+	if a.dashboardFacadeService == nil {
+		return nil, WrapError("App", "LoadLayout", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	a.Log(fmt.Sprintf("[LAYOUT] Loading layout configuration for user: %s", userID))
-	config, err := a.layoutService.LoadLayout(userID)
-	if err != nil {
-		// If no layout found, return default layout instead of error
-		if err.Error() == fmt.Sprintf("no layout found for user: %s", userID) {
-			a.Log("[LAYOUT] No saved layout found, returning default layout")
-			defaultConfig := a.layoutService.GetDefaultLayout()
-			defaultConfig.UserID = userID
-			return &defaultConfig, nil
-		}
-
-		a.Log(fmt.Sprintf("[LAYOUT] Failed to load layout: %v", err))
-		return nil, err
-	}
-
-	a.Log("[LAYOUT] Layout configuration loaded successfully")
-	return config, nil
+	return a.dashboardFacadeService.LoadLayout(userID)
 }
 
-// CheckComponentHasData checks if a component has data available (Task 5.3)
+// CheckComponentHasData checks if a component has data available
 func (a *App) CheckComponentHasData(componentType string, instanceID string) (bool, error) {
-	if a.dataService == nil {
-		return false, fmt.Errorf("data service not initialized")
+	if a.dashboardFacadeService == nil {
+		return false, WrapError("App", "CheckComponentHasData", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	a.Log(fmt.Sprintf("[DATA] Checking data availability for component: %s (%s)", instanceID, componentType))
-	hasData, err := a.dataService.CheckComponentHasData(componentType, instanceID)
-	if err != nil {
-		a.Log(fmt.Sprintf("[DATA] Failed to check component data: %v", err))
-		return false, err
-	}
-
-	a.Log(fmt.Sprintf("[DATA] Component %s has data: %v", instanceID, hasData))
-	return hasData, nil
+	return a.dashboardFacadeService.CheckComponentHasData(componentType, instanceID)
 }
 
-// GetFilesByCategory retrieves files for a specific category (Task 5.4)
+// GetFilesByCategory retrieves files for a specific category
 func (a *App) GetFilesByCategory(category string) ([]database.FileInfo, error) {
-	if a.fileService == nil {
-		return nil, fmt.Errorf("file service not initialized")
+	if a.dashboardFacadeService == nil {
+		return nil, WrapError("App", "GetFilesByCategory", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	// Convert string to FileCategory type
-	var fileCategory database.FileCategory
-	switch category {
-	case "all_files":
-		fileCategory = database.AllFiles
-	case "user_request_related":
-		fileCategory = database.UserRequestRelated
-	default:
-		return nil, fmt.Errorf("invalid file category: %s", category)
-	}
-
-	a.Log(fmt.Sprintf("[FILES] Getting files for category: %s", category))
-	files, err := a.fileService.GetFilesByCategory(fileCategory)
-	if err != nil {
-		a.Log(fmt.Sprintf("[FILES] Failed to get files: %v", err))
-		return nil, err
-	}
-
-	a.Log(fmt.Sprintf("[FILES] Retrieved %d files for category %s", len(files), category))
-	return files, nil
+	return a.dashboardFacadeService.GetFilesByCategory(category)
 }
 
-// DownloadFile returns the file path for download (Task 5.5)
+// DownloadFile returns the file path for download
 func (a *App) DownloadFile(fileID string) (string, error) {
-	if a.fileService == nil {
-		return "", fmt.Errorf("file service not initialized")
+	if a.dashboardFacadeService == nil {
+		return "", WrapError("App", "DownloadFile", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	a.Log(fmt.Sprintf("[FILES] Downloading file: %s", fileID))
-	filePath, err := a.fileService.DownloadFile(fileID)
-	if err != nil {
-		a.Log(fmt.Sprintf("[FILES] Failed to download file: %v", err))
-		return "", err
-	}
-
-	a.Log(fmt.Sprintf("[FILES] File download path: %s", filePath))
-	return filePath, nil
+	return a.dashboardFacadeService.DownloadFile(fileID)
 }
 
-// ExportDashboard exports dashboard data with component filtering (Task 5.6)
+// ExportDashboard exports dashboard data with component filtering
 func (a *App) ExportDashboard(req database.ExportRequest) (*database.ExportResult, error) {
-	if a.exportService == nil {
-		return nil, fmt.Errorf("export service not initialized")
+	if a.dashboardFacadeService == nil {
+		return nil, WrapError("App", "ExportDashboard", fmt.Errorf("dashboard facade service not initialized"))
 	}
-
-	a.Log(fmt.Sprintf("[EXPORT] Exporting dashboard for user: %s, format: %s", req.UserID, req.Format))
-	result, err := a.exportService.ExportDashboard(req)
-	if err != nil {
-		a.Log(fmt.Sprintf("[EXPORT] Failed to export dashboard: %v", err))
-		return nil, err
-	}
-
-	a.Log(fmt.Sprintf("[EXPORT] Dashboard exported successfully: %s", result.FilePath))
-	a.Log(fmt.Sprintf("[EXPORT] Included components: %d, Excluded components: %d",
-		len(result.IncludedComponents), len(result.ExcludedComponents)))
-	return result, nil
+	return a.dashboardFacadeService.ExportDashboard(req)
 }
 
 // ListSkills returns all installed skills
 func (a *App) ListSkills() ([]agent.Skill, error) {
-	if a.skillService == nil {
-		return nil, fmt.Errorf("skill service not initialized")
+	if a.skillFacadeService == nil {
+		return nil, WrapError("App", "ListSkills", fmt.Errorf("skill facade service not initialized"))
 	}
-	return a.skillService.ListSkills()
+	return a.skillFacadeService.ListSkills()
 }
 
 // InstallSkillsFromZip installs skills from a ZIP file
 // Opens a file dialog for the user to select a ZIP file
 func (a *App) InstallSkillsFromZip() ([]string, error) {
-	if a.skillService == nil {
-		return nil, fmt.Errorf("skill service not initialized")
+	if a.skillFacadeService == nil {
+		return nil, WrapError("App", "InstallSkillsFromZip", fmt.Errorf("skill facade service not initialized"))
 	}
-
-	// Open file dialog to select ZIP file
-	zipPath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select Skills ZIP Package",
-		Filters: []runtime.FileFilter{
-			{
-				DisplayName: "ZIP Files (*.zip)",
-				Pattern:     "*.zip",
-			},
-		},
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file dialog: %v", err)
-	}
-
-	if zipPath == "" {
-		return nil, fmt.Errorf("no file selected")
-	}
-
-	a.Log(fmt.Sprintf("[SKILLS] Installing from: %s", zipPath))
-
-	// Install skills from ZIP
-	installed, err := a.skillService.InstallFromZip(zipPath)
-	if err != nil {
-		a.Log(fmt.Sprintf("[SKILLS] Installation failed: %v", err))
-		return nil, err
-	}
-
-	a.Log(fmt.Sprintf("[SKILLS] Successfully installed: %v", installed))
-	return installed, nil
+	return a.skillFacadeService.InstallSkillsFromZip()
 }
 
 // detectAnalysisType detects the type of analysis from the response
 // Used for recording analysis history (Requirement 1.1)
 func (a *App) detectAnalysisType(response string) string {
-	responseLower := strings.ToLower(response)
-
-	// Check for trend analysis keywords
-	if strings.Contains(responseLower, "trend") || strings.Contains(responseLower, "趋势") ||
-		strings.Contains(responseLower, "over time") || strings.Contains(responseLower, "随时间") {
-		return "trend"
+	if a.analysisFacadeService == nil {
+		return "statistical"
 	}
-
-	// Check for comparison analysis keywords
-	if strings.Contains(responseLower, "comparison") || strings.Contains(responseLower, "对比") ||
-		strings.Contains(responseLower, "compare") || strings.Contains(responseLower, "比较") {
-		return "comparison"
-	}
-
-	// Check for distribution analysis keywords
-	if strings.Contains(responseLower, "distribution") || strings.Contains(responseLower, "分布") ||
-		strings.Contains(responseLower, "breakdown") || strings.Contains(responseLower, "构成") {
-		return "distribution"
-	}
-
-	// Check for correlation analysis keywords
-	if strings.Contains(responseLower, "correlation") || strings.Contains(responseLower, "相关") ||
-		strings.Contains(responseLower, "relationship") || strings.Contains(responseLower, "关系") {
-		return "correlation"
-	}
-
-	// Check for aggregation analysis keywords
-	if strings.Contains(responseLower, "total") || strings.Contains(responseLower, "sum") ||
-		strings.Contains(responseLower, "average") || strings.Contains(responseLower, "汇总") ||
-		strings.Contains(responseLower, "平均") {
-		return "aggregation"
-	}
-
-	// Check for ranking analysis keywords
-	if strings.Contains(responseLower, "ranking") || strings.Contains(responseLower, "排名") ||
-		strings.Contains(responseLower, "top") || strings.Contains(responseLower, "前") {
-		return "ranking"
-	}
-
-	// Check for time series analysis keywords
-	if strings.Contains(responseLower, "time series") || strings.Contains(responseLower, "时间序列") ||
-		strings.Contains(responseLower, "forecast") || strings.Contains(responseLower, "预测") {
-		return "time_series"
-	}
-
-	// Check for geographic analysis keywords
-	if strings.Contains(responseLower, "geographic") || strings.Contains(responseLower, "地理") ||
-		strings.Contains(responseLower, "region") || strings.Contains(responseLower, "区域") ||
-		strings.Contains(responseLower, "province") || strings.Contains(responseLower, "省份") {
-		return "geographic"
-	}
-
-	// Default to statistical analysis
-	return "statistical"
+	return a.analysisFacadeService.detectAnalysisType(response)
 }
 
 // extractKeyFindings extracts key findings from the analysis response
 // Used for recording analysis history (Requirement 1.1)
 func (a *App) extractKeyFindings(response string) string {
-	// Look for key findings section
-	findingsKeywords := []string{
-		"关键发现", "主要发现", "结论", "总结",
-		"Key Findings", "Key findings", "Conclusion", "Summary",
-		"发现", "结果", "insights", "Insights",
+	if a.analysisFacadeService == nil {
+		return ""
 	}
-
-	for _, keyword := range findingsKeywords {
-		idx := strings.Index(response, keyword)
-		if idx != -1 {
-			// Extract up to 200 characters after the keyword
-			start := idx
-			end := start + 200
-			if end > len(response) {
-				end = len(response)
-			}
-
-			// Find the end of the sentence or paragraph
-			excerpt := response[start:end]
-
-			// Clean up the excerpt
-			excerpt = strings.TrimSpace(excerpt)
-			if len(excerpt) > 150 {
-				// Truncate at the last complete sentence
-				lastPeriod := strings.LastIndex(excerpt[:150], "。")
-				if lastPeriod == -1 {
-					lastPeriod = strings.LastIndex(excerpt[:150], ".")
-				}
-				if lastPeriod > 50 {
-					excerpt = excerpt[:lastPeriod+1]
-				} else {
-					excerpt = excerpt[:150] + "..."
-				}
-			}
-
-			return excerpt
-		}
-	}
-
-	// If no key findings section found, extract the first meaningful sentence
-	if len(response) > 150 {
-		excerpt := response[:150]
-		lastPeriod := strings.LastIndex(excerpt, "。")
-		if lastPeriod == -1 {
-			lastPeriod = strings.LastIndex(excerpt, ".")
-		}
-		if lastPeriod > 30 {
-			return excerpt[:lastPeriod+1]
-		}
-		return excerpt + "..."
-	}
-
-	return response
+	return a.analysisFacadeService.extractKeyFindings(response)
 }
 
 // extractTargetColumns extracts target columns mentioned in the analysis
 // Used for recording analysis history (Requirement 1.1)
 func (a *App) extractTargetColumns(response string, availableColumns []string) []string {
-	responseLower := strings.ToLower(response)
-	targetColumns := []string{}
-
-	for _, col := range availableColumns {
-		colLower := strings.ToLower(col)
-		if strings.Contains(responseLower, colLower) {
-			targetColumns = append(targetColumns, col)
-		}
+	if a.analysisFacadeService == nil {
+		return nil
 	}
-
-	// Limit to top 5 columns
-	if len(targetColumns) > 5 {
-		targetColumns = targetColumns[:5]
-	}
-
-	return targetColumns
+	return a.analysisFacadeService.extractTargetColumns(response, availableColumns)
 }
 
 // recordAnalysisHistory records analysis completion for intent enhancement
 // Used for recording analysis history (Requirement 1.1)
 func (a *App) recordAnalysisHistory(dataSourceID string, record agent.AnalysisRecord) {
-	if a.intentEnhancementService == nil {
+	if a.analysisFacadeService == nil {
 		return
 	}
-
-	// Get the context enhancer from the service and add the record
-	// Note: We need to access the context enhancer through a public method
-	// For now, we'll add a method to IntentEnhancementService to handle this
-	a.AddAnalysisRecord(dataSourceID, record)
+	a.analysisFacadeService.recordAnalysisHistory(dataSourceID, record)
 }
 
 // AddAnalysisRecord adds an analysis record for intent enhancement
-// This is a wrapper that delegates to the IntentEnhancementService
+// This is a wrapper that delegates to the AnalysisFacadeService
 // Validates: Requirement 1.1
 func (a *App) AddAnalysisRecord(dataSourceID string, record agent.AnalysisRecord) error {
-	if a.intentEnhancementService == nil {
-		return fmt.Errorf("intent enhancement service not initialized")
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "AddAnalysisRecord", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	// Ensure the data source ID is set in the record
-	if record.DataSourceID == "" {
-		record.DataSourceID = dataSourceID
-	}
-
-	// Delegate to the IntentEnhancementService to add the record
-	err := a.intentEnhancementService.AddAnalysisRecord(record)
-	if err != nil {
-		a.Log(fmt.Sprintf("[INTENT-HISTORY] Failed to record analysis: %v", err))
-		return err
-	}
-
-	a.Log(fmt.Sprintf("[INTENT-HISTORY] Successfully recorded analysis: type=%s, columns=%v, findings=%s",
-		record.AnalysisType, record.TargetColumns, record.KeyFindings))
-
-	return nil
+	return a.analysisFacadeService.AddAnalysisRecord(dataSourceID, record)
 }
 
 // RecordIntentSelection records user's intent selection for preference learning
 // This is called from the frontend when a user selects an intent
 // Validates: Requirement 2.1, 5.1
 func (a *App) RecordIntentSelection(threadID string, intent IntentSuggestion) error {
-	// Get data source ID from thread
-	var dataSourceID string
-	if threadID != "" && a.chatService != nil {
-		threads, _ := a.chatService.LoadThreads()
-		for _, t := range threads {
-			if t.ID == threadID {
-				dataSourceID = t.DataSourceID
-				break
-			}
-		}
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "RecordIntentSelection", fmt.Errorf("analysis facade service not initialized"))
 	}
-
-	if dataSourceID == "" {
-		return fmt.Errorf("no data source associated with thread")
-	}
-
-	// Convert to agent.IntentSuggestion
-	agentIntent := agent.IntentSuggestion{
-		ID:          intent.ID,
-		Title:       intent.Title,
-		Description: intent.Description,
-		Icon:        intent.Icon,
-		Query:       intent.Query,
-	}
-
-	// Record the selection using the new IntentUnderstandingService if available
-	// Validates: Requirement 5.1 - Record user intent selection for preference learning
-	if a.intentUnderstandingService != nil {
-		if err := a.intentUnderstandingService.RecordSelection(dataSourceID, agentIntent); err != nil {
-			a.Log(fmt.Sprintf("[INTENT] Failed to record selection in IntentUnderstandingService: %v", err))
-		}
-	}
-
-	// Also record in the legacy IntentEnhancementService for backward compatibility
-	if a.intentEnhancementService != nil {
-		a.intentEnhancementService.RecordSelection(dataSourceID, agentIntent)
-	}
-
-	a.Log(fmt.Sprintf("[INTENT] Recorded intent selection: %s for data source: %s", intent.Title, dataSourceID))
-
-	return nil
+	return a.analysisFacadeService.RecordIntentSelection(threadID, intent)
 }
 
 // GetMessageAnalysisData retrieves analysis data for a specific message (for dashboard restoration)
 // Resolves any file:// references in chart data and analysis results before returning
 func (a *App) GetMessageAnalysisData(threadID, messageID string) (map[string]interface{}, error) {
-	if a.chatService == nil {
-		return nil, fmt.Errorf("chat service not initialized")
+	if a.analysisFacadeService == nil {
+		return nil, WrapError("App", "GetMessageAnalysisData", fmt.Errorf("analysis facade service not initialized"))
 	}
-	result, err := a.chatService.GetMessageAnalysisData(threadID, messageID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Resolve file:// references in legacy ChartData
-	if chartData, ok := result["chartData"]; chartData != nil && ok {
-		if cd, ok := chartData.(*ChartData); ok && cd != nil {
-			for i := range cd.Charts {
-				if strings.HasPrefix(cd.Charts[i].Data, "file://") {
-					resolved, readErr := a.ReadChartDataFile(threadID, cd.Charts[i].Data)
-					if readErr != nil {
-						a.Log(fmt.Sprintf("[RESTORE] Failed to resolve file ref %s: %v", cd.Charts[i].Data, readErr))
-					} else {
-						a.Log(fmt.Sprintf("[RESTORE] Resolved file ref %s (%d bytes)", cd.Charts[i].Data, len(resolved)))
-						cd.Charts[i].Data = resolved
-					}
-				}
-			}
-		}
-	}
-
-	// Resolve file:// references in AnalysisResults
-	if items, ok := result["analysisResults"]; items != nil && ok {
-		if resultItems, ok := items.([]AnalysisResultItem); ok {
-			for i := range resultItems {
-				if strData, ok := resultItems[i].Data.(string); ok && strings.HasPrefix(strData, "file://") {
-					resolved, readErr := a.ReadChartDataFile(threadID, strData)
-					if readErr != nil {
-						a.Log(fmt.Sprintf("[RESTORE] Failed to resolve analysis file ref %s: %v", strData, readErr))
-					} else {
-						a.Log(fmt.Sprintf("[RESTORE] Resolved analysis file ref %s (%d bytes)", strData, len(resolved)))
-						resultItems[i].Data = resolved
-					}
-				}
-			}
-			result["analysisResults"] = resultItems
-		}
-	}
-
-	return result, nil
+	return a.analysisFacadeService.GetMessageAnalysisData(threadID, messageID)
 }
 
 // ShowStepResultOnDashboard re-pushes a step's analysis results to the dashboard via EventAggregator.
-// This allows users to view a specific step's results on the dashboard by clicking the result display button.
-// For QAP replay sessions, step results may be embedded in the assistant message content (json:table blocks)
-// rather than stored as separate AnalysisResults, so we also extract from content as a fallback.
 func (a *App) ShowStepResultOnDashboard(threadID string, messageID string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "ShowStepResultOnDashboard", fmt.Errorf("analysis facade service not initialized"))
 	}
-	if a.eventAggregator == nil {
-		return fmt.Errorf("event aggregator not initialized")
-	}
-
-	// First try GetMessageAnalysisData which handles both stored results and content extraction
-	analysisData, err := a.GetMessageAnalysisData(threadID, messageID)
-	if err != nil {
-		return fmt.Errorf("%s", i18n.T("dashboard.message_not_found", err))
-	}
-
-	pushed := false
-
-	if items, ok := analysisData["analysisResults"]; items != nil && ok {
-		if resultItems, ok := items.([]AnalysisResultItem); ok {
-			for _, item := range resultItems {
-				switch item.Type {
-				case "table":
-					a.eventAggregator.AddItem(threadID, messageID, "", "table", item.Data, item.Metadata)
-					pushed = true
-				case "echarts":
-					a.eventAggregator.AddItem(threadID, messageID, "", "echarts", item.Data, item.Metadata)
-					pushed = true
-				case "image":
-					a.eventAggregator.AddItem(threadID, messageID, "", "image", item.Data, item.Metadata)
-					pushed = true
-				case "metric":
-					a.eventAggregator.AddItem(threadID, messageID, "", "metric", item.Data, item.Metadata)
-					pushed = true
-				case "insight":
-					a.eventAggregator.AddItem(threadID, messageID, "", "insight", item.Data, item.Metadata)
-					pushed = true
-				}
-			}
-		}
-	}
-
-	// Also check for legacy chart data
-	if chartData, ok := analysisData["chartData"]; chartData != nil && ok {
-		if cd, ok := chartData.(*ChartData); ok && cd != nil {
-			for _, chart := range cd.Charts {
-				if chart.Data != "" {
-					a.eventAggregator.AddECharts(threadID, messageID, "", chart.Data)
-					pushed = true
-				}
-			}
-		}
-	}
-
-	// Fallback: For QAP replay session messages, the step result is in the message content itself.
-	// Extract from the message content directly if no results were found above.
-	if !pushed {
-		thread, err := a.chatService.LoadThread(threadID)
-		if err == nil && thread != nil {
-			for _, msg := range thread.Messages {
-				if msg.ID == messageID && msg.Role == "assistant" {
-					stepDesc := extractStepDescriptionFromContent(msg.Content)
-					extracted := a.chatService.extractAnalysisItemsFromContent(msg.Content, threadID, messageID)
-					for _, item := range extracted {
-						if stepDesc != "" {
-							if item.Metadata == nil {
-								item.Metadata = map[string]interface{}{}
-							}
-							item.Metadata["step_description"] = stepDesc
-						}
-						a.eventAggregator.AddItem(threadID, messageID, "", item.Type, item.Data, item.Metadata)
-						pushed = true
-					}
-					break
-				}
-			}
-		}
-	}
-
-	if !pushed {
-		return fmt.Errorf("%s", i18n.T("dashboard.step_no_results"))
-	}
-
-	a.eventAggregator.FlushNow(threadID, false)
-	a.Log(fmt.Sprintf("[SHOW-RESULT] Re-pushed results for message %s in thread %s", messageID, threadID))
-	return nil
+	return a.analysisFacadeService.ShowStepResultOnDashboard(threadID, messageID)
 }
 
 // ShowAllSessionResults 将整个会话的所有分析结果一次性推送到仪表盘。
-// 遍历会话中所有成功的 assistant 消息，收集并推送所有结果。
-// 所有结果使用统一的 messageID 推送，确保前端 AnalysisResultManager 不会
-// 因为不同 messageID 而清除之前的数据。
 func (a *App) ShowAllSessionResults(threadID string) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "ShowAllSessionResults", fmt.Errorf("analysis facade service not initialized"))
 	}
-	if a.eventAggregator == nil {
-		return fmt.Errorf("event aggregator not initialized")
-	}
-
-	thread, err := a.chatService.LoadThread(threadID)
-	if err != nil {
-		return fmt.Errorf("failed to load thread: %w", err)
-	}
-	if thread == nil {
-		return fmt.Errorf("thread not found: %s", threadID)
-	}
-
-	// Use a single unified messageID for all items so the frontend treats them as one batch.
-	// This prevents AnalysisResultManager.processBatch from clearing previous step data
-	// when it sees a new messageID.
-	unifiedMessageID := "all_results_" + threadID
-
-	pushed := 0
-	for _, msg := range thread.Messages {
-		if msg.Role != "assistant" {
-			continue
-		}
-		// 跳过失败和跳过的步骤
-		if strings.Contains(msg.Content, "❌") || strings.Contains(msg.Content, "⏭️") {
-			continue
-		}
-		// 只处理成功步骤
-		if !strings.Contains(msg.Content, "✅") {
-			continue
-		}
-
-		// 尝试从存储的分析结果中获取
-		msgPushed := 0
-		analysisData, err := a.GetMessageAnalysisData(threadID, msg.ID)
-		if err == nil && analysisData != nil {
-			if items, ok := analysisData["analysisResults"]; items != nil && ok {
-				if resultItems, ok := items.([]AnalysisResultItem); ok {
-					for _, item := range resultItems {
-						a.eventAggregator.AddItem(threadID, unifiedMessageID, "", item.Type, item.Data, item.Metadata)
-						msgPushed++
-					}
-				}
-			}
-			if chartData, ok := analysisData["chartData"]; chartData != nil && ok {
-				if cd, ok := chartData.(*ChartData); ok && cd != nil {
-					for _, chart := range cd.Charts {
-						if chart.Data != "" {
-							a.eventAggregator.AddECharts(threadID, unifiedMessageID, "", chart.Data)
-							msgPushed++
-						}
-					}
-				}
-			}
-		}
-
-		// 回退：从消息内容中提取
-		if msgPushed == 0 {
-			stepDesc := extractStepDescriptionFromContent(msg.Content)
-			extracted := a.chatService.extractAnalysisItemsFromContent(msg.Content, threadID, msg.ID)
-			for _, item := range extracted {
-				// Add step_description to metadata if extracted
-				if stepDesc != "" {
-					if item.Metadata == nil {
-						item.Metadata = map[string]interface{}{}
-					}
-					item.Metadata["step_description"] = stepDesc
-				}
-				a.eventAggregator.AddItem(threadID, unifiedMessageID, "", item.Type, item.Data, item.Metadata)
-				msgPushed++
-			}
-		}
-		pushed += msgPushed
-	}
-
-	if pushed == 0 {
-		return fmt.Errorf("该会话没有可显示的结果")
-	}
-
-	a.eventAggregator.FlushNow(threadID, true)
-	a.Log(fmt.Sprintf("[SHOW-ALL-RESULTS] Pushed %d results for thread %s (unified messageID: %s)", pushed, threadID, unifiedMessageID))
-	return nil
+	return a.analysisFacadeService.ShowAllSessionResults(threadID)
 }
+
 // Pre-compiled regexes for extractStepDescriptionFromContent
 var (
 	reAnalysisRequestLine = regexp.MustCompile(`📋 分析请求：(.+)`)
@@ -8168,10 +3931,10 @@ func extractStepDescriptionFromContent(content string) string {
 
 // SaveMessageAnalysisResults saves analysis results for a specific message
 func (a *App) SaveMessageAnalysisResults(threadID, messageID string, results []AnalysisResultItem) error {
-	if a.chatService == nil {
-		return fmt.Errorf("chat service not initialized")
+	if a.analysisFacadeService == nil {
+		return WrapError("App", "SaveMessageAnalysisResults", fmt.Errorf("analysis facade service not initialized"))
 	}
-	return a.chatService.SaveAnalysisResults(threadID, messageID, results)
+	return a.analysisFacadeService.SaveMessageAnalysisResults(threadID, messageID, results)
 }
 
 // ============ License Activation Methods ============
@@ -8187,55 +3950,10 @@ type ActivationResult struct {
 
 // ActivateLicense activates the application with a license server
 func (a *App) ActivateLicense(serverURL, sn string) (*ActivationResult, error) {
-	if a.licenseClient == nil {
-		a.licenseClient = agent.NewLicenseClient(a.Log)
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "ActivateLicense", fmt.Errorf("license facade service not initialized"))
 	}
-
-	result, err := a.licenseClient.Activate(serverURL, sn)
-	if err != nil {
-		return &ActivationResult{
-			Success: false,
-			Code:    "INTERNAL_ERROR",
-			Message: err.Error(),
-		}, nil
-	}
-
-	if !result.Success {
-		return &ActivationResult{
-			Success: false,
-			Code:    result.Code,
-			Message: result.Message,
-		}, nil
-	}
-
-	// Save encrypted activation data to local storage
-	if err := a.licenseClient.SaveActivationData(); err != nil {
-		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save activation data: %v", err))
-	}
-
-	// Save extra info to config file
-	if result.Data != nil && result.Data.ExtraInfo != nil && len(result.Data.ExtraInfo) > 0 {
-		cfg, err := a.GetConfig()
-		if err == nil {
-			cfg.LicenseExtraInfo = result.Data.ExtraInfo
-			if saveErr := a.SaveConfig(cfg); saveErr != nil {
-				a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save extra info to config: %v", saveErr))
-			} else {
-				a.Log(fmt.Sprintf("[LICENSE] Saved %d extra info items to config", len(result.Data.ExtraInfo)))
-			}
-		}
-	}
-
-	// Reinitialize services with the new license configuration
-	cfg, _ := a.GetConfig()
-	a.reinitializeServices(cfg)
-
-	return &ActivationResult{
-		Success:   true,
-		Code:      "SUCCESS",
-		Message:   "激活成功",
-		ExpiresAt: result.Data.ExpiresAt,
-	}, nil
+	return a.licenseFacadeService.ActivateLicense(serverURL, sn)
 }
 
 // RequestSNResult represents the result of SN request
@@ -8248,273 +3966,87 @@ type RequestSNResult struct {
 
 // RequestSN requests a serial number from the license server
 func (a *App) RequestSN(serverURL, email string) (*RequestSNResult, error) {
-	if a.licenseClient == nil {
-		a.licenseClient = agent.NewLicenseClient(a.Log)
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "RequestSN", fmt.Errorf("license facade service not initialized"))
 	}
-
-	result, err := a.licenseClient.RequestSN(serverURL, email)
-	if err != nil {
-		return &RequestSNResult{
-			Success: false,
-			Message: err.Error(),
-		}, nil
-	}
-
-	return &RequestSNResult{
-		Success: result.Success,
-		Message: result.Message,
-		SN:      result.SN,
-		Code:    result.Code,
-	}, nil
+	return a.licenseFacadeService.RequestSN(serverURL, email)
 }
 
 // GetActivationStatus returns the current activation status
 func (a *App) GetActivationStatus() map[string]interface{} {
-	// Check if activation failed during startup
-	if a.licenseActivationFailed {
-		return map[string]interface{}{
-			"activated":        false,
-			"activation_failed": true,
-			"error_message":    a.licenseActivationError,
-		}
-	}
-	
-	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+	if a.licenseFacadeService == nil {
 		return map[string]interface{}{
 			"activated": false,
 		}
 	}
-
-	data := a.licenseClient.GetData()
-	count, limit, date := a.licenseClient.GetAnalysisStatus()
-	totalCredits, usedCredits, isCreditsMode := a.licenseClient.GetCreditsStatus()
-	cfg, _ := a.GetConfig()
-	
-	return map[string]interface{}{
-		"activated":            true,
-		"expires_at":           data.ExpiresAt,
-		"has_llm":              data.LLMAPIKey != "",
-		"has_search":           data.SearchAPIKey != "",
-		"llm_type":             data.LLMType,
-		"search_type":          data.SearchType,
-		"sn":                   a.licenseClient.GetSN(),
-		"server_url":           a.licenseClient.GetServerURL(),
-		"daily_analysis_limit": limit,
-		"daily_analysis_count": count,
-		"daily_analysis_date":  date,
-		"trust_level":          data.TrustLevel,
-		"refresh_interval":     data.RefreshInterval,
-		"total_credits":        totalCredits,
-		"used_credits":         usedCredits,
-		"credits_mode":         isCreditsMode,
-		"email":                cfg.LicenseEmail,
-	}
+	return a.licenseFacadeService.GetActivationStatus()
 }
 
 // CheckLicenseActivationFailed returns true if license activation failed during startup
 func (a *App) CheckLicenseActivationFailed() bool {
-	return a.licenseActivationFailed
+	if a.licenseFacadeService == nil {
+		return a.licenseActivationFailed
+	}
+	return a.licenseFacadeService.CheckLicenseActivationFailed()
 }
 
 // GetLicenseActivationError returns the license activation error message
 func (a *App) GetLicenseActivationError() string {
-	return a.licenseActivationError
+	if a.licenseFacadeService == nil {
+		return a.licenseActivationError
+	}
+	return a.licenseFacadeService.GetLicenseActivationError()
 }
 
 // LoadSavedActivation attempts to load saved activation data from local storage
 func (a *App) LoadSavedActivation(sn string) (*ActivationResult, error) {
-	if a.licenseClient == nil {
-		a.licenseClient = agent.NewLicenseClient(a.Log)
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "LoadSavedActivation", fmt.Errorf("license facade service not initialized"))
 	}
-
-	err := a.licenseClient.LoadActivationData(sn)
-	if err != nil {
-		return &ActivationResult{
-			Success: false,
-			Code:    "LOAD_FAILED",
-			Message: err.Error(),
-		}, nil
-	}
-
-	data := a.licenseClient.GetData()
-	return &ActivationResult{
-		Success:   true,
-		Code:      "SUCCESS",
-		Message:   "从本地加载激活数据成功",
-		ExpiresAt: data.ExpiresAt,
-	}, nil
+	return a.licenseFacadeService.LoadSavedActivation(sn)
 }
 
 // GetActivatedLLMConfig returns the LLM config from activation (for internal use)
 func (a *App) GetActivatedLLMConfig() *agent.ActivationData {
-	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
+	if a.licenseFacadeService == nil {
 		return nil
 	}
-	return a.licenseClient.GetData()
+	return a.licenseFacadeService.GetActivatedLLMConfig()
 }
 
 // HasActiveAnalysis checks if there are any active analysis sessions
 func (a *App) HasActiveAnalysis() bool {
-	a.activeThreadsMutex.RLock()
-	defer a.activeThreadsMutex.RUnlock()
-	return len(a.activeThreads) > 0
+	if a.licenseFacadeService == nil {
+		if a.chatFacadeService == nil {
+			return false
+		}
+		return a.chatFacadeService.HasActiveAnalysis()
+	}
+	return a.licenseFacadeService.HasActiveAnalysis()
 }
 
 // DeactivateLicense clears the activation
 func (a *App) DeactivateLicense() error {
-	// Check if there are active analysis sessions
-	if a.HasActiveAnalysis() {
-		cfg, _ := a.GetConfig()
-		if cfg.Language == "简体中文" {
-			return fmt.Errorf("当前有正在进行的分析任务，无法切换模式")
-		}
-		return fmt.Errorf("cannot switch mode while analysis is in progress")
+	if a.licenseFacadeService == nil {
+		return WrapError("App", "DeactivateLicense", fmt.Errorf("license facade service not initialized"))
 	}
-	
-	if a.licenseClient != nil {
-		a.licenseClient.ClearSavedData()
-	}
-	
-	// Clear license info from config
-	cfg, err := a.GetConfig()
-	if err == nil {
-		cfg.LicenseExtraInfo = nil
-		cfg.LicenseSN = ""
-		cfg.LicenseServerURL = ""
-		cfg.LicenseEmail = ""
-		if saveErr := a.SaveConfig(cfg); saveErr != nil {
-			a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear license info from config: %v", saveErr))
-		} else {
-			a.Log("[LICENSE] Cleared license info from config")
-		}
-	}
-	
-	// Reset activation failed flag
-	a.licenseActivationFailed = false
-	a.licenseActivationError = ""
-	
-	return nil
+	return a.licenseFacadeService.DeactivateLicense()
 }
 
 // RefreshLicense refreshes the license from server using stored SN
 func (a *App) RefreshLicense() (*ActivationResult, error) {
-	if a.licenseClient == nil || !a.licenseClient.IsActivated() {
-		return &ActivationResult{
-			Success: false,
-			Code:    "NOT_ACTIVATED",
-			Message: "未激活，无法刷新",
-		}, nil
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "RefreshLicense", fmt.Errorf("license facade service not initialized"))
 	}
-
-	sn := a.licenseClient.GetSN()
-	if sn == "" {
-		return &ActivationResult{
-			Success: false,
-			Code:    "NO_SN",
-			Message: "未找到序列号",
-		}, nil
-	}
-
-	serverURL := a.licenseClient.GetServerURL()
-	if serverURL == "" {
-		// Try from config
-		cfg, _ := a.GetConfig()
-		serverURL = cfg.LicenseServerURL
-	}
-	if serverURL == "" {
-		return &ActivationResult{
-			Success: false,
-			Code:    "NO_SERVER",
-			Message: "未找到授权服务器地址",
-		}, nil
-	}
-
-	a.Log(fmt.Sprintf("[LICENSE] Refreshing license with SN: %s, Server: %s", sn, serverURL))
-
-	// Re-activate with the same SN
-	result, err := a.licenseClient.Activate(serverURL, sn)
-	if err != nil {
-		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %v", err))
-		return &ActivationResult{
-			Success: false,
-			Code:    "INTERNAL_ERROR",
-			Message: fmt.Sprintf("刷新失败: %v", err),
-		}, nil
-	}
-
-	if !result.Success {
-		a.Log(fmt.Sprintf("[LICENSE] Refresh failed: %s (code: %s)", result.Message, result.Code))
-		
-		// Check if the license was disabled, deleted, or invalidated on server
-		// In these cases, switch to open source mode
-		if result.Code == "INVALID_SN" || result.Code == "SN_EXPIRED" || result.Code == "SN_DISABLED" {
-			a.Log(fmt.Sprintf("[LICENSE] License is no longer valid (code: %s), switching to open source mode", result.Code))
-			
-			// Clear license data
-			if err := a.licenseClient.ClearSavedData(); err != nil {
-				a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to clear saved license data: %v", err))
-			}
-			a.licenseClient.Clear()
-			
-			// Clear license info from config
-			cfg, _ := a.GetConfig()
-			cfg.LicenseSN = ""
-			cfg.LicenseServerURL = ""
-			a.SaveConfig(cfg)
-			
-			// Reinitialize services with user's own config (open source mode)
-			a.reinitializeServices(cfg)
-			
-			// Return with switched_to_oss flag
-			var message string
-			switch result.Code {
-			case "INVALID_SN":
-				message = "序列号无效，已切换到开源模式。请使用您自己的 LLM API 配置。"
-			case "SN_EXPIRED":
-				message = "序列号已过期，已切换到开源模式。请使用您自己的 LLM API 配置。"
-			case "SN_DISABLED":
-				message = "序列号已被禁用，已切换到开源模式。请使用您自己的 LLM API 配置。"
-			default:
-				message = "授权已失效，已切换到开源模式。请使用您自己的 LLM API 配置。"
-			}
-			
-			return &ActivationResult{
-				Success:       false,
-				Code:          result.Code,
-				Message:       message,
-				SwitchedToOSS: true,
-			}, nil
-		}
-		
-		return &ActivationResult{
-			Success: false,
-			Code:    result.Code,
-			Message: fmt.Sprintf("刷新失败: %s", result.Message),
-		}, nil
-	}
-
-	// Save updated activation data
-	if err := a.licenseClient.SaveActivationData(); err != nil {
-		a.Log(fmt.Sprintf("[LICENSE] Warning: Failed to save refreshed data: %v", err))
-	}
-
-	// Reinitialize services with updated config
-	cfg, _ := a.GetConfig()
-	a.reinitializeServices(cfg)
-
-	a.Log(fmt.Sprintf("[LICENSE] License refreshed successfully, expires: %s", result.Data.ExpiresAt))
-
-	return &ActivationResult{
-		Success:   true,
-		Code:      "SUCCESS",
-		Message:   "授权刷新成功",
-		ExpiresAt: result.Data.ExpiresAt,
-	}, nil
+	return a.licenseFacadeService.RefreshLicense()
 }
 
 // IsLicenseActivated returns true if license is activated
 func (a *App) IsLicenseActivated() bool {
-	return a.licenseClient != nil && a.licenseClient.IsActivated()
+	if a.licenseFacadeService == nil {
+		return a.licenseClient != nil && a.licenseClient.IsActivated()
+	}
+	return a.licenseFacadeService.IsLicenseActivated()
 }
 
 // MarkdownTableData represents a parsed markdown table

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
 import { X, AlertCircle, CheckCircle, Key, Search, ExternalLink } from 'lucide-react';
 import { OpenExternalURL } from '../../wailsjs/go/main/App';
@@ -92,7 +92,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                 ...prev,
                 [apiId]: {
                     success: false,
-                    message: t('serper_requires_key') || 'Serper.dev requires an API key'
+                    message: t('serper_requires_key')
                 }
             }));
             return;
@@ -131,7 +131,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                 ...prev,
                 [selectedAPI]: {
                     success: false,
-                    message: t('please_select_api') || 'Please select a search API'
+                    message: t('please_select_api')
                 }
             }));
             return;
@@ -143,7 +143,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                 ...prev,
                 [selectedAPI]: {
                     success: false,
-                    message: t('serper_requires_key') || 'Serper.dev requires an API key'
+                    message: t('serper_requires_key')
                 }
             }));
             return;
@@ -155,7 +155,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                 ...prev,
                 [selectedAPI]: {
                     success: false,
-                    message: t('please_test_before_save') || 'Please test the connection before saving'
+                    message: t('please_test_before_save')
                 }
             }));
             return;
@@ -192,7 +192,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 z-10">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        {t('search_api_config') || 'Search API Configuration'}
+                        {t('search_api_config')}
                     </h2>
                     <button
                         onClick={onClose}
@@ -207,7 +207,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                     {/* API Selection */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                            {t('select_search_api') || 'Select Search API'}
+                            {t('select_search_api')}
                         </label>
                         <div className="space-y-3">
                             {configs.map((config) => {
@@ -235,7 +235,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                         </h3>
                                                         <div className="flex items-center gap-2">
                                                             {config.tested && (
-                                                                <div title={t('tested') || 'Tested'}>
+                                                                <div title={t('tested')}>
                                                                     <CheckCircle size={16} className="text-green-500" />
                                                                 </div>
                                                             )}
@@ -261,7 +261,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                             disabled={isTestingThis}
                                                             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                                                         >
-                                                            {isTestingThis ? (t('testing') || 'Testing...') : (t('test') || 'Test')}
+                                                            {isTestingThis ? (t('testing')) : (t('test'))}
                                                         </button>
                                                     </div>
                                                     
@@ -293,7 +293,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                     {selectedConfig && (
                         <div className="space-y-4 p-4 bg-gray-50 dark:bg-gray-900/50 rounded-lg">
                             <h3 className="text-sm font-medium text-gray-900 dark:text-white">
-                                {selectedConfig.name} {t('configuration') || 'Configuration'}
+                                {selectedConfig.name} {t('configuration')}
                             </h3>
 
                             {selectedConfig.id === 'serper' && (
@@ -301,7 +301,7 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                             <Key size={16} className="inline mr-2" />
-                                            {t('api_key') || 'API Key'}
+                                            {t('api_key')}
                                             <span className="text-red-500 ml-1">*</span>
                                         </label>
                                         <div className="flex gap-2">
@@ -309,21 +309,21 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                                 type="password"
                                                 value={selectedConfig.apiKey || ''}
                                                 onChange={(e) => updateConfig(selectedConfig.id, 'apiKey', e.target.value)}
-                                                placeholder={t('enter_serper_api_key') || 'Enter your Serper.dev API key'}
+                                                placeholder={t('enter_serper_api_key')}
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
                                             <button
                                                 onClick={() => OpenExternalURL('https://serper.dev')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
-                                                title={t('get_api_key') || 'Get API Key'}
+                                                title={t('get_api_key')}
                                             >
                                                 <ExternalLink size={16} />
-                                                {t('get_key') || 'Get Key'}
+                                                {t('get_key')}
                                             </button>
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                                        <p>{t('serper_help') || 'Get your API key from Serper.dev dashboard'}</p>
+                                        <p>{t('serper_help')}</p>
                                     </div>
                                 </>
                             )}
@@ -333,29 +333,29 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                             <Key size={16} className="inline mr-2" />
-                                            {t('api_key') || 'API Key'}
-                                            <span className="text-gray-400 ml-1 text-xs">({t('optional') || 'Optional'})</span>
+                                            {t('api_key')}
+                                            <span className="text-gray-400 ml-1 text-xs">({t('optional')})</span>
                                         </label>
                                         <div className="flex gap-2">
                                             <input
                                                 type="password"
                                                 value={selectedConfig.apiKey || ''}
                                                 onChange={(e) => updateConfig(selectedConfig.id, 'apiKey', e.target.value)}
-                                                placeholder={t('enter_uapi_api_key_optional') || 'Enter your UAPI Pro API key (optional)'}
+                                                placeholder={t('enter_uapi_api_key_optional')}
                                                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                                             />
                                             <button
                                                 onClick={() => OpenExternalURL('https://uapis.cn')}
                                                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors flex items-center gap-2 whitespace-nowrap"
-                                                title={t('get_api_key') || 'Get API Key'}
+                                                title={t('get_api_key')}
                                             >
                                                 <ExternalLink size={16} />
-                                                {t('get_key') || 'Get Key'}
+                                                {t('get_key')}
                                             </button>
                                         </div>
                                     </div>
                                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                                        <p>{t('uapi_pro_help_optional') || 'Currently in free beta - API key is optional. Get your key from UAPI dashboard for future use.'}</p>
+                                        <p>{t('uapi_pro_help_optional')}</p>
                                     </div>
                                 </>
                             )}
@@ -368,11 +368,11 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                             <AlertCircle className="text-blue-600 dark:text-blue-400 mr-3 flex-shrink-0" size={20} />
                             <div className="text-sm text-blue-800 dark:text-blue-200">
                                 <p className="font-medium mb-1">
-                                    {t('search_api_info_title') || 'About Search APIs'}
+                                    {t('search_api_info_title')}
                                 </p>
                                 <ul className="list-disc list-inside space-y-1 text-xs">
-                                    <li>{t('serper_info') || 'Serper: Google Search results via API, requires API key'}</li>
-                                    <li>{t('uapi_pro_info') || 'UAPI Pro: Structured data with stable schemas, currently in free beta (API key optional)'}</li>
+                                    <li>{t('serper_info')}</li>
+                                    <li>{t('uapi_pro_info')}</li>
                                 </ul>
                             </div>
                         </div>
@@ -385,13 +385,13 @@ const SearchAPIConfigModal: React.FC<SearchAPIConfigModalProps> = ({
                         onClick={onClose}
                         className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
                     >
-                        {t('cancel') || 'Cancel'}
+                        {t('cancel')}
                     </button>
                     <button
                         onClick={handleSave}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                     >
-                        {t('save') || 'Save'}
+                        {t('save')}
                     </button>
                 </div>
             </div>

@@ -418,10 +418,6 @@ export function GetSessionRecordings() {
   return window['go']['main']['App']['GetSessionRecordings']();
 }
 
-export function GetThreadExportableRequests(arg1) {
-  return window['go']['main']['App']['GetThreadExportableRequests'](arg1);
-}
-
 export function GetShareURL(arg1) {
   return window['go']['main']['App']['GetShareURL'](arg1);
 }
@@ -444,6 +440,10 @@ export function GetSkills() {
 
 export function GetStoreConfig(arg1) {
   return window['go']['main']['App']['GetStoreConfig'](arg1);
+}
+
+export function GetThreadExportableRequests(arg1) {
+  return window['go']['main']['App']['GetThreadExportableRequests'](arg1);
 }
 
 export function GetUsageLicenses() {

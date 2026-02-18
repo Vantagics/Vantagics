@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { AddDataSource, SelectExcelFile, SelectCSVFile, SelectJSONFile, SelectFolder, TestMySQLConnection, GetMySQLDatabases, GetConfig, OpenExternalURL, GetJiraProjects } from '../../wailsjs/go/main/App';
@@ -136,7 +136,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setShowToast(true);
             setTimeout(() => setShowToast(false), 3000);
         } catch (err: any) {
-            setError(t('test_connection_failed') || 'Connection failed: ' + err);
+            setError(t('test_connection_failed') + err);
         } finally {
             setIsTesting(false);
         }
@@ -145,7 +145,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
     // Fetch Jira projects when credentials are provided
     const handleFetchJiraProjects = async () => {
         if (!config.jiraBaseUrl || !config.jiraUsername || !config.jiraApiToken) {
-            setJiraProjectsError(t('jira_credentials_required') || 'Please fill in URL, username/email, and password/API token first');
+            setJiraProjectsError(t('jira_credentials_required'));
             return;
         }
 
@@ -214,6 +214,109 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setError('Please provide BigQuery project ID and service account credentials');
             return;
         }
+        // Financial data source validation
+        if (driverType === 'sp_global') {
+            const apiKey = (config.financialApiKey || '').trim();
+            const apiSecret = (config.financialApiSecret || '').trim();
+            if (!apiKey || !apiSecret) {
+                setError(t('financial_missing_sp_global'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialApiSecret = apiSecret;
+            config.financialProvider = 'sp_global';
+        }
+        if (driverType === 'lseg') {
+            const apiKey = (config.financialApiKey || '').trim();
+            const username = (config.financialUsername || '').trim();
+            const password = (config.financialPassword || '').trim();
+            if (!apiKey || !username || !password) {
+                setError(t('financial_missing_lseg'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialUsername = username;
+            config.financialPassword = password;
+            config.financialProvider = 'lseg';
+        }
+        if (driverType === 'pitchbook') {
+            const apiKey = (config.financialApiKey || '').trim();
+            if (!apiKey) {
+                setError(t('financial_missing_pitchbook'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialProvider = 'pitchbook';
+        }
+        if (driverType === 'bloomberg') {
+            const apiKey = (config.financialApiKey || '').trim();
+            const certPath = (config.financialCertPath || '').trim();
+            if (!apiKey && !certPath) {
+                setError(t('financial_missing_bloomberg'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialCertPath = certPath;
+            config.financialProvider = 'bloomberg';
+        }
+        if (driverType === 'morningstar') {
+            const apiKey = (config.financialApiKey || '').trim();
+            if (!apiKey) {
+                setError(t('financial_missing_morningstar'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialProvider = 'morningstar';
+        }
+        if (driverType === 'iex_cloud') {
+            const token = (config.financialToken || '').trim();
+            const symbols = (config.financialSymbols || '').trim();
+            if (!token) {
+                setError(t('financial_missing_iex_token'));
+                return;
+            }
+            if (!symbols) {
+                setError(t('financial_missing_iex_symbols'));
+                return;
+            }
+            config.financialToken = token;
+            config.financialSymbols = symbols;
+            config.financialProvider = 'iex_cloud';
+        }
+        if (driverType === 'alpha_vantage') {
+            const apiKey = (config.financialApiKey || '').trim();
+            const symbols = (config.financialSymbols || '').trim();
+            if (!apiKey) {
+                setError(t('financial_missing_av_key'));
+                return;
+            }
+            if (!symbols) {
+                setError(t('financial_missing_av_symbols'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialSymbols = symbols;
+            config.financialProvider = 'alpha_vantage';
+        }
+        if (driverType === 'quandl') {
+            const apiKey = (config.financialApiKey || '').trim();
+            const datasetCode = (config.financialDatasetCode || '').trim();
+            if (!apiKey) {
+                setError(t('financial_missing_quandl_key'));
+                return;
+            }
+            if (!datasetCode) {
+                setError(t('financial_missing_quandl_dataset'));
+                return;
+            }
+            if (!/^[A-Za-z0-9_]+\/[A-Za-z0-9_]+$/.test(datasetCode)) {
+                setError(t('financial_invalid_quandl_dataset'));
+                return;
+            }
+            config.financialApiKey = apiKey;
+            config.financialDatasetCode = datasetCode;
+            config.financialProvider = 'quandl';
+        }
 
         setIsImporting(true);
         setError(null);
@@ -260,7 +363,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                 <div className="fixed top-4 right-4 z-[10001] animate-slide-in-right">
                     <div className="bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
                         <CheckCircle className="w-5 h-5" />
-                        <span className="font-medium">{t('test_connection_success') || 'Connection successful!'}</span>
+                        <span className="font-medium">{t('test_connection_success')}</span>
                     </div>
                 </div>
             )}
@@ -322,13 +425,23 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 <option value="ebay">eBay API</option>
                                 <option value="etsy">Etsy</option>
                                 <option value="jira">Jira</option>
+                                <optgroup label={t('financial_data_group')}>
+                                    <option value="sp_global">S&P Global</option>
+                                    <option value="lseg">LSEG (Refinitiv)</option>
+                                    <option value="pitchbook">PitchBook</option>
+                                    <option value="bloomberg">Bloomberg Data License</option>
+                                    <option value="morningstar">Morningstar</option>
+                                    <option value="iex_cloud">IEX Cloud</option>
+                                    <option value="alpha_vantage">Alpha Vantage</option>
+                                    <option value="quandl">Quandl (Nasdaq Data Link)</option>
+                                </optgroup>
                             </select>
                         </div>
 
                         {/* Etsy mode sub-selector: Online (API) vs Offline (local files) */}
                         {(driverType === 'etsy' || driverType === 'etsy_offline') && (
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_data_mode') || 'Data Mode'}</label>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_data_mode')}</label>
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         type="button"
@@ -337,9 +450,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     >
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className="text-lg">🌐</span>
-                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_online_mode') || 'Online Data'}</span>
+                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_online_mode')}</span>
                                         </div>
-                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_online_desc') || 'Connect via Etsy API with access token'}</p>
+                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_online_desc')}</p>
                                     </button>
                                     <button
                                         type="button"
@@ -348,9 +461,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     >
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className="text-lg">📁</span>
-                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_offline_mode') || 'Offline Data'}</span>
+                                            <span className="text-sm font-medium text-slate-800 dark:text-[#d4d4d4]">{t('etsy_offline_mode')}</span>
                                         </div>
-                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_offline_desc') || 'Import from local CSV files and reviews.json'}</p>
+                                        <p className="text-xs text-slate-500 dark:text-[#808080]">{t('etsy_offline_desc')}</p>
                                     </button>
                                 </div>
                             </div>
@@ -359,16 +472,16 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                         {driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'etsy_offline' ? (
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                                    {driverType === 'csv' ? (t('csv_folder_path') || 'CSV Folder Path') : driverType === 'etsy_offline' ? (t('etsy_offline_folder_path') || 'Etsy Data Folder Path') : t('file_path')}
+                                    {driverType === 'csv' ? (t('csv_folder_path')) : driverType === 'etsy_offline' ? (t('etsy_offline_folder_path')) : t('file_path')}
                                 </label>
                                 {driverType === 'csv' && (
                                     <p className="text-xs text-slate-500 mb-2">
-                                        {t('csv_folder_hint') || '📁 Select a folder containing CSV files. Each CSV file in the folder will be imported as a separate data table.'}
+                                        {t('csv_folder_hint')}
                                     </p>
                                 )}
                                 {driverType === 'etsy_offline' && (
                                     <p className="text-xs text-slate-500 mb-2">
-                                        {t('etsy_offline_folder_hint') || '📁 Select a folder containing Etsy exported CSV files and reviews.json. All CSV files and reviews.json will be imported.'}
+                                        {t('etsy_offline_folder_hint')}
                                     </p>
                                 )}
                                 <div className="flex gap-2">
@@ -394,14 +507,14 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     <>
                                         <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                                             <p className="text-sm font-medium text-green-800 mb-2">
-                                                🔐 {t('shopify_oauth_mode') || 'One-Click Authorization'}
+                                                🔐 {t('shopify_oauth_mode')}
                                             </p>
                                             <p className="text-xs text-green-700">
-                                                {t('shopify_oauth_desc') || 'Simply enter your store URL and click "Authorize" to connect securely.'}
+                                                {t('shopify_oauth_desc')}
                                             </p>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url')}</label>
                                             <input
                                                 type="text"
                                                 value={config.shopifyStore || ''}
@@ -418,22 +531,22 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         {config.shopifyAccessToken ? (
                                             <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
                                                 <CheckCircle className="w-5 h-5 text-green-600" />
-                                                <span className="text-sm text-green-700">{t('shopify_authorized') || 'Store authorized successfully!'}</span>
+                                                <span className="text-sm text-green-700">{t('shopify_authorized')}</span>
                                             </div>
                                         ) : (
                                             <button
                                                 onClick={async () => {
                                                     if (!config.shopifyStore) {
-                                                        setError(t('shopify_store_required') || 'Please enter your store URL');
+                                                        setError(t('shopify_store_required'));
                                                         return;
                                                     }
                                                     setIsOAuthInProgress(true);
-                                                    setOauthStatus(t('shopify_oauth_starting') || 'Starting authorization...');
+                                                    setOauthStatus(t('shopify_oauth_starting'));
                                                     setError(null);
                                                     try {
                                                         // @ts-ignore - Will be available after rebuild
                                                         const authURL = await window.go.main.App.StartShopifyOAuth(config.shopifyStore);
-                                                        setOauthStatus(t('shopify_oauth_waiting') || 'Waiting for authorization in browser...');
+                                                        setOauthStatus(t('shopify_oauth_waiting'));
                                                         // @ts-ignore
                                                         await window.go.main.App.OpenShopifyOAuthInBrowser(authURL);
                                                         // @ts-ignore
@@ -464,7 +577,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                         {oauthStatus}
                                                     </>
                                                 ) : (
-                                                    <>🔗 {t('shopify_authorize') || 'Authorize with Shopify'}</>
+                                                    <>🔗 {t('shopify_authorize')}</>
                                                 )}
                                             </button>
                                         )}
@@ -478,7 +591,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                 }}
                                                 className="w-full px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md"
                                             >
-                                                {t('cancel') || 'Cancel'}
+                                                {t('cancel')}
                                             </button>
                                         )}
                                     </>
@@ -487,17 +600,17 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     <>
                                         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                             <p className="text-sm font-medium text-amber-800 mb-2">
-                                                {t('shopify_setup_guide') || '📋 How to get your Access Token:'}
+                                                {t('shopify_setup_guide')}
                                             </p>
                                             <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                                <li>{t('shopify_step1') || 'Go to your Shopify Admin'} → Settings → Apps</li>
-                                                <li>{t('shopify_step2') || 'Click "Develop apps" → Create an app'}</li>
-                                                <li>{t('shopify_step3') || 'Configure Admin API scopes (read_orders, read_products, read_customers)'}</li>
-                                                <li>{t('shopify_step4') || 'Install app and copy the Admin API access token'}</li>
+                                                <li>{t('shopify_step1')} → Settings → Apps</li>
+                                                <li>{t('shopify_step2')}</li>
+                                                <li>{t('shopify_step3')}</li>
+                                                <li>{t('shopify_step4')}</li>
                                             </ol>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url') || 'Store URL'}</label>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_store_url')}</label>
                                             <input
                                                 type="text"
                                                 value={config.shopifyStore || ''}
@@ -511,7 +624,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_access_token') || 'Access Token'}</label>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('shopify_access_token')}</label>
                                             <input
                                                 type="password"
                                                 value={config.shopifyAccessToken || ''}
@@ -525,7 +638,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('api_version') || 'API Version'}</label>
+                                            <label className="block text-sm font-medium text-slate-700 mb-1">{t('api_version')}</label>
                                             <input
                                                 type="text"
                                                 value={config.shopifyAPIVersion || '2024-01'}
@@ -545,20 +658,20 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             <div className="space-y-4">
                                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                     <p className="text-sm font-medium text-amber-800 mb-2">
-                                        {t('bigcommerce_setup_guide') || '📋 How to get your credentials:'}
+                                        {t('bigcommerce_setup_guide')}
                                     </p>
                                     <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                        <li>{t('bigcommerce_step1') || 'Go to BigCommerce Admin'} → Settings → API Accounts</li>
-                                        <li>{t('bigcommerce_step2') || 'Click "Create API Account" → "Create V2/V3 API Token"'}</li>
-                                        <li>{t('bigcommerce_step3') || 'Set OAuth Scopes: Products, Orders, Customers (read-only)'}</li>
-                                        <li>{t('bigcommerce_step4') || 'Save and copy the Access Token and API Path'}</li>
+                                        <li>{t('bigcommerce_step1')} → Settings → API Accounts</li>
+                                        <li>{t('bigcommerce_step2')}</li>
+                                        <li>{t('bigcommerce_step3')}</li>
+                                        <li>{t('bigcommerce_step4')}</li>
                                     </ol>
                                     <p className="text-xs text-amber-600 mt-2">
-                                        {t('bigcommerce_path_hint') || 'API Path format: https://api.bigcommerce.com/stores/{store_hash}/v3'}
+                                        {t('bigcommerce_path_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_store_hash') || 'Store Hash'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_store_hash')}</label>
                                     <input
                                         type="text"
                                         value={config.bigcommerceStoreHash || ''}
@@ -571,11 +684,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('bigcommerce_store_hash_hint') || 'Found in your BigCommerce API path: api.bigcommerce.com/stores/{store_hash}'}
+                                        {t('bigcommerce_store_hash_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_access_token') || 'Access Token'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigcommerce_access_token')}</label>
                                     <input
                                         type="password"
                                         value={config.bigcommerceAccessToken || ''}
@@ -588,7 +701,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('bigcommerce_token_hint') || 'API Account Access Token from BigCommerce'}
+                                        {t('bigcommerce_token_hint')}
                                     </p>
                                 </div>
                             </div>
@@ -596,20 +709,20 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             <div className="space-y-4">
                                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                     <p className="text-sm font-medium text-amber-800 mb-2">
-                                        {t('ebay_setup_guide') || '📋 How to get your Access Token:'}
+                                        {t('ebay_setup_guide')}
                                     </p>
                                     <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                        <li>{t('ebay_step1') || 'Go to eBay Developer Program'} → <button onClick={() => OpenExternalURL('https://developer.ebay.com/my/keys')} className="text-blue-600 underline hover:text-blue-800">developer.ebay.com</button></li>
-                                        <li>{t('ebay_step2') || 'Create or select an application'}</li>
-                                        <li>{t('ebay_step3') || 'Generate User Token with required OAuth scopes'}</li>
-                                        <li>{t('ebay_step4') || 'Copy the OAuth User Token and paste below'}</li>
+                                        <li>{t('ebay_step1')} → <button onClick={() => OpenExternalURL('https://developer.ebay.com/my/keys')} className="text-blue-600 underline hover:text-blue-800">developer.ebay.com</button></li>
+                                        <li>{t('ebay_step2')}</li>
+                                        <li>{t('ebay_step3')}</li>
+                                        <li>{t('ebay_step4')}</li>
                                     </ol>
                                     <p className="text-xs text-amber-600 mt-2">
-                                        {t('ebay_scopes_hint') || 'Required scopes: sell.fulfillment, sell.finances, sell.analytics.readonly'}
+                                        {t('ebay_scopes_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_access_token') || 'OAuth Access Token'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_access_token')}</label>
                                     <input
                                         type="password"
                                         value={config.ebayAccessToken || ''}
@@ -623,7 +736,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_environment') || 'Environment'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_environment')}</label>
                                     <select
                                         value={config.ebayEnvironment || 'production'}
                                         onChange={(e) => setConfig({ ...config, ebayEnvironment: e.target.value })}
@@ -634,7 +747,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_apis') || 'APIs to Import'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('ebay_apis')}</label>
                                     <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
                                         <label className="flex items-center gap-2 cursor-pointer">
                                             <input
@@ -644,7 +757,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                 className="rounded border-slate-300 text-blue-600"
                                             />
                                             <span className="text-sm text-slate-700">Fulfillment API</span>
-                                            <span className="text-xs text-slate-500">({t('ebay_fulfillment_desc') || 'Orders, buyer info, payments'})</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_fulfillment_desc')})</span>
                                         </label>
                                         <label className="flex items-center gap-2 cursor-pointer">
                                             <input
@@ -654,7 +767,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                 className="rounded border-slate-300 text-blue-600"
                                             />
                                             <span className="text-sm text-slate-700">Finances API</span>
-                                            <span className="text-xs text-slate-500">({t('ebay_finances_desc') || 'Transactions, fees, payouts'})</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_finances_desc')})</span>
                                         </label>
                                         <label className="flex items-center gap-2 cursor-pointer">
                                             <input
@@ -664,7 +777,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                                 className="rounded border-slate-300 text-blue-600"
                                             />
                                             <span className="text-sm text-slate-700">Analytics API</span>
-                                            <span className="text-xs text-slate-500">({t('ebay_analytics_desc') || 'Traffic, conversion, seller metrics'})</span>
+                                            <span className="text-xs text-slate-500">({t('ebay_analytics_desc')})</span>
                                         </label>
                                     </div>
                                 </div>
@@ -673,20 +786,20 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             <div className="space-y-4">
                                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                     <p className="text-sm font-medium text-amber-800 mb-2">
-                                        {t('etsy_setup_guide') || '📋 How to get your Access Token:'}
+                                        {t('etsy_setup_guide')}
                                     </p>
                                     <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
-                                        <li>{t('etsy_step1') || 'Go to Etsy Developer Portal'} → <button onClick={() => OpenExternalURL('https://www.etsy.com/developers/your-apps')} className="text-blue-600 underline hover:text-blue-800">etsy.com/developers</button></li>
-                                        <li>{t('etsy_step2') || 'Create a new App (or use existing one)'}</li>
-                                        <li>{t('etsy_step3') || 'In App settings, generate an OAuth token with required scopes'}</li>
-                                        <li>{t('etsy_step4') || 'Copy the Access Token and paste below'}</li>
+                                        <li>{t('etsy_step1')} → <button onClick={() => OpenExternalURL('https://www.etsy.com/developers/your-apps')} className="text-blue-600 underline hover:text-blue-800">etsy.com/developers</button></li>
+                                        <li>{t('etsy_step2')}</li>
+                                        <li>{t('etsy_step3')}</li>
+                                        <li>{t('etsy_step4')}</li>
                                     </ol>
                                     <p className="text-xs text-amber-600 mt-2">
-                                        {t('etsy_scopes_hint') || 'Required scopes: listings_r, transactions_r, shops_r'}
+                                        {t('etsy_scopes_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_access_token') || 'OAuth Access Token'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('etsy_access_token')}</label>
                                     <input
                                         type="password"
                                         value={config.etsyAccessToken || ''}
@@ -701,46 +814,46 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 </div>
                                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                                     <p className="text-xs text-blue-700">
-                                        💡 {t('etsy_auto_detect_hint') || 'Shop ID will be automatically detected from your token'}
+                                        💡 {t('etsy_auto_detect_hint')}
                                     </p>
                                 </div>
                             </div>
                         ) : driverType === 'jira' ? (
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_instance_type') || 'Instance Type'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_instance_type')}</label>
                                     <select
                                         value={config.jiraInstanceType || 'cloud'}
                                         onChange={(e) => setConfig({ ...config, jiraInstanceType: e.target.value })}
                                         className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                     >
-                                        <option value="cloud">{t('jira_cloud') || 'Jira Cloud'}</option>
-                                        <option value="server">{t('jira_server') || 'Jira Server / Data Center'}</option>
+                                        <option value="cloud">{t('jira_cloud')}</option>
+                                        <option value="server">{t('jira_server')}</option>
                                     </select>
                                 </div>
                                 {/* Setup guide based on instance type */}
                                 <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
                                     <p className="text-sm font-medium text-indigo-800 mb-2">
-                                        {t('jira_setup_guide') || '📋 How to get your credentials:'}
+                                        {t('jira_setup_guide')}
                                     </p>
                                     {config.jiraInstanceType === 'server' ? (
                                         <ol className="text-xs text-indigo-700 space-y-1 list-decimal list-inside">
-                                            <li>{t('jira_server_step1') || 'Use your Jira Server login credentials'}</li>
-                                            <li>{t('jira_server_step2') || 'Username is your Jira username (not email)'}</li>
-                                            <li>{t('jira_server_step3') || 'Password is your Jira password'}</li>
-                                            <li>{t('jira_server_step4') || 'Ensure your account has project access'}</li>
+                                            <li>{t('jira_server_step1')}</li>
+                                            <li>{t('jira_server_step2')}</li>
+                                            <li>{t('jira_server_step3')}</li>
+                                            <li>{t('jira_server_step4')}</li>
                                         </ol>
                                     ) : (
                                         <ol className="text-xs text-indigo-700 space-y-1 list-decimal list-inside">
-                                            <li>{t('jira_cloud_step1') || 'Go to Atlassian Account Settings'}</li>
-                                            <li>{t('jira_cloud_step2') || 'Navigate to Security → API tokens'}</li>
-                                            <li>{t('jira_cloud_step3') || 'Click "Create API token" and copy it'}</li>
-                                            <li>{t('jira_cloud_step4') || 'Use your Atlassian email as username'}</li>
+                                            <li>{t('jira_cloud_step1')}</li>
+                                            <li>{t('jira_cloud_step2')}</li>
+                                            <li>{t('jira_cloud_step3')}</li>
+                                            <li>{t('jira_cloud_step4')}</li>
                                         </ol>
                                     )}
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_base_url') || 'Jira URL'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('jira_base_url')}</label>
                                     <input
                                         type="text"
                                         value={config.jiraBaseUrl || ''}
@@ -754,13 +867,13 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
                                         {config.jiraInstanceType === 'server' 
-                                            ? (t('jira_server_url_hint') || 'e.g., jira.your-company.com')
-                                            : (t('jira_cloud_url_hint') || 'e.g., your-domain.atlassian.net')}
+                                            ? (t('jira_server_url_hint'))
+                                            : (t('jira_cloud_url_hint'))}
                                     </p>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        {config.jiraInstanceType === 'server' ? (t('jira_username') || 'Username') : (t('jira_email') || 'Email')}
+                                        {config.jiraInstanceType === 'server' ? (t('jira_username')) : (t('jira_email'))}
                                     </label>
                                     <input
                                         type="text"
@@ -776,7 +889,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        {config.jiraInstanceType === 'server' ? (t('jira_password') || 'Password') : (t('jira_api_token') || 'API Token')}
+                                        {config.jiraInstanceType === 'server' ? (t('jira_password')) : (t('jira_api_token'))}
                                     </label>
                                     <input
                                         type="password"
@@ -791,7 +904,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                     {config.jiraInstanceType === 'cloud' && (
                                         <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                            {t('jira_api_token_hint') || 'Generate from Atlassian Account Settings → Security → API tokens'}
+                                            {t('jira_api_token_hint')}
                                         </p>
                                     )}
                                 </div>
@@ -806,15 +919,15 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         {isLoadingJiraProjects ? (
                                             <>
                                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                                {t('jira_loading_projects') || 'Loading projects...'}
+                                                {t('jira_loading_projects')}
                                             </>
                                         ) : jiraCredentialsValid ? (
                                             <>
                                                 <CheckCircle className="w-4 h-4" />
-                                                {t('jira_credentials_valid') || 'Credentials verified'}
+                                                {t('jira_credentials_valid')}
                                             </>
                                         ) : (
-                                            t('jira_fetch_projects') || 'Verify & Fetch Projects'
+                                            t('jira_fetch_projects')
                                         )}
                                     </button>
                                     {jiraProjectsError && (
@@ -825,7 +938,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                 {jiraProjects.length > 0 && (
                                     <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">
-                                            {t('jira_select_project') || 'Select Project (Optional)'}
+                                            {t('jira_select_project')}
                                         </label>
                                         <select
                                             value={config.jiraProjectKey || ''}
@@ -841,7 +954,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                             }}
                                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                         >
-                                            <option value="">{t('jira_all_projects') || '-- All accessible projects --'}</option>
+                                            <option value="">{t('jira_all_projects')}</option>
                                             {jiraProjects.map((project) => (
                                                 <option key={project.key} value={project.key}>
                                                     {project.key} - {project.name}
@@ -849,13 +962,13 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                             ))}
                                         </select>
                                         <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                            {t('jira_project_select_hint') || 'Select a specific project or leave empty to import all'}
+                                            {t('jira_project_select_hint')}
                                         </p>
                                     </div>
                                 )}
                                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                                     <p className="text-xs text-blue-700">
-                                        💡 {t('jira_import_hint') || 'Will import: Issues, Projects, Users, Sprints'}
+                                        💡 {t('jira_import_hint')}
                                     </p>
                                 </div>
                             </div>
@@ -863,14 +976,14 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             <div className="space-y-4">
                                 <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
                                     <p className="text-xs font-medium text-blue-800 mb-1 leading-tight">
-                                        {t('snowflake_setup_guide') || '❄️ Snowflake Connection'}
+                                        {t('snowflake_setup_guide')}
                                     </p>
                                     <p className="text-xs text-blue-700 leading-snug">
-                                        {t('snowflake_desc') || 'Connect to your Snowflake data warehouse to import tables and run analytics.'}
+                                        {t('snowflake_desc')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_account') || 'Account Identifier'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_account')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeAccount || ''}
@@ -883,11 +996,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('snowflake_account_hint') || 'Format: account_name.region (e.g., xy12345.us-east-1)'}
+                                        {t('snowflake_account_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('user') || 'Username'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('user')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeUser || ''}
@@ -901,7 +1014,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password') || 'Password'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password')}</label>
                                     <input
                                         type="password"
                                         value={config.snowflakePassword || ''}
@@ -915,7 +1028,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_warehouse') || 'Warehouse (Optional)'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_warehouse')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeWarehouse || ''}
@@ -929,7 +1042,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('database') || 'Database (Optional)'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('database')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeDatabase || ''}
@@ -943,7 +1056,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_schema') || 'Schema (Optional)'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_schema')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeSchema || ''}
@@ -957,7 +1070,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_role') || 'Role (Optional)'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('snowflake_role')}</label>
                                     <input
                                         type="text"
                                         value={config.snowflakeRole || ''}
@@ -975,17 +1088,17 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             <div className="space-y-4">
                                 <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
                                     <p className="text-xs font-medium text-blue-800 mb-1 leading-tight">
-                                        {t('bigquery_setup_guide') || '📊 BigQuery Connection'}
+                                        {t('bigquery_setup_guide')}
                                     </p>
                                     <ol className="text-xs text-blue-700 space-y-0.5 list-decimal list-inside leading-snug">
-                                        <li>{t('bigquery_step1') || 'Go to Google Cloud Console'}</li>
-                                        <li>{t('bigquery_step2') || 'Create a service account with BigQuery permissions'}</li>
-                                        <li>{t('bigquery_step3') || 'Download the JSON key file'}</li>
-                                        <li>{t('bigquery_step4') || 'Paste the JSON content below'}</li>
+                                        <li>{t('bigquery_step1')}</li>
+                                        <li>{t('bigquery_step2')}</li>
+                                        <li>{t('bigquery_step3')}</li>
+                                        <li>{t('bigquery_step4')}</li>
                                     </ol>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_project_id') || 'Project ID'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_project_id')}</label>
                                     <input
                                         type="text"
                                         value={config.bigqueryProjectId || ''}
@@ -998,11 +1111,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('bigquery_project_hint') || 'Your Google Cloud Project ID'}
+                                        {t('bigquery_project_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_dataset') || 'Dataset ID (Optional)'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_dataset')}</label>
                                     <input
                                         type="text"
                                         value={config.bigqueryDatasetId || ''}
@@ -1015,11 +1128,11 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('bigquery_dataset_hint') || 'Leave empty to import all datasets'}
+                                        {t('bigquery_dataset_hint')}
                                     </p>
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_credentials') || 'Service Account JSON'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('bigquery_credentials')}</label>
                                     <textarea
                                         value={config.bigqueryCredentials || ''}
                                         onChange={(e) => setConfig({ ...config, bigqueryCredentials: e.target.value })}
@@ -1032,12 +1145,393 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('bigquery_credentials_hint') || 'Paste the entire JSON key file content'}
+                                        {t('bigquery_credentials_hint')}
                                     </p>
                                 </div>
                                 <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
                                     <p className="text-xs text-amber-700 leading-snug">
-                                        ⚠️ {t('bigquery_note') || 'Note: BigQuery integration requires additional Go dependencies. The system will guide you through setup if needed.'}
+                                        ⚠️ {t('bigquery_note')}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : driverType === 'sp_global' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="S&P Global API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_secret')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiSecret || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiSecret: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="S&P Global API Secret"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_datasets')}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        {[
+                                            { key: 'companies', label: t('sp_dataset_companies') },
+                                            { key: 'financials', label: t('sp_dataset_financials') },
+                                            { key: 'credit_ratings', label: t('sp_dataset_credit_ratings') },
+                                            { key: 'market_data', label: t('sp_dataset_market_data') },
+                                        ].map(ds => (
+                                            <label key={ds.key} className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(config.financialDatasets || '').split(',').filter(Boolean).includes(ds.key)}
+                                                    onChange={(e) => {
+                                                        const current = (config.financialDatasets || '').split(',').filter(Boolean);
+                                                        const updated = e.target.checked ? [...current, ds.key] : current.filter(d => d !== ds.key);
+                                                        setConfig({ ...config, financialDatasets: updated.join(',') });
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600"
+                                                />
+                                                <span className="text-sm text-slate-700">{ds.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'lseg' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_app_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="LSEG App Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_username')}</label>
+                                    <input
+                                        type="text"
+                                        value={config.financialUsername || ''}
+                                        onChange={(e) => setConfig({ ...config, financialUsername: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder={t('username_placeholder')}
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialPassword || ''}
+                                        onChange={(e) => setConfig({ ...config, financialPassword: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="••••••••"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_datasets')}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        {[
+                                            { key: 'historical_prices', label: t('lseg_dataset_historical_prices') },
+                                            { key: 'fundamentals', label: t('lseg_dataset_fundamentals') },
+                                            { key: 'esg', label: t('lseg_dataset_esg') },
+                                        ].map(ds => (
+                                            <label key={ds.key} className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(config.financialDatasets || '').split(',').filter(Boolean).includes(ds.key)}
+                                                    onChange={(e) => {
+                                                        const current = (config.financialDatasets || '').split(',').filter(Boolean);
+                                                        const updated = e.target.checked ? [...current, ds.key] : current.filter(d => d !== ds.key);
+                                                        setConfig({ ...config, financialDatasets: updated.join(',') });
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600"
+                                                />
+                                                <span className="text-sm text-slate-700">{ds.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'pitchbook' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="PitchBook API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_datasets')}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        {[
+                                            { key: 'companies', label: t('pb_dataset_companies') },
+                                            { key: 'deals', label: t('pb_dataset_deals') },
+                                            { key: 'funds', label: t('pb_dataset_funds') },
+                                            { key: 'investors', label: t('pb_dataset_investors') },
+                                        ].map(ds => (
+                                            <label key={ds.key} className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(config.financialDatasets || '').split(',').filter(Boolean).includes(ds.key)}
+                                                    onChange={(e) => {
+                                                        const current = (config.financialDatasets || '').split(',').filter(Boolean);
+                                                        const updated = e.target.checked ? [...current, ds.key] : current.filter(d => d !== ds.key);
+                                                        setConfig({ ...config, financialDatasets: updated.join(',') });
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600"
+                                                />
+                                                <span className="text-sm text-slate-700">{ds.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'bloomberg' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Bloomberg API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_cert_path')}</label>
+                                    <input
+                                        type="text"
+                                        value={config.financialCertPath || ''}
+                                        onChange={(e) => setConfig({ ...config, financialCertPath: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="/path/to/certificate.pem"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
+                                        {t('bloomberg_cert_hint')}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_datasets')}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        {[
+                                            { key: 'reference_data', label: t('bb_dataset_reference_data') },
+                                            { key: 'pricing', label: t('bb_dataset_pricing') },
+                                            { key: 'corporate_actions', label: t('bb_dataset_corporate_actions') },
+                                        ].map(ds => (
+                                            <label key={ds.key} className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(config.financialDatasets || '').split(',').filter(Boolean).includes(ds.key)}
+                                                    onChange={(e) => {
+                                                        const current = (config.financialDatasets || '').split(',').filter(Boolean);
+                                                        const updated = e.target.checked ? [...current, ds.key] : current.filter(d => d !== ds.key);
+                                                        setConfig({ ...config, financialDatasets: updated.join(',') });
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600"
+                                                />
+                                                <span className="text-sm text-slate-700">{ds.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'morningstar' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Morningstar API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_datasets')}</label>
+                                    <div className="space-y-2 p-3 bg-slate-50 rounded-md border border-slate-200">
+                                        {[
+                                            { key: 'funds', label: t('ms_dataset_funds') },
+                                            { key: 'stocks', label: t('ms_dataset_stocks') },
+                                            { key: 'portfolio', label: t('ms_dataset_portfolio') },
+                                        ].map(ds => (
+                                            <label key={ds.key} className="flex items-center gap-2 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={(config.financialDatasets || '').split(',').filter(Boolean).includes(ds.key)}
+                                                    onChange={(e) => {
+                                                        const current = (config.financialDatasets || '').split(',').filter(Boolean);
+                                                        const updated = e.target.checked ? [...current, ds.key] : current.filter(d => d !== ds.key);
+                                                        setConfig({ ...config, financialDatasets: updated.join(',') });
+                                                    }}
+                                                    className="rounded border-slate-300 text-blue-600"
+                                                />
+                                                <span className="text-sm text-slate-700">{ds.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : driverType === 'iex_cloud' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_token')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialToken || ''}
+                                        onChange={(e) => setConfig({ ...config, financialToken: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="pk_..."
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_symbols')}</label>
+                                    <input
+                                        type="text"
+                                        value={config.financialSymbols || ''}
+                                        onChange={(e) => setConfig({ ...config, financialSymbols: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="AAPL,MSFT,GOOGL"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
+                                        {t('financial_symbols_hint')}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : driverType === 'alpha_vantage' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Alpha Vantage API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_data_type')}</label>
+                                    <select
+                                        value={config.financialDataType || 'time_series'}
+                                        onChange={(e) => setConfig({ ...config, financialDataType: e.target.value })}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                    >
+                                        <option value="time_series">{t('av_type_time_series')}</option>
+                                        <option value="forex">{t('av_type_forex')}</option>
+                                        <option value="crypto">{t('av_type_crypto')}</option>
+                                        <option value="technical_indicators">{t('av_type_technical_indicators')}</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_symbols')}</label>
+                                    <input
+                                        type="text"
+                                        value={config.financialSymbols || ''}
+                                        onChange={(e) => setConfig({ ...config, financialSymbols: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="AAPL,MSFT,GOOGL"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
+                                        {t('financial_symbols_hint')}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : driverType === 'quandl' ? (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_api_key')}</label>
+                                    <input
+                                        type="password"
+                                        value={config.financialApiKey || ''}
+                                        onChange={(e) => setConfig({ ...config, financialApiKey: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="Quandl API Key"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('financial_dataset_code')}</label>
+                                    <input
+                                        type="text"
+                                        value={config.financialDatasetCode || ''}
+                                        onChange={(e) => setConfig({ ...config, financialDatasetCode: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="WIKI/AAPL"
+                                        spellCheck={false}
+                                        autoCorrect="off"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-slate-500 mt-0.5 leading-tight">
+                                        {t('quandl_dataset_code_hint')}
                                     </p>
                                 </div>
                             </div>
@@ -1116,7 +1610,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password') || 'Password'}</label>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('password')}</label>
                                     <input
                                         type="password"
                                         value={config.password || ''}
@@ -1145,14 +1639,14 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                         disabled={isTesting}
                                         className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${isTesting ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                                     >
-                                        {isTesting ? 'Testing...' : (t('test_connection') || 'Test Connection')}
+                                        {isTesting ? 'Testing...' : (t('test_connection'))}
                                     </button>
                                 </div>
                             </div>
                         )}
 
                         {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'etsy_offline' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || isStoreLocally) && (
+                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'etsy_offline' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || driverType === 'sp_global' || driverType === 'lseg' || driverType === 'pitchbook' || driverType === 'bloomberg' || driverType === 'morningstar' || driverType === 'iex_cloud' || driverType === 'alpha_vantage' || driverType === 'quandl' || isStoreLocally) && (
                             <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                                 <input
                                     type="checkbox"
@@ -1162,9 +1656,9 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                                     className="rounded border-amber-300 text-amber-600 shadow-sm focus:border-amber-300 focus:ring focus:ring-amber-200 focus:ring-opacity-50"
                                 />
                                 <label htmlFor="shouldOptimize" className="text-sm text-slate-700 select-none cursor-pointer flex-1">
-                                    <span className="font-medium">{t('optimize_after_import') || '导入后优化数据'}</span>
+                                    <span className="font-medium">{t('optimize_after_import')}</span>
                                     <span className="block text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('optimize_description') || '自动创建索引以提升查询性能'}
+                                        {t('optimize_description')}
                                     </span>
                                 </label>
                             </div>

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"vantagedata/i18n"
 
@@ -24,7 +23,7 @@ func (a *App) LoadQuickAnalysisPackByPath(filePath string, dataSourceID string) 
 
 	encrypted, err := IsEncrypted(filePath)
 	if err != nil {
-		return nil, fmt.Errorf(i18n.T("qap.invalid_file_format", err))
+		return nil, fmt.Errorf("%s", i18n.T("qap.invalid_file_format", err))
 	}
 
 	if encrypted {
@@ -62,7 +61,7 @@ func (a *App) LoadQuickAnalysisPack(dataSourceID string) (*PackLoadResult, error
 	encrypted, err := IsEncrypted(filePath)
 	if err != nil {
 		a.Log(fmt.Sprintf("%s Error checking encryption: %v", logTagImport, err))
-		return nil, fmt.Errorf(i18n.T("qap.invalid_file_format", err))
+		return nil, fmt.Errorf("%s", i18n.T("qap.invalid_file_format", err))
 	}
 
 	if encrypted {
@@ -129,26 +128,26 @@ func (a *App) loadAndValidatePack(filePath string, dataSourceID string, password
 	if err != nil {
 		a.Log(fmt.Sprintf("%s Error unpacking: %v", logTagImport, err))
 		if err == ErrWrongPassword {
-			return nil, fmt.Errorf(i18n.T("qap.wrong_password"))
+			return nil, fmt.Errorf("%s", i18n.T("qap.wrong_password"))
 		}
-		return nil, fmt.Errorf(i18n.T("qap.invalid_file_format", err))
+		return nil, fmt.Errorf("%s", i18n.T("qap.invalid_file_format", err))
 	}
 
 	// 2. Parse JSON into QuickAnalysisPack
 	var pack QuickAnalysisPack
 	if err := json.Unmarshal(jsonData, &pack); err != nil {
 		a.Log(fmt.Sprintf("%s Error parsing JSON: %v", logTagImport, err))
-		return nil, fmt.Errorf(i18n.T("qap.invalid_file_format", err))
+		return nil, fmt.Errorf("%s", i18n.T("qap.invalid_file_format", err))
 	}
 
 	// 3. Validate file type and format version
 	if pack.FileType != qapFileType {
 		a.Log(fmt.Sprintf("%s Invalid file type", logTagImport))
-		return nil, fmt.Errorf(i18n.T("qap.invalid_pack_file"))
+		return nil, fmt.Errorf("%s", i18n.T("qap.invalid_pack_file"))
 	}
 	if pack.FormatVersion != "" && pack.FormatVersion != qapFormatVersion {
 		a.Log(fmt.Sprintf("%s Unsupported format version: %s", logTagImport, pack.FormatVersion))
-		return nil, fmt.Errorf(i18n.T("qap.unsupported_version", pack.FormatVersion))
+		return nil, fmt.Errorf("%s", i18n.T("qap.unsupported_version", pack.FormatVersion))
 	}
 
 	// 4. Resolve listing ID from filename or license store
@@ -159,14 +158,14 @@ func (a *App) loadAndValidatePack(filePath string, dataSourceID string, password
 
 	if len(pack.ExecutableSteps) == 0 {
 		a.Log(fmt.Sprintf("%s Pack has no executable steps", logTagImport))
-		return nil, fmt.Errorf(i18n.T("qap.no_executable_steps"))
+		return nil, fmt.Errorf("%s", i18n.T("qap.no_executable_steps"))
 	}
 
 	// 5. Collect target data source schema and validate
 	targetSchema, err := a.collectTargetSchemaForPack(dataSourceID, pack.SchemaRequirements)
 	if err != nil {
 		a.Log(fmt.Sprintf("%s Error collecting target schema: %v", logTagImport, err))
-		return nil, fmt.Errorf(i18n.T("qap.schema_fetch_failed", err))
+		return nil, fmt.Errorf("%s", i18n.T("qap.schema_fetch_failed", err))
 	}
 
 	validation := ValidateSchema(pack.SchemaRequirements, targetSchema)

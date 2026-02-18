@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+	"vantagedata/i18n"
 )
 
 // DefaultMaxExclusionSummaryLength is the default maximum length for exclusion summary
@@ -235,15 +236,9 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 
 	// 根据语言选择标题和结尾
 	var header, footer, countFormat string
-	if language == "en" {
-		header = fmt.Sprintf("Excluded %d analysis directions in %d categories:\n", totalCount, len(categories))
-		footer = "Please understand user intent from other perspectives."
-		countFormat = "- %s (%d items)\n"
-	} else {
-		header = fmt.Sprintf("已排除%d个分析方向，分为%d类：\n", totalCount, len(categories))
-		footer = "请从其他角度理解用户意图。"
-		countFormat = "- %s（%d项）\n"
-	}
+	header = i18n.T("exclusion.header", totalCount, len(categories))
+	footer = i18n.T("exclusion.footer")
+	countFormat = i18n.T("exclusion.count_format")
 
 	builder.WriteString(header)
 

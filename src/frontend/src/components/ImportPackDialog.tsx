@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2, AlertTriangle, XCircle, CheckCircle2, ChevronDown, ChevronRight, FileCode2, Database, Zap, ShoppingBag, Lock, FolderOpen, Package, ArrowLeft, Download } from 'lucide-react';
@@ -431,7 +431,7 @@ const ImportPackDialog: React.FC<ImportPackDialogProps> = ({
                                     onClick={() => loadAllPacks()}
                                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
                                 >
-                                    {t('retry') || 'Retry'}
+                                    {t('retry')}
                                 </button>
                             </div>
                         )}

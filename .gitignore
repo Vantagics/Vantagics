@@ -43,3 +43,6 @@ tools/check_db.go
 # Log files
 nohup.out
 *.log
+
+# Data files (test/sample)
+*.xlsx

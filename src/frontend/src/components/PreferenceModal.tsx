@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit, Quit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
@@ -222,7 +222,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
             console.log('[Config] MCP Services:', config.mcpServices);
             await SaveConfig(config);
             // Show success toast
-            setToast({ message: t('settings_save_success') || '配置保存成功', type: 'success' });
+            setToast({ message: t('settings_save_success'), type: 'success' });
             // Close modal after a short delay to allow toast to be visible
             setTimeout(() => {
                 onClose();
@@ -428,9 +428,9 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                 {tab === 'network' && t('network_settings')}
                                 {tab === 'mcp' && t('mcp_services')}
                                 {tab === 'runenv' && t('run_env')}
-                                {tab === 'skills' && (t('skills_management') || 'Skills管理')}
-                                {tab === 'intent' && (t('intent_enhancement') || '意图增强')}
-                                {tab === 'other' && (t('other_settings') || '其它设置')}
+                                {tab === 'skills' && (t('skills_management'))}
+                                {tab === 'intent' && (t('intent_enhancement'))}
+                                {tab === 'other' && (t('other_settings'))}
                             </button>
                         ))}
                     </nav>
@@ -733,14 +733,14 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                     <div className="pt-4 border-t border-slate-200">
                                         <div className="flex items-center gap-2 mb-3">
                                             <MapPin className="w-4 h-4 text-blue-500" />
-                                            <label className="text-sm font-medium text-slate-700">{t('location_settings') || '位置设置'}</label>
+                                            <label className="text-sm font-medium text-slate-700">{t('location_settings')}</label>
                                         </div>
                                         <p className="text-xs text-slate-500 mb-3">
-                                            {t('location_settings_desc') || '设置您的位置，用于天气查询、附近地点等位置相关功能'}
+                                            {t('location_settings_desc')}
                                         </p>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('country') || '国家或地区'}</label>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('country')}</label>
                                                 <select
                                                     value={config.location?.country || ''}
                                                     onChange={(e) => {
@@ -756,7 +756,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                     }}
                                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                 >
-                                                    <option value="">{t('select_country') || '选择国家或地区'}</option>
+                                                    <option value="">{t('select_country')}</option>
                                                     {countries.map(country => (
                                                         <option key={country.code} value={country.nameEn}>
                                                             {getCountryDisplayName(country, config.language === '简体中文' ? 'zh' : 'en')}
@@ -765,7 +765,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('city') || '城市'}</label>
+                                                <label className="block text-xs font-medium text-slate-600 mb-1">{t('city')}</label>
                                                 <select
                                                     value={config.location?.city || ''}
                                                     onChange={(e) => {
@@ -783,7 +783,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                     className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                                                     disabled={!config.location?.country}
                                                 >
-                                                    <option value="">{t('select_city') || '选择城市'}</option>
+                                                    <option value="">{t('select_city')}</option>
                                                     {config.location?.country && countries
                                                         .find(c => c.nameEn === config.location?.country)
                                                         ?.cities.map(city => (
@@ -798,7 +798,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                         {config.location?.city && (
                                             <p className="mt-2 text-xs text-green-600 flex items-center gap-1">
                                                 <CheckCircle className="w-3 h-3" />
-                                                {t('location_set') || '位置已设置'}: {config.location.city}, {config.location.country}
+                                                {t('location_set')}: {config.location.city}, {config.location.country}
                                             </p>
                                         )}
                                     </div>
@@ -858,7 +858,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 // Show warning toast when user disables intent understanding
                                                 if (!newValue) {
                                                     setToast({
-                                                        message: t('intent_understanding_disabled_warning') || '建议仅专业用户关闭意图理解功能',
+                                                        message: t('intent_understanding_disabled_warning'),
                                                         type: 'warning'
                                                     });
                                                 }
@@ -1221,23 +1221,23 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]">
                         <div className="bg-white dark:bg-[#252526] rounded-lg shadow-xl p-6 max-w-sm mx-4">
                             <h3 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4] mb-2">
-                                {t('confirm_exit_title') || '确认退出'}
+                                {t('confirm_exit_title')}
                             </h3>
                             <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mb-4">
-                                {t('cancel_will_exit_app') || '取消将退出程序，确定要退出吗？'}
+                                {t('cancel_will_exit_app')}
                             </p>
                             <div className="flex justify-end gap-3">
                                 <button
                                     onClick={() => setShowExitConfirm(false)}
                                     className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-md"
                                 >
-                                    {t('back') || '返回'}
+                                    {t('back')}
                                 </button>
                                 <button
                                     onClick={() => Quit()}
                                     className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md"
                                 >
-                                    {t('confirm_exit') || '确认退出'}
+                                    {t('confirm_exit')}
                                 </button>
                             </div>
                         </div>
@@ -2412,22 +2412,22 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
             <div className="flex items-center justify-between border-b border-slate-200 pb-4">
                 <div>
                     <h3 className="text-lg font-semibold text-slate-800">
-                        {t('intent_enhancement_settings') || '意图增强设置'}
+                        {t('intent_enhancement_settings')}
                     </h3>
                     <p className="text-sm text-slate-500 mt-1">
-                        {t('intent_enhancement_description') || '配置AI驱动的意图理解增强功能'}
+                        {t('intent_enhancement_description')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
                     {allFeaturesEnabled ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 bg-green-100 rounded-full">
                             <CheckCircle className="w-3 h-3" />
-                            {t('all_features_enabled') || '所有功能已启用'}
+                            {t('all_features_enabled')}
                         </span>
                     ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full">
                             <AlertCircle className="w-3 h-3" />
-                            {t('some_features_disabled') || '部分功能已禁用'}
+                            {t('some_features_disabled')}
                         </span>
                     )}
                 </div>
@@ -2436,17 +2436,17 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
             {/* Feature Toggles */}
             <div className="space-y-4">
                 <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                    {t('intent_enhancement') || '增强功能'}
+                    {t('intent_enhancement')}
                 </h4>
 
                 {/* Context Enhancement */}
                 <div className="flex items-center justify-between py-3 border-b border-slate-100">
                     <div className="flex-1">
                         <label className="text-sm font-medium text-slate-700">
-                            {t('enable_context_enhancement') || '上下文增强'}
+                            {t('enable_context_enhancement')}
                         </label>
                         <p className="text-xs text-slate-500 mt-1">
-                            {t('enable_context_enhancement_desc') || '将历史分析记录作为上下文，提供更相关的建议'}
+                            {t('enable_context_enhancement_desc')}
                         </p>
                     </div>
                     <input
@@ -2461,10 +2461,10 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                 <div className="flex items-center justify-between py-3 border-b border-slate-100">
                     <div className="flex-1">
                         <label className="text-sm font-medium text-slate-700">
-                            {t('enable_preference_learning') || '偏好学习'}
+                            {t('enable_preference_learning')}
                         </label>
                         <p className="text-xs text-slate-500 mt-1">
-                            {t('enable_preference_learning_desc') || '从您的意图选择中学习，优化建议排序'}
+                            {t('enable_preference_learning_desc')}
                         </p>
                     </div>
                     <input
@@ -2479,10 +2479,10 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                 <div className="flex items-center justify-between py-3 border-b border-slate-100">
                     <div className="flex-1">
                         <label className="text-sm font-medium text-slate-700">
-                            {t('enable_dynamic_dimensions') || '动态维度'}
+                            {t('enable_dynamic_dimensions')}
                         </label>
                         <p className="text-xs text-slate-500 mt-1">
-                            {t('enable_dynamic_dimensions_desc') || '根据数据特征自动调整分析维度建议'}
+                            {t('enable_dynamic_dimensions_desc')}
                         </p>
                     </div>
                     <input
@@ -2497,10 +2497,10 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                 <div className="flex items-center justify-between py-3 border-b border-slate-100">
                     <div className="flex-1">
                         <label className="text-sm font-medium text-slate-700">
-                            {t('enable_few_shot_examples') || 'Few-shot示例'}
+                            {t('enable_few_shot_examples')}
                         </label>
                         <p className="text-xs text-slate-500 mt-1">
-                            {t('enable_few_shot_examples_desc') || '包含领域特定示例以提高建议质量'}
+                            {t('enable_few_shot_examples_desc')}
                         </p>
                     </div>
                     <input
@@ -2515,10 +2515,10 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                 <div className="flex items-center justify-between py-3 border-b border-slate-100">
                     <div className="flex-1">
                         <label className="text-sm font-medium text-slate-700">
-                            {t('enable_caching') || '意图缓存'}
+                            {t('enable_caching')}
                         </label>
                         <p className="text-xs text-slate-500 mt-1">
-                            {t('enable_caching_desc') || '缓存相似请求以减少LLM调用并提高响应速度'}
+                            {t('enable_caching_desc')}
                         </p>
                     </div>
                     <input
@@ -2534,13 +2534,13 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
             {intentConfig.enable_caching && (
                 <div className="space-y-4 pt-4 border-t border-slate-200">
                     <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                        {t('cache_settings') || '缓存设置'}
+                        {t('cache_settings')}
                     </h4>
 
                     {/* Similarity Threshold */}
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-slate-700">
-                            {t('cache_similarity_threshold') || '相似度阈值'}
+                            {t('cache_similarity_threshold')}
                         </label>
                         <div className="flex items-center gap-4">
                             <input
@@ -2557,14 +2557,14 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                             </span>
                         </div>
                         <p className="text-xs text-slate-500">
-                            {t('cache_similarity_threshold_desc') || '缓存命中所需的最小相似度分数（0-1）'}
+                            {t('cache_similarity_threshold_desc')}
                         </p>
                     </div>
 
                     {/* Cache Expiration */}
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-slate-700">
-                            {t('cache_expiration_hours') || '缓存过期时间（小时）'}
+                            {t('cache_expiration_hours')}
                         </label>
                         <input
                             type="number"
@@ -2575,14 +2575,14 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                         <p className="text-xs text-slate-500">
-                            {t('cache_expiration_hours_desc') || '缓存建议的有效时长'}
+                            {t('cache_expiration_hours_desc')}
                         </p>
                     </div>
 
                     {/* Max Cache Entries */}
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-slate-700">
-                            {t('max_cache_entries') || '最大缓存条目数'}
+                            {t('max_cache_entries')}
                         </label>
                         <input
                             type="number"
@@ -2593,7 +2593,7 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                         <p className="text-xs text-slate-500">
-                            {t('max_cache_entries_desc') || '缓存的最大意图建议数量'}
+                            {t('max_cache_entries_desc')}
                         </p>
                     </div>
                 </div>
@@ -2603,13 +2603,13 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
             {intentConfig.enable_context_enhancement && (
                 <div className="space-y-4 pt-4 border-t border-slate-200">
                     <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-                        {t('enable_context_enhancement') || '上下文设置'}
+                        {t('enable_context_enhancement')}
                     </h4>
 
                     {/* Max History Records */}
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-slate-700">
-                            {t('max_history_records') || '最大历史记录数'}
+                            {t('max_history_records')}
                         </label>
                         <input
                             type="number"
@@ -2620,7 +2620,7 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                             className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                         />
                         <p className="text-xs text-slate-500">
-                            {t('max_history_records_desc') || '上下文中包含的历史分析记录数量'}
+                            {t('max_history_records_desc')}
                         </p>
                     </div>
                 </div>
@@ -2632,7 +2632,7 @@ const IntentEnhancementSettings: React.FC<IntentEnhancementSettingsProps> = ({ c
                     onClick={resetToDefaults}
                     className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
                 >
-                    {t('reset_to_defaults') || '恢复默认设置'}
+                    {t('reset_to_defaults')}
                 </button>
             </div>
 

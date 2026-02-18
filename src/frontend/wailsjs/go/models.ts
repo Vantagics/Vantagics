@@ -415,6 +415,18 @@ export namespace agent {
 	    bigquery_project_id?: string;
 	    bigquery_dataset_id?: string;
 	    bigquery_credentials?: string;
+	    financial_provider?: string;
+	    financial_api_key?: string;
+	    financial_api_secret?: string;
+	    financial_token?: string;
+	    financial_username?: string;
+	    financial_password?: string;
+	    financial_datasets?: string;
+	    financial_symbols?: string;
+	    financial_data_type?: string;
+	    financial_dataset_code?: string;
+	    financial_cert_path?: string;
+	    financial_environment?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new DataSourceConfig(source);
@@ -460,6 +472,18 @@ export namespace agent {
 	        this.bigquery_project_id = source["bigquery_project_id"];
 	        this.bigquery_dataset_id = source["bigquery_dataset_id"];
 	        this.bigquery_credentials = source["bigquery_credentials"];
+	        this.financial_provider = source["financial_provider"];
+	        this.financial_api_key = source["financial_api_key"];
+	        this.financial_api_secret = source["financial_api_secret"];
+	        this.financial_token = source["financial_token"];
+	        this.financial_username = source["financial_username"];
+	        this.financial_password = source["financial_password"];
+	        this.financial_datasets = source["financial_datasets"];
+	        this.financial_symbols = source["financial_symbols"];
+	        this.financial_data_type = source["financial_data_type"];
+	        this.financial_dataset_code = source["financial_dataset_code"];
+	        this.financial_cert_path = source["financial_cert_path"];
+	        this.financial_environment = source["financial_environment"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2037,8 +2061,6 @@ export namespace main {
 	        this.is_auto_suggestion = source["is_auto_suggestion"];
 	    }
 	}
-	
-	
 	export class IndexSuggestion {
 	    table_name: string;
 	    index_name: string;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Sidebar from './components/Sidebar';
 import DraggableDashboard from './components/DraggableDashboard';
@@ -292,7 +292,7 @@ function AppContent() {
                     setMessageModal({
                         isOpen: true,
                         type: 'warning',
-                        title: t('warning') || '警告',
+                        title: t('warning'),
                         message: errorMessage
                     });
                     return;
@@ -580,7 +580,7 @@ function AppContent() {
                         logger.info("License deactivated, showing mode selection");
                         // Show the startup mode selection (same as first run)
                         setStartupStatus("need_mode_select");
-                        setStartupMessage(t('select_usage_mode') || '请选择使用模式');
+                        setStartupMessage(t('select_usage_mode'));
                         setShowStartupModeModal(true);
                         return;
                     } catch (err) {
@@ -602,7 +602,7 @@ function AppContent() {
                 // No LLM configured and not activated - show mode selection
                 logger.info("No LLM configuration found, showing mode selection");
                 setStartupStatus("need_mode_select");
-                setStartupMessage(t('select_usage_mode') || '请选择使用模式');
+                setStartupMessage(t('select_usage_mode'));
                 setShowStartupModeModal(true);
                 return;
             }

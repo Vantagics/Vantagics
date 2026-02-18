@@ -434,6 +434,14 @@ var englishTranslations = map[string]string{
 	"license_client.connect_failed":        "Failed to connect to server: %v",
 	"license_client.read_response_failed":  "Failed to read response: %v",
 	"license_client.parse_response_failed": "Failed to parse response: %v",
+	"license_client.decrypt_failed":        "Decryption failed: %v",
+	"license_client.parse_config_failed":   "Failed to parse configuration: %v",
+	"license_client.credits_insufficient":  "Insufficient credits, remaining %.1f credits, each analysis requires %.1f credits",
+	"license_client.daily_limit_reached":   "Daily analysis limit reached (%d times), please try again tomorrow",
+	"license_client.first_use":             "First use, license verification required",
+	"license_client.trial_label":           "Trial",
+	"license_client.official_label":        "Official",
+	"license_client.refresh_needed":        "%s license needs refresh (exceeded %d days)",
 
 	// Usage License
 	"usage.expired":                   "Usage permission has expired, please renew",
@@ -447,4 +455,93 @@ var englishTranslations = map[string]string{
 
 	// SQL Validation
 	"sql.readonly_violation":          "Non-read-only SQL operation detected: %s (only SELECT queries are allowed)",
+
+	// Dashboard Export Dialogs
+	"dashboard.export_pdf_title":        "Export Dashboard to PDF",
+	"dashboard.export_excel_title":      "Export Dashboard Data to Excel",
+	"dashboard.export_ppt_title":        "Export Dashboard to PPT",
+	"dashboard.export_word_title":       "Export Dashboard to Word",
+	"dashboard.export_table_title":      "Export Table to Excel",
+	"dashboard.export_message_pdf_title": "Export Analysis Results to PDF",
+	"dashboard.filter_pdf":              "PDF Files",
+	"dashboard.filter_excel":            "Excel Files",
+	"dashboard.filter_ppt":              "PowerPoint Files",
+	"dashboard.filter_word":             "Word Files",
+	"dashboard.sheet_fallback":          "Table%d",
+	"dashboard.sheet_default":           "Data Analysis",
+	"dashboard.export_result_label":     "Analysis Results Export",
+	"dashboard.generate_excel_failed":   "Excel generation failed: %v",
+	"dashboard.generate_pdf_failed":     "PDF generation failed: %v",
+	"dashboard.generate_ppt_failed":     "PPT generation failed: %v",
+	"dashboard.generate_word_failed":    "Word generation failed: %v",
+	"dashboard.refresh_failed":          "Refresh failed: %v",
+
+	// Analysis Context
+	"context.message_number":            "%s %s (Message #%d):\n%s",
+	"context.tables_involved":           "📊 Tables involved: %s",
+	"context.analysis_topic":            "🎯 Analysis topic: %s",
+	"context.key_data":                  "📈 Key data: %s",
+
+	// Analysis Errors
+	"analysis.error_format":             "❌ **Error** [%s]\n\n%s",
+	"analysis.timeout_detail":           "Analysis timed out (ran for %dm%ds). Please try simplifying the query or try again later.",
+	"analysis.timeout_request":          "Analysis request timed out. Please try simplifying the query or try again later.",
+	"analysis.network_error_msg":        "Network connection error. Please check your network connection and try again.",
+	"analysis.database_error_msg":       "Database query error. Please check the data source configuration or query conditions.",
+	"analysis.python_error_msg":         "Python execution error. Please check the analysis code or data format.",
+	"analysis.llm_error_msg":            "AI model call error. Please check the API configuration or try again later.",
+	"analysis.error_detail":             "An error occurred during analysis: %s",
+	"analysis.cancelled_msg":            "⚠️ Analysis cancelled.",
+	"analysis.error_with_detail":        "❌ **Analysis Error** [%s]\n\n%s\n\n<details><summary>Error Details</summary>\n\n```\n%s\n```\n</details>",
+	"analysis.timing":                   "\n\n---\n⏱️ Analysis time: %dm%ds",
+	"analysis.timing_check":             "⏱️ Analysis time:",
+	"analysis.queue_wait":               "Waiting in analysis queue... (%d/%d tasks in progress)",
+	"analysis.queue_timeout":            "Timeout waiting for analysis queue (waited %v). There are currently %d analysis tasks in progress. Please try again later.",
+	"analysis.queue_wait_elapsed":       "Waiting in analysis queue... (waited %v, %d/%d tasks in progress)",
+	"analysis.max_concurrent":           "There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before starting a new analysis, or increase the max concurrent analysis limit in settings.",
+
+	// Session
+	"session.analysis_prefix":           "Analysis: %s",
+	"session.analysis_prompt":           "Please analyze data source '%s' (%s), providing data overview, key metrics and insights.",
+
+	// Location
+	"location.label":                    "📍 Location: %s",
+
+	// License Refresh
+	"license_refresh.not_activated":     "Not activated, cannot refresh",
+	"license_refresh.no_sn":             "Serial number not found",
+	"license_refresh.no_server":         "License server address not found",
+	"license_refresh.failed":            "Refresh failed: %v",
+	"license_refresh.invalid_sn":        "Serial number is invalid, switched to open source mode. Please use your own LLM API configuration.",
+	"license_refresh.sn_expired":        "Serial number has expired, switched to open source mode. Please use your own LLM API configuration.",
+	"license_refresh.sn_disabled":       "Serial number has been disabled, switched to open source mode. Please use your own LLM API configuration.",
+	"license_refresh.default_invalid":   "License is no longer valid, switched to open source mode. Please use your own LLM API configuration.",
+
+	// Data Source Export Metadata
+	"datasource.export_description":     "Data Source %s",
+	"datasource.export_subject":         "Data Source Export",
+
+	// Location Tool
+	"location.current_city":             "Current location: %s, %s (accuracy: %.0fm)",
+	"location.current_address":          "Current location: %s (accuracy: %.0fm)",
+	"location.current_coords":           "Current location: lat %.6f, lon %.6f (accuracy: %.0fm)",
+	"location.config":                   "User configured location: %s, %s",
+	"location.ip_based":                 "IP-based location: %s, %s (accuracy: ~%.0fm)",
+	"location.unavailable":              "Unable to get location: %s. Please ask the user for their city, or use a default city for the query.",
+
+	// Export Tool
+	"export.file_generated":             "✅ %s file generated: %s (%.2f KB)\n\nFile saved to session directory, available for download in the interface.",
+
+	// Memory Extractor
+	"memory.table_columns":              "Table %s contains columns: %s",
+	"memory.field_values":               "Possible values for field %s: %s",
+
+	// Exclusion Manager
+	"exclusion.header":                  "Excluded %d analysis directions in %d categories:\n",
+	"exclusion.footer":                  "Please understand user intent from other perspectives.",
+	"exclusion.count_format":            "- %s (%d items)\n",
+
+	// Context Memory
+	"context.no_compressed_history":     "No compressed history (conversation short enough, all kept in short-term memory)",
+	"context.ai_summary_header":         "📚 AI-generated conversation summary:",
 }

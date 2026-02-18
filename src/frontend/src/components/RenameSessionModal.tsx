@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n';
 import { CheckSessionNameExists } from '../../wailsjs/go/main/App';
 
@@ -40,7 +40,7 @@ const RenameSessionModal: React.FC<RenameSessionModalProps> = ({
     const handleConfirm = async () => {
         const trimmed = name.trim();
         if (!trimmed) {
-            setError(t('session_name_required') || 'Session name is required');
+            setError(t('session_name_required'));
             return;
         }
         if (trimmed === currentTitle) {
@@ -52,7 +52,7 @@ const RenameSessionModal: React.FC<RenameSessionModalProps> = ({
         try {
             const exists = await CheckSessionNameExists(dataSourceId, trimmed, threadId);
             if (exists) {
-                setError(t('session_name_duplicate') || 'A session with this name already exists for this data source');
+                setError(t('session_name_duplicate'));
                 setIsChecking(false);
                 return;
             }
@@ -74,13 +74,13 @@ const RenameSessionModal: React.FC<RenameSessionModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('rename_session') || 'Rename Session'}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[10000]" onClick={onClose} role="dialog" aria-modal="true" aria-label={t('rename_session')}>
             <div
                 className="bg-white dark:bg-[#252526] rounded-lg shadow-xl w-96 p-5"
                 onClick={(e) => e.stopPropagation()}
             >
                 <h3 className="text-base font-semibold text-slate-800 dark:text-[#d4d4d4] mb-4">
-                    {t('rename_session') || 'Rename Session'}
+                    {t('rename_session')}
                 </h3>
                 <div className="mb-3">
                     <input
@@ -90,12 +90,12 @@ const RenameSessionModal: React.FC<RenameSessionModalProps> = ({
                         onChange={(e) => { setName(e.target.value); setError(''); }}
                         onKeyDown={handleKeyDown}
                         className="w-full px-3 py-2 border border-slate-300 dark:border-[#3c3c3c] rounded-md text-sm bg-white dark:bg-[#1e1e1e] text-slate-800 dark:text-[#d4d4d4] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder={t('session_name_placeholder') || 'e.g. Sales Analysis Q1'}
-                        aria-label={t('session_name') || 'Session Name'}
+                        placeholder={t('session_name_placeholder')}
+                        aria-label={t('session_name')}
                     />
                     {dataSourceName && (
                         <p className="mt-1.5 text-xs text-slate-400 dark:text-[#808080]">
-                            {t('rename_session_note') || 'The data source name in parentheses cannot be changed.'}
+                            {t('rename_session_note')}
                         </p>
                     )}
                     {error && (
@@ -114,7 +114,7 @@ const RenameSessionModal: React.FC<RenameSessionModalProps> = ({
                         disabled={isChecking || !name.trim()}
                         className="px-4 py-1.5 text-sm rounded-md bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {isChecking ? (t('validating') || 'Validating...') : (t('confirm') || 'Confirm')}
+                        {isChecking ? (t('validating')) : (t('confirm'))}
                     </button>
                 </div>
             </div>

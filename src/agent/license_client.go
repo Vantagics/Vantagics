@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"vantagedata/i18n"
 )
 
 // LicenseClient handles license activation
@@ -139,7 +140,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "INTERNAL_ERROR",
-			Message: fmt.Sprintf("构建请求失败: %v", err),
+			Message: i18n.T("license_client.build_request_failed", err),
 		}, nil
 	}
 	
@@ -149,7 +150,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "CONNECTION_FAILED",
-			Message: fmt.Sprintf("连接服务器失败: %v", err),
+			Message: i18n.T("license_client.connect_failed", err),
 		}, nil
 	}
 	defer resp.Body.Close()
@@ -159,7 +160,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "READ_ERROR",
-			Message: fmt.Sprintf("读取响应失败: %v", err),
+			Message: i18n.T("license_client.read_response_failed", err),
 		}, nil
 	}
 	
@@ -168,7 +169,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "PARSE_ERROR",
-			Message: fmt.Sprintf("解析响应失败: %v", err),
+			Message: i18n.T("license_client.parse_response_failed", err),
 		}, nil
 	}
 
@@ -186,7 +187,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "DECRYPT_FAILED",
-			Message: fmt.Sprintf("解密失败: %v", err),
+			Message: i18n.T("license_client.decrypt_failed", err),
 		}, nil
 	}
 
@@ -195,7 +196,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 		return &ActivateResult{
 			Success: false,
 			Code:    "PARSE_ERROR",
-			Message: fmt.Sprintf("解析配置失败: %v", err),
+			Message: i18n.T("license_client.parse_config_failed", err),
 		}, nil
 	}
 
@@ -500,24 +501,24 @@ func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, 
 		"product_id": 0,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %v", err)
+		return nil, fmt.Errorf("%s", i18n.T("license_client.build_request_failed", err))
 	}
 	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Post(serverURL+"/request-sn", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
-		return nil, fmt.Errorf("连接服务器失败: %v", err)
+		return nil, fmt.Errorf("%s", i18n.T("license_client.connect_failed", err))
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %v", err)
+		return nil, fmt.Errorf("%s", i18n.T("license_client.read_response_failed", err))
 	}
 	
 	var result RequestSNResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %v", err)
+		return nil, fmt.Errorf("%s", i18n.T("license_client.parse_response_failed", err))
 	}
 
 	if c.log != nil {
@@ -565,7 +566,7 @@ func (c *LicenseClient) CanAnalyze() (bool, string) {
 			remaining = 0
 		}
 		if remaining < CreditsPerAnalysis {
-			return false, fmt.Sprintf("Credits 不足，剩余 %.1f credits，每次分析需要 %.1f credits", remaining, CreditsPerAnalysis)
+			return false, i18n.T("license_client.credits_insufficient", remaining, CreditsPerAnalysis)
 		}
 		return true, ""
 	}
@@ -584,7 +585,7 @@ func (c *LicenseClient) CanAnalyze() (bool, string) {
 	}
 	
 	if c.analysisCount >= c.data.DailyAnalysis {
-		return false, fmt.Sprintf("今日分析次数已达上限（%d次），请明天再试", c.data.DailyAnalysis)
+		return false, i18n.T("license_client.daily_limit_reached", c.data.DailyAnalysis)
 	}
 	
 	return true, ""
@@ -711,16 +712,16 @@ func (c *LicenseClient) NeedsRefresh() (bool, string) {
 
 	// Check if refresh is needed
 	if c.lastRefreshAt.IsZero() {
-		return true, "首次使用，需要验证授权"
+		return true, i18n.T("license_client.first_use")
 	}
 
 	daysSinceRefresh := int(time.Since(c.lastRefreshAt).Hours() / 24)
 	if daysSinceRefresh >= refreshInterval {
-		trustLabel := "试用版"
+		trustLabel := i18n.T("license_client.trial_label")
 		if c.data.TrustLevel == "high" {
-			trustLabel = "正式版"
+			trustLabel = i18n.T("license_client.official_label")
 		}
-		return true, fmt.Sprintf("%s授权需要刷新（已超过%d天）", trustLabel, refreshInterval)
+		return true, i18n.T("license_client.refresh_needed", trustLabel, refreshInterval)
 	}
 
 	return false, ""

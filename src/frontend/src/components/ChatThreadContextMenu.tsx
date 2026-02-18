@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef } from 'react';
 import { Brain, FolderOpen, Check, Eraser, FileText, PackageOpen, Pencil } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -51,7 +51,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                     className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-[#f14c4c] hover:bg-red-50 dark:hover:bg-[#2e1e1e] flex items-center gap-2"
                 >
                     <Eraser className="w-4 h-4 text-red-400 dark:text-[#f14c4c]" />
-                    {t('clear_chat_history') || '清除历史会话'}
+                    {t('clear_chat_history')}
                 </button>
             ) : (
                 <>
@@ -108,7 +108,7 @@ const ChatThreadContextMenu: React.FC<ChatThreadContextMenuProps> = ({ position,
                                 : 'text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30]'
                         }`}
                         title={isGeneratingComprehensiveReport 
-                            ? (t('comprehensive_report_generating') || '正在生成综合报告...') 
+                            ? (t('comprehensive_report_generating')) 
                             : t('comprehensive_report_button_title')}
                         disabled={isGeneratingComprehensiveReport}
                     >

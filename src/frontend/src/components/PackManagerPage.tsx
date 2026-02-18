@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { useLanguage } from '../i18n';
 import { Loader2, Package, X, Share2, Edit3, Trash2, Lock, Zap, Download, Play, AlertTriangle, XCircle, CheckCircle2, ChevronDown, ChevronRight, FileCode2, Database, Clock, RefreshCw, Link, ArrowLeftRight } from 'lucide-react';
@@ -257,11 +257,11 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
     const handleGetShareURL = async (packName: string) => {
         try {
             await GetShareURL(packName);
-            setToast({ message: t('pack_manager_url_copied') || '已复制到剪贴板', type: 'success' });
+            setToast({ message: t('pack_manager_url_copied'), type: 'success' });
             setTimeout(() => setToast(null), 2000);
         } catch (err: any) {
             const msg = err?.message || err?.toString() || '';
-            setToast({ message: (t('pack_manager_url_copy_failed') || '获取链接失败') + (msg ? `: ${msg}` : ''), type: 'error' });
+            setToast({ message: (t('pack_manager_url_copy_failed')) + (msg ? `: ${msg}` : ''), type: 'error' });
             setTimeout(() => setToast(null), 2000);
         }
     };
@@ -582,7 +582,7 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                                                     </span>
                                                     <button
                                                         onClick={e => { e.stopPropagation(); handleGetShareURL(pack.pack_name); }}
-                                                        title={t('pack_manager_get_url') || '获取 URL'}
+                                                        title={t('pack_manager_get_url')}
                                                         className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-[#3e3e42] transition-colors text-slate-400 dark:text-[#808080] hover:text-blue-500 dark:hover:text-blue-400"
                                                     >
                                                         <Link className="w-3.5 h-3.5" />
@@ -794,7 +794,7 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                                                         <button
                                                             onClick={() => handleDownloadPurchased(pp)}
                                                             disabled={isDownloading}
-                                                            title={t('pack_manager_redownload') || '重新下载'}
+                                                            title={t('pack_manager_redownload')}
                                                             className="p-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-[#3e3e42] transition-colors text-slate-400 dark:text-[#808080] hover:text-blue-500 dark:hover:text-blue-400 disabled:opacity-50 disabled:cursor-not-allowed"
                                                         >
                                                             {isDownloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}

@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	"vantagedata/export"
+	"vantagedata/i18n"
 )
 
 // ExportTool provides PDF, Excel, and PPT export capabilities
@@ -233,7 +234,7 @@ func (t *ExportTool) InvokableRun(ctx context.Context, argumentsInJSON string, o
 			t.logger(fmt.Sprintf("[EXPORT] Saved to: %s (%.2f KB)", filePath, float64(len(fileBytes))/1024))
 		}
 
-		return fmt.Sprintf("✅ %s文件已生成: %s (%.2f KB)\n\n文件已保存到会话目录，可以在界面中下载。",
+		return i18n.T("export.file_generated",
 			map[string]string{"pdf": "PDF", "excel": "Excel", "ppt": "PPT"}[format],
 			filepath.Base(filePath),
 			float64(len(fileBytes))/1024), nil

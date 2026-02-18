@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Edit3, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../i18n';
 
@@ -31,7 +31,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
         const trimmedName = newName.trim();
         
         if (!trimmedName) {
-            setError(t('data_source_name_required') || 'Data source name is required');
+            setError(t('data_source_name_required'));
             return;
         }
 
@@ -76,7 +76,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                             <Edit3 className="w-5 h-5 text-blue-600 dark:text-[#569cd6]" />
                         </div>
                         <h2 className="text-xl font-semibold text-slate-800 dark:text-[#d4d4d4]">
-                            {t('rename_data_source') || 'Rename Data Source'}
+                            {t('rename_data_source')}
                         </h2>
                     </div>
                     <button
@@ -92,7 +92,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                 <div className="p-6 space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-700 dark:text-[#d4d4d4] mb-2">
-                            {t('data_source_name') || 'Data Source Name'}
+                            {t('data_source_name')}
                         </label>
                         <input
                             type="text"
@@ -100,7 +100,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                             onChange={(e) => setNewName(e.target.value)}
                             onKeyDown={handleKeyDown}
                             className="w-full px-4 py-2 border border-slate-300 dark:border-[#4d4d4d] rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-[#3c3c3c] dark:text-[#d4d4d4]"
-                            placeholder={t('enter_data_source_name') || 'Enter data source name'}
+                            placeholder={t('enter_data_source_name')}
                             autoFocus
                             disabled={isRenaming}
                         />
@@ -114,7 +114,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                     )}
 
                     <div className="text-xs text-slate-500 dark:text-[#808080]">
-                        <p>{t('rename_data_source_note') || 'Note: The data source name must be unique.'}</p>
+                        <p>{t('rename_data_source_note')}</p>
                     </div>
                 </div>
 
@@ -125,7 +125,7 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                         className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-200 dark:hover:bg-[#2d2d30] rounded-lg transition-colors"
                         disabled={isRenaming}
                     >
-                        {t('cancel') || 'Cancel'}
+                        {t('cancel')}
                     </button>
                     <button
                         onClick={handleRename}
@@ -135,12 +135,12 @@ const RenameDataSourceModal: React.FC<RenameDataSourceModalProps> = ({
                         {isRenaming ? (
                             <>
                                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                {t('renaming') || 'Renaming...'}
+                                {t('renaming')}
                             </>
                         ) : (
                             <>
                                 <Edit3 className="w-4 h-4" />
-                                {t('rename') || 'Rename'}
+                                {t('rename')}
                             </>
                         )}
                     </button>

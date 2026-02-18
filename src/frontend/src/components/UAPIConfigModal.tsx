@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
 import { X, AlertCircle, CheckCircle, Key, Globe } from 'lucide-react';
 
@@ -46,7 +46,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
         if (!apiToken.trim()) {
             setTestResult({ 
                 success: false, 
-                message: t('uapi_token_required') || 'API Token is required' 
+                message: t('uapi_token_required') 
             });
             return;
         }
@@ -80,7 +80,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
         if (enabled && !apiToken.trim()) {
             setTestResult({ 
                 success: false, 
-                message: t('uapi_token_required') || 'API Token is required when UAPI is enabled' 
+                message: t('uapi_token_required') 
             });
             return;
         }
@@ -88,7 +88,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
         if (enabled && !tested) {
             setTestResult({ 
                 success: false, 
-                message: t('uapi_test_required') || 'Please test the connection before saving' 
+                message: t('uapi_test_required') 
             });
             return;
         }
@@ -112,7 +112,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        {t('uapi_config_title') || 'UAPI Configuration'}
+                        {t('uapi_config_title')}
                     </h2>
                     <button
                         onClick={onClose}
@@ -128,10 +128,10 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                     <div className="flex items-center justify-between">
                         <div>
                             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                {t('uapi_enable') || 'Enable UAPI Search'}
+                                {t('uapi_enable')}
                             </label>
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                {t('uapi_enable_desc') || 'Enable structured data search using UAPI'}
+                                {t('uapi_enable_desc')}
                             </p>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -149,7 +149,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             <Key size={16} className="inline mr-2" />
-                            {t('uapi_token') || 'API Token'}
+                            {t('uapi_token')}
                             <span className="text-red-500 ml-1">*</span>
                         </label>
                         <input
@@ -160,12 +160,12 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                                 setTested(false);
                                 setTestResult(null);
                             }}
-                            placeholder={t('uapi_token_placeholder') || 'Enter your UAPI API token'}
+                            placeholder={t('uapi_token_placeholder')}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                             disabled={!enabled}
                         />
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {t('uapi_token_help') || 'Get your API token from UAPI dashboard'}
+                            {t('uapi_token_help')}
                         </p>
                     </div>
 
@@ -173,7 +173,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             <Globe size={16} className="inline mr-2" />
-                            {t('uapi_base_url') || 'Base URL (Optional)'}
+                            {t('uapi_base_url')}
                         </label>
                         <input
                             type="text"
@@ -188,7 +188,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                             disabled={!enabled}
                         />
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {t('uapi_base_url_help') || 'Leave empty to use default UAPI endpoint'}
+                            {t('uapi_base_url_help')}
                         </p>
                     </div>
 
@@ -199,7 +199,7 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                             disabled={testing || !enabled || !apiToken.trim()}
                             className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                         >
-                            {testing ? (t('testing') || 'Testing...') : (t('test_connection') || 'Test Connection')}
+                            {testing ? (t('testing')) : (t('test_connection'))}
                         </button>
                     </div>
 
@@ -227,10 +227,10 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                             <AlertCircle className="text-blue-600 dark:text-blue-400 mr-3 flex-shrink-0" size={20} />
                             <div className="text-sm text-blue-800 dark:text-blue-200">
                                 <p className="font-medium mb-1">
-                                    {t('uapi_info_title') || 'About UAPI'}
+                                    {t('uapi_info_title')}
                                 </p>
                                 <p>
-                                    {t('uapi_info_desc') || 'UAPI provides normalized, structured data from various sources including social media, gaming platforms, and web content. Visit docs.uapi.nl for more information.'}
+                                    {t('uapi_info_desc')}
                                 </p>
                             </div>
                         </div>
@@ -243,13 +243,13 @@ const UAPIConfigModal: React.FC<UAPIConfigModalProps> = ({ isOpen, config, onClo
                         onClick={onClose}
                         className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors"
                     >
-                        {t('cancel') || 'Cancel'}
+                        {t('cancel')}
                     </button>
                     <button
                         onClick={handleSave}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                     >
-                        {t('save') || 'Save'}
+                        {t('save')}
                     </button>
                 </div>
             </div>

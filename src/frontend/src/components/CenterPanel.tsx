@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, MessageSquare, Loader2 } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import DataBrowser from './DataBrowser';
@@ -186,10 +186,10 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
                 <MessageSquare className="w-10 h-10 text-blue-500" />
             </div>
             <h4 className="center-panel-welcome-title">
-                {t('insights_at_fingertips') || 'Insights at Your Fingertips'}
+                {t('insights_at_fingertips')}
             </h4>
             <p className="center-panel-welcome-text">
-                {t('ask_about_sales') || 'Ask a question about your data to get started'}
+                {t('ask_about_sales')}
             </p>
         </div>
     );
@@ -263,7 +263,7 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
                 <div data-testid="loading-indicator" className="center-panel-loading-simple" role="status" aria-live="assertive" aria-busy="true">
                     <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
                     <span className="text-sm text-slate-500 ml-2">
-                        {t('analyzing') || 'Analyzing...'}
+                        {t('analyzing')}
                     </span>
                 </div>
             )}
@@ -289,14 +289,14 @@ const CenterPanel: React.FC<CenterPanelProps> = ({
                 </div>
                 <div className="center-panel-header-info">
                     <h3 className="center-panel-header-title">
-                        {sessionId && !dataSourceId ? (t('free_chat') || 'System Assistant') : (t('ai_assistant') || 'AI Assistant')}
+                        {sessionId && !dataSourceId ? (t('free_chat')) : (t('ai_assistant'))}
                     </h3>
                     <div className="center-panel-header-status">
                         <span className="center-panel-status-dot" />
                         <p className="center-panel-status-text">
                             {sessionId
-                                ? t('ready_to_help') || 'Ready to help'
-                                : t('select_session') || 'Select a session to start'}
+                                ? t('ready_to_help')
+                                : t('select_session')}
                         </p>
                     </div>
                 </div>

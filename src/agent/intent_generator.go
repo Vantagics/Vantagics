@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"vantagedata/i18n"
 )
 
 // IntentGenerator 意图生成器
@@ -489,7 +490,7 @@ func (g *IntentGenerator) Generate(
 	response, err := llmCall(ctx, prompt)
 	if err != nil {
 		g.log(fmt.Sprintf("[INTENT-GENERATOR] LLM call failed: %v", err))
-		return nil, fmt.Errorf("意图生成失败: %w", err)
+		return nil, fmt.Errorf("%s", i18n.T("intent.generation_failed", err))
 	}
 
 	g.log(fmt.Sprintf("[INTENT-GENERATOR] Received LLM response, length: %d characters", len(response)))
@@ -498,13 +499,13 @@ func (g *IntentGenerator) Generate(
 	suggestions, err := g.ParseResponse(response)
 	if err != nil {
 		g.log(fmt.Sprintf("[INTENT-GENERATOR] Response parse failed: %v", err))
-		return nil, fmt.Errorf("响应解析失败: %w", err)
+		return nil, fmt.Errorf("%s", i18n.T("intent.parse_failed", err))
 	}
 
 	// 验证建议数量
 	if len(suggestions) == 0 {
 		g.log("[INTENT-GENERATOR] No suggestions generated")
-		return nil, fmt.Errorf("未能生成意图建议")
+		return nil, fmt.Errorf("%s", i18n.T("intent.no_suggestions"))
 	}
 
 	g.log(fmt.Sprintf("[INTENT-GENERATOR] Successfully generated %d intent suggestions", len(suggestions)))

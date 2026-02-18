@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { useLanguage } from '../i18n';
 import { Upload, Store, X, Briefcase, Database } from 'lucide-react';
 
@@ -45,10 +45,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 <div className="px-5 py-4 border-b border-slate-200 dark:border-[#3c3c3c] flex items-center justify-between">
                     <div>
                         <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">
-                            {t('onboarding_welcome') || '👋 欢迎使用 VantageData'}
+                            {t('onboarding_welcome')}
                         </h2>
                         <p className="text-xs text-slate-500 dark:text-[#808080] mt-0.5">
-                            {t('onboarding_subtitle') || '让我们开始导入您的数据'}
+                            {t('onboarding_subtitle')}
                         </p>
                     </div>
                     <button
@@ -66,9 +66,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         <div className="flex items-center gap-1.5 mb-2">
                             <Store className="w-4 h-4 text-blue-500" />
                             <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
-                                {t('onboarding_ecommerce_title') || '电商平台'}
+                                {t('onboarding_ecommerce_title')}
                             </h3>
-                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_ecommerce_desc') || '导入店铺数据'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_ecommerce_desc')}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {ecommercePlatforms.map((platform) => (
@@ -91,9 +91,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         <div className="flex items-center gap-1.5 mb-2">
                             <Briefcase className="w-4 h-4 text-indigo-500" />
                             <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
-                                {t('onboarding_project_title') || '项目管理'}
+                                {t('onboarding_project_title')}
                             </h3>
-                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_project_desc') || '导入项目数据'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_project_desc')}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {projectTools.map((platform) => (
@@ -116,9 +116,9 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         <div className="flex items-center gap-1.5 mb-2">
                             <Database className="w-4 h-4 text-cyan-500" />
                             <h3 className="text-xs font-semibold text-slate-700 dark:text-[#d4d4d4]">
-                                {t('onboarding_warehouse_title') || '数据仓库'}
+                                {t('onboarding_warehouse_title')}
                             </h3>
-                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_warehouse_desc') || '连接云数据仓库'}</span>
+                            <span className="text-xs text-slate-400 dark:text-[#808080]">- {t('onboarding_warehouse_desc')}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                             {dataWarehouses.map((platform) => (
@@ -139,7 +139,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     {/* Divider */}
                     <div className="flex items-center gap-3">
                         <div className="flex-1 h-px bg-slate-200 dark:bg-[#3c3c3c]"></div>
-                        <span className="text-xs text-slate-400 dark:text-[#808080]">{t('onboarding_or') || '或者'}</span>
+                        <span className="text-xs text-slate-400 dark:text-[#808080]">{t('onboarding_or')}</span>
                         <div className="flex-1 h-px bg-slate-200 dark:bg-[#3c3c3c]"></div>
                     </div>
 
@@ -150,10 +150,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                     >
                         <Upload className="w-4 h-4 text-slate-600 dark:text-[#d4d4d4]" />
                         <span className="font-medium text-sm text-slate-700 dark:text-[#d4d4d4]">
-                            {t('onboarding_self_import') || '自主导入数据'}
+                            {t('onboarding_self_import')}
                         </span>
                         <span className="text-xs text-slate-400 dark:text-[#808080]">
-                            ({t('onboarding_self_import_desc') || 'Excel、CSV、JSON、MySQL、PostgreSQL'})
+                            ({t('onboarding_self_import_desc')})
                         </span>
                     </button>
                 </div>
@@ -161,7 +161,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                 {/* Footer */}
                 <div className="px-5 py-3 border-t border-slate-100 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#2d2d30]">
                     <p className="text-xs text-slate-400 dark:text-[#808080] text-center">
-                        {t('onboarding_skip_hint') || '您可以随时通过侧边栏添加更多数据源'}
+                        {t('onboarding_skip_hint')}
                     </p>
                 </div>
             </div>

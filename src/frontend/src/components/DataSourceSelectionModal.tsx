@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { X, Database } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import '../styles/datasource-selection-modal.css';
@@ -46,10 +46,10 @@ const DataSourceSelectionModal: React.FC<DataSourceSelectionModalProps> = ({
                         <Database className="w-6 h-6 text-blue-500" />
                         <div>
                             <h3 className="text-lg font-semibold text-slate-900 dark:text-[#d4d4d4]">
-                                {t('select_data_source') || '选择要分析的数据源'}
+                                {t('select_data_source')}
                             </h3>
                             <p className="text-sm text-slate-600 dark:text-[#9d9d9d] mt-1">
-                                {t('select_data_source_desc') || '请选择一个数据源开始智能分析'}
+                                {t('select_data_source_desc')}
                             </p>
                         </div>
                     </div>
@@ -106,7 +106,7 @@ const DataSourceSelectionModal: React.FC<DataSourceSelectionModalProps> = ({
                         onClick={handleClose}
                         className="cancel-button px-4 py-2 text-sm text-slate-600 dark:text-[#808080] hover:text-slate-900 dark:hover:text-[#d4d4d4] font-medium"
                     >
-                        {t('cancel') || '取消'}
+                        {t('cancel')}
                     </button>
                 </div>
             </div>

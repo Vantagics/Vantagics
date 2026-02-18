@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef } from 'react';
 import { useLanguage } from '../i18n';
 import { Sparkles, Settings } from 'lucide-react';
 
@@ -60,7 +60,7 @@ const DataSourceModeSelector: React.FC<DataSourceModeSelectorProps> = ({
                 className="w-full px-4 py-2.5 text-left hover:bg-blue-50 dark:hover:bg-[#1a2332] flex items-center gap-3 transition-colors"
             >
                 <Sparkles className="w-4 h-4 text-blue-500 dark:text-[#569cd6]" />
-                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('beginner_wizard') || '新手向导'}</span>
+                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('beginner_wizard')}</span>
             </button>
             <button
                 onClick={() => {
@@ -70,7 +70,7 @@ const DataSourceModeSelector: React.FC<DataSourceModeSelectorProps> = ({
                 className="w-full px-4 py-2.5 text-left hover:bg-slate-100 dark:hover:bg-[#2d2d30] flex items-center gap-3 transition-colors"
             >
                 <Settings className="w-4 h-4 text-slate-500 dark:text-[#808080]" />
-                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('expert_interface') || '专家界面'}</span>
+                <span className="text-sm text-slate-700 dark:text-[#d4d4d4]">{t('expert_interface')}</span>
             </button>
         </div>
     );

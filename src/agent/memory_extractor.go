@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"vantagedata/i18n"
 
 	"github.com/cloudwego/eino/components/model"
 )
@@ -100,7 +101,7 @@ func (e *MemoryExtractor) extractSchemaFromSQL(sqlQueries []string) []MemoryItem
 				if len(columns) > 0 {
 					columnList := strings.Join(columns, ", ")
 					memories = append(memories, MemoryItem{
-						Content:  fmt.Sprintf("表 %s 包含字段: %s", table, columnList),
+						Content:  i18n.T("memory.table_columns", table, columnList),
 						Tier:     LongTermTier, // Schema is long-term knowledge
 						Category: "schema",
 					})
@@ -153,7 +154,7 @@ func (e *MemoryExtractor) extractDataCharacteristics(results []map[string]interf
 					}
 					if len(values) > 0 && len(values) <= 5 {
 						memories = append(memories, MemoryItem{
-							Content:  fmt.Sprintf("字段 %s 的可能值: %s", key, strings.Join(values, ", ")),
+							Content:  i18n.T("memory.field_values", key, strings.Join(values, ", ")),
 							Tier:     LongTermTier, // Data characteristics are long-term
 							Category: "data_characteristic",
 						})

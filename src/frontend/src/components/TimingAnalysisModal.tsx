@@ -172,16 +172,16 @@ const TimingAnalysisModal: React.FC<TimingAnalysisModalProps> = ({ isOpen, onClo
 
                     {/* Performance Tips */}
                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        <h4 className="text-xs font-semibold text-amber-800 mb-1.5">💡 性能提示</h4>
+                        <h4 className="text-xs font-semibold text-amber-800 mb-1.5">💡 {t('perf_tips_title')}</h4>
                         <ul className="text-[11px] text-amber-700 space-y-0.5">
                             {totalSeconds > 120 && (
-                                <li>• 分析耗时较长，建议简化查询或优化数据源</li>
+                                <li>• {t('perf_tip_slow')}</li>
                             )}
                             {totalSeconds < 30 && (
-                                <li>• 分析速度优秀，系统运行良好</li>
+                                <li>• {t('perf_tip_fast')}</li>
                             )}
-                            <li>• 复杂的数据分析可能需要更长时间</li>
-                            <li>• 网络状况和 LLM 服务响应速度会影响总耗时</li>
+                            <li>• {t('perf_tip_complex')}</li>
+                            <li>• {t('perf_tip_network')}</li>
                         </ul>
                     </div>
                 </div>

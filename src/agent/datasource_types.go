@@ -134,6 +134,19 @@ type DataSourceConfig struct {
 	BigQueryProjectID   string `json:"bigquery_project_id,omitempty"`   // GCP Project ID
 	BigQueryDatasetID   string `json:"bigquery_dataset_id,omitempty"`   // Optional: specific dataset
 	BigQueryCredentials string `json:"bigquery_credentials,omitempty"`  // JSON service account key
+	// Financial data source configuration
+	FinancialProvider    string `json:"financial_provider,omitempty"`     // Financial data provider identifier
+	FinancialAPIKey      string `json:"financial_api_key,omitempty"`      // API Key
+	FinancialAPISecret   string `json:"financial_api_secret,omitempty"`   // API Secret
+	FinancialToken       string `json:"financial_token,omitempty"`        // OAuth Token or Access Token
+	FinancialUsername    string `json:"financial_username,omitempty"`     // Username (required by LSEG etc.)
+	FinancialPassword    string `json:"financial_password,omitempty"`     // Password (required by LSEG etc.)
+	FinancialDatasets    string `json:"financial_datasets,omitempty"`     // Selected datasets, comma-separated
+	FinancialSymbols     string `json:"financial_symbols,omitempty"`      // Stock/currency symbols, comma-separated
+	FinancialDataType    string `json:"financial_data_type,omitempty"`    // Data type selection (e.g. Alpha Vantage time series type)
+	FinancialDatasetCode string `json:"financial_dataset_code,omitempty"` // Quandl dataset code (e.g. WIKI/AAPL)
+	FinancialCertPath    string `json:"financial_cert_path,omitempty"`    // Bloomberg certificate path
+	FinancialEnvironment string `json:"financial_environment,omitempty"`  // Environment selection (sandbox/production)
 }
 
 // DataSourceStatistics holds aggregated statistics about data sources

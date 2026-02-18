@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GetConfig } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
 
@@ -302,6 +302,61 @@ export const translations: Record<Language, Record<string, string>> = {
         'bigquery_credentials': 'Service Account JSON',
         'bigquery_credentials_hint': 'Paste the entire JSON key file content',
         'bigquery_note': 'Note: BigQuery integration requires additional Go dependencies. The system will guide you through setup if needed.',
+        // Financial Data Sources
+        'financial_data_group': 'Financial Data',
+        'financial_api_key': 'API Key',
+        'financial_api_secret': 'API Secret',
+        'financial_api_token': 'API Token',
+        'financial_app_key': 'App Key',
+        'financial_username': 'Username',
+        'financial_datasets': 'Datasets',
+        'financial_symbols': 'Stock Symbols',
+        'financial_symbols_hint': 'Comma-separated stock symbols, e.g. AAPL,MSFT,GOOGL',
+        'financial_data_type': 'Data Type',
+        'financial_dataset_code': 'Dataset Code',
+        'financial_cert_path': 'Certificate Path',
+        'bloomberg_cert_hint': 'Optional. Provide API Key or certificate path for authentication.',
+        'quandl_dataset_code_hint': 'Format: DATABASE/DATASET, e.g. WIKI/AAPL',
+        // S&P Global datasets
+        'sp_dataset_companies': 'Companies',
+        'sp_dataset_financials': 'Financials',
+        'sp_dataset_credit_ratings': 'Credit Ratings',
+        'sp_dataset_market_data': 'Market Data',
+        // LSEG datasets
+        'lseg_dataset_historical_prices': 'Historical Prices',
+        'lseg_dataset_fundamentals': 'Fundamentals',
+        'lseg_dataset_esg': 'ESG Data',
+        // PitchBook datasets
+        'pb_dataset_companies': 'Companies',
+        'pb_dataset_deals': 'Deals',
+        'pb_dataset_funds': 'Funds',
+        'pb_dataset_investors': 'Investors',
+        // Bloomberg datasets
+        'bb_dataset_reference_data': 'Reference Data',
+        'bb_dataset_pricing': 'Pricing',
+        'bb_dataset_corporate_actions': 'Corporate Actions',
+        // Morningstar datasets
+        'ms_dataset_funds': 'Funds',
+        'ms_dataset_stocks': 'Stocks',
+        'ms_dataset_portfolio': 'Portfolio Analysis',
+        // Alpha Vantage data types
+        'av_type_time_series': 'Stock Time Series',
+        'av_type_forex': 'Forex Rates',
+        'av_type_crypto': 'Cryptocurrency',
+        'av_type_technical_indicators': 'Technical Indicators',
+        // Financial validation messages
+        'financial_missing_sp_global': 'Please provide S&P Global API Key and API Secret',
+        'financial_missing_lseg': 'Please provide LSEG App Key, username, and password',
+        'financial_missing_pitchbook': 'Please provide PitchBook API Key',
+        'financial_missing_bloomberg': 'Please provide Bloomberg API Key or certificate path',
+        'financial_missing_morningstar': 'Please provide Morningstar API Key',
+        'financial_missing_iex_token': 'Please provide IEX Cloud API Token',
+        'financial_missing_iex_symbols': 'Please provide at least one stock symbol',
+        'financial_missing_av_key': 'Please provide Alpha Vantage API Key',
+        'financial_missing_av_symbols': 'Please provide at least one symbol',
+        'financial_missing_quandl_key': 'Please provide Quandl API Key',
+        'financial_missing_quandl_dataset': 'Please provide a dataset code',
+        'financial_invalid_quandl_dataset': 'Invalid dataset code format. Use DATABASE/DATASET format, e.g. WIKI/AAPL',
         // Shopify OAuth
         'shopify_oauth_mode': '🔐 One-Click Authorization',
         'shopify_oauth_desc': 'First install the "VantageData" app from Shopify App Store, then enter your store URL and click "Authorize" to connect securely.',
@@ -1331,6 +1386,27 @@ export const translations: Record<Language, Record<string, string>> = {
         'author_signature': 'Author Signature',
         'author_signature_desc': 'Default author signature for quick analysis pack export',
         'author_signature_placeholder': 'Enter your author signature',
+        // ValidationResultsModal
+        'validation_results_title': 'Schema Validation Results',
+        'schema_compatible': '✅ Schema Compatible',
+        'schema_incompatible': '❌ Schema Incompatible',
+        'schema_compatible_desc': 'The target data source schema is compatible with the analysis process. Safe to import.',
+        'schema_incompatible_desc': 'The target data source is missing required tables or columns. Cannot import this analysis.',
+        'validation_errors': 'Errors',
+        'validation_warnings': 'Warnings',
+        'validation_type_label': 'Type',
+        'validation_column_label': 'Column',
+        'validation_no_issues': 'No issues found',
+        'validation_all_present': 'All required tables and columns exist in the target data source',
+        'validation_cannot_proceed': 'Errors found, cannot proceed',
+        'validation_proceed': 'Proceed with Import',
+        'validation_cannot_import': 'Cannot Import',
+        // TimingAnalysisModal - Performance Tips
+        'perf_tips_title': 'Performance Tips',
+        'perf_tip_slow': 'Analysis took a long time. Consider simplifying the query or optimizing the data source.',
+        'perf_tip_fast': 'Excellent analysis speed. System is running well.',
+        'perf_tip_complex': 'Complex data analysis may take longer.',
+        'perf_tip_network': 'Network conditions and LLM service response speed affect total time.',
     },
     '简体中文': {
         // 应用程序菜单
@@ -1629,6 +1705,61 @@ export const translations: Record<Language, Record<string, string>> = {
         'bigquery_credentials': '服务账户 JSON',
         'bigquery_credentials_hint': '粘贴完整的 JSON 密钥文件内容',
         'bigquery_note': '注意：BigQuery 集成需要额外的 Go 依赖。如需要，系统将引导您完成设置。',
+        // 金融数据源
+        'financial_data_group': '金融数据',
+        'financial_api_key': 'API 密钥',
+        'financial_api_secret': 'API 密钥（Secret）',
+        'financial_api_token': 'API Token',
+        'financial_app_key': 'App Key',
+        'financial_username': '用户名',
+        'financial_datasets': '数据集',
+        'financial_symbols': '股票代码',
+        'financial_symbols_hint': '多个股票代码用逗号分隔，如 AAPL,MSFT,GOOGL',
+        'financial_data_type': '数据类型',
+        'financial_dataset_code': '数据集代码',
+        'financial_cert_path': '证书路径',
+        'bloomberg_cert_hint': '可选。提供 API Key 或证书路径进行认证。',
+        'quandl_dataset_code_hint': '格式：数据库/数据集，如 WIKI/AAPL',
+        // S&P Global 数据集
+        'sp_dataset_companies': '公司数据',
+        'sp_dataset_financials': '财务数据',
+        'sp_dataset_credit_ratings': '信用评级',
+        'sp_dataset_market_data': '市场数据',
+        // LSEG 数据集
+        'lseg_dataset_historical_prices': '历史价格',
+        'lseg_dataset_fundamentals': '公司基本面',
+        'lseg_dataset_esg': 'ESG 数据',
+        // PitchBook 数据集
+        'pb_dataset_companies': '公司',
+        'pb_dataset_deals': '交易',
+        'pb_dataset_funds': '基金',
+        'pb_dataset_investors': '投资者',
+        // Bloomberg 数据集
+        'bb_dataset_reference_data': '参考数据',
+        'bb_dataset_pricing': '定价数据',
+        'bb_dataset_corporate_actions': '公司行为',
+        // Morningstar 数据集
+        'ms_dataset_funds': '基金数据',
+        'ms_dataset_stocks': '股票数据',
+        'ms_dataset_portfolio': '投资组合分析',
+        // Alpha Vantage 数据类型
+        'av_type_time_series': '股票时间序列',
+        'av_type_forex': '外汇汇率',
+        'av_type_crypto': '加密货币',
+        'av_type_technical_indicators': '技术指标',
+        // 金融数据源验证消息
+        'financial_missing_sp_global': '请提供 S&P Global API Key 和 API Secret',
+        'financial_missing_lseg': '请提供 LSEG App Key、用户名和密码',
+        'financial_missing_pitchbook': '请提供 PitchBook API Key',
+        'financial_missing_bloomberg': '请提供 Bloomberg API Key 或证书路径',
+        'financial_missing_morningstar': '请提供 Morningstar API Key',
+        'financial_missing_iex_token': '请提供 IEX Cloud API Token',
+        'financial_missing_iex_symbols': '请提供至少一个股票代码',
+        'financial_missing_av_key': '请提供 Alpha Vantage API Key',
+        'financial_missing_av_symbols': '请提供至少一个代码',
+        'financial_missing_quandl_key': '请提供 Quandl API Key',
+        'financial_missing_quandl_dataset': '请提供数据集代码',
+        'financial_invalid_quandl_dataset': '数据集代码格式无效。请使用 数据库/数据集 格式，如 WIKI/AAPL',
         // Shopify OAuth
         'shopify_oauth_mode': '🔐 一键授权',
         'shopify_oauth_desc': '请先在 Shopify 应用商店中安装 "VantageData" 应用，然后输入店铺 URL 点击"授权"即可安全连接。',
@@ -2657,6 +2788,27 @@ export const translations: Record<Language, Record<string, string>> = {
         'author_signature': '作者签名',
         'author_signature_desc': '导出快捷分析包时的默认作者签名',
         'author_signature_placeholder': '请输入您的作者签名',
+        // ValidationResultsModal
+        'validation_results_title': '模式验证结果',
+        'schema_compatible': '✅ 模式兼容',
+        'schema_incompatible': '❌ 模式不兼容',
+        'schema_compatible_desc': '目标数据源的模式与分析过程兼容，可以安全导入。',
+        'schema_incompatible_desc': '目标数据源缺少必要的表或字段，无法导入此分析。',
+        'validation_errors': '错误',
+        'validation_warnings': '警告',
+        'validation_type_label': '类型',
+        'validation_column_label': '列',
+        'validation_no_issues': '没有发现任何问题',
+        'validation_all_present': '所有必需的表和字段都存在于目标数据源中',
+        'validation_cannot_proceed': '存在错误，无法继续',
+        'validation_proceed': '继续导入',
+        'validation_cannot_import': '无法导入',
+        // TimingAnalysisModal - Performance Tips
+        'perf_tips_title': '性能提示',
+        'perf_tip_slow': '分析耗时较长，建议简化查询或优化数据源',
+        'perf_tip_fast': '分析速度优秀，系统运行良好',
+        'perf_tip_complex': '复杂的数据分析可能需要更长时间',
+        'perf_tip_network': '网络状况和 LLM 服务响应速度会影响总耗时',
     }
 };
 
@@ -2699,14 +2851,14 @@ export function useLanguage() {
         };
     }, []);
 
-    const t = (key: string, ...params: (string | number)[]) => {
+    const t = useCallback((key: string, ...params: (string | number)[]) => {
         let text = translations[language][key] || key;
         // Replace {0}, {1}, etc. with provided parameters
         params.forEach((param, index) => {
             text = text.replace(`{${index}}`, String(param));
         });
         return text;
-    };
+    }, [language]);
 
     return { language, t };
 }

@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useLanguage } from '../i18n';
 
 interface ValidationIssue {
     type: string;
@@ -27,6 +28,8 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
     onClose,
     onProceed
 }) => {
+    const { t } = useLanguage();
+
     if (!isOpen || !validationResult) return null;
 
     const errors = validationResult.issues.filter(i => i.severity === 'error');
@@ -37,7 +40,7 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
             <div className="bg-white dark:bg-[#252526] rounded-lg shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-[#3c3c3c]">
-                    <h2 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4]">模式验证结果</h2>
+                    <h2 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4]">{t('validation_results_title')}</h2>
                     <button
                         onClick={onClose}
                         className="text-slate-400 hover:text-slate-600 transition-colors"
@@ -61,13 +64,13 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                         <div>
                             <div className={`font-semibold ${validationResult.compatible ? 'text-green-800' : 'text-red-800'
                                 }`}>
-                                {validationResult.compatible ? '✅ 模式兼容' : '❌ 模式不兼容'}
+                                {validationResult.compatible ? t('schema_compatible') : t('schema_incompatible')}
                             </div>
                             <div className={`text-sm mt-1 ${validationResult.compatible ? 'text-green-700' : 'text-red-700'
                                 }`}>
                                 {validationResult.compatible
-                                    ? '目标数据源的模式与分析过程兼容，可以安全导入。'
-                                    : '目标数据源缺少必要的表或字段，无法导入此分析。'}
+                                    ? t('schema_compatible_desc')
+                                    : t('schema_incompatible_desc')}
                             </div>
                         </div>
                     </div>
@@ -80,7 +83,7 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                                 <div>
                                     <h3 className="text-sm font-semibold text-red-800 mb-2 flex items-center gap-2">
                                         <AlertCircle className="w-4 h-4" />
-                                        错误 ({errors.length})
+                                        {t('validation_errors')} ({errors.length})
                                     </h3>
                                     <div className="space-y-2">
                                         {errors.map((issue, idx) => (
@@ -88,8 +91,8 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                                                 <div className="text-sm text-red-900">{issue.message}</div>
                                                 {issue.table && (
                                                     <div className="text-xs text-red-700 mt-1">
-                                                        类型: {issue.type}
-                                                        {issue.column && ` | 列: ${issue.column}`}
+                                                        {t('validation_type_label')}: {issue.type}
+                                                        {issue.column && ` | ${t('validation_column_label')}: ${issue.column}`}
                                                     </div>
                                                 )}
                                             </div>
@@ -103,7 +106,7 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                                 <div>
                                     <h3 className="text-sm font-semibold text-yellow-800 mb-2 flex items-center gap-2">
                                         <AlertTriangle className="w-4 h-4" />
-                                        警告 ({warnings.length})
+                                        {t('validation_warnings')} ({warnings.length})
                                     </h3>
                                     <div className="space-y-2">
                                         {warnings.map((issue, idx) => (
@@ -111,8 +114,8 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                                                 <div className="text-sm text-yellow-900">{issue.message}</div>
                                                 {issue.table && (
                                                     <div className="text-xs text-yellow-700 mt-1">
-                                                        类型: {issue.type}
-                                                        {issue.column && ` | 列: ${issue.column}`}
+                                                        {t('validation_type_label')}: {issue.type}
+                                                        {issue.column && ` | ${t('validation_column_label')}: ${issue.column}`}
                                                     </div>
                                                 )}
                                             </div>
@@ -124,8 +127,8 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                     ) : (
                         <div className="text-center py-8 text-slate-500">
                             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                            <div className="font-medium">没有发现任何问题</div>
-                            <div className="text-sm mt-1">所有必需的表和字段都存在于目标数据源中</div>
+                            <div className="font-medium">{t('validation_no_issues')}</div>
+                            <div className="text-sm mt-1">{t('validation_all_present')}</div>
                         </div>
                     )}
                 </div>
@@ -136,15 +139,15 @@ const ValidationResultsModal: React.FC<ValidationResultsModalProps> = ({
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors"
                     >
-                        取消
+                        {t('cancel')}
                     </button>
                     <button
                         onClick={onProceed}
                         disabled={!validationResult.compatible}
                         className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
-                        title={!validationResult.compatible ? '存在错误，无法继续' : '继续导入'}
+                        title={!validationResult.compatible ? t('validation_cannot_proceed') : t('validation_proceed')}
                     >
-                        {validationResult.compatible ? '继续导入' : '无法导入'}
+                        {validationResult.compatible ? t('validation_proceed') : t('validation_cannot_import')}
                     </button>
                 </div>
             </div>

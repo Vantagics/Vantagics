@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { GetChatHistoryByDataSource, RefreshEcommerceDataSource } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import { MessageSquare, Download, Info, Play, Zap, Edit3, Sparkles, RefreshCw, Database, PackageOpen } from 'lucide-react';
@@ -129,7 +129,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                     className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
                     <Database className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                    {t('explore_data') || 'Explore Data'}
+                    {t('explore_data')}
                 </button>
             )}
             
@@ -142,7 +142,7 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                     className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] flex items-center gap-2"
                 >
                     <Edit3 className="w-4 h-4 text-slate-400 dark:text-[#808080]" />
-                    {t('rename') || 'Rename'}
+                    {t('rename')}
                 </button>
             )}
             

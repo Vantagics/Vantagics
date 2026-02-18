@@ -213,8 +213,6 @@ export function GetSessionFiles(arg1:string):Promise<Array<main.SessionFile>>;
 
 export function GetSessionRecordings():Promise<Array<agent.AnalysisRecording>>;
 
-export function GetThreadExportableRequests(arg1:string):Promise<Array<main.ExportableRequest>>;
-
 export function GetShareURL(arg1:string):Promise<string>;
 
 export function GetShopifyConfigFromAppData():Promise<agent.ShopifyOAuthConfig>;
@@ -226,6 +224,8 @@ export function GetSkillCategories():Promise<Array<string>>;
 export function GetSkills():Promise<Array<main.SkillInfo>>;
 
 export function GetStoreConfig(arg1:string):Promise<agent.StoreCredentials>;
+
+export function GetThreadExportableRequests(arg1:string):Promise<Array<main.ExportableRequest>>;
 
 export function GetUsageLicenses():Promise<Array<main.UsageLicense>>;
 

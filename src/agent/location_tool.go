@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"vantagedata/i18n"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -219,11 +220,11 @@ func (t *LocationTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 
 		// Build human readable string
 		if loc.City != "" && loc.Country != "" {
-			output.HumanReadable = fmt.Sprintf("当前位置: %s, %s (精度: %.0f米)", loc.City, loc.Country, loc.Accuracy)
+			output.HumanReadable = i18n.T("location.current_city", loc.City, loc.Country, loc.Accuracy)
 		} else if loc.Address != "" {
-			output.HumanReadable = fmt.Sprintf("当前位置: %s (精度: %.0f米)", loc.Address, loc.Accuracy)
+			output.HumanReadable = i18n.T("location.current_address", loc.Address, loc.Accuracy)
 		} else {
-			output.HumanReadable = fmt.Sprintf("当前位置: 纬度 %.6f, 经度 %.6f (精度: %.0f米)", loc.Latitude, loc.Longitude, loc.Accuracy)
+			output.HumanReadable = i18n.T("location.current_coords", loc.Latitude, loc.Longitude, loc.Accuracy)
 		}
 		t.log("[LOCATION-TOOL] Using device location: %s, %s", loc.City, loc.Country)
 	} else if t.configLocation != nil && t.configLocation.City != "" {
@@ -235,7 +236,7 @@ func (t *LocationTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 		output.Latitude = t.configLocation.Latitude
 		output.Longitude = t.configLocation.Longitude
 		output.Accuracy = 0 // Config location has no accuracy
-		output.HumanReadable = fmt.Sprintf("用户设置位置: %s, %s", t.configLocation.City, t.configLocation.Country)
+		output.HumanReadable = i18n.T("location.config", t.configLocation.City, t.configLocation.Country)
 		t.log("[LOCATION-TOOL] Using configured location: %s, %s", t.configLocation.City, t.configLocation.Country)
 	} else {
 		// Try IP-based location as fallback
@@ -248,7 +249,7 @@ func (t *LocationTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 			output.City = ipLoc.City
 			output.Country = ipLoc.Country
 			output.Accuracy = ipLoc.Accuracy
-			output.HumanReadable = fmt.Sprintf("IP定位: %s, %s (精度: 约%.0f米)", ipLoc.City, ipLoc.Country, ipLoc.Accuracy)
+			output.HumanReadable = i18n.T("location.ip_based", ipLoc.City, ipLoc.Country, ipLoc.Accuracy)
 			t.log("[LOCATION-TOOL] Using IP-based location: %s, %s", ipLoc.City, ipLoc.Country)
 		} else {
 			// No location available at all
@@ -262,7 +263,7 @@ func (t *LocationTool) InvokableRun(ctx context.Context, argumentsInJSON string,
 				t.log("[LOCATION-TOOL] IP location also failed: %v", err)
 			}
 			// Provide clear guidance for LLM when location is unavailable
-			output.HumanReadable = fmt.Sprintf("无法获取位置信息: %s。请直接询问用户所在城市，或使用默认城市（如北京）进行查询。", output.Error)
+			output.HumanReadable = i18n.T("location.unavailable", output.Error)
 			t.log("[LOCATION-TOOL] No location available")
 		}
 	}

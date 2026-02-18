@@ -154,6 +154,20 @@ const AdminHTML = `<!DOCTYPE html>
     <!-- Settings Section -->
     <div id="section-settings" style="display:none;">
         <div class="card">
+            <h2 data-i18n="default_language">默认语言</h2>
+            <p class="form-hint" style="margin-bottom:16px;" data-i18n="default_language_desc">设置系统默认显示语言，用户未手动选择语言时将使用此设置</p>
+            <form id="default-lang-form" onsubmit="saveDefaultLanguage(event)">
+                <div class="form-group">
+                    <label for="default-lang-select" data-i18n="default_language">默认语言</label>
+                    <select id="default-lang-select" style="padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;">
+                        <option value="zh-CN" data-i18n="chinese">中文</option>
+                        <option value="en-US" data-i18n="english">English</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
+            </form>
+        </div>
+        <div class="card">
             <h2 data-i18n="initial_credits">初始 Credits 余额</h2>
             <p class="form-hint" style="margin-bottom:16px;" data-i18n="initial_credits_desc">新用户注册时自动获得的 Credits 数量</p>
             <form id="credits-form" onsubmit="saveInitialCredits(event)">
@@ -375,74 +389,74 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-withdrawals" style="display:none;">
         <!-- Tab Navigation -->
         <div class="wd-tabs">
-            <button class="wd-tab active" onclick="switchWdTab('wd-tab-settings', this)">⚙️ 提现设置</button>
-            <button class="wd-tab" onclick="switchWdTab('wd-tab-records', this)">📋 提现记录</button>
+            <button class="wd-tab active" onclick="switchWdTab('wd-tab-settings', this)">⚙️ <span data-i18n="withdraw_settings">提现设置</span></button>
+            <button class="wd-tab" onclick="switchWdTab('wd-tab-records', this)">📋 <span data-i18n="withdraw_records_tab">提现记录</span></button>
         </div>
 
         <!-- Tab: 提现设置 -->
         <div id="wd-tab-settings" class="wd-tab-content">
             <div class="card">
-                <h2>Credit 提现价格</h2>
-                <p class="form-hint" style="margin-bottom:16px;">每个 Credit 兑换的现金金额（单位：元），设为 0 表示提现功能未启用</p>
+                <h2 data-i18n="credit_cash_rate">Credit 提现价格</h2>
+                <p class="form-hint" style="margin-bottom:16px;" data-i18n="credit_cash_rate_desc">每个 Credit 兑换的现金金额（单位：元），设为 0 表示提现功能未启用</p>
                 <form id="cash-rate-form" onsubmit="saveCreditCashRate(event)">
                     <div class="form-group">
-                        <label for="credit-cash-rate">提现价格（元/Credit）</label>
+                        <label for="credit-cash-rate" data-i18n="cash_rate_label">提现价格（元/Credit）</label>
                         <input type="number" id="credit-cash-rate" min="0" step="0.01" value="{{.CreditCashRate}}" />
                     </div>
-                    <button type="submit" class="btn btn-primary">保存设置</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
                 </form>
             </div>
             <div class="card">
-                <h2>收入分成比例设置</h2>
-                <p class="form-hint" style="margin-bottom:16px;">设置发布者（作者）获得的收入比例，平台获得剩余部分。默认 70 表示发布者获得 70%，平台获得 30%</p>
+                <h2 data-i18n="revenue_split_settings">收入分成比例设置</h2>
+                <p class="form-hint" style="margin-bottom:16px;" data-i18n="revenue_split_desc">设置发布者（作者）获得的收入比例，平台获得剩余部分。默认 70 表示发布者获得 70%，平台获得 30%</p>
                 <form id="revenue-split-form" onsubmit="saveRevenueSplit(event)">
                     <div class="form-group">
-                        <label for="revenue-split-publisher-pct">发布者分成比例（%）</label>
+                        <label for="revenue-split-publisher-pct" data-i18n="publisher_split_pct">发布者分成比例（%）</label>
                         <div style="display:flex;align-items:center;gap:12px;">
                             <input type="number" id="revenue-split-publisher-pct" min="0" max="100" step="1" value="{{.RevenueSplitPublisherPct}}" style="flex:1;" oninput="updateSplitPreview()" />
                             <span id="split-preview" style="font-size:13px;color:#6366f1;font-weight:600;white-space:nowrap;">发布者 {{.RevenueSplitPublisherPct}}% : 平台 {{.RevenueSplitPlatformPct}}%</span>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-primary">保存分成设置</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="save_split_settings">保存分成设置</button>
                 </form>
             </div>
             <div class="card">
-                <h2>提现手续费率设置</h2>
-                <p class="form-hint" style="margin-bottom:16px;">为每种收款方式设置提现手续费率（百分比），例如输入 3 表示 3%</p>
+                <h2 data-i18n="fee_rate_settings">提现手续费率设置</h2>
+                <p class="form-hint" style="margin-bottom:16px;" data-i18n="fee_rate_desc">为每种收款方式设置提现手续费率（百分比），例如输入 3 表示 3%</p>
                 <form id="withdrawal-fees-form" onsubmit="saveWithdrawalFees(event)">
                     <div class="form-group">
-                        <label for="fee-rate-paypal">PayPal 手续费率（%）</label>
+                        <label for="fee-rate-paypal" data-i18n="fee_rate_paypal">PayPal 手续费率（%）</label>
                         <input type="number" id="fee-rate-paypal" min="0" step="0.01" value="{{.FeeRatePaypal}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-wechat">微信 手续费率（%）</label>
+                        <label for="fee-rate-wechat" data-i18n="fee_rate_wechat">微信 手续费率（%）</label>
                         <input type="number" id="fee-rate-wechat" min="0" step="0.01" value="{{.FeeRateWechat}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-alipay">AliPay 手续费率（%）</label>
+                        <label for="fee-rate-alipay" data-i18n="fee_rate_alipay">AliPay 手续费率（%）</label>
                         <input type="number" id="fee-rate-alipay" min="0" step="0.01" value="{{.FeeRateAlipay}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-check">支票 手续费率（%）</label>
+                        <label for="fee-rate-check" data-i18n="fee_rate_check">支票 手续费率（%）</label>
                         <input type="number" id="fee-rate-check" min="0" step="0.01" value="{{.FeeRateCheck}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-wire-transfer">国际电汇 手续费率（%）</label>
+                        <label for="fee-rate-wire-transfer" data-i18n="fee_rate_wire">国际电汇 手续费率（%）</label>
                         <input type="number" id="fee-rate-wire-transfer" min="0" step="0.01" value="{{.FeeRateWireTransfer}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-bank-card-us">美国银行卡 手续费率（%）</label>
+                        <label for="fee-rate-bank-card-us" data-i18n="fee_rate_us">美国银行卡 手续费率（%）</label>
                         <input type="number" id="fee-rate-bank-card-us" min="0" step="0.01" value="{{.FeeRateBankCardUS}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-bank-card-eu">欧洲银行卡 手续费率（%）</label>
+                        <label for="fee-rate-bank-card-eu" data-i18n="fee_rate_eu">欧洲银行卡 手续费率（%）</label>
                         <input type="number" id="fee-rate-bank-card-eu" min="0" step="0.01" value="{{.FeeRateBankCardEU}}" />
                     </div>
                     <div class="form-group">
-                        <label for="fee-rate-bank-card-cn">中国银行卡 手续费率（%）</label>
+                        <label for="fee-rate-bank-card-cn" data-i18n="fee_rate_cn">中国银行卡 手续费率（%）</label>
                         <input type="number" id="fee-rate-bank-card-cn" min="0" step="0.01" value="{{.FeeRateBankCardCN}}" />
                     </div>
-                    <button type="submit" class="btn btn-primary">保存手续费设置</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="save_fee_settings">保存手续费设置</button>
                 </form>
             </div>
         </div>
@@ -451,35 +465,35 @@ const AdminHTML = `<!DOCTYPE html>
         <div id="wd-tab-records" class="wd-tab-content" style="display:none;">
             <div class="card">
                 <div class="card-header">
-                    <h2>提现管理</h2>
+                    <h2 data-i18n="withdraw_mgmt">提现管理</h2>
                     <div style="display:flex;gap:8px;">
-                        <button class="btn btn-secondary" onclick="exportWithdrawals()">📥 导出 Excel</button>
-                        <button class="btn btn-primary" onclick="exportAndApproveWithdrawals()">📥 导出并标记已付款</button>
-                        <button class="btn btn-primary" id="btn-batch-approve" onclick="batchApproveWithdrawals()" style="display:none;">批量标记已付款</button>
-                        <button class="btn btn-secondary" onclick="loadWithdrawals()">↻ 刷新</button>
+                        <button class="btn btn-secondary" onclick="exportWithdrawals()">📥 <span data-i18n="export_excel">导出 Excel</span></button>
+                        <button class="btn btn-primary" onclick="exportAndApproveWithdrawals()">📥 <span data-i18n="export_and_approve">导出并标记已付款</span></button>
+                        <button class="btn btn-primary" id="btn-batch-approve" onclick="batchApproveWithdrawals()" style="display:none;" data-i18n="batch_approve">批量标记已付款</button>
+                        <button class="btn btn-secondary" onclick="loadWithdrawals()">↻ <span data-i18n="refresh">刷新</span></button>
                     </div>
                 </div>
                 <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
                     <select id="wd-status-filter" onchange="loadWithdrawals()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                        <option value="">全部</option>
-                        <option value="pending">已申请提现</option>
-                        <option value="paid">已付款</option>
+                        <option value="" data-i18n="all">全部</option>
+                        <option value="pending" data-i18n="applied_withdraw">已申请提现</option>
+                        <option value="paid" data-i18n="paid">已付款</option>
                     </select>
-                    <input type="text" id="wd-author-filter" placeholder="按作者名过滤" oninput="loadWithdrawals()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;" />
+                    <input type="text" id="wd-author-filter" placeholder="按作者名过滤" data-i18n-placeholder="filter_by_author" oninput="loadWithdrawals()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:160px;" />
                 </div>
                 <table>
                     <thead>
                         <tr>
                             <th><input type="checkbox" id="wd-select-all" onchange="toggleSelectAllWithdrawals()" /></th>
-                            <th>作者</th>
-                            <th>收款方式</th>
-                            <th>收款详情</th>
-                            <th>提现金额</th>
-                            <th>手续费率</th>
-                            <th>手续费</th>
-                            <th>实付金额</th>
-                            <th>状态</th>
-                            <th>时间</th>
+                            <th data-i18n="author_col">作者</th>
+                            <th data-i18n="payment_method_col">收款方式</th>
+                            <th data-i18n="payment_detail_col">收款详情</th>
+                            <th data-i18n="withdraw_amount_col">提现金额</th>
+                            <th data-i18n="fee_rate_col">手续费率</th>
+                            <th data-i18n="fee_amount_col">手续费</th>
+                            <th data-i18n="net_amount_col">实付金额</th>
+                            <th data-i18n="status">状态</th>
+                            <th data-i18n="time">时间</th>
                         </tr>
                     </thead>
                     <tbody id="withdrawals-list"></tbody>
@@ -492,10 +506,10 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-sales" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2>销售管理</h2>
+                <h2 data-i18n="sales_mgmt">销售管理</h2>
                 <div style="display:flex;gap:8px;">
-                    <button class="btn btn-secondary" onclick="loadSalesData(1)">↻ 刷新</button>
-                    <button class="btn btn-primary" onclick="exportSalesExcel()">📥 导出 Excel</button>
+                    <button class="btn btn-secondary" onclick="loadSalesData(1)">↻ <span data-i18n="refresh">刷新</span></button>
+                    <button class="btn btn-primary" onclick="exportSalesExcel()">📥 <span data-i18n="export_sales_excel">导出 Excel</span></button>
                 </div>
             </div>
             <!-- Filters -->
@@ -508,31 +522,31 @@ const AdminHTML = `<!DOCTYPE html>
                 </select>
                 <input type="date" id="sales-date-from" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
                 <input type="date" id="sales-date-to" onchange="loadSalesData(1)" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" />
-                <button class="btn btn-secondary btn-sm" onclick="clearSalesFilters()">清除筛选</button>
+                <button class="btn btn-secondary btn-sm" onclick="clearSalesFilters()" data-i18n="clear_filters">清除筛选</button>
             </div>
             <!-- Summary Stats -->
             <div id="sales-summary" style="display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
                 <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:16px 24px;flex:1;min-width:180px;">
-                    <div style="font-size:12px;color:#0369a1;font-weight:600;">订单总数</div>
+                    <div style="font-size:12px;color:#0369a1;font-weight:600;" data-i18n="total_orders">订单总数</div>
                     <div id="sales-total-orders" style="font-size:24px;font-weight:700;color:#0c4a6e;margin-top:4px;">0</div>
                 </div>
                 <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px 24px;flex:1;min-width:180px;">
-                    <div style="font-size:12px;color:#15803d;font-weight:600;">总销售额 (Credits)</div>
+                    <div style="font-size:12px;color:#15803d;font-weight:600;" data-i18n="total_sales_credits">总销售额 (Credits)</div>
                     <div id="sales-total-credits" style="font-size:24px;font-weight:700;color:#14532d;margin-top:4px;">0</div>
                 </div>
                 <div style="background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:16px 24px;flex:1;min-width:180px;">
-                    <div style="font-size:12px;color:#a16207;font-weight:600;">涉及用户数</div>
+                    <div style="font-size:12px;color:#a16207;font-weight:600;" data-i18n="total_users">涉及用户数</div>
                     <div id="sales-total-users" style="font-size:24px;font-weight:700;color:#713f12;margin-top:4px;">0</div>
                 </div>
                 <div style="background:#fdf4ff;border:1px solid #f0abfc;border-radius:8px;padding:16px 24px;flex:1;min-width:180px;">
-                    <div style="font-size:12px;color:#86198f;font-weight:600;">涉及作者数</div>
+                    <div style="font-size:12px;color:#86198f;font-weight:600;" data-i18n="total_authors">涉及作者数</div>
                     <div id="sales-total-authors" style="font-size:24px;font-weight:700;color:#4a044e;margin-top:4px;">0</div>
                 </div>
             </div>
             <!-- Orders Table -->
             <table>
                 <thead>
-                    <tr><th>订单ID</th><th>买家</th><th>买家邮箱</th><th>分析包</th><th>分类</th><th>作者</th><th>金额(Credits)</th><th>类型</th><th>买家IP</th><th>时间</th></tr>
+                    <tr><th data-i18n="order_id">订单ID</th><th data-i18n="buyer_col">买家</th><th data-i18n="buyer_email_col">买家邮箱</th><th data-i18n="pack_col">分析包</th><th data-i18n="category_col">分类</th><th data-i18n="author_col">作者</th><th data-i18n="amount_credits_col">金额(Credits)</th><th data-i18n="type_col">类型</th><th data-i18n="buyer_ip_col">买家IP</th><th data-i18n="time_col_admin">时间</th></tr>
                 </thead>
                 <tbody id="sales-order-list"></tbody>
             </table>
@@ -540,9 +554,9 @@ const AdminHTML = `<!DOCTYPE html>
             <div id="sales-pagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;">
                 <div id="sales-page-info" style="font-size:13px;color:#6b7280;"></div>
                 <div style="display:flex;gap:6px;align-items:center;">
-                    <button class="btn btn-secondary btn-sm" id="sales-prev-btn" onclick="salesGoPage(salesCurrentPage-1)" disabled>‹ 上一页</button>
+                    <button class="btn btn-secondary btn-sm" id="sales-prev-btn" onclick="salesGoPage(salesCurrentPage-1)" disabled>‹ <span data-i18n="prev_page">上一页</span></button>
                     <span id="sales-page-nums" style="display:flex;gap:4px;"></span>
-                    <button class="btn btn-secondary btn-sm" id="sales-next-btn" onclick="salesGoPage(salesCurrentPage+1)" disabled>下一页 ›</button>
+                    <button class="btn btn-secondary btn-sm" id="sales-next-btn" onclick="salesGoPage(salesCurrentPage+1)" disabled><span data-i18n="next_page">下一页</span> ›</button>
                 </div>
             </div>
         </div>
@@ -552,28 +566,28 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="section-profile" style="display:none;">
         <div class="profile-grid">
             <div class="profile-card">
-                <h3><span class="icon-header"><span>👤</span> 修改资料</span></h3>
+                <h3><span class="icon-header"><span>👤</span> <span data-i18n="edit_profile_title">修改资料</span></span></h3>
                 <div class="form-group">
-                    <label for="profile-username">用户名</label>
-                    <input type="text" id="profile-username" placeholder="新用户名（留空不修改）" />
-                    <div class="form-hint">修改后需要重新登录</div>
+                    <label for="profile-username" data-i18n="username">用户名</label>
+                    <input type="text" id="profile-username" placeholder="新用户名（留空不修改）" data-i18n-placeholder="new_username_optional" />
+                    <div class="form-hint" data-i18n="change_requires_relogin">修改后需要重新登录</div>
                 </div>
             </div>
             <div class="profile-card">
-                <h3><span class="icon-header"><span>🔒</span> 修改密码</span></h3>
+                <h3><span class="icon-header"><span>🔒</span> <span data-i18n="change_password_admin">修改密码</span></span></h3>
                 <div class="form-group">
-                    <label for="profile-old-password">当前密码</label>
-                    <input type="password" id="profile-old-password" placeholder="输入当前密码" />
+                    <label for="profile-old-password" data-i18n="current_password">当前密码</label>
+                    <input type="password" id="profile-old-password" placeholder="输入当前密码" data-i18n-placeholder="enter_current_pw_admin" />
                 </div>
                 <div class="form-group">
-                    <label for="profile-new-password">新密码</label>
-                    <input type="password" id="profile-new-password" placeholder="输入新密码" />
-                    <div class="form-hint">至少 6 个字符</div>
+                    <label for="profile-new-password" data-i18n="new_password">新密码</label>
+                    <input type="password" id="profile-new-password" placeholder="输入新密码" data-i18n-placeholder="enter_new_pw" />
+                    <div class="form-hint" data-i18n="min_6_chars_admin">至少 6 个字符</div>
                 </div>
             </div>
         </div>
         <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-            <button class="btn btn-primary" onclick="saveProfile()" style="padding: 10px 28px; font-size: 14px;">保存修改</button>
+            <button class="btn btn-primary" onclick="saveProfile()" style="padding: 10px 28px; font-size: 14px;" data-i18n="save_changes">保存修改</button>
         </div>
     </div>
 
@@ -583,15 +597,15 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Reject Reason Modal -->
 <div id="reject-modal" class="modal-overlay">
     <div class="modal">
-        <h3>拒绝审核</h3>
+        <h3 data-i18n="reject_review">拒绝审核</h3>
         <input type="hidden" id="reject-pack-id" value="" />
         <div class="form-group">
-            <label for="reject-reason">拒绝原因（必填）</label>
-            <textarea id="reject-reason" placeholder="请输入拒绝原因"></textarea>
+            <label for="reject-reason" data-i18n="reject_reason_required">拒绝原因（必填）</label>
+            <textarea id="reject-reason" placeholder="请输入拒绝原因" data-i18n-placeholder="enter_reject_reason_ph"></textarea>
         </div>
         <div class="modal-actions">
-            <button class="btn btn-secondary" onclick="hideRejectModal()">取消</button>
-            <button class="btn btn-danger" onclick="submitReject()">确认拒绝</button>
+            <button class="btn btn-secondary" onclick="hideRejectModal()" data-i18n="cancel">取消</button>
+            <button class="btn btn-danger" onclick="submitReject()" data-i18n="confirm_reject">确认拒绝</button>
         </div>
     </div>
 </div>
@@ -599,44 +613,44 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Add Admin Modal -->
 <div id="add-admin-modal" class="modal-overlay">
     <div class="modal">
-        <h3>添加管理员</h3>
+        <h3 data-i18n="add_admin_title">添加管理员</h3>
         <div class="form-group">
-            <label for="new-admin-username">用户名（至少3个字符）</label>
-            <input type="text" id="new-admin-username" placeholder="输入用户名" />
+            <label for="new-admin-username" data-i18n="username_min3_label">用户名（至少3个字符）</label>
+            <input type="text" id="new-admin-username" placeholder="输入用户名" data-i18n-placeholder="enter_username_ph" />
         </div>
         <div class="form-group">
-            <label for="new-admin-password">密码（至少6个字符）</label>
-            <input type="text" id="new-admin-password" placeholder="输入密码" />
+            <label for="new-admin-password" data-i18n="password_min6_label">密码（至少6个字符）</label>
+            <input type="text" id="new-admin-password" placeholder="输入密码" data-i18n-placeholder="enter_password_ph" />
         </div>
         <div class="form-group">
-            <label>权限设置</label>
+            <label data-i18n="permission_settings">权限设置</label>
             <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:6px;">
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="categories" class="new-admin-perm" /> 分类管理
+                    <input type="checkbox" value="categories" class="new-admin-perm" /> <span data-i18n="category_mgmt">分类管理</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="marketplace" class="new-admin-perm" /> 市场管理
+                    <input type="checkbox" value="marketplace" class="new-admin-perm" /> <span data-i18n="marketplace_mgmt">市场管理</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="authors" class="new-admin-perm" /> 作者管理
+                    <input type="checkbox" value="authors" class="new-admin-perm" /> <span data-i18n="author_mgmt">作者管理</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="customers" class="new-admin-perm" /> 客户管理
+                    <input type="checkbox" value="customers" class="new-admin-perm" /> <span data-i18n="customer_mgmt">客户管理</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="review" class="new-admin-perm" /> 审核管理
+                    <input type="checkbox" value="review" class="new-admin-perm" /> <span data-i18n="review_mgmt">审核管理</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="settings" class="new-admin-perm" /> 系统设置
+                    <input type="checkbox" value="settings" class="new-admin-perm" /> <span data-i18n="system_settings">系统设置</span>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
-                    <input type="checkbox" value="notifications" class="new-admin-perm" /> 消息管理
+                    <input type="checkbox" value="notifications" class="new-admin-perm" /> <span data-i18n="notification_mgmt">消息管理</span>
                 </label>
             </div>
         </div>
         <div class="modal-actions">
-            <button class="btn btn-secondary" onclick="hideAddAdminModal()">取消</button>
-            <button class="btn btn-primary" onclick="submitAddAdmin()">添加</button>
+            <button class="btn btn-secondary" onclick="hideAddAdminModal()" data-i18n="cancel">取消</button>
+            <button class="btn btn-primary" onclick="submitAddAdmin()" data-i18n="add">添加</button>
         </div>
     </div>
 </div>
@@ -644,19 +658,19 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Create/Edit Category Modal -->
 <div id="category-modal" class="modal-overlay">
     <div class="modal">
-        <h3 id="modal-title">新建分类</h3>
+        <h3 id="modal-title" data-i18n="new_category_title">新建分类</h3>
         <input type="hidden" id="edit-category-id" value="" />
         <div class="form-group">
-            <label for="cat-name">分类名称</label>
-            <input type="text" id="cat-name" placeholder="输入分类名称" />
+            <label for="cat-name" data-i18n="category_name">分类名称</label>
+            <input type="text" id="cat-name" placeholder="输入分类名称" data-i18n-placeholder="enter_category_name_ph" />
         </div>
         <div class="form-group">
-            <label for="cat-desc">描述（可选）</label>
-            <textarea id="cat-desc" placeholder="输入分类描述"></textarea>
+            <label for="cat-desc" data-i18n="category_desc_optional">描述（可选）</label>
+            <textarea id="cat-desc" placeholder="输入分类描述" data-i18n-placeholder="enter_category_desc_ph"></textarea>
         </div>
         <div class="modal-actions">
-            <button class="btn btn-secondary" onclick="hideModal()">取消</button>
-            <button class="btn btn-primary" onclick="saveCategory()">保存</button>
+            <button class="btn btn-secondary" onclick="hideModal()" data-i18n="cancel">取消</button>
+            <button class="btn btn-primary" onclick="saveCategory()" data-i18n="save">保存</button>
         </div>
     </div>
 </div>
@@ -664,50 +678,50 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Create Notification Modal -->
 <div id="create-notif-modal" class="modal-overlay">
     <div class="modal" style="width:520px;">
-        <h3>发送消息</h3>
+        <h3 data-i18n="send_notification">发送消息</h3>
         <div class="form-group">
-            <label for="notif-title">消息标题</label>
-            <input type="text" id="notif-title" placeholder="消息标题" />
+            <label for="notif-title" data-i18n="message_title">消息标题</label>
+            <input type="text" id="notif-title" placeholder="消息标题" data-i18n-placeholder="message_title" />
         </div>
         <div class="form-group">
-            <label for="notif-content">消息内容</label>
-            <textarea id="notif-content" placeholder="消息内容" rows="4"></textarea>
+            <label for="notif-content" data-i18n="message_content">消息内容</label>
+            <textarea id="notif-content" placeholder="消息内容" data-i18n-placeholder="message_content" rows="4"></textarea>
         </div>
         <div class="form-group">
-            <label for="notif-target-type">消息类型</label>
+            <label for="notif-target-type" data-i18n="message_type">消息类型</label>
             <select id="notif-target-type" onchange="toggleTargetUsers()" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;">
-                <option value="broadcast">广播（所有用户）</option>
-                <option value="targeted">定向（指定用户）</option>
+                <option value="broadcast" data-i18n="broadcast_all">广播（所有用户）</option>
+                <option value="targeted" data-i18n="targeted_specific">定向（指定用户）</option>
             </select>
         </div>
         <div id="notif-target-section" style="display:none;">
             <div class="form-group">
-                <label>搜索用户</label>
+                <label data-i18n="search_users">搜索用户</label>
                 <div style="display:flex;gap:8px;">
-                    <input type="text" id="notif-user-search" placeholder="输入邮箱/名称搜索..." style="flex:1;" onkeydown="if(event.key==='Enter')searchNotifUsers()" />
-                    <button class="btn btn-primary btn-sm" onclick="searchNotifUsers()">搜索</button>
+                    <input type="text" id="notif-user-search" placeholder="输入邮箱/名称搜索..." data-i18n-placeholder="search_email_name" style="flex:1;" onkeydown="if(event.key==='Enter')searchNotifUsers()" />
+                    <button class="btn btn-primary btn-sm" onclick="searchNotifUsers()" data-i18n="search">搜索</button>
                 </div>
                 <div id="notif-user-results" style="max-height:120px;overflow-y:auto;margin-top:8px;"></div>
             </div>
             <div class="form-group">
-                <label>已选用户</label>
-                <div id="notif-selected-users" style="min-height:32px;padding:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;color:#6b7280;">未选择用户</div>
+                <label data-i18n="no_users_selected">已选用户</label>
+                <div id="notif-selected-users" style="min-height:32px;padding:8px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;color:#6b7280;" data-i18n="no_users_selected">未选择用户</div>
             </div>
         </div>
         <div class="form-group">
-            <label for="notif-effective-date">生效日期（可选，留空立即生效）</label>
+            <label for="notif-effective-date" data-i18n="effective_date">生效日期（可选，留空立即生效）</label>
             <input type="datetime-local" id="notif-effective-date" style="width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;" />
         </div>
         <div class="form-group">
-            <label for="notif-duration">显示时长</label>
+            <label for="notif-duration" data-i18n="display_duration">显示时长</label>
             <div style="display:flex;align-items:center;gap:8px;">
                 <input type="number" id="notif-duration" value="0" min="0" style="width:120px;" />
-                <span style="font-size:13px;color:#6b7280;">天 (0=永久)</span>
+                <span style="font-size:13px;color:#6b7280;" data-i18n="days_0_permanent">天 (0=永久)</span>
             </div>
         </div>
         <div class="modal-actions">
-            <button class="btn btn-secondary" onclick="hideCreateNotification()">取消</button>
-            <button class="btn btn-primary" onclick="createNotification()">发送</button>
+            <button class="btn btn-secondary" onclick="hideCreateNotification()" data-i18n="cancel">取消</button>
+            <button class="btn btn-primary" onclick="createNotification()" data-i18n="send_notification">发送</button>
         </div>
     </div>
 </div>
@@ -716,7 +730,7 @@ const AdminHTML = `<!DOCTYPE html>
 // Permission system
 var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
-var permLabels = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', customers: '客户管理', review: '审核管理', settings: '系统设置', notifications: '消息管理' };
+var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理") };
 
 function hasPerm(p) { return permissions.indexOf(p) !== -1; }
 function isSuperAdmin() { return adminID === 1; }
@@ -736,7 +750,7 @@ function isSuperAdmin() { return adminID === 1; }
 
 function showSection(name) {
     var sections = ['categories', 'marketplace', 'authors', 'customers', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'sales'];
-    var titles = { categories: '分类管理', marketplace: '市场管理', authors: '作者管理', customers: '客户管理', settings: '系统设置', admins: '管理员管理', review: '审核管理', profile: '修改资料', notifications: '消息管理', withdrawals: '提现管理', sales: '销售管理' };
+    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), sales: window._i18n("sales_mgmt","销售管理") };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
         if (el) el.style.display = sections[i] === name ? '' : 'none';
@@ -746,7 +760,7 @@ function showSection(name) {
         var href = links[i].getAttribute('href');
         if (href) links[i].className = href === '#' + name ? 'active' : '';
     }
-    document.getElementById('topbar-title').textContent = titles[name] || '管理面板';
+    document.getElementById('topbar-title').textContent = titles[name] || window._i18n("admin_panel_title","管理面板");
     if (name === 'categories') loadCategories();
     if (name === 'marketplace') loadMarketplacePacks();
     if (name === 'authors') loadAuthors();
@@ -767,7 +781,7 @@ function showMsg(text, isError) {
 function apiFetch(url, opts) {
     return fetch(url, opts).then(function(r) {
         if (r.status === 401) {
-            showMsg('会话已过期，正在跳转到登录页...', true);
+            showMsg(window._i18n("session_expired","会话已过期，正在跳转到登录页..."), true);
             setTimeout(function() { window.location.href = '/admin/login'; }, 1500);
             return Promise.reject(new Error('session_expired'));
         }
@@ -781,7 +795,7 @@ function loadCategories() {
         var cats = Array.isArray(data) ? data : (data.categories || []);
         var tbody = document.getElementById('category-list');
         if (cats.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无分类</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">' + window._i18n("no_categories","暂无分类") + '</td></tr>';
             return;
         }
         var html = '';
@@ -792,20 +806,20 @@ function loadCategories() {
             html += '<td>' + escHtml(c.name) + '</td>';
             html += '<td>' + escHtml(c.description || '-') + '</td>';
             html += '<td>' + c.pack_count + '</td>';
-            html += '<td>' + (c.is_preset ? '<span class="badge badge-preset">预设</span>' : '自定义') + '</td>';
+            html += '<td>' + (c.is_preset ? '<span class="badge badge-preset">' + window._i18n("preset","预设") + '</span>' : window._i18n("custom","自定义")) + '</td>';
             html += '<td class="actions">';
-            html += '<button class="btn btn-primary" onclick="showEditCategory(' + c.id + ',\'' + escAttr(c.name) + '\',\'' + escAttr(c.description || '') + '\')">编辑</button> ';
+            html += '<button class="btn btn-primary" onclick="showEditCategory(' + c.id + ',\'' + escAttr(c.name) + '\',\'' + escAttr(c.description || '') + '\')">' + window._i18n("edit","编辑") + '</button> ';
             if (!c.is_preset) {
-                html += '<button class="btn btn-danger" onclick="deleteCategory(' + c.id + ',\'' + escAttr(c.name) + '\',' + c.pack_count + ')">删除</button>';
+                html += '<button class="btn btn-danger" onclick="deleteCategory(' + c.id + ',\'' + escAttr(c.name) + '\',' + c.pack_count + ')">' + window._i18n("delete","删除") + '</button>';
             }
             html += '</td></tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载分类失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_categories_failed","加载分类失败") + ': ' + err, true); });
 }
 
 function showCreateCategory() {
-    document.getElementById('modal-title').textContent = '新建分类';
+    document.getElementById('modal-title').textContent = window._i18n("new_category_title","新建分类");
     document.getElementById('edit-category-id').value = '';
     document.getElementById('cat-name').value = '';
     document.getElementById('cat-desc').value = '';
@@ -813,7 +827,7 @@ function showCreateCategory() {
 }
 
 function showEditCategory(id, name, desc) {
-    document.getElementById('modal-title').textContent = '编辑分类';
+    document.getElementById('modal-title').textContent = window._i18n("edit_category_title","编辑分类");
     document.getElementById('edit-category-id').value = id;
     document.getElementById('cat-name').value = name;
     document.getElementById('cat-desc').value = desc;
@@ -828,7 +842,7 @@ function saveCategory() {
     var id = document.getElementById('edit-category-id').value;
     var name = document.getElementById('cat-name').value.trim();
     var desc = document.getElementById('cat-desc').value.trim();
-    if (!name) { alert('请输入分类名称'); return; }
+    if (!name) { alert(window._i18n("enter_category_name","请输入分类名称")); return; }
 
     var url, method;
     if (id) {
@@ -846,29 +860,43 @@ function saveCategory() {
     .then(function(res) {
         if (res.ok) {
             hideModal();
-            showMsg(id ? '分类已更新' : '分类已创建', false);
+            showMsg(id ? window._i18n("category_updated","分类已更新") : window._i18n("category_created","分类已创建"), false);
             loadCategories();
         } else {
-            showMsg(res.data.error || '操作失败', true);
+            showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
         }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function deleteCategory(id, name, packCount) {
     if (packCount > 0) {
-        alert('分类 "' + name + '" 下有 ' + packCount + ' 个分析包，请先迁移后再删除。');
+        alert(window._i18n("category_has_packs","分类 \"{name}\" 下有 {count} 个分析包，请先迁移后再删除。").replace("{name}", name).replace("{count}", packCount));
         return;
     }
-    if (!confirm('确定要删除分类 "' + name + '" 吗？')) return;
+    if (!confirm(window._i18n("confirm_delete_category","确定要删除分类 \"{name}\" 吗？").replace("{name}", name))) return;
     apiFetch('/api/admin/categories/' + id, { method: 'DELETE' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('分类已删除', false); loadCategories(); }
-            else { showMsg(res.data.error || '删除失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("category_deleted","分类已删除"), false); loadCategories(); }
+            else { showMsg(res.data.error || window._i18n("delete_failed","删除失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Settings ---
+function saveDefaultLanguage(e) {
+    e.preventDefault();
+    var val = document.getElementById('default-lang-select').value;
+    apiFetch('/admin/api/settings/default-language', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'value=' + encodeURIComponent(val)
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg(window._i18n("default_lang_updated","默认语言已更新"), false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
 function saveInitialCredits(e) {
     e.preventDefault();
     var val = document.getElementById('initial-credits').value;
@@ -878,9 +906,9 @@ function saveInitialCredits(e) {
         body: 'value=' + encodeURIComponent(val)
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) { showMsg('初始余额已更新为 ' + val, false); }
-        else { showMsg(res.data.error || '保存失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok) { showMsg(window._i18n("initial_balance_updated","初始余额已更新为") + ' ' + val, false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function saveCreditCashRate(e) {
@@ -892,9 +920,9 @@ function saveCreditCashRate(e) {
         body: 'value=' + encodeURIComponent(val)
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) { showMsg('Credit 提现价格已更新为 ' + val + ' 元/Credit', false); }
-        else { showMsg(res.data.error || '保存失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok) { showMsg(window._i18n("credit_rate_updated","Credit 提现价格已更新为") + ' ' + val + ' ' + window._i18n("yuan","元") + '/Credit', false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function switchWdTab(tabId, btn) {
@@ -911,25 +939,27 @@ function updateSplitPreview() {
     var pub = parseFloat(document.getElementById('revenue-split-publisher-pct').value) || 0;
     var plat = 100 - pub;
     var preview = document.getElementById('split-preview');
-    preview.innerHTML = '发布者 ' + pub + '% : 平台 ' + plat + '%';
+    preview.innerHTML = window._i18n("publisher_pct_platform","发布者 {pub}% : 平台 {plat}%").replace("{pub}", pub).replace("{plat}", plat);
 }
 // Initialize preview on page load
 (function(){ var el = document.getElementById('split-preview'); if(el){ updateSplitPreview(); } })();
+// Initialize default language select from server value
+(function(){ var sel = document.getElementById('default-lang-select'); if(sel){ var sv = '{{.DefaultLang}}'; if(sv === 'en-US' || sv === 'zh-CN') sel.value = sv; else sel.value = 'zh-CN'; } })();
 
 function saveRevenueSplit(e) {
     e.preventDefault();
     var val = document.getElementById('revenue-split-publisher-pct').value;
     var pct = parseFloat(val);
-    if (isNaN(pct) || pct < 0 || pct > 100) { showMsg('分成比例必须在 0-100 之间', true); return; }
+    if (isNaN(pct) || pct < 0 || pct > 100) { showMsg(window._i18n("split_must_0_100","分成比例必须在 0-100 之间"), true); return; }
     apiFetch('/admin/api/settings/revenue-split', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({publisher_pct: pct})
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok || res.data.ok) { showMsg('收入分成比例已保存：发布者 ' + pct + '% / 平台 ' + (100 - pct) + '%', false); }
-        else { showMsg(res.data.error || '保存失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok || res.data.ok) { showMsg(window._i18n("split_saved","收入分成比例已保存：发布者 {pub}% / 平台 {plat}%").replace("{pub}", pct).replace("{plat}", 100 - pct), false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function saveWithdrawalFees(e) {
@@ -950,9 +980,9 @@ function saveWithdrawalFees(e) {
         body: JSON.stringify(body)
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok || res.data.ok) { showMsg('提现手续费率已保存', false); }
-        else { showMsg(res.data.error || '保存失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok || res.data.ok) { showMsg(window._i18n("fee_saved","提现手续费率已保存"), false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Helpers ---
@@ -965,7 +995,7 @@ function loadAdmins() {
         var admins = data.admins || [];
         var tbody = document.getElementById('admin-list');
         if (admins.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">暂无管理员</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999;">' + window._i18n("no_admins","暂无管理员") + '</td></tr>';
             return;
         }
         var html = '';
@@ -973,11 +1003,11 @@ function loadAdmins() {
             var a = admins[i];
             var permDisplay;
             if (a.id === 1) {
-                permDisplay = '<span class="badge badge-preset">超级管理员（全部权限）</span>';
+                permDisplay = '<span class="badge badge-preset">' + window._i18n("super_admin_all_perms","超级管理员（全部权限）") + '</span>';
             } else {
                 var perms = a.permissions || [];
                 if (perms.length === 0) {
-                    permDisplay = '<span style="color:#999;">无权限</span>';
+                    permDisplay = '<span style="color:#999;">' + window._i18n("no_permissions","无权限") + '</span>';
                 } else {
                     permDisplay = '';
                     for (var j = 0; j < perms.length; j++) {
@@ -993,7 +1023,7 @@ function loadAdmins() {
             html += '</tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载管理员列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_admins_failed","加载管理员列表失败") + ': ' + err, true); });
 }
 
 function showAddAdminModal() {
@@ -1011,8 +1041,8 @@ function hideAddAdminModal() {
 function submitAddAdmin() {
     var username = document.getElementById('new-admin-username').value.trim();
     var password = document.getElementById('new-admin-password').value;
-    if (username.length < 3) { alert('用户名至少3个字符'); return; }
-    if (password.length < 6) { alert('密码至少6个字符'); return; }
+    if (username.length < 3) { alert(window._i18n("username_min3","用户名至少3个字符")); return; }
+    if (password.length < 6) { alert(window._i18n("password_min6_alert","密码至少6个字符")); return; }
     var permCheckboxes = document.querySelectorAll('.new-admin-perm:checked');
     var perms = [];
     for (var i = 0; i < permCheckboxes.length; i++) { perms.push(permCheckboxes[i].value); }
@@ -1022,9 +1052,9 @@ function submitAddAdmin() {
         body: JSON.stringify({username: username, password: password, permissions: perms})
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) { hideAddAdminModal(); showMsg('管理员已添加', false); loadAdmins(); }
-        else { showMsg(res.data.error || '添加失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok) { hideAddAdminModal(); showMsg(window._i18n("admin_added","管理员已添加"), false); loadAdmins(); }
+        else { showMsg(res.data.error || window._i18n("add_failed","添加失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Review Management ---
@@ -1033,7 +1063,7 @@ function loadPendingPacks() {
         var packs = data || [];
         var tbody = document.getElementById('pending-list');
         if (packs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">暂无待审核分析包</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">' + window._i18n("no_pending_packs","暂无待审核分析包") + '</td></tr>';
             return;
         }
         var html = '';
@@ -1045,25 +1075,25 @@ function loadPendingPacks() {
             html += '<td>' + escHtml(p.category_name) + '</td>';
             html += '<td>' + escHtml(p.author_name || '-') + '</td>';
             html += '<td>' + p.share_mode + '</td>';
-            html += '<td>' + (p.share_mode === 'free' ? '免费' : p.credits_price + ' Credits') + '</td>';
+            html += '<td>' + (p.share_mode === 'free' ? window._i18n("free","免费") : p.credits_price + ' Credits') + '</td>';
             html += '<td>' + p.created_at + '</td>';
             html += '<td class="actions">';
-            html += '<button class="btn btn-primary" onclick="approvePack(' + p.id + ')">通过</button> ';
-            html += '<button class="btn btn-danger" onclick="showRejectModal(' + p.id + ')">拒绝</button>';
+            html += '<button class="btn btn-primary" onclick="approvePack(' + p.id + ')">' + window._i18n("approved","通过") + '</button> ';
+            html += '<button class="btn btn-danger" onclick="showRejectModal(' + p.id + ')">' + window._i18n("rejected","拒绝") + '</button>';
             html += '</td></tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载待审核列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_pending_failed","加载待审核列表失败") + ': ' + err, true); });
 }
 
 function approvePack(id) {
-    if (!confirm('确定通过审核？')) return;
+    if (!confirm(window._i18n("confirm_approve","确定通过审核？"))) return;
     apiFetch('/api/admin/review/' + id + '/approve', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('审核已通过', false); loadPendingPacks(); }
-            else { showMsg(res.data.error || '操作失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("approved","审核已通过"), false); loadPendingPacks(); }
+            else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function showRejectModal(id) {
@@ -1079,16 +1109,16 @@ function hideRejectModal() {
 function submitReject() {
     var id = document.getElementById('reject-pack-id').value;
     var reason = document.getElementById('reject-reason').value.trim();
-    if (!reason) { alert('请输入拒绝原因'); return; }
+    if (!reason) { alert(window._i18n("enter_reject_reason","请输入拒绝原因")); return; }
     apiFetch('/api/admin/review/' + id + '/reject', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({reason: reason})
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) { hideRejectModal(); showMsg('已拒绝', false); loadPendingPacks(); }
-        else { showMsg(res.data.error || '操作失败', true); }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        if (res.ok) { hideRejectModal(); showMsg(window._i18n("rejected_done","已拒绝"), false); loadPendingPacks(); }
+        else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Marketplace Management ---
@@ -1109,7 +1139,7 @@ function loadMarketplaceCategoryFilter() {
 }
 
 function shareModeLabel(mode) {
-    var labels = { free: '免费', per_use: '按次', subscription: '订阅' };
+    var labels = { free: window._i18n("free","免费"), per_use: window._i18n("per_use","按次"), subscription: window._i18n("subscription_mode","订阅") };
     return labels[mode] || mode;
 }
 
@@ -1120,7 +1150,7 @@ function loadMarketplacePacks() {
     var mode = document.getElementById('mp-mode-filter').value;
     var sort = document.getElementById('mp-sort').value;
     var order = document.getElementById('mp-order').value;
-    document.querySelector('#section-marketplace .card-header h2').textContent = status === 'delisted' ? '市场管理 - 已下架分析包' : '市场管理 - 在售分析包';
+    document.querySelector('#section-marketplace .card-header h2').textContent = status === 'delisted' ? window._i18n("marketplace_delisted","市场管理 - 已下架分析包") : window._i18n("marketplace_listed","市场管理 - 在售分析包");
     var url = '/api/admin/marketplace?status=' + status + '&sort=' + sort + '&order=' + order;
     if (catId) url += '&category_id=' + catId;
     if (mode) url += '&share_mode=' + mode;
@@ -1128,14 +1158,14 @@ function loadMarketplacePacks() {
         var packs = data.packs || [];
         var tbody = document.getElementById('marketplace-list');
         if (packs.length === 0) {
-            var emptyMsg = status === 'delisted' ? '暂无已下架分析包' : '暂无在售分析包';
+            var emptyMsg = status === 'delisted' ? window._i18n("no_delisted_packs","暂无已下架分析包") : window._i18n("no_listed_packs","暂无在售分析包");
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;">' + emptyMsg + '</td></tr>';
             return;
         }
         var html = '';
         for (var i = 0; i < packs.length; i++) {
             var p = packs[i];
-            var priceText = p.share_mode === 'free' ? '免费' : p.credits_price + ' Credits';
+            var priceText = p.share_mode === 'free' ? window._i18n("free","免费") : p.credits_price + ' Credits';
             html += '<tr>';
             html += '<td>' + p.id + '</td>';
             html += '<td>' + escHtml(p.pack_name) + '</td>';
@@ -1146,34 +1176,34 @@ function loadMarketplacePacks() {
             html += '<td>' + p.download_count + '</td>';
             html += '<td>' + p.created_at + '</td>';
             if (status === 'delisted') {
-                html += '<td><button class="btn btn-primary btn-sm" onclick="relistPack(' + p.id + ',\'' + escAttr(p.pack_name) + '\')">恢复在售</button></td>';
+                html += '<td><button class="btn btn-primary btn-sm" onclick="relistPack(' + p.id + ',\'' + escAttr(p.pack_name) + '\')">' + window._i18n("restore_listing","恢复在售") + '</button></td>';
             } else {
-                html += '<td><button class="btn btn-danger btn-sm" onclick="delistPack(' + p.id + ',\'' + escAttr(p.pack_name) + '\')">下架</button></td>';
+                html += '<td><button class="btn btn-danger btn-sm" onclick="delistPack(' + p.id + ',\'' + escAttr(p.pack_name) + '\')">' + window._i18n("delist","下架") + '</button></td>';
             }
             html += '</tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载市场列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_failed","加载失败") + ': ' + err, true); });
 }
 
 function delistPack(id, name) {
-    if (!confirm('确定要下架 "' + name + '" 吗？（下架后不删除，可在数据库中恢复）')) return;
+    if (!confirm(window._i18n("confirm_delist_admin","确定要下架 \"{name}\" 吗？（下架后不删除，可在数据库中恢复）").replace("{name}", name))) return;
     apiFetch('/api/admin/marketplace/' + id + '/delist', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('已下架', false); loadMarketplacePacks(); }
-            else { showMsg(res.data.error || '下架失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("pack_delisted","已下架"), false); loadMarketplacePacks(); }
+            else { showMsg(res.data.error || window._i18n("delist_failed","下架失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function relistPack(id, name) {
-    if (!confirm('确定要恢复 "' + name + '" 为在售状态吗？')) return;
+    if (!confirm(window._i18n("confirm_relist","确定要恢复 \"{name}\" 为在售状态吗？").replace("{name}", name))) return;
     apiFetch('/api/admin/marketplace/' + id + '/relist', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('已恢复在售', false); loadMarketplacePacks(); }
-            else { showMsg(res.data.error || '恢复失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("pack_relisted","已恢复在售"), false); loadMarketplacePacks(); }
+            else { showMsg(res.data.error || window._i18n("relist_failed","恢复失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Author Management ---
@@ -1187,7 +1217,7 @@ function loadAuthors() {
         var authors = data.authors || [];
         var tbody = document.getElementById('author-list');
         if (authors.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#999;">暂无作者数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#999;">' + window._i18n("no_authors","暂无作者数据") + '</td></tr>';
             return;
         }
         var html = '';
@@ -1204,31 +1234,31 @@ function loadAuthors() {
             html += '<td>' + a.year_revenue + '</td>';
             html += '<td>' + a.month_downloads + '</td>';
             html += '<td>' + a.month_revenue + '</td>';
-            html += '<td><button class="btn btn-primary btn-sm" onclick="showAuthorDetail(' + a.user_id + ')">详情</button></td>';
+            html += '<td><button class="btn btn-primary btn-sm" onclick="showAuthorDetail(' + a.user_id + ')">' + window._i18n("details","详情") + '</button></td>';
             html += '</tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载作者列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_authors_failed","加载作者列表失败") + ': ' + err, true); });
 }
 
 function showAuthorDetail(userId) {
     apiFetch('/api/admin/authors/' + userId).then(function(r) { return r.json(); }).then(function(data) {
-        document.getElementById('author-detail-title').textContent = escHtml(data.display_name) + ' 的销售详情';
-        document.getElementById('author-detail-info').textContent = '邮箱: ' + (data.email || '-');
+        document.getElementById('author-detail-title').textContent = escHtml(data.display_name) + ' ' + window._i18n("author_sales_detail","的销售详情");
+        document.getElementById('author-detail-info').textContent = window._i18n("email","邮箱") + ': ' + (data.email || '-');
         var packs = data.packs || [];
         var tbody = document.getElementById('author-detail-packs');
         if (packs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">暂无分析包</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">' + window._i18n("no_packs","暂无分析包") + '</td></tr>';
         } else {
             var html = '';
             for (var i = 0; i < packs.length; i++) {
                 var p = packs[i];
-                var statusLabel = p.status === 'published' ? '在售' : '已下架';
+                var statusLabel = p.status === 'published' ? window._i18n("listed_status","在售") : window._i18n("delisted","已下架");
                 html += '<tr>';
                 html += '<td>' + escHtml(p.pack_name) + '</td>';
                 html += '<td>' + escHtml(p.category_name) + '</td>';
                 html += '<td>' + shareModeLabel(p.share_mode) + '</td>';
-                html += '<td>' + (p.share_mode === 'free' ? '免费' : p.credits_price + ' Credits') + '</td>';
+                html += '<td>' + (p.share_mode === 'free' ? window._i18n("free","免费") : p.credits_price + ' Credits') + '</td>';
                 html += '<td>' + p.download_count + '</td>';
                 html += '<td>' + p.total_revenue + '</td>';
                 html += '<td>' + statusLabel + '</td>';
@@ -1237,7 +1267,7 @@ function showAuthorDetail(userId) {
             tbody.innerHTML = html;
         }
         document.getElementById('author-detail-modal').className = 'modal-overlay show';
-    }).catch(function(err) { showMsg('加载作者详情失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_author_detail_failed","加载作者详情失败") + ': ' + err, true); });
 }
 
 function hideAuthorDetailModal() {
@@ -1255,18 +1285,18 @@ function loadCustomers() {
         var customers = data.customers || [];
         var tbody = document.getElementById('customer-list');
         if (customers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无客户数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">' + window._i18n("no_customers","暂无客户数据") + '</td></tr>';
             return;
         }
         var html = '';
         for (var i = 0; i < customers.length; i++) {
             var c = customers[i];
             var statusBadge = c.is_blocked
-                ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">已禁用</span>'
-                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">正常</span>';
+                ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>'
+                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
             var blockBtn = c.is_blocked
-                ? '<button class="btn btn-primary btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',true)">解禁</button>'
-                : '<button class="btn btn-danger btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',false)">禁用</button>';
+                ? '<button class="btn btn-primary btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
+                : '<button class="btn btn-danger btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
             html += '<tr>';
             html += '<td>' + c.id + '</td>';
             html += '<td>' + escHtml(c.display_name) + '</td>';
@@ -1278,18 +1308,18 @@ function loadCustomers() {
             html += '<td>' + statusBadge + '</td>';
             html += '<td>' + c.created_at + '</td>';
             html += '<td class="actions" style="white-space:nowrap;">';
-            html += '<button class="btn btn-primary btn-sm" onclick="showTopupModal(' + c.id + ',\'' + escAttr(c.display_name) + '\',' + c.credits_balance + ')">充值</button> ';
-            html += '<button class="btn btn-secondary btn-sm" onclick="showCustomerTx(' + c.id + ',\'' + escAttr(c.display_name) + '\')">记录</button> ';
+            html += '<button class="btn btn-primary btn-sm" onclick="showTopupModal(' + c.id + ',\'' + escAttr(c.display_name) + '\',' + c.credits_balance + ')">' + window._i18n("topup","充值") + '</button> ';
+            html += '<button class="btn btn-secondary btn-sm" onclick="showCustomerTx(' + c.id + ',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
             html += blockBtn;
             html += '</td></tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载客户列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_customers_failed","加载客户列表失败") + ': ' + err, true); });
 }
 
 function showTopupModal(userId, name, balance) {
     document.getElementById('topup-user-id').value = userId;
-    document.getElementById('topup-user-info').textContent = '客户: ' + name + '  |  当前余额: ' + balance.toFixed(0) + ' Credits';
+    document.getElementById('topup-user-info').textContent = window._i18n("customer_label","客户:") + ' ' + name + '  |  ' + window._i18n("current_balance_label","当前余额:") + ' ' + balance.toFixed(0) + ' Credits';
     document.getElementById('topup-amount').value = '';
     document.getElementById('topup-reason').value = '';
     document.getElementById('topup-modal').className = 'modal-overlay show';
@@ -1303,7 +1333,7 @@ function submitTopup() {
     var userId = document.getElementById('topup-user-id').value;
     var amount = parseFloat(document.getElementById('topup-amount').value);
     var reason = document.getElementById('topup-reason').value.trim();
-    if (!amount || amount <= 0) { alert('请输入有效的充值数量'); return; }
+    if (!amount || amount <= 0) { alert(window._i18n("enter_valid_topup","请输入有效的充值数量")); return; }
     apiFetch('/api/admin/customers/' + userId + '/topup', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1312,41 +1342,41 @@ function submitTopup() {
     .then(function(res) {
         if (res.ok) {
             hideTopupModal();
-            showMsg('充值成功，新余额: ' + res.data.new_balance, false);
+            showMsg(window._i18n("topup_success","充值成功，新余额:") + ' ' + res.data.new_balance, false);
             loadCustomers();
         } else {
-            showMsg(res.data.error || '充值失败', true);
+            showMsg(res.data.error || window._i18n("topup_failed","充值失败"), true);
         }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function toggleBlock(userId, name, isCurrentlyBlocked) {
-    var action = isCurrentlyBlocked ? '解禁' : '禁用';
-    if (!confirm('确定要' + action + '客户 "' + name + '" 吗？')) return;
+    var action = isCurrentlyBlocked ? window._i18n("unblock","解禁") : window._i18n("block","禁用");
+    if (!confirm(window._i18n("confirm_block","确定要{action}客户 \"{name}\" 吗？").replace("{action}", action).replace("{name}", name))) return;
     apiFetch('/api/admin/customers/' + userId + '/toggle-block', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
             if (res.ok) {
-                showMsg('已' + (res.data.status === 'blocked' ? '禁用' : '解禁'), false);
+                showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false);
                 loadCustomers();
             } else {
-                showMsg(res.data.error || '操作失败', true);
+                showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
             }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function showCustomerTx(userId, name) {
-    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' 的交易记录';
+    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' ' + window._i18n("transaction_records","的交易记录");
     var tbody = document.getElementById('customer-tx-list');
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">加载中...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("loading","加载中...") + '</td></tr>';
     document.getElementById('customer-tx-modal').className = 'modal-overlay show';
     apiFetch('/api/admin/customers/' + userId + '/transactions').then(function(r) { return r.json(); }).then(function(data) {
         var txns = data.transactions || [];
         if (txns.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">暂无交易记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("no_transactions_admin","暂无交易记录") + '</td></tr>';
             return;
         }
-        var typeLabels = { download: '下载扣费', admin_topup: '管理员充值', initial: '注册赠送', purchase: '购买' };
+        var typeLabels = { download: window._i18n("tx_download","下载扣费"), admin_topup: window._i18n("tx_admin_topup","管理员充值"), initial: window._i18n("tx_initial","注册赠送"), purchase: window._i18n("tx_purchase","购买") };
         var html = '';
         for (var i = 0; i < txns.length; i++) {
             var t = txns[i];
@@ -1362,7 +1392,7 @@ function showCustomerTx(userId, name) {
         }
         tbody.innerHTML = html;
     }).catch(function(err) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">加载失败</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">' + window._i18n("load_tx_failed","加载失败") + '</td></tr>';
     });
 }
 
@@ -1375,9 +1405,9 @@ function saveProfile() {
     var username = document.getElementById('profile-username').value.trim();
     var oldPassword = document.getElementById('profile-old-password').value;
     var newPassword = document.getElementById('profile-new-password').value;
-    if (!username && !newPassword) { alert('请输入要修改的内容'); return; }
-    if (newPassword && !oldPassword) { alert('修改密码需要输入当前密码'); return; }
-    if (newPassword && newPassword.length < 6) { alert('新密码至少6个字符'); return; }
+    if (!username && !newPassword) { alert(window._i18n("enter_change_content","请输入要修改的内容")); return; }
+    if (newPassword && !oldPassword) { alert(window._i18n("need_current_pw","修改密码需要输入当前密码")); return; }
+    if (newPassword && newPassword.length < 6) { alert(window._i18n("new_pw_min6","新密码至少6个字符")); return; }
     var body = {};
     if (username) body.username = username;
     if (newPassword) { body.old_password = oldPassword; body.new_password = newPassword; }
@@ -1388,17 +1418,17 @@ function saveProfile() {
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) {
-            showMsg('资料已更新', false);
+            showMsg(window._i18n("profile_updated","资料已更新"), false);
             document.getElementById('profile-username').value = '';
             document.getElementById('profile-old-password').value = '';
             document.getElementById('profile-new-password').value = '';
         } else {
             var errMsg = res.data.error;
-            if (errMsg === 'invalid_old_password') errMsg = '当前密码错误';
-            else if (errMsg === 'username_already_exists') errMsg = '用户名已被使用';
-            showMsg(errMsg || '修改失败', true);
+            if (errMsg === 'invalid_old_password') errMsg = window._i18n("invalid_old_password","当前密码错误");
+            else if (errMsg === 'username_already_exists') errMsg = window._i18n("username_already_exists","用户名已被使用");
+            showMsg(errMsg || window._i18n("change_failed","修改失败"), true);
         }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Create Notification Modal ---
@@ -1434,7 +1464,7 @@ function searchNotifUsers() {
         var customers = data.customers || [];
         var container = document.getElementById('notif-user-results');
         if (customers.length === 0) {
-            container.innerHTML = '<div style="padding:6px;color:#999;font-size:12px;">未找到用户</div>';
+            container.innerHTML = '<div style="padding:6px;color:#999;font-size:12px;">' + window._i18n("no_users_found","未找到用户") + '</div>';
             return;
         }
         var html = '';
@@ -1447,11 +1477,11 @@ function searchNotifUsers() {
             if (alreadySelected) continue;
             html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;border-bottom:1px solid #f3f4f6;font-size:13px;">';
             html += '<span>' + escHtml(c.display_name) + ' (' + escHtml(c.email || '-') + ')</span>';
-            html += '<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:11px;" onclick="addNotifUser(' + c.id + ',\'' + escAttr(c.display_name) + '\',\'' + escAttr(c.email || '') + '\')">添加</button>';
+            html += '<button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:11px;" onclick="addNotifUser(' + c.id + ',\'' + escAttr(c.display_name) + '\',\'' + escAttr(c.email || '') + '\')">' + window._i18n("add","添加") + '</button>';
             html += '</div>';
         }
-        container.innerHTML = html || '<div style="padding:6px;color:#999;font-size:12px;">所有搜索结果已添加</div>';
-    }).catch(function(err) { showMsg('搜索用户失败: ' + err, true); });
+        container.innerHTML = html || '<div style="padding:6px;color:#999;font-size:12px;">' + window._i18n("all_added","所有搜索结果已添加") + '</div>';
+    }).catch(function(err) { showMsg(window._i18n("request_failed","搜索用户失败") + ': ' + err, true); });
 }
 
 function addNotifUser(id, name, email) {
@@ -1471,7 +1501,7 @@ function removeNotifUser(id) {
 function renderSelectedUsers() {
     var container = document.getElementById('notif-selected-users');
     if (notifSelectedUsers.length === 0) {
-        container.innerHTML = '未选择用户';
+        container.innerHTML = window._i18n("no_users_selected","未选择用户");
         return;
     }
     var html = '';
@@ -1491,20 +1521,20 @@ function loadNotifications() {
         var notifs = data.notifications || [];
         var tbody = document.getElementById('notifications-tbody');
         if (notifs.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">暂无消息</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">' + window._i18n("no_notifications","暂无消息") + '</td></tr>';
             return;
         }
         var html = '';
         for (var i = 0; i < notifs.length; i++) {
             var n = notifs[i];
-            var typeText = n.target_type === 'broadcast' ? '广播' : '定向(' + (n.target_count || 0) + '人)';
+            var typeText = n.target_type === 'broadcast' ? window._i18n("broadcast","广播") : window._i18n("targeted","定向({count}人)").replace("{count}", n.target_count || 0);
             var statusBadge = n.status === 'active'
-                ? '<span class="badge" style="background:#ecfdf5;color:#065f46;">活跃</span>'
-                : '<span class="badge" style="background:#f3f4f6;color:#6b7280;">已禁用</span>';
-            var durationText = n.display_duration_days === 0 ? '永久' : n.display_duration_days + '天';
+                ? '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("active","活跃") + '</span>'
+                : '<span class="badge" style="background:#f3f4f6;color:#6b7280;">' + window._i18n("disabled","已禁用") + '</span>';
+            var durationText = n.display_duration_days === 0 ? window._i18n("permanent","永久") : n.display_duration_days + window._i18n("days_unit","天");
             var toggleBtn = n.status === 'active'
-                ? '<button class="btn btn-secondary btn-sm" onclick="disableNotification(' + n.id + ')">禁用</button>'
-                : '<button class="btn btn-primary btn-sm" onclick="enableNotification(' + n.id + ')">启用</button>';
+                ? '<button class="btn btn-secondary btn-sm" onclick="disableNotification(' + n.id + ')">' + window._i18n("disable","禁用") + '</button>'
+                : '<button class="btn btn-primary btn-sm" onclick="enableNotification(' + n.id + ')">' + window._i18n("enable","启用") + '</button>';
             html += '<tr>';
             html += '<td>' + n.id + '</td>';
             html += '<td>' + escHtml(n.title) + '</td>';
@@ -1513,11 +1543,11 @@ function loadNotifications() {
             html += '<td>' + escHtml(n.effective_date || '-') + '</td>';
             html += '<td>' + durationText + '</td>';
             html += '<td>' + escHtml(n.created_at || '-') + '</td>';
-            html += '<td class="actions">' + toggleBtn + ' <button class="btn btn-danger btn-sm" onclick="deleteNotification(' + n.id + ')">删除</button></td>';
+            html += '<td class="actions">' + toggleBtn + ' <button class="btn btn-danger btn-sm" onclick="deleteNotification(' + n.id + ')">' + window._i18n("delete","删除") + '</button></td>';
             html += '</tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg('加载消息列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_notifications_failed","加载消息列表失败") + ': ' + err, true); });
 }
 
 function createNotification() {
@@ -1526,8 +1556,8 @@ function createNotification() {
     var targetType = document.getElementById('notif-target-type').value;
     var effectiveDate = document.getElementById('notif-effective-date').value;
     var duration = parseInt(document.getElementById('notif-duration').value) || 0;
-    if (!title || !content) { alert('请输入消息标题和内容'); return; }
-    if (targetType === 'targeted' && notifSelectedUsers.length === 0) { alert('请选择目标用户'); return; }
+    if (!title || !content) { alert(window._i18n("enter_title_content","请输入消息标题和内容")); return; }
+    if (targetType === 'targeted' && notifSelectedUsers.length === 0) { alert(window._i18n("select_target_users","请选择目标用户")); return; }
     var targetUserIds = [];
     for (var i = 0; i < notifSelectedUsers.length; i++) {
         targetUserIds.push(notifSelectedUsers[i].id);
@@ -1548,45 +1578,45 @@ function createNotification() {
     .then(function(res) {
         if (res.ok) {
             hideCreateNotification();
-            showMsg('消息已发送', false);
+            showMsg(window._i18n("notification_sent","消息已发送"), false);
             loadNotifications();
         } else {
-            alert(res.data.error || '发送失败');
+            alert(res.data.error || window._i18n("send_failed","发送失败"));
         }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function disableNotification(id) {
     apiFetch('/api/admin/notifications/' + id + '/disable', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('消息已禁用', false); loadNotifications(); }
-            else { showMsg(res.data.error || '操作失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("notification_disabled","消息已禁用"), false); loadNotifications(); }
+            else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function enableNotification(id) {
     apiFetch('/api/admin/notifications/' + id + '/enable', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('消息已启用', false); loadNotifications(); }
-            else { showMsg(res.data.error || '操作失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("notification_enabled","消息已启用"), false); loadNotifications(); }
+            else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function deleteNotification(id) {
-    if (!confirm('确定要删除该消息吗？')) return;
+    if (!confirm(window._i18n("confirm_delete_notif","确定要删除该消息吗？"))) return;
     apiFetch('/api/admin/notifications/' + id + '/delete', { method: 'POST' })
         .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
-            if (res.ok) { showMsg('消息已删除', false); loadNotifications(); }
-            else { showMsg(res.data.error || '删除失败', true); }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+            if (res.ok) { showMsg(window._i18n("notification_deleted","消息已删除"), false); loadNotifications(); }
+            else { showMsg(res.data.error || window._i18n("delete_failed","删除失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Withdrawal Management ---
 function paymentTypeLabel(t) {
-    var labels = { paypal: 'PayPal', wechat: '微信', alipay: 'AliPay', check: '支票', wire_transfer: '国际电汇', bank_card_us: '美国银行卡', bank_card_eu: '欧洲银行卡', bank_card_cn: '中国银行卡' };
+    var labels = { paypal: 'PayPal', wechat: window._i18n("wechat","微信"), alipay: 'AliPay', check: window._i18n("check","支票"), wire_transfer: window._i18n("wire_transfer","国际电汇"), bank_card_us: window._i18n("bank_card_us","美国银行卡"), bank_card_eu: window._i18n("bank_card_eu","欧洲银行卡"), bank_card_cn: window._i18n("bank_card_cn","中国银行卡") };
     return labels[t] || t;
 }
 
@@ -1613,7 +1643,7 @@ function getSelectedWithdrawalIds() {
 
 function exportWithdrawals() {
     var ids = getSelectedWithdrawalIds();
-    if (ids.length === 0) { alert('请先选择要导出的提现记录'); return; }
+    if (ids.length === 0) { alert(window._i18n("select_records_export","请先选择要导出的提现记录")); return; }
     window.open('/admin/api/withdrawals/export?ids=' + ids.join(','), '_blank');
 }
 
@@ -1625,10 +1655,10 @@ function exportAndApproveWithdrawals() {
         allIds.push(parseInt(boxes[i].value));
         if (boxes[i].getAttribute('data-status') === 'pending') pendingIds.push(parseInt(boxes[i].value));
     }
-    if (allIds.length === 0) { alert('请先选择要导出的提现记录'); return; }
-    var msg = '将导出 ' + allIds.length + ' 条记录';
-    if (pendingIds.length > 0) msg += '，并将其中 ' + pendingIds.length + ' 条待审核记录标记为已付款';
-    if (!confirm(msg + '，确定继续？')) return;
+    if (allIds.length === 0) { alert(window._i18n("select_records_export","请先选择要导出的提现记录")); return; }
+    var msg = window._i18n("will_export","将导出 {count} 条记录").replace("{count}", allIds.length);
+    if (pendingIds.length > 0) msg += window._i18n("and_mark_paid","并将其中 {count} 条待审核记录标记为已付款").replace("{count}", pendingIds.length);
+    if (!confirm(msg + window._i18n("confirm_continue","，确定继续？"))) return;
     // Export first
     window.open('/admin/api/withdrawals/export?ids=' + allIds.join(','), '_blank');
     // Then approve pending ones
@@ -1640,12 +1670,12 @@ function exportAndApproveWithdrawals() {
         }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
         .then(function(res) {
             if (res.ok || res.data.ok) {
-                showMsg('已导出并标记 ' + (res.data.updated || pendingIds.length) + ' 条记录为已付款', false);
+                showMsg(window._i18n("exported_marked","已导出并标记 {count} 条记录为已付款").replace("{count}", res.data.updated || pendingIds.length), false);
                 loadWithdrawals();
             } else {
-                showMsg(res.data.error || '标记付款失败', true);
+                showMsg(res.data.error || window._i18n("mark_paid_failed","标记付款失败"), true);
             }
-        }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
     }
 }
 
@@ -1662,7 +1692,7 @@ function loadWithdrawals() {
         var tbody = document.getElementById('withdrawals-list');
         document.getElementById('wd-select-all').checked = false;
         if (list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无提现记录</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">' + window._i18n("no_withdraw_records_admin","暂无提现记录") + '</td></tr>';
             document.getElementById('btn-batch-approve').style.display = 'none';
             return;
         }
@@ -1671,8 +1701,8 @@ function loadWithdrawals() {
         for (var i = 0; i < list.length; i++) {
             var w = list[i];
             var statusBadge = w.status === 'pending'
-                ? '<span class="badge" style="background:#fef3c7;color:#92400e;">已申请提现</span>'
-                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">已付款</span>';
+                ? '<span class="badge" style="background:#fef3c7;color:#92400e;">' + window._i18n("applied_withdraw","已申请提现") + '</span>'
+                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("paid","已付款") + '</span>';
             if (w.status === 'pending') hasPending = true;
             html += '<tr>';
             html += '<td><input type="checkbox" class="wd-check" value="' + w.id + '" data-status="' + w.status + '" onchange="updateBatchBtn()" /></td>';
@@ -1689,7 +1719,7 @@ function loadWithdrawals() {
         }
         tbody.innerHTML = html;
         document.getElementById('btn-batch-approve').style.display = hasPending ? '' : 'none';
-    }).catch(function(err) { showMsg('加载提现列表失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_withdrawals_failed","加载提现列表失败") + ': ' + err, true); });
 }
 
 function toggleSelectAllWithdrawals() {
@@ -1714,8 +1744,8 @@ function batchApproveWithdrawals() {
     for (var i = 0; i < boxes.length; i++) {
         if (boxes[i].getAttribute('data-status') === 'pending') ids.push(parseInt(boxes[i].value));
     }
-    if (ids.length === 0) { alert('请选择待审核的提现记录'); return; }
-    if (!confirm('确定将选中的 ' + ids.length + ' 条提现记录标记为已付款？')) return;
+    if (ids.length === 0) { alert(window._i18n("select_pending_records","请选择待审核的提现记录")); return; }
+    if (!confirm(window._i18n("confirm_batch_approve","确定将选中的 {count} 条提现记录标记为已付款？").replace("{count}", ids.length))) return;
     apiFetch('/admin/api/withdrawals/approve', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1723,12 +1753,12 @@ function batchApproveWithdrawals() {
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok || res.data.ok) {
-            showMsg('已标记 ' + (res.data.updated || ids.length) + ' 条记录为已付款', false);
+            showMsg(window._i18n("marked_paid","已标记 {count} 条记录为已付款").replace("{count}", res.data.updated || ids.length), false);
             loadWithdrawals();
         } else {
-            showMsg(res.data.error || '操作失败', true);
+            showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
         }
-    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 // --- Sales Management ---
@@ -1768,12 +1798,12 @@ function loadSalesData(page) {
         var orders = data.orders || [];
         var tbody = document.getElementById('sales-order-list');
         if (orders.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">暂无订单数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">' + window._i18n("no_orders","暂无订单数据") + '</td></tr>';
             renderSalesPagination(0);
             return;
         }
         var html = '';
-        var typeLabels = {purchase:'购买',purchase_uses:'购买次数',renew:'续订',download:'免费领取'};
+        var typeLabels = {purchase:window._i18n("tx_purchase","购买"),purchase_uses:window._i18n("tx_purchase_uses","购买次数"),renew:window._i18n("tx_renew","续订"),download:window._i18n("tx_free_claim","免费领取")};
         for (var i = 0; i < orders.length; i++) {
             var o = orders[i];
             html += '<tr>';
@@ -1791,7 +1821,7 @@ function loadSalesData(page) {
         }
         tbody.innerHTML = html;
         renderSalesPagination(data.total_orders || 0);
-    }).catch(function(e) { if (e.message !== 'session_expired') showMsg('加载销售数据失败', true); });
+    }).catch(function(e) { if (e.message !== 'session_expired') showMsg(window._i18n("load_sales_failed","加载销售数据失败"), true); });
 }
 
 function renderSalesPagination(totalOrders) {
@@ -1808,7 +1838,7 @@ function renderSalesPagination(totalOrders) {
     }
     var start = (salesCurrentPage - 1) * 100 + 1;
     var end = Math.min(salesCurrentPage * 100, totalOrders);
-    pageInfo.textContent = '显示 ' + start + '-' + end + ' 条，共 ' + totalOrders + ' 条';
+    pageInfo.textContent = window._i18n("showing_range","显示 {start}-{end} 条，共 {total} 条").replace("{start}", start).replace("{end}", end).replace("{total}", totalOrders);
     prevBtn.disabled = salesCurrentPage <= 1;
     nextBtn.disabled = salesCurrentPage >= salesTotalPages;
     // Render page number buttons (show max 7 pages around current)
@@ -1841,7 +1871,7 @@ function loadSalesFilterOptions() {
             var cats = Array.isArray(data) ? data : (data.categories || []);
             var sel = document.getElementById('sales-category-filter');
             var current = sel.value;
-            sel.innerHTML = '<option value="">全部分类</option>';
+            sel.innerHTML = '<option value="">' + window._i18n("all_categories_filter","全部分类") + '</option>';
             for (var i = 0; i < cats.length; i++) {
                 sel.innerHTML += '<option value="' + cats[i].id + '">' + escHtml(cats[i].name) + '</option>';
             }
@@ -1854,7 +1884,7 @@ function loadSalesFilterOptions() {
             var authors = data.authors || [];
             var sel = document.getElementById('sales-author-filter');
             var current = sel.value;
-            sel.innerHTML = '<option value="">全部作者</option>';
+            sel.innerHTML = '<option value="">' + window._i18n("all_authors_filter","全部作者") + '</option>';
             for (var i = 0; i < authors.length; i++) {
                 sel.innerHTML += '<option value="' + authors[i].id + '">' + escHtml(authors[i].name) + '</option>';
             }
@@ -1891,5 +1921,6 @@ function exportSalesExcel() {
     showSection('profile');
 })();
 </script>
+` + I18nJS + `
 </body>
 </html>`

@@ -109,7 +109,7 @@ REM ==========================================
 echo [Market] Packaging source files...
 cd /d "%~dp0marketplace_server"
 
-tar -czf "%TEMP%\marketplace_server.tar.gz" main.go pack_encryption.go go.mod go.sum templates start.sh 2>NUL
+tar -czf "%TEMP%\marketplace_server.tar.gz" main.go pack_encryption.go go.mod go.sum templates i18n start.sh 2>NUL
 if errorlevel 1 (
     echo [ERROR] Failed to create marketplace_server package
     exit /b 1
@@ -148,7 +148,7 @@ REM ==========================================
 :deploy_nginx
 echo [Nginx] Uploading configuration...
 cd /d "%~dp0..\deploy\nginx"
-call :ssh_scp "vantagedata.chat.conf" "/etc/nginx/conf.d/"
+call :ssh_scp "vantagics.com.conf" "/etc/nginx/conf.d/"
 if errorlevel 1 (
     echo [ERROR] Nginx config upload failed
     exit /b 1
@@ -174,12 +174,12 @@ echo 部署完成！
 echo ==========================================
 echo.
 echo License Server:
-echo   Auth API:  https://license.vantagedata.chat/  (port 6699)
-echo   Admin:     https://license.vantagedata.chat/admin/  (port 8899)
+echo   Auth API:  https://license.vantagics.com/  (port 6699)
+echo   Admin:     https://license.vantagics.com/admin/  (port 8899)
 echo.
 echo Marketplace Server:
-echo   Service:   https://market.vantagedata.chat/  (port 8088)
-echo   Admin:     https://market.vantagedata.chat/admin/
+echo   Service:   https://market.vantagics.com/  (port 8088)
+echo   Admin:     https://market.vantagics.com/admin/
 echo.
 echo 查看日志:
 echo   ssh root@%SERVER_IP% "tail -f /root/license_server/server.log"

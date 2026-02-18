@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Key, CheckCircle, AlertCircle, Loader2, Mail, ExternalLink } from 'lucide-react';
 import { ActivateLicense, GetActivationStatus, DeactivateLicense, GetConfig, SaveConfig } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
@@ -64,16 +64,16 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
 
     const handleActivate = async () => {
         if (!activationEmail) {
-            setError(t('activation_email_required') || '请输入邮箱地址');
+            setError(t('activation_email_required'));
             return;
         }
         const atIndex = activationEmail.indexOf('@');
         if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
-            setError(t('please_enter_valid_email') || '请输入有效的邮箱地址');
+            setError(t('please_enter_valid_email'));
             return;
         }
         if (!serverURL || !sn) {
-            setError(t('please_fill_server_and_sn') || '请填写服务器地址和序列号');
+            setError(t('please_fill_server_and_sn'));
             return;
         }
 
@@ -116,11 +116,11 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
 
     const handleRequestSN = async () => {
         if (!serverURL) {
-            setRequestMessage({ type: 'error', text: t('please_fill_server') || '请先填写服务器地址' });
+            setRequestMessage({ type: 'error', text: t('please_fill_server') });
             return;
         }
         if (!email || !email.includes('@')) {
-            setRequestMessage({ type: 'error', text: t('please_enter_valid_email') || '请输入有效的邮箱地址' });
+            setRequestMessage({ type: 'error', text: t('please_enter_valid_email') });
             return;
         }
 
@@ -139,18 +139,18 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                 setSN(result.sn);
                 setActivationEmail(email);
                 setShowRequestForm(false);
-                setRequestMessage({ type: 'success', text: t('sn_request_success') || '序列号申请成功！' });
+                setRequestMessage({ type: 'success', text: t('sn_request_success') });
             } else {
                 // Check if it's an "not invited" error
                 if (result.code === 'EMAIL_NOT_WHITELISTED' || result.code === 'not_invited' || result.message?.includes('not invited') || result.message?.includes('未被邀请')) {
-                    setRequestMessage({ type: 'error', text: t('email_not_invited_text') || '当前未被邀请使用，请点击下方链接获取帮助。', isNotInvited: true });
+                    setRequestMessage({ type: 'error', text: t('email_not_invited_text'), isNotInvited: true });
                 } else {
                     // Use code for localization if available
                     setRequestMessage({ type: 'error', text: getLocalizedError(result.code, result.message) });
                 }
             }
         } catch (err: any) {
-            setRequestMessage({ type: 'error', text: (t('server_connection_failed') || '连接服务器失败') + ': ' + err.toString() });
+            setRequestMessage({ type: 'error', text: (t('server_connection_failed')) + ': ' + err.toString() });
         } finally {
             setIsRequesting(false);
         }
@@ -168,7 +168,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                             <Key className="w-5 h-5 text-[#5b7a9d]" />
                         </div>
                         <h2 className="text-lg font-bold text-slate-800">
-                            {t('activation_title') || '产品激活'}
+                            {t('activation_title')}
                         </h2>
                     </div>
                     <button onClick={onClose} className="p-1.5 hover:bg-white/50 rounded-lg">
@@ -301,14 +301,14 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                             {!showRequestForm && (
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        {t('activation_email_label') || '邮箱'}
+                                        {t('activation_email_label')}
                                     </label>
                                     <input
                                         type="email"
                                         value={activationEmail}
                                         onChange={(e) => setActivationEmail(e.target.value)}
                                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                        placeholder={t('activation_email_placeholder') || '请输入您的邮箱地址'}
+                                        placeholder={t('activation_email_placeholder')}
                                     />
                                 </div>
                             )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { X, Sparkles, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../i18n';
 import { SemanticOptimizeDataSource } from '../../wailsjs/go/main/App';
@@ -46,7 +46,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
         const unsubscribeCompleted = EventsOn('semantic-optimize-completed', (data: any) => {
             setCompleted(true);
             setIsOptimizing(false);
-            setProgress(t('semantic_optimize_success') || '语义优化完成！');
+            setProgress(t('semantic_optimize_success'));
             
             // Auto close after 2 seconds
             setTimeout(() => {
@@ -64,7 +64,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
     const handleOptimize = async () => {
         setIsOptimizing(true);
         setError('');
-        setProgress(t('semantic_optimizing') || '正在开始优化...');
+        setProgress(t('semantic_optimizing'));
 
         try {
             await SemanticOptimizeDataSource(dataSourceId);
@@ -91,7 +91,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                     <div className="flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-[#5b7a9d] dark:text-[#c586c0]" />
                         <h2 className="text-lg font-bold text-slate-800 dark:text-[#d4d4d4]">
-                            {t('semantic_optimize') || '数据源语义优化'}
+                            {t('semantic_optimize')}
                         </h2>
                     </div>
                     {!isOptimizing && (
@@ -106,7 +106,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                     {!isOptimizing && !completed && !error && (
                         <div>
                             <p className="text-sm text-slate-700 dark:text-[#d4d4d4] mb-4">
-                                {t('semantic_optimize_desc') || '将使用 AI 分析数据源结构和样本数据，为字段生成更有意义的名称。'}
+                                {t('semantic_optimize_desc')}
                             </p>
                             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                                 <p className="text-sm text-blue-800">
@@ -118,7 +118,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                             </div>
                             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                                 <p className="text-xs text-yellow-800">
-                                    <strong>{t('note')}:</strong> {t('semantic_optimize_warning') || '优化过程可能需要几分钟，请耐心等待。'}
+                                    <strong>{t('note')}:</strong> {t('semantic_optimize_warning')}
                                 </p>
                             </div>
                         </div>
@@ -150,7 +150,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                         <div className="flex flex-col items-center py-8">
                             <AlertCircle className="w-12 h-12 text-red-600 mb-4" />
                             <p className="text-sm text-red-700 font-medium mb-2">
-                                {t('semantic_optimize_failed') || '语义优化失败'}
+                                {t('semantic_optimize_failed')}
                             </p>
                             <p className="text-xs text-red-600 text-center">
                                 {error}
@@ -166,14 +166,14 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                             onClick={handleClose}
                             className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-white dark:bg-[#3c3c3c] border border-slate-300 dark:border-[#4d4d4d] hover:bg-slate-50 dark:hover:bg-[#4d4d4d] rounded-md"
                         >
-                            {t('cancel') || '取消'}
+                            {t('cancel')}
                         </button>
                         <button
                             onClick={handleOptimize}
                             className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#5b7a9d] to-[#6b8db5] hover:from-[#456a8a] hover:to-[#5b7a9d] rounded-md flex items-center gap-2"
                         >
                             <Sparkles className="w-4 h-4" />
-                            {t('start_optimize') || '开始优化'}
+                            {t('start_optimize')}
                         </button>
                     </div>
                 )}
@@ -184,7 +184,7 @@ const SemanticOptimizeModal: React.FC<SemanticOptimizeModalProps> = ({
                             onClick={handleClose}
                             className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] bg-white dark:bg-[#3c3c3c] border border-slate-300 dark:border-[#4d4d4d] hover:bg-slate-50 dark:hover:bg-[#4d4d4d] rounded-md"
                         >
-                            {t('close') || '关闭'}
+                            {t('close')}
                         </button>
                     </div>
                 )}

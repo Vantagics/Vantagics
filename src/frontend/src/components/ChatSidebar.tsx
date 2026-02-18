@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
 import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, ClearThreadMessages, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
@@ -394,7 +394,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // Show user-friendly error message
                 EventsEmit('show-message-modal', {
                     type: 'warning',
-                    title: t('create_session_failed') || '创建会话失败',
+                    title: t('create_session_failed'),
                     message: errorMsg
                 });
 
@@ -1104,14 +1104,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // Show user-friendly error message via MessageModal
                 EventsEmit('show-message-modal', {
                     type: 'warning',
-                    title: t('session_conflict_title') || '会话冲突',
+                    title: t('session_conflict_title'),
                     message: errorMsg
                 });
             } else {
                 // Generic error
                 EventsEmit('show-message-modal', {
                     type: 'error',
-                    title: t('create_session_failed') || '创建会话失败',
+                    title: t('create_session_failed'),
                     message: errorMsg
                 });
             }
@@ -1211,8 +1211,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             // 显示错误消息给用户
             EventsEmit('show-message-modal', {
                 type: 'error',
-                title: t('delete_failed') || 'Delete Failed',
-                message: `${t('cannot_delete_session') || 'Cannot delete session'}: ${err}`
+                title: t('delete_failed'),
+                message: `${t('cannot_delete_session')}: ${err}`
             });
         }
     };
@@ -1419,7 +1419,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             await ShowStepResultOnDashboard(activeThreadId, messageId);
             setToast({ message: t('show_result_success'), type: 'success' });
         } catch (err: any) {
-            setToast({ message: (t('show_result_failed') || '推送结果失败') + ': ' + (err?.message || err), type: 'error' });
+            setToast({ message: (t('show_result_failed')) + ': ' + (err?.message || err), type: 'error' });
         }
     };
 
@@ -1660,7 +1660,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 const errMsg = '返回结果无效 (reportId is empty)';
                 setComprehensiveReportError(errMsg);
                 setToast({
-                    message: (t('comprehensive_report_failed') || '综合报告生成失败：') + errMsg,
+                    message: (t('comprehensive_report_failed')) + errMsg,
                     type: 'error'
                 });
                 return;
@@ -1681,12 +1681,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             
             if (result.cached) {
                 setToast({
-                    message: t('comprehensive_report_cached') || '报告已缓存，可直接导出',
+                    message: t('comprehensive_report_cached'),
                     type: 'success'
                 });
             } else {
                 setToast({
-                    message: t('comprehensive_report_ready') || '报告已生成，请选择导出格式',
+                    message: t('comprehensive_report_ready'),
                     type: 'success'
                 });
             }
@@ -1698,7 +1698,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             setComprehensiveReportError(errMsg);
             console.error("[COMPREHENSIVE-REPORT] Prepare comprehensive report failed:", e);
             setToast({
-                message: (t('comprehensive_report_failed') || '综合报告生成失败：') + errMsg,
+                message: (t('comprehensive_report_failed')) + errMsg,
                 type: 'error'
             });
         }
@@ -1710,13 +1710,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         try {
             await ExportComprehensiveReport(preparedComprehensiveReportId, format);
             setToast({
-                message: t('comprehensive_report_success') || '综合报告导出成功！',
+                message: t('comprehensive_report_success'),
                 type: 'success'
             });
         } catch (e) {
             console.error("Export comprehensive report failed:", e);
             setToast({
-                message: (t('comprehensive_report_export_failed') || '综合报告导出失败：') + String(e),
+                message: (t('comprehensive_report_export_failed')) + String(e),
                 type: 'error'
             });
         }
@@ -1767,8 +1767,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         let content = `[INTENT_SUGGESTIONS]\n\n`;
         
         // Header
-        const header = t('select_your_intent') || '请选择您的分析意图';
-        const desc = t('intent_selection_desc') || '系统理解了您的请求，请选择最符合您意图的分析方向';
+        const header = t('select_your_intent');
+        const desc = t('intent_selection_desc');
 
         content += `**${header}**\n\n${desc}\n\n`;
 
@@ -1797,7 +1797,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // Add "重新理解" button (Requirement 5.1 - order: options, retry, stick)
         const retryIndex = suggestions.length + 1;
-        const retryText = t('retry_intent_understanding') || '以上都不是我所想的，重新理解意图';
+        const retryText = t('retry_intent_understanding');
         content += `${retryIndex}. 🔄 **${retryText}** ${retryData}\n\n`;
         
         systemLog.info(`[formatIntentSuggestions] Retry button line: ${retryIndex}. 🔄 **${retryText}** ${retryData.substring(0, 50)}...`);
@@ -1808,7 +1808,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // Add "坚持我的请求" button with original request preview (Requirements 3.1, 3.4, 5.1)
         const stickIndex = suggestions.length + 2;
-        const stickText = t('stick_to_original') || '坚持我的请求';
+        const stickText = t('stick_to_original');
         // Truncate original request to ~30 chars for preview (Requirement 3.4)
         const truncatedRequest = originalRequest.length > 30
             ? originalRequest.substring(0, 30) + '...'
@@ -1816,7 +1816,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         content += `${stickIndex}. 📝 **${stickText}**: "${truncatedRequest}" ${stickData}\n\n`;
 
         // Footer hint
-        content += `\n*${t('click_suggestion_to_continue') || '点击上方建议继续分析'}*`;
+        content += `\n*${t('click_suggestion_to_continue')}*`;
 
         return content;
     };
@@ -1868,7 +1868,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             console.log('[ChatSidebar] ⚠️ Analysis in progress for target thread, blocking new request');
             // 显示Toast提示
             setToast({
-                message: t('analysis_in_progress') || '分析进行中，请等待当前分析完成后再发起新的分析',
+                message: t('analysis_in_progress'),
                 type: 'warning'
             });
             return;
@@ -1929,7 +1929,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                         loadingStateManager.updateProgress(targetThreadId, {
                             stage: 'initializing',
                             progress: 0,
-                            message: t('generating_intent') || 'progress.understanding_intent',
+                            message: t('generating_intent'),
                             step: 1,
                             total: 2
                         });
@@ -1959,7 +1959,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             loadingStateManager.updateProgress(actualThreadId, {
                                 stage: 'initializing',
                                 progress: 0,
-                                message: t('generating_intent') || 'progress.understanding_intent',
+                                message: t('generating_intent'),
                                 step: 1,
                                 total: 2
                             });
@@ -2272,7 +2272,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             loadingStateManager.updateProgress(currentThreadId, {
                 stage: 'initializing',
                 progress: 5,
-                message: t('stage_initializing') || 'progress.initializing_analysis',
+                message: t('stage_initializing'),
                 step: 0,
                 total: 0
             });
@@ -2586,7 +2586,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         if (!originalRequest || !threadId) {
             systemLog.error(`[handleRetryIntentUnderstandingWithData] ❌ Missing required data: hasOriginalRequest=${!!originalRequest}, hasThreadId=${!!threadId}`);
             setToast({
-                message: t('intent_retry_error') || '重新理解失败，请重新发送消息',
+                message: t('intent_retry_error'),
                 type: 'error'
             });
             return;
@@ -2619,7 +2619,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         loadingStateManager.updateProgress(threadId, {
             stage: 'initializing',
             progress: 0,
-            message: t('regenerating_intent') || 'progress.regenerating_intent',
+            message: t('regenerating_intent'),
             step: 1,
             total: 2
         });
@@ -2638,7 +2638,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             } catch (apiError) {
                 systemLog.error(`[handleRetryIntentUnderstandingWithData] API call failed: ${apiError}`);
                 setToast({
-                    message: `${t('api_call_failed') || 'API call failed'}: ${apiError}`,
+                    message: `${t('api_call_failed')}: ${apiError}`,
                     type: 'error'
                 });
                 throw apiError;
@@ -2689,7 +2689,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 } else {
                     systemLog.error(`[handleRetryIntentUnderstandingWithData] Cannot update UI: intentThread not found`);
                     setToast({
-                        message: t('intent_retry_error') || '重新理解失败',
+                        message: t('intent_retry_error'),
                         type: 'error'
                     });
                 }
@@ -2713,11 +2713,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 const originalRequestBase64 = btoa(encodeURIComponent(originalRequest));
                 const stickData = `[INTENT_STICK_DATA:${threadId}:${originalRequestBase64}:${newNoMoreMsgId}]`;
 
-                const noMoreContent = `**${t('no_more_suggestions') || '没有更多建议'}**\n\n` +
-                    `${t('no_more_suggestions_desc') || '系统已无法生成更多不同的意图建议。'}\n\n` +
+                const noMoreContent = `**${t('no_more_suggestions')}**\n\n` +
+                    `${t('no_more_suggestions_desc')}\n\n` +
                     `*${t('excluded_count')?.replace('{count}', String(newExcludedSuggestions.length)) || `已排除 ${newExcludedSuggestions.length} 个选项`}*\n\n` +
-                    `1. 📝 **${t('stick_to_original') || '坚持我的请求'}**: "${originalRequest.length > 30 ? originalRequest.substring(0, 30) + '...' : originalRequest}" ${stickData}\n\n` +
-                    `\n*${t('click_to_use_original') || '点击上方选项使用原始请求进行分析'}*`;
+                    `1. 📝 **${t('stick_to_original')}**: "${originalRequest.length > 30 ? originalRequest.substring(0, 30) + '...' : originalRequest}" ${stickData}\n\n` +
+                    `\n*${t('click_to_use_original')}*`;
 
                 if (intentThread) {
                     const noMoreMsg: main.ChatMessage = {
@@ -2748,7 +2748,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             systemLog.error(`[handleRetryIntentUnderstandingWithData] Error: ${error}`);
 
             setToast({
-                message: t('intent_generation_failed') || '意图生成失败，请重试或使用原始请求',
+                message: t('intent_generation_failed'),
                 type: 'error'
             });
 
@@ -2784,7 +2784,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         if (!originalRequest || !threadId) {
             systemLog.error(`[handleStickToOriginalWithData] ❌ Missing required data`);
             setToast({
-                message: t('stick_to_original_error') || '无法使用原始请求，请重新发送消息',
+                message: t('stick_to_original_error'),
                 type: 'error'
             });
             return;
@@ -2865,7 +2865,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         loadingStateManager.updateProgress(threadId, {
             stage: 'initializing',
             progress: 5,
-            message: t('stage_initializing') || 'progress.initializing_analysis',
+            message: t('stage_initializing'),
             step: 0,
             total: 0
         });
@@ -3108,7 +3108,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             console.error('Failed to clear conversation:', err);
             EventsEmit('show-message-modal', {
                 type: 'error',
-                title: t('clear_conversation') || 'Clear Chat',
+                title: t('clear_conversation'),
                 message: String(err)
             });
         } finally {
@@ -3131,7 +3131,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         // 这是必要的，因为后端的取消可能需要时间才能生效
         EventsEmit('analysis-cancelled', {
             threadId: activeThreadId,
-            message: t('analysis_cancelled') || 'Analysis cancelled'
+            message: t('analysis_cancelled')
         });
         systemLog.debug('analysis-cancelled event emitted');
 
@@ -3280,10 +3280,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     onClick={handleClearConversation}
                                     disabled={isLoading || isStreaming || isGeneratingComprehensiveReport}
                                     className="ml-auto flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:text-[#808080] hover:text-red-600 dark:hover:text-[#f14c4c] transition-colors rounded-lg hover:bg-red-50 dark:hover:bg-[#2e1e1e] disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                                    title={t('clear_conversation') || 'Clear Chat'}
+                                    title={t('clear_conversation')}
                                 >
                                     <Trash2 className="w-3.5 h-3.5" />
-                                    <span>{t('clear_conversation') || '清除会话'}</span>
+                                    <span>{t('clear_conversation')}</span>
                                 </button>
                             )}
                             {/* Inline Comprehensive Report Progress / Export Button */}
@@ -3295,7 +3295,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         <div className="flex items-center gap-2 px-3 py-1 bg-[#f0f4f8] dark:bg-[#1e1e2e] border border-[#b8cade] dark:border-[#3d3d5a] rounded-lg">
                                             <Loader2 className="w-3.5 h-3.5 text-[#5b7a9d] animate-spin" />
                                             <div className="flex flex-col gap-0.5">
-                                                <span className="text-[10px] font-medium text-[#5b7a9d]">{t('comprehensive_report_generating') || '正在生成综合报告...'}</span>
+                                                <span className="text-[10px] font-medium text-[#5b7a9d]">{t('comprehensive_report_generating')}</span>
                                                 <div className="w-28 bg-[#dce5ef] rounded-full h-1 overflow-hidden">
                                                     <div className="h-full bg-gradient-to-r from-[#7b9bb8] via-[#5b7a9d] to-[#7b9bb8] rounded-full" style={{ width: '100%', animation: 'comprehensiveReportProgress 2s ease-in-out infinite' }}></div>
                                                 </div>
@@ -3328,16 +3328,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                                             : 'bg-indigo-50 border border-indigo-200 text-indigo-600 hover:bg-indigo-100'
                                                 }`}
                                                 title={preparedComprehensiveReportId 
-                                                    ? (t('comprehensive_report_ready_title') || '报告已就绪，选择导出格式')
+                                                    ? (t('comprehensive_report_ready_title'))
                                                     : comprehensiveReportError
-                                                        ? `${t('comprehensive_report_failed') || '生成失败'}：${comprehensiveReportError}`
+                                                        ? `${t('comprehensive_report_failed')}：${comprehensiveReportError}`
                                                         : t('comprehensive_report_button_title')}
                                             >
                                                 <FileText className="w-3 h-3" />
                                                 {preparedComprehensiveReportId 
-                                                    ? (t('export_comprehensive_report') || '导出报告')
+                                                    ? (t('export_comprehensive_report'))
                                                     : comprehensiveReportError
-                                                        ? (t('comprehensive_report_retry') || '重试生成报告')
+                                                        ? (t('comprehensive_report_retry'))
                                                         : t('comprehensive_report')}
                                             </button>
                                             
@@ -3345,11 +3345,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                             {comprehensiveReportExportDropdownOpen && preparedComprehensiveReportId && (
                                                 <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-[#252526] rounded-lg shadow-xl border border-slate-200 dark:border-[#3c3c3c] py-1 z-50">
                                                     <div className="px-3 py-1 text-[9px] font-medium text-slate-400 dark:text-[#808080] uppercase tracking-wider">
-                                                        {t('select_export_format') || '选择导出格式'}
+                                                        {t('select_export_format')}
                                                     </div>
                                                     {comprehensiveReportCached && (
                                                         <div className="px-3 py-1 text-[9px] text-green-600 dark:text-[#6a9955] bg-green-50 dark:bg-[#1e2a1e] border-b border-slate-100 dark:border-[#3c3c3c]">
-                                                            {t('comprehensive_report_using_cache') || '使用缓存报告'}
+                                                            {t('comprehensive_report_using_cache')}
                                                         </div>
                                                     )}
                                                     <button
@@ -3357,14 +3357,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                                         className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                                     >
                                                         <FileChartColumn size={12} className="flex-shrink-0 text-indigo-500" />
-                                                        <span>{t('export_as_word') || '导出为 Word'}</span>
+                                                        <span>{t('export_as_word')}</span>
                                                     </button>
                                                     <button
                                                         onClick={() => { setComprehensiveReportExportDropdownOpen(false); exportComprehensiveReportAs('pdf'); }}
                                                         className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                                     >
                                                         <FileChartColumn size={12} className="flex-shrink-0 text-rose-500" />
-                                                        <span>{t('export_as_pdf') || '导出为 PDF'}</span>
+                                                        <span>{t('export_as_pdf')}</span>
                                                     </button>
                                                     <div className="border-t border-slate-100 dark:border-[#3c3c3c] mt-1 pt-1">
                                                         <button
@@ -3375,7 +3375,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                                             }}
                                                             className="w-full flex items-center gap-2 px-3 py-1.5 text-[10px] text-slate-400 dark:text-[#808080] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
                                                         >
-                                                            <span>{t('regenerate_comprehensive_report') || '重新生成报告'}</span>
+                                                            <span>{t('regenerate_comprehensive_report')}</span>
                                                         </button>
                                                     </div>
                                                 </div>
@@ -3401,7 +3401,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                         <button
                                             className="text-[9px] px-1.5 py-0.5 bg-white dark:bg-[#3c3c3c] text-blue-600 dark:text-[#569cd6] rounded border border-blue-200 dark:border-[#4d4d4d] flex items-center gap-1 cursor-pointer hover:bg-blue-50 dark:hover:bg-[#2a2d2e] hover:border-blue-300 dark:hover:border-[#569cd6] transition-colors font-medium"
                                             onClick={() => EventsEmit('open-data-browser', { sourceId: activeDataSource.id, sourceName: activeDataSource.name })}
-                                            title={t('browse_data') || 'Browse data tables'}
+                                            title={t('browse_data')}
                                         >
                                             <Database className="w-2.5 h-2.5" />
                                             {t('ds_tables_count').replace('{0}', String(activeDataSource.analysis.schema.length))}
@@ -3853,7 +3853,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     // 发出取消事件，通知 App.tsx 和 AnalysisResultManager 更新状态
                                     EventsEmit('analysis-cancelled', {
                                         threadId: activeThreadId,
-                                        message: t('analysis_cancelled') || 'Analysis cancelled'
+                                        message: t('analysis_cancelled')
                                     });
                                     
                                     // 更新本地状态
@@ -3887,7 +3887,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                     <div className="flex items-center gap-2">
                                         <div className="w-4 h-4 border-2 border-blue-200 dark:border-[#264f78] border-t-blue-600 dark:border-t-[#5b7a9d] rounded-full animate-spin" />
                                         <span className="text-sm text-slate-700 dark:text-[#d4d4d4] font-medium">
-                                            {t('searching_web') || '正在搜索网络信息...'}
+                                            {t('searching_web')}
                                         </span>
                                     </div>
                                 </div>
