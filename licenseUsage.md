@@ -234,7 +234,7 @@ Auth server starting on :6699 (HTTP)
 2. 进入"设置"或"偏好设置"
 3. 找到"产品激活"选项
 4. 填写激活信息：
-   - **授权服务器地址**：`https://license.vantagedata.chat`
+   - **授权服务器地址**：`https://license.vantagics.com`
    - **序列号**：输入获取的序列号
 5. 点击"激活"按钮
 

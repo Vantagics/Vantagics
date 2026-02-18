@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -569,6 +567,7 @@ func (a *App) startup(ctx context.Context) {
 
 		// 4. Create and register LicenseFacadeService (non-critical)
 		a.licenseFacadeService = NewLicenseFacadeService(
+			a.configService,
 			a.configService,
 			a.Log,
 		)

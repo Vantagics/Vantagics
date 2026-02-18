@@ -22,7 +22,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const [commercialStep, setCommercialStep] = useState<CommercialStep>('check');
     
     // Commercial mode state - server URL is fixed, not user-configurable
-    const serverURL = 'https://license.vantagedata.chat';
+    const serverURL = 'https://license.vantagics.com';
     const [sn, setSN] = useState('');
     const [activationEmail, setActivationEmail] = useState('');
     const [email, setEmail] = useState('');
@@ -31,7 +31,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const [isNotInvitedError, setIsNotInvitedError] = useState(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-    const INVITE_URL = 'https://vantagedata.chat/invite';
+    const INVITE_URL = 'https://vantagics.com/invite';
 
     const handleOpenInviteLink = () => {
         BrowserOpenURL(INVITE_URL);

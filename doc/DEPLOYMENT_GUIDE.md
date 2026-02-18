@@ -33,7 +33,7 @@
 
 ### License Server
 
-- **域名**：license.vantagedata.chat
+- **域名**：license.vantagics.com
 - **IP**：107.172.86.131
 - **管理端口**：8899
 - **授权端口**：6699
@@ -41,7 +41,7 @@
 
 ### Marketplace Server
 
-- **域名**：market.vantagedata.chat
+- **域名**：market.vantagics.com
 - **IP**：107.172.86.131
 - **端口**：8088
 - **部署目录**：/root/marketplace_server
@@ -83,8 +83,8 @@ LICENSE_ADMIN_PASSWORD=your-admin-password
 ### 3. 上传到服务器
 
 ```bash
-scp license_server root@license.vantagedata.chat:/root/license_server/
-scp .env root@license.vantagedata.chat:/root/license_server/
+scp license_server root@license.vantagics.com:/root/license_server/
+scp .env root@license.vantagics.com:/root/license_server/
 ```
 
 ### 4. 创建启动脚本
@@ -123,10 +123,10 @@ ssh root@license.vantagedata.chat "cd /root/license_server && ./start.sh"
 
 ```bash
 # 检查健康状态
-curl http://license.vantagedata.chat:6699/health
+curl http://license.vantagics.com:6699/health
 
 # 检查管理界面
-curl http://license.vantagedata.chat:8899/
+curl http://license.vantagics.com:8899/
 ```
 
 ## Marketplace 服务器部署
@@ -151,8 +151,8 @@ MARKETPLACE_JWT_SECRET=your-secret-key-here
 ### 3. 上传到服务器
 
 ```bash
-scp marketplace_server root@market.vantagedata.chat:/root/marketplace_server/
-scp .env root@market.vantagedata.chat:/root/marketplace_server/
+scp marketplace_server root@market.vantagics.com:/root/marketplace_server/
+scp .env root@market.vantagics.com:/root/marketplace_server/
 ```
 
 ### 4. 创建启动脚本
@@ -191,10 +191,10 @@ ssh root@market.vantagedata.chat "cd /root/marketplace_server && ./start.sh"
 
 ```bash
 # 检查服务状态
-curl http://market.vantagedata.chat:8088/
+curl http://market.vantagics.com:8088/
 
 # 检查 API
-curl http://market.vantagedata.chat:8088/api/categories
+curl http://market.vantagics.com:8088/api/categories
 ```
 
 ## 快速部署脚本
@@ -216,12 +216,12 @@ bash deploy_all.sh
 
 ### License 服务器
 
-创建 `/etc/nginx/sites-available/license.vantagedata.chat`：
+创建 `/etc/nginx/sites-available/license.vantagics.com`：
 
 ```nginx
 server {
     listen 80;
-    server_name license.vantagedata.chat;
+    server_name license.vantagics.com;
 
     # 管理界面
     location / {
@@ -245,12 +245,12 @@ server {
 
 ### Marketplace 服务器
 
-创建 `/etc/nginx/sites-available/market.vantagedata.chat`：
+创建 `/etc/nginx/sites-available/market.vantagics.com`：
 
 ```nginx
 server {
     listen 80;
-    server_name market.vantagedata.chat;
+    server_name market.vantagics.com;
 
     location / {
         proxy_pass http://localhost:8088;
@@ -269,8 +269,8 @@ server {
 
 ```bash
 # 创建符号链接
-ln -s /etc/nginx/sites-available/license.vantagedata.chat /etc/nginx/sites-enabled/
-ln -s /etc/nginx/sites-available/market.vantagedata.chat /etc/nginx/sites-enabled/
+ln -s /etc/nginx/sites-available/license.vantagics.com /etc/nginx/sites-enabled/
+ln -s /etc/nginx/sites-available/market.vantagics.com /etc/nginx/sites-enabled/
 
 # 测试配置
 nginx -t
@@ -289,10 +289,10 @@ apt-get update
 apt-get install certbot python3-certbot-nginx
 
 # 为 License 服务器申请证书
-certbot --nginx -d license.vantagedata.chat
+certbot --nginx -d license.vantagics.com
 
 # 为 Marketplace 服务器申请证书
-certbot --nginx -d market.vantagedata.chat
+certbot --nginx -d market.vantagics.com
 
 # 自动续期
 certbot renew --dry-run
@@ -305,7 +305,7 @@ certbot renew --dry-run
 ```nginx
 server {
     listen 443 ssl;
-    server_name license.vantagedata.chat;
+    server_name license.vantagics.com;
 
     ssl_certificate /path/to/certificate.crt;
     ssl_certificate_key /path/to/private.key;

@@ -23,7 +23,7 @@ const ServiceAuthErrorDialog: React.FC<ServiceAuthErrorDialogProps> = ({ show, e
     };
 
     const handleDirectVisit = () => {
-        BrowserOpenURL('https://service.vantagedata.chat');
+        BrowserOpenURL('https://service.vantagics.com');
         onClose();
     };
 

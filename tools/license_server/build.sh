@@ -9,7 +9,7 @@ BUILD_DIR="./build"
 mkdir -p "$BUILD_DIR"
 
 # Remote server config
-SERVER="license.vantagedata.chat"
+SERVER="license.vantagics.com"
 USER="root"
 PASS="sunion123"
 REMOTE_DIR="/root/license_server"

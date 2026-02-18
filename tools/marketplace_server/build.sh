@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # VantageData Marketplace Server - Build & Deploy
-# Target: market.vantagedata.chat:8088
+# Target: market.vantagics.com:8088
 
 set -e
 
@@ -9,7 +9,7 @@ BUILD_DIR="./build"
 mkdir -p "$BUILD_DIR"
 
 # Remote server config
-SERVER="market.vantagedata.chat"
+SERVER="market.vantagics.com"
 USER="root"
 PASS="sunion123"
 REMOTE_DIR="/root/marketplace_server"

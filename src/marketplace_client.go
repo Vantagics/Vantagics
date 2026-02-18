@@ -9,10 +9,10 @@ import (
 )
 
 // DefaultMarketplaceServerURL is the default marketplace server address.
-const DefaultMarketplaceServerURL = "https://market.vantagedata.chat"
+const DefaultMarketplaceServerURL = "https://market.vantagics.com"
 
 // DefaultLicenseServerURL is the default license server address.
-const DefaultLicenseServerURL = "https://license.vantagedata.chat"
+const DefaultLicenseServerURL = "https://license.vantagics.com"
 
 // maxErrorBodySize limits how much of an error response body we read to prevent memory exhaustion.
 const maxErrorBodySize = 4096

@@ -3633,7 +3633,7 @@ var licenseServerURL = func() string {
 	if u := os.Getenv("LICENSE_SERVER_URL"); u != "" {
 		return u
 	}
-	return "https://license.vantagedata.chat"
+	return "https://license.vantagics.com"
 }()
 
 // snLoginRequest represents the JSON body for SN login.

@@ -1262,7 +1262,7 @@ func (m *MarketplaceFacadeService) GetShareURL(packName string) (string, error) 
 		return "", fmt.Errorf("failed to get listing ID: %w", err)
 	}
 
-	shareURL := fmt.Sprintf("https://market.vantagedata.chat/pack/%d", listingID)
+	shareURL := fmt.Sprintf("https://market.vantagics.com/pack/%d", listingID)
 
 	runtime.ClipboardSetText(m.ctx, shareURL)
 

@@ -800,7 +800,7 @@ func sendSNEmail(email, sn string, expiresAt time.Time, productID int) error {
                 <p><strong>📅 Valid until:</strong> %s (%d days)</p>
                 <p><strong>💡 How to use:</strong> Open %s → Select Commercial Mode → Enter serial number → Activate</p>
             </div>
-            <p class="help">Questions? Visit <a href="https://vantagedata.chat" style="color:#667eea;">vantagedata.chat</a></p>
+            <p class="help">Questions? Visit <a href="https://vantagics.com" style="color:#667eea;">vantagics.com</a></p>
         </div>
         <div class="footer">
             <p>© %s - %s</p>

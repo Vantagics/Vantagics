@@ -12,8 +12,8 @@ interface AboutModalProps {
     onClose: () => void;
 }
 
-const PURCHASE_URL = 'https://vantagedata.chat/purchase';
-const WEBSITE_URL = 'https://vantagedata.chat';
+const PURCHASE_URL = 'https://vantagics.com/purchase';
+const WEBSITE_URL = 'https://vantagics.com';
 
 const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     const { t, language } = useLanguage();
@@ -353,7 +353,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                         className="w-full flex items-center justify-center gap-1.5 text-xs text-blue-600 hover:text-blue-700 hover:underline transition-colors"
                     >
                         <Globe className="w-3.5 h-3.5" />
-                        vantagedata.chat
+                        vantagics.com
                     </button>
                 </div>
             </div>

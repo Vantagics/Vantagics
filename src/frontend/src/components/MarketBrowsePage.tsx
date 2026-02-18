@@ -33,7 +33,7 @@ interface MarketBrowseDialogProps {
     onClose: () => void;
 }
 
-const TOPUP_URL = 'https://market.vantagedata.chat/user/credits';
+const TOPUP_URL = 'https://market.vantagics.com/user/credits';
 
 /**
  * Determines whether the purchased badge should be visible for a pack listing.

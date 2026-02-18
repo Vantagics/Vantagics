@@ -8,7 +8,7 @@ set BUILD_DIR=build
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 REM Remote server config
-set SERVER=license.vantagedata.chat
+set SERVER=license.vantagics.com
 set USER=root
 set PASS=sunion123
 set REMOTE_DIR=/root/license_server

@@ -7,7 +7,7 @@ import (
 )
 
 // DefaultServicePortalURL is the default service portal address.
-const DefaultServicePortalURL = "https://service.vantagedata.chat"
+const DefaultServicePortalURL = "https://service.vantagics.com"
 
 // ServicePortalClient is the HTTP client for communicating with the service portal.
 type ServicePortalClient struct {

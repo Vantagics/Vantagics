@@ -202,8 +202,8 @@ bash deploy_all.sh
 
 ## 📞 联系我们
 
-- 官网：[https://vantagedata.chat](https://vantagedata.chat)
-- 邮箱：support@vantagedata.chat
+- 官网：[https://vantagics.com](https://vantagics.com)
+- 邮箱：support@vantagics.com
 - 问题反馈：[GitHub Issues](https://github.com/yourusername/VantageData/issues)
 
 ---

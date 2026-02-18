@@ -11,11 +11,11 @@ interface ActivationModalProps {
     hideServerURL?: boolean; // Hide server URL input (use default)
 }
 
-const INVITE_URL = 'https://vantagedata.chat/invite';
+const INVITE_URL = 'https://vantagics.com/invite';
 
 const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onActivated, hideServerURL = false }) => {
     const { t } = useLanguage();
-    const [serverURL, setServerURL] = useState('https://license.vantagedata.chat');
+    const [serverURL, setServerURL] = useState('https://license.vantagics.com');
     const [sn, setSN] = useState('');
     const [activationEmail, setActivationEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);

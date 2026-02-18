@@ -141,7 +141,7 @@ ENDSSH
 # ==========================================
 deploy_nginx() {
     echo "[Nginx] Uploading configuration..."
-    scp $SSH_OPTS "$SCRIPT_DIR/../deploy/nginx/vantagedata.chat.conf" $USER@$SERVER_IP:/etc/nginx/conf.d/
+    scp $SSH_OPTS "$SCRIPT_DIR/../deploy/nginx/vantagics.com.conf" $USER@$SERVER_IP:/etc/nginx/conf.d/
 
     echo "[Nginx] Testing and reloading..."
     ssh $SSH_OPTS $USER@$SERVER_IP "nginx -t && nginx -s reload && echo '  Nginx: OK' || echo '  Nginx: FAILED'"
@@ -169,12 +169,12 @@ ENDSSH
     echo "=========================================="
     echo ""
     echo "License Server:"
-    echo "  Auth API:  https://license.vantagedata.chat/  (port 6699)"
-    echo "  Admin:     https://license.vantagedata.chat/admin/  (port 8899)"
+    echo "  Auth API:  https://license.vantagics.com/  (port 6699)"
+    echo "  Admin:     https://license.vantagics.com/admin/  (port 8899)"
     echo ""
     echo "Marketplace Server:"
-    echo "  Service:   https://market.vantagedata.chat/  (port 8088)"
-    echo "  Admin:     https://market.vantagedata.chat/admin/"
+    echo "  Service:   https://market.vantagics.com/  (port 8088)"
+    echo "  Admin:     https://market.vantagics.com/admin/"
     echo ""
     echo "查看日志:"
     echo "  ssh root@$SERVER_IP \"tail -f /root/license_server/server.log\""

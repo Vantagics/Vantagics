@@ -2,13 +2,13 @@
 setlocal enabledelayedexpansion
 
 REM VantageData Marketplace Server - One-Click Build & Deploy
-REM Target: market.vantagedata.chat:8088
+REM Target: market.vantagics.com:8088
 
 set BUILD_DIR=build
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 
 REM Remote server config
-set SERVER=market.vantagedata.chat
+set SERVER=market.vantagics.com
 set USER=root
 set PASS=sunion123
 set REMOTE_DIR=/root/marketplace_server

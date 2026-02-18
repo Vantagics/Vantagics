@@ -40,7 +40,7 @@
    - 关于对话框监听该事件并刷新激活状态
 
 **重要说明：**
-- 授权服务器URL使用固定值（与启动时激活一致）：`https://license.vantagedata.chat`
+- 授权服务器URL使用固定值（与启动时激活一致）：`https://license.vantagics.com`
 - 不向用户显示服务器URL输入框
 - 使用与启动时相同的激活对话框（`StartupModeModal`），确保体验一致
 

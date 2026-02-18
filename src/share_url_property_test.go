@@ -12,7 +12,7 @@ import (
 
 // generateShareURL generates a Share URL from a listing_id.
 func generateShareURL(listingID int64) string {
-	return fmt.Sprintf("https://market.vantagedata.chat/pack/%d", listingID)
+	return fmt.Sprintf("https://market.vantagics.com/pack/%d", listingID)
 }
 
 // parseListingIDFromURL extracts the listing_id from a Share URL path.

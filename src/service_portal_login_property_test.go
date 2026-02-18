@@ -32,7 +32,7 @@ func TestProperty5_TicketLoginURLConstruction(t *testing.T) {
 		url := BuildTicketLoginURL(ticketStr)
 
 		// Property: URL must have the exact expected prefix
-		expectedPrefix := "https://service.vantagedata.chat/auth/ticket-login?ticket="
+		expectedPrefix := "https://service.vantagics.com/auth/ticket-login?ticket="
 		if !strings.HasPrefix(url, expectedPrefix) {
 			t.Logf("seed=%d: URL prefix mismatch: got %q", seed, url)
 			return false
