@@ -41,8 +41,6 @@ var chineseTranslations = map[string]string{
 	"datasource.import_failed":        "数据源导入失败：%s",
 	"datasource.delete_success":       "数据源删除成功",
 	"datasource.delete_failed":        "数据源删除失败：%s",
-	"datasource.optimize_success":     "数据源优化成功",
-	"datasource.optimize_failed":      "数据源优化失败：%s",
 	"datasource.export_success":       "数据源导出成功",
 	"datasource.export_failed":        "数据源导出失败：%s",
 	"datasource.not_found":            "数据源不存在",
@@ -409,11 +407,6 @@ var chineseTranslations = map[string]string{
 	"dashboard.write_excel_failed":    "写入Excel文件失败: %v",
 	"dashboard.write_ppt_failed":      "写入PPT文件失败: %v",
 	"dashboard.write_word_failed":     "写入Word文件失败: %v",
-
-	// 数据源优化
-	"optimize.remote_not_allowed":     "无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。",
-	"optimize.no_local_storage":       "数据源没有本地存储，无法优化。请先将数据导入到本地。",
-	"optimize.summary":                "优化完成：成功应用 %d 项优化，共 %d 个建议",
 
 	// 市场
 	"marketplace.insufficient_credits": "积分余额不足，需要 %d 积分，当前余额 %.0f 积分",

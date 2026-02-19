@@ -130,22 +130,6 @@ const DataSourcePropertiesModal: React.FC<DataSourcePropertiesModalProps> = ({ i
                         </div>
                     )}
 
-                    {config.db_path && (
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="text-sm font-medium text-slate-500 text-right">{t('optimization_status')}:</div>
-                            <div className="col-span-2">
-                                {config.optimized ? (
-                                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium text-green-700 bg-green-100 border border-green-300 rounded">
-                                        ✓ {t('optimized')}
-                                    </span>
-                                ) : (
-                                    <span className="inline-flex items-center px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-300 rounded">
-                                        {t('not_optimized')}
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="p-4 border-t border-slate-200 dark:border-[#3c3c3c] bg-slate-50 dark:bg-[#1e1e1e] flex justify-end">

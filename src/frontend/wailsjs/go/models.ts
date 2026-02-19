@@ -2061,30 +2061,6 @@ export namespace main {
 	        this.is_auto_suggestion = source["is_auto_suggestion"];
 	    }
 	}
-	export class IndexSuggestion {
-	    table_name: string;
-	    index_name: string;
-	    columns: string[];
-	    reason: string;
-	    sql_command: string;
-	    applied: boolean;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new IndexSuggestion(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.table_name = source["table_name"];
-	        this.index_name = source["index_name"];
-	        this.columns = source["columns"];
-	        this.reason = source["reason"];
-	        this.sql_command = source["sql_command"];
-	        this.applied = source["applied"];
-	        this.error = source["error"];
-	    }
-	}
 	
 	export class IntentSuggestion {
 	    id: string;
@@ -2223,84 +2199,6 @@ export namespace main {
 	        this.display_duration_days = source["display_duration_days"];
 	        this.created_at = source["created_at"];
 	    }
-	}
-	export class OptimizeDataSourceResult {
-	    data_source_id: string;
-	    data_source_name: string;
-	    suggestions: IndexSuggestion[];
-	    summary: string;
-	    success: boolean;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new OptimizeDataSourceResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.data_source_id = source["data_source_id"];
-	        this.data_source_name = source["data_source_name"];
-	        this.suggestions = this.convertValues(source["suggestions"], IndexSuggestion);
-	        this.summary = source["summary"];
-	        this.success = source["success"];
-	        this.error = source["error"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class OptimizeSuggestionsResult {
-	    data_source_id: string;
-	    data_source_name: string;
-	    suggestions: IndexSuggestion[];
-	    success: boolean;
-	    error?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new OptimizeSuggestionsResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.data_source_id = source["data_source_id"];
-	        this.data_source_name = source["data_source_name"];
-	        this.suggestions = this.convertValues(source["suggestions"], IndexSuggestion);
-	        this.success = source["success"];
-	        this.error = source["error"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	
 	export class PackCategory {

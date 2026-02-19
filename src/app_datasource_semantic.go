@@ -114,19 +114,6 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 		return fmt.Errorf("failed to migrate data: %w", err)
 	}
 
-	a.sendSemanticOptimizeProgress("正在优化索引...")
-
-	// 6. 执行索引优化
-	suggestions, err := a.GetOptimizeSuggestions(newSource.ID)
-	if err != nil {
-		a.Log("Failed to get optimization suggestions (non-critical): " + err.Error())
-	} else if suggestions != nil && len(suggestions.Suggestions) > 0 {
-		_, err = a.ApplyOptimizeSuggestions(newSource.ID, suggestions.Suggestions)
-		if err != nil {
-			a.Log("Index optimization failed (non-critical): " + err.Error())
-		}
-	}
-
 	a.sendSemanticOptimizeProgress("完成")
 
 	// 7. 发送完成事件

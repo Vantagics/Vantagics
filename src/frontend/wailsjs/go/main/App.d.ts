@@ -11,8 +11,6 @@ export function AddAnalysisRecord(arg1:string,arg2:agent.AnalysisRecord):Promise
 
 export function AddDataSource(arg1:string,arg2:string,arg3:Record<string, string>):Promise<agent.DataSource>;
 
-export function ApplyOptimizeSuggestions(arg1:string,arg2:Array<main.IndexSuggestion>):Promise<main.OptimizeDataSourceResult>;
-
 export function BrowseMarketplacePacks(arg1:number):Promise<Array<main.PackListingInfo>>;
 
 export function CanStartNewAnalysis():Promise<boolean|string>;
@@ -196,8 +194,6 @@ export function GetMyPurchasedPacks():Promise<Array<main.PurchasedPackInfo>>;
 export function GetMySQLDatabases(arg1:string,arg2:string,arg3:string,arg4:string):Promise<Array<string>>;
 
 export function GetMySharedPackNames():Promise<Array<string>>;
-
-export function GetOptimizeSuggestions(arg1:string):Promise<main.OptimizeSuggestionsResult>;
 
 export function GetPackLicenseInfo(arg1:number):Promise<main.UsageLicense>;
 

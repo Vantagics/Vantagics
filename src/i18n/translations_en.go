@@ -41,8 +41,6 @@ var englishTranslations = map[string]string{
 	"datasource.import_failed":        "Data source import failed: %s",
 	"datasource.delete_success":       "Data source deleted successfully",
 	"datasource.delete_failed":        "Data source deletion failed: %s",
-	"datasource.optimize_success":     "Data source optimized successfully",
-	"datasource.optimize_failed":      "Data source optimization failed: %s",
 	"datasource.export_success":       "Data source exported successfully",
 	"datasource.export_failed":        "Data source export failed: %s",
 	"datasource.not_found":            "Data source not found",
@@ -409,11 +407,6 @@ var englishTranslations = map[string]string{
 	"dashboard.write_excel_failed":    "Failed to write Excel file: %v",
 	"dashboard.write_ppt_failed":      "Failed to write PPT file: %v",
 	"dashboard.write_word_failed":     "Failed to write Word file: %v",
-
-	// Data Source Optimization
-	"optimize.remote_not_allowed":     "Cannot optimize remote database (%s). For safety, only locally imported data sources can be optimized.",
-	"optimize.no_local_storage":       "Data source has no local storage. Please import data locally first.",
-	"optimize.summary":                "Optimization complete: successfully applied %d optimizations, %d suggestions total",
 
 	// Marketplace
 	"marketplace.insufficient_credits": "Insufficient credits, need %d credits, current balance %.0f credits",

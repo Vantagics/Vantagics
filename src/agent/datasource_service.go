@@ -1327,8 +1327,14 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 		}
 
 		rows := make([][]string, 0, len(cellRows))
+		maxCols := 0
 		for _, cellRow := range cellRows {
-			strRow := make([]string, len(cellRow))
+			if len(cellRow) > maxCols {
+				maxCols = len(cellRow)
+			}
+		}
+		for _, cellRow := range cellRows {
+			strRow := make([]string, maxCols)
 			for colIdx, cell := range cellRow {
 				if cell == nil {
 					// strRow[colIdx] is already ""
@@ -1525,23 +1531,28 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
 		return nil
 	}
 
-	var rows [][]string
-	
+	// First pass: read all rows and determine the maximum column count.
+	// Row.LastCol() returns the column count (last index + 1), so we use "<" not "<=".
+	type rawRow struct {
+		data []string
+	}
+	var rawRows []rawRow
+	maxCols := 0
+
 	for rowIdx := 0; rowIdx <= maxRow; rowIdx++ {
 		row := sheet.Row(rowIdx)
 		if row == nil {
 			continue
 		}
 
-		var rowData []string
-		lastCol := row.LastCol()
-		if lastCol >= 0 {
-			rowData = make([]string, 0, lastCol+1)
+		lastCol := row.LastCol() // this is column count, not last index
+		if lastCol <= 0 {
+			continue
 		}
-		
-		for colIdx := 0; colIdx <= lastCol; colIdx++ {
-			cell := row.Col(colIdx)
-			rowData = append(rowData, cell)
+
+		rowData := make([]string, lastCol)
+		for colIdx := 0; colIdx < lastCol; colIdx++ {
+			rowData[colIdx] = row.Col(colIdx)
 		}
 
 		// Skip completely empty rows
@@ -1552,9 +1563,31 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
 				break
 			}
 		}
-		
-		if hasData {
-			rows = append(rows, rowData)
+
+		if !hasData {
+			continue
+		}
+
+		if lastCol > maxCols {
+			maxCols = lastCol
+		}
+		rawRows = append(rawRows, rawRow{data: rowData})
+	}
+
+	if len(rawRows) == 0 {
+		return nil
+	}
+
+	// Second pass: normalize all rows to the same column count so that
+	// downstream column-filtering logic in processSheet works correctly.
+	rows := make([][]string, len(rawRows))
+	for i, rr := range rawRows {
+		if len(rr.data) < maxCols {
+			padded := make([]string, maxCols)
+			copy(padded, rr.data)
+			rows[i] = padded
+		} else {
+			rows[i] = rr.data
 		}
 	}
 

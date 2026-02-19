@@ -30,7 +30,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
         database: ''
     });
     const [isStoreLocally, setIsStoreLocally] = useState(false);
-    const [shouldOptimize, setShouldOptimize] = useState(true); // Default to true
+
     const [isImporting, setIsImporting] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
     const [availableDatabases, setAvailableDatabases] = useState<string[]>([]);
@@ -326,14 +326,8 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                 storeLocally: isStoreLocally.toString()
             });
 
-            // Pass the data source and optimization flag to parent
-            if (shouldOptimize && newDataSource?.config?.db_path && !newDataSource?.config?.optimized) {
-                // Will trigger optimization in parent component
-                onSuccess(newDataSource);
-            } else {
-                // Just refresh the list
-                onSuccess(null);
-            }
+            // Just refresh the list
+            onSuccess(null);
 
             onClose();
             // Reset form
@@ -341,7 +335,6 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
             setDriverType('excel');
             setEtsyMode('online');
             setIsStoreLocally(false);
-            setShouldOptimize(true);
             setConfig({
                 filePath: '',
                 host: 'localhost',
@@ -1645,24 +1638,7 @@ const AddDataSourceModal: React.FC<AddDataSourceModalProps> = ({ isOpen, onClose
                             </div>
                         )}
 
-                        {/* Optimize checkbox - shown for all local databases */}
-                        {(driverType === 'excel' || driverType === 'csv' || driverType === 'json' || driverType === 'shopify' || driverType === 'bigcommerce' || driverType === 'ebay' || driverType === 'etsy' || driverType === 'etsy_offline' || driverType === 'jira' || driverType === 'snowflake' || driverType === 'bigquery' || driverType === 'sp_global' || driverType === 'lseg' || driverType === 'pitchbook' || driverType === 'bloomberg' || driverType === 'morningstar' || driverType === 'iex_cloud' || driverType === 'alpha_vantage' || driverType === 'quandl' || isStoreLocally) && (
-                            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                                <input
-                                    type="checkbox"
-                                    id="shouldOptimize"
-                                    checked={shouldOptimize}
-                                    onChange={(e) => setShouldOptimize(e.target.checked)}
-                                    className="rounded border-amber-300 text-amber-600 shadow-sm focus:border-amber-300 focus:ring focus:ring-amber-200 focus:ring-opacity-50"
-                                />
-                                <label htmlFor="shouldOptimize" className="text-sm text-slate-700 select-none cursor-pointer flex-1">
-                                    <span className="font-medium">{t('optimize_after_import')}</span>
-                                    <span className="block text-xs text-slate-500 mt-0.5 leading-tight">
-                                        {t('optimize_description')}
-                                    </span>
-                                </label>
-                            </div>
-                        )}
+
                     </div>
 
                     <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">

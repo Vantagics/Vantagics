@@ -10,7 +10,6 @@ import NewChatModal from './NewChatModal';
 import SourceContextMenu from './SourceContextMenu';
 import ExportDataSourceModal from './ExportDataSourceModal';
 import DataSourcePropertiesModal from './DataSourcePropertiesModal';
-import DataSourceOptimizeModal from './DataSourceOptimizeModal';
 import RenameDataSourceModal from './RenameDataSourceModal';
 import SemanticOptimizeModal from './SemanticOptimizeModal';
 import OnboardingWizard from './OnboardingWizard';
@@ -45,7 +44,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [deleteTarget, setDeleteTarget] = useState<{ id: string, name: string } | null>(null);
     const [exportTarget, setExportTarget] = useState<any | null>(null);
     const [propertiesTarget, setPropertiesTarget] = useState<any | null>(null);
-    const [optimizeTarget, setOptimizeTarget] = useState<{ id: string, name: string } | null>(null);
     const [semanticOptimizeTarget, setSemanticOptimizeTarget] = useState<{ id: string, name: string } | null>(null);
     const [renameTarget, setRenameTarget] = useState<{ id: string, name: string } | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, sourceId: string, sourceName: string, sourceType: string, hasLocalDB: boolean, isOptimized: boolean } | null>(null);
@@ -141,9 +139,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             fetchSources();
             if (selectedId === id) setSelectedId(null);
         });
-        const unsubscribeOptimized = EventsOn('data-source-optimized', () => {
-            fetchSources();
-        });
         const unsubscribeColumnRenamed = EventsOn('column-renamed', async (data: { dataSourceId: string }) => {
             // Refresh sources list
             const updatedSources = await GetDataSources();
@@ -159,7 +154,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         });
         return () => {
             if (unsubscribeDeleted) unsubscribeDeleted();
-            if (unsubscribeOptimized) unsubscribeOptimized();
             if (unsubscribeColumnRenamed) unsubscribeColumnRenamed();
         };
     }, [selectedId, propertiesTarget]);
@@ -378,7 +372,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
             // This includes Excel, CSV, JSON imports that are stored locally
             const hasLocalDB = !!(source.config && source.config.db_path);
             // Check if the data source has been optimized (for index optimization menu)
-            const isOptimized = !!(source.config && source.config.optimized);
             console.log('[DEBUG] Context menu for source:', {
                 sourceId,
                 sourceName: source.name,
@@ -386,9 +379,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 hasConfig: !!source.config,
                 hasDbPath: !!(source.config && source.config.db_path),
                 dbPath: source.config?.db_path,
-                optimized: source.config?.optimized,
-                hasLocalDB,
-                isOptimized
+                hasLocalDB
             });
             setContextMenu({ 
                 x: e.clientX, 
@@ -397,7 +388,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 sourceName: source.name,
                 sourceType: source.type || '',
                 hasLocalDB,
-                isOptimized
+                isOptimized: false
             });
         }
     };
@@ -634,14 +625,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 }}
                 onSuccess={(newDataSource) => {
                     fetchSources();
-                    // Check if we should auto-open optimize modal
-                    // Add a delay to avoid DuckDB file lock conflict with the background
-                    // analyzeDataSource goroutine that starts immediately after import.
-                    if (newDataSource && newDataSource.config?.db_path && !newDataSource.config?.optimized) {
-                        setTimeout(() => {
-                            setOptimizeTarget({ id: newDataSource.id, name: newDataSource.name });
-                        }, 2000);
-                    }
                 }}
                 preSelectedDriverType={preSelectedDriverType}
             />
@@ -690,13 +673,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 isOpen={!!propertiesTarget}
                 dataSource={propertiesTarget}
                 onClose={() => setPropertiesTarget(null)}
-            />
-            
-            <DataSourceOptimizeModal
-                isOpen={!!optimizeTarget}
-                dataSourceId={optimizeTarget?.id || ''}
-                dataSourceName={optimizeTarget?.name || ''}
-                onClose={() => setOptimizeTarget(null)}
             />
 
             <SemanticOptimizeModal
@@ -753,9 +729,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                     }}
                     onRename={() => {
                         setRenameTarget({ id: contextMenu.sourceId, name: contextMenu.sourceName });
-                    }}
-                    onOptimize={() => {
-                        setOptimizeTarget({ id: contextMenu.sourceId, name: contextMenu.sourceName });
                     }}
                     onSemanticOptimize={() => {
                         setSemanticOptimizeTarget({ id: contextMenu.sourceId, name: contextMenu.sourceName });

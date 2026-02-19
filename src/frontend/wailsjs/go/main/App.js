@@ -14,10 +14,6 @@ export function AddDataSource(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDataSource'](arg1, arg2, arg3);
 }
 
-export function ApplyOptimizeSuggestions(arg1, arg2) {
-  return window['go']['main']['App']['ApplyOptimizeSuggestions'](arg1, arg2);
-}
-
 export function BrowseMarketplacePacks(arg1) {
   return window['go']['main']['App']['BrowseMarketplacePacks'](arg1);
 }
@@ -384,10 +380,6 @@ export function GetMySQLDatabases(arg1, arg2, arg3, arg4) {
 
 export function GetMySharedPackNames() {
   return window['go']['main']['App']['GetMySharedPackNames']();
-}
-
-export function GetOptimizeSuggestions(arg1) {
-  return window['go']['main']['App']['GetOptimizeSuggestions'](arg1);
 }
 
 export function GetPackLicenseInfo(arg1) {

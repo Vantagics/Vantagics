@@ -57,15 +57,6 @@ export const additionalTranslations = {
         'generating_suggestions': 'Generating analysis suggestions...',
         'suggestions_failed': 'Failed to generate suggestions',
 
-        // DataSourceOptimizeModal 组件
-        'optimization_in_progress': 'Optimization in progress...',
-        'please_wait_optimization': 'Please wait while we optimize your data source',
-        'optimization_complete': 'Optimization Complete',
-        'optimization_success_message': 'Your data source has been optimized successfully',
-        'optimization_failed_message': 'Optimization failed. Please try again.',
-        'start_optimization': 'Start Optimization',
-        'optimization_note': 'This process will create indexes to improve query performance',
-
         // ContextPanel 组件
         'delete_confirmation': 'Delete Confirmation',
         'delete_column_confirmation': 'Are you sure you want to delete this column?',
@@ -252,15 +243,6 @@ export const additionalTranslations = {
         'no_suggestions': '暂无分析建议',
         'generating_suggestions': '正在生成分析建议...',
         'suggestions_failed': '生成建议失败',
-
-        // DataSourceOptimizeModal 组件
-        'optimization_in_progress': '优化进行中...',
-        'please_wait_optimization': '请稍候，我们正在优化您的数据源',
-        'optimization_complete': '优化完成',
-        'optimization_success_message': '您的数据源已成功优化',
-        'optimization_failed_message': '优化失败，请重试。',
-        'start_optimization': '开始优化',
-        'optimization_note': '此过程将创建索引以提高查询性能',
 
         // ContextPanel 组件
         'delete_confirmation': '删除确认',
