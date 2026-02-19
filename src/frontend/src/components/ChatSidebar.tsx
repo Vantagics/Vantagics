@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
 import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, ClearThreadMessages, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
@@ -3939,17 +3940,17 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             </div>
 
             {/* Confirmation Modal */}
-            {showClearConfirm && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
-                        <h3 className="text-lg font-bold text-slate-900 mb-2">{t('clear_history_confirm_title')}</h3>
-                        <p className="text-sm text-slate-500 mb-6">
+            {showClearConfirm && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-[#d4d4d4] mb-2">{t('clear_history_confirm_title')}</h3>
+                        <p className="text-sm text-slate-500 dark:text-[#808080] mb-6">
                             {t('clear_history_confirm_desc')}
                         </p>
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={cancelClearHistory}
-                                className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                                className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-[#d4d4d4] hover:bg-slate-100 dark:hover:bg-[#3c3c3c] rounded-lg transition-colors"
                             >
                                 {t('cancel')}
                             </button>
@@ -3961,12 +3962,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* Clear Conversation Confirmation Modal */}
-            {showClearConversationConfirm && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            {showClearConversationConfirm && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl p-6 w-[320px] transform transition-all animate-in zoom-in-95 duration-200">
                         <h3 className="text-lg font-bold text-slate-900 dark:text-[#d4d4d4] mb-2">{t('clear_conversation_confirm_title')}</h3>
                         <p className="text-sm text-slate-500 dark:text-[#808080] mb-6">
@@ -3987,7 +3989,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             <DeleteConfirmationModal

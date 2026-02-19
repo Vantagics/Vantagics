@@ -11,15 +11,16 @@ require (
 	github.com/VantageDataChat/GoWord v0.1.0
 	github.com/cloudwego/eino v0.7.18
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.7
-	github.com/extrame/xls v0.0.1
 	github.com/getlantern/systray v1.2.2
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto/v2 v2.3.3
 	github.com/marcboeker/go-duckdb v1.7.0
+	github.com/shakinm/xlsReader v0.9.12
 	github.com/snowflakedb/gosnowflake v1.7.2
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.48.0
+	golang.org/x/text v0.34.0
 	pgregory.net/rapid v1.2.0
 )
 
@@ -61,7 +62,6 @@ require (
 	github.com/dvsekhvalnov/jose2go v1.6.0 // indirect
 	github.com/eino-contrib/jsonschema v1.0.3 // indirect
 	github.com/evanphx/json-patch v0.5.2 // indirect
-	github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7 // indirect
 	github.com/f-amaral/go-async v0.3.0 // indirect
 	github.com/form3tech-oss/jwt-go v3.2.5+incompatible // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
@@ -99,6 +99,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/meguminnnnnnnnn/go-openai v0.1.1 // indirect
+	github.com/metakeule/fmtdate v1.1.2 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -137,7 +138,6 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260109210033-bd525da824e2 // indirect
 	golang.org/x/term v0.40.0 // indirect
-	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	gonum.org/v1/gonum v0.15.1 // indirect

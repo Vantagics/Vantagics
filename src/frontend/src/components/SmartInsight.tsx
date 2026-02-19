@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { TrendingUp, UserCheck, AlertCircle, Star, Info, Lightbulb, BarChart3, Search, Zap, Target, Layers, PieChart, ArrowUpRight } from 'lucide-react';
+import { TrendingUp, UserCheck, AlertCircle, Star, Info, Lightbulb, BarChart3, Search, Zap, Target, Layers, PieChart, ArrowUpRight, FileSpreadsheet, Database, FileText } from 'lucide-react';
 import { GetSessionFileAsBase64 } from '../../wailsjs/go/main/App';
 
 interface SmartInsightProps {
@@ -11,20 +11,24 @@ interface SmartInsightProps {
     threadId?: string;  // 用于加载 sandbox: 路径的图片
 }
 
+// 统一使用主色调 slate/blue-gray 系
 const iconMap: Record<string, React.ReactNode> = {
-    'trending-up': <TrendingUp className="w-4 h-4 text-blue-600 dark:text-blue-400" />,
-    'user-check': <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
-    'alert-circle': <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />,
-    'star': <Star className="w-4 h-4 text-purple-600 dark:text-purple-400" />,
-    'info': <Info className="w-4 h-4 text-blue-600 dark:text-blue-400" />,
-    'lightbulb': <Lightbulb className="w-4 h-4 text-amber-500 dark:text-amber-400" />,
-    'bar-chart': <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />,
+    'trending-up': <TrendingUp className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'user-check': <UserCheck className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'alert-circle': <AlertCircle className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'star': <Star className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'info': <Info className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'lightbulb': <Lightbulb className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'bar-chart': <BarChart3 className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
     'search': <Search className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
-    'zap': <Zap className="w-4 h-4 text-yellow-500 dark:text-yellow-400" />,
-    'target': <Target className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
-    'layers': <Layers className="w-4 h-4 text-teal-600 dark:text-teal-400" />,
-    'pie-chart': <PieChart className="w-4 h-4 text-violet-600 dark:text-violet-400" />,
-    'arrow-up-right': <ArrowUpRight className="w-4 h-4 text-green-600 dark:text-green-400" />,
+    'zap': <Zap className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'target': <Target className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'layers': <Layers className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'pie-chart': <PieChart className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'arrow-up-right': <ArrowUpRight className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'file-text': <FileSpreadsheet className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'database': <Database className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
+    'file': <FileText className="w-4 h-4 text-slate-600 dark:text-slate-400" />,
 };
 
 // 解析 JSON 表格数据 - 支持三种格式:
@@ -250,9 +254,9 @@ const SmartInsight: React.FC<SmartInsightProps> = ({ text, icon, onClick, thread
     return (
         <div 
             onClick={handleClick}
-            className={`bg-white dark:bg-[#252526] rounded-xl shadow-sm p-4 flex items-start gap-4 border-l-4 border-blue-500 dark:border-[#5b7a9d] hover:shadow-md transition-shadow duration-200 hover:bg-slate-50/50 dark:hover:bg-[#2d2d30] ${onClick ? 'cursor-pointer active:scale-[0.99] transition-transform' : ''}`}
+            className={`bg-white dark:bg-[#252526] rounded-xl p-4 flex items-start gap-4 border border-slate-200 dark:border-[#3c3c3c] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-all duration-200 ${onClick ? 'cursor-pointer active:scale-[0.99]' : ''}`}
         >
-            <div className="insight-icon bg-blue-50 dark:bg-[#1a2332] p-2 rounded-md shrink-0 border border-blue-100 dark:border-[#2a3a4a]">
+            <div className="insight-icon bg-slate-50 dark:bg-[#1a2332] p-2 rounded-md shrink-0 border border-slate-200 dark:border-[#2a3a4a]">
                 {IconComponent}
             </div>
             <div className="text-slate-700 dark:text-[#d4d4d4] text-sm leading-relaxed pt-1 prose prose-sm max-w-none">

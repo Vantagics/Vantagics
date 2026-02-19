@@ -19,15 +19,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"vantagedata/dbpool"
 	"vantagedata/i18n"
 
-	"github.com/extrame/xls"
 	"github.com/google/uuid"
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
+	xlsReader "github.com/shakinm/xlsReader/xls"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/snowflakedb/gosnowflake"
 	_ "github.com/marcboeker/go-duckdb"
+	"golang.org/x/text/encoding/charmap"
 )
 
 // SchemaCache holds cached schema information for a data source
@@ -1176,8 +1178,17 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 	}
 
 	// Insert Data using batch INSERT for much better performance.
-	// DuckDB handles multi-row VALUES efficiently, so we batch 1000 rows per INSERT.
-	const batchSize = 1000
+	// DuckDB handles multi-row VALUES efficiently, so we batch rows per INSERT.
+	// Dynamically calculate batch size to keep total parameters under a safe limit.
+	// go-duckdb can struggle with very large parameter counts (>~5000).
+	const maxParams = 2000
+	batchSize := maxParams / numCols
+	if batchSize < 1 {
+		batchSize = 1
+	}
+	if batchSize > 500 {
+		batchSize = 500
+	}
 	singlePlaceholder := "(" + strings.Join(placeholders, ",") + ")"
 
 	dataRows := rows[dataStartRow:]
@@ -1203,6 +1214,9 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 					} else if colTypes[j] == "INTEGER" {
 						if iv, err := strconv.ParseInt(val, 10, 64); err == nil {
 							allVals[base+j] = iv
+						} else if fv, err := strconv.ParseFloat(val, 64); err == nil {
+							// Value is a float string in an INTEGER column (e.g. "3.0")
+							allVals[base+j] = int64(fv)
 						} else {
 							allVals[base+j] = nil
 						}
@@ -1224,6 +1238,17 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 
 		batchSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES %s`, tableName, strings.Join(rowPlaceholders, ","))
 		if _, err := db.Exec(batchSQL, allVals...); err != nil {
+			// Log details for debugging bind errors
+			if s.Log != nil {
+				s.log(fmt.Sprintf("[processSheet] Bind error in table %s at batch row %d, numHeaders=%d, batchLen=%d, totalParams=%d, sqlLen=%d",
+					tableName, dataStartRow+batchStart+1, numHeaders, len(batch), len(allVals), len(batchSQL)))
+				// Log first row's values for debugging
+				if len(batch) > 0 {
+					for j := 0; j < numHeaders && j < len(batch[0]); j++ {
+						s.log(fmt.Sprintf("  col[%d] type=%s val=%v bindVal=%v(%T)", j, colTypes[j], batch[0][j], allVals[j], allVals[j]))
+					}
+				}
+			}
 			return fmt.Errorf("failed to insert batch at row %d in sheet %s: %v", dataStartRow+batchStart+1, tableName, err)
 		}
 	}
@@ -1418,15 +1443,15 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 	return &ds, nil
 }
 
-// importXLS processes .xls files (Excel 97-2003 format) using extrame/xls library
+// importXLS processes .xls files (Excel 97-2003 format) using shakinm/xlsReader library
 func (s *DataSourceService) importXLS(name string, filePath string, headerGen func(string) (string, error)) (*DataSource, error) {
 	// Open XLS file
-	xlsFile, err := xls.Open(filePath, "utf-8")
+	workbook, err := xlsReader.OpenFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("%s", i18n.T("datasource.excel_open_failed", err))
 	}
 
-	if xlsFile.NumSheets() == 0 {
+	if workbook.GetNumberSheets() == 0 {
 		return nil, fmt.Errorf("%s", i18n.T("datasource.no_sheets"))
 	}
 
@@ -1458,13 +1483,13 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 	var mainTableName string
 	usedTableNames := make(map[string]bool)
 
-	for i := 0; i < xlsFile.NumSheets(); i++ {
-		sheet := xlsFile.GetSheet(i)
-		if sheet == nil {
+	for i := 0; i < workbook.GetNumberSheets(); i++ {
+		sheet, err := workbook.GetSheet(i)
+		if err != nil {
 			continue
 		}
 
-		sheetName := sheet.Name
+		sheetName := sheet.GetName()
 		if sheetName == "" {
 			sheetName = fmt.Sprintf("Sheet%d", i+1)
 		}
@@ -1520,39 +1545,48 @@ func (s *DataSourceService) importXLS(name string, filePath string, headerGen fu
 	return &ds, nil
 }
 
-// xlsSheetToRows converts an xls.WorkSheet to [][]string format
-func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
+// toUTF8 ensures a string is valid UTF-8.
+// .xls files may contain Latin-1/Windows-1252 encoded characters (e.g. accented letters)
+// that are not valid UTF-8. This function detects and re-decodes them.
+func toUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	decoded, err := charmap.Windows1252.NewDecoder().String(s)
+	if err != nil {
+		return strings.ToValidUTF8(s, "\uFFFD")
+	}
+	return decoded
+}
+
+// xlsSheetToRows converts a shakinm/xlsReader Sheet to [][]string format
+func (s *DataSourceService) xlsSheetToRows(sheet *xlsReader.Sheet) [][]string {
 	if sheet == nil {
 		return nil
 	}
 
-	maxRow := int(sheet.MaxRow)
-	if maxRow == 0 {
+	numRows := sheet.GetNumberRows()
+	if numRows < 0 {
 		return nil
 	}
 
 	// First pass: read all rows and determine the maximum column count.
-	// Row.LastCol() returns the column count (last index + 1), so we use "<" not "<=".
 	type rawRow struct {
 		data []string
 	}
 	var rawRows []rawRow
 	maxCols := 0
 
-	for rowIdx := 0; rowIdx <= maxRow; rowIdx++ {
-		row := sheet.Row(rowIdx)
-		if row == nil {
+	for rowIdx := 0; rowIdx <= numRows; rowIdx++ {
+		row, err := sheet.GetRow(rowIdx)
+		if err != nil {
 			continue
 		}
 
-		lastCol := row.LastCol() // this is column count, not last index
-		if lastCol <= 0 {
-			continue
-		}
-
-		rowData := make([]string, lastCol)
-		for colIdx := 0; colIdx < lastCol; colIdx++ {
-			rowData[colIdx] = row.Col(colIdx)
+		cols := row.GetCols()
+		rowData := make([]string, len(cols))
+		for colIdx, cell := range cols {
+			rowData[colIdx] = toUTF8(cell.GetString())
 		}
 
 		// Skip completely empty rows
@@ -1568,8 +1602,8 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xls.WorkSheet) [][]string {
 			continue
 		}
 
-		if lastCol > maxCols {
-			maxCols = lastCol
+		if len(rowData) > maxCols {
+			maxCols = len(rowData)
 		}
 		rawRows = append(rawRows, rawRow{data: rowData})
 	}

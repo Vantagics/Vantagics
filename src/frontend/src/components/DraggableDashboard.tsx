@@ -958,45 +958,45 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         name: t('component_metric'), 
                         desc: t('component_metric_desc'),
                         icon: '📊',
-                        bgColor: 'bg-blue-50',
-                        borderColor: 'border-blue-200',
-                        textColor: 'text-blue-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 case 'insight':
                     return { 
                         name: t('component_insight'), 
                         desc: t('component_insight_desc'),
                         icon: '💡',
-                        bgColor: 'bg-purple-50',
-                        borderColor: 'border-purple-200',
-                        textColor: 'text-purple-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 case 'chart':
                     return { 
                         name: t('component_chart'), 
                         desc: t('component_chart_desc'),
                         icon: '📈',
-                        bgColor: 'bg-green-50',
-                        borderColor: 'border-green-200',
-                        textColor: 'text-green-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 case 'table':
                     return { 
                         name: t('component_table'), 
                         desc: t('component_table_desc'),
                         icon: '📋',
-                        bgColor: 'bg-amber-50',
-                        borderColor: 'border-amber-200',
-                        textColor: 'text-amber-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 case 'image':
                     return { 
                         name: t('component_image'), 
                         desc: t('component_image_desc'),
                         icon: '🖼️',
-                        bgColor: 'bg-cyan-50',
-                        borderColor: 'border-cyan-200',
-                        textColor: 'text-cyan-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 case 'file_download':
                 case 'file':
@@ -1004,18 +1004,18 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         name: t('component_file'), 
                         desc: t('component_file_desc'),
                         icon: '📁',
-                        bgColor: 'bg-orange-50',
-                        borderColor: 'border-orange-200',
-                        textColor: 'text-orange-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
                 default:
                     return { 
                         name: t('component_generic'), 
                         desc: t('component_generic_desc'),
                         icon: '📦',
-                        bgColor: 'bg-gray-50',
-                        borderColor: 'border-gray-200',
-                        textColor: 'text-gray-700'
+                        bgColor: 'bg-slate-50',
+                        borderColor: 'border-slate-200',
+                        textColor: 'text-slate-600'
                     };
             }
         };
@@ -1051,7 +1051,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     gridTemplateColumns: `repeat(${cols}, 1fr)`,
                 }}>
                     {metrics.map((metric: any, idx: number) => (
-                        <div key={idx} className="bg-blue-50 dark:bg-[#1a2332] rounded-lg border border-blue-100 dark:border-[#264f78]">
+                        <div key={idx} className="bg-slate-50 dark:bg-[#1a2332] rounded-lg border border-slate-200 dark:border-[#264f78]">
                             <MetricCard
                                 title={metric.title || ''}
                                 value={metric.value || ''}
@@ -1079,7 +1079,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {insights.map((insight: any, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-purple-100 dark:border-[#5a3d5f]"
+                            className="bg-slate-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-slate-200 dark:border-[#5a3d5f]"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
@@ -1263,7 +1263,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         )}
                         {!isEditMode && renderMultipleMetrics()}
                         {isEditMode && data?.metrics?.length > 0 && (
-                            <div className="flex-1 p-2 text-center text-sm text-blue-600">
+                            <div className="flex-1 p-2 text-center text-sm text-slate-500">
                                 已有 {data.metrics.length} 个指标，将按4列自动排布
                             </div>
                         )}
@@ -1286,7 +1286,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         )}
                         {!isEditMode && renderMultipleInsights()}
                         {isEditMode && data?.insights?.length > 0 && (
-                            <div className="flex-1 p-2 text-center text-sm text-purple-600">
+                            <div className="flex-1 p-2 text-center text-sm text-slate-500">
                                 已有 {data.insights.length} 条洞察，将自动排布
                             </div>
                         )}
@@ -1348,7 +1348,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             return (
                 <div className="grid grid-cols-4 gap-2 p-2">
                     {metrics.map((metric, idx: number) => (
-                        <div key={idx} className="bg-blue-50 dark:bg-[#1a2332] rounded-lg border border-blue-100 dark:border-[#264f78]">
+                        <div key={idx} className="bg-slate-50 dark:bg-[#1a2332] rounded-lg border border-slate-200 dark:border-[#264f78]">
                             <MetricCard
                                 title={metric.title || ''}
                                 value={metric.value || ''}
@@ -1371,7 +1371,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     {insights.map((insight, idx: number) => (
                         <div 
                             key={idx} 
-                            className="bg-purple-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-purple-100 dark:border-[#5a3d5f]"
+                            className="bg-slate-50 dark:bg-[#2a1e2e] rounded-lg p-3 border border-slate-200 dark:border-[#5a3d5f]"
                         >
                             <SmartInsight
                                 text={insight.text || ''}
@@ -1715,14 +1715,16 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
     // 静态辅助函数（避免在renderFlowComponent中重复定义）
     const getComponentInfoStatic = (type: string) => {
+        // 统一使用主色调蓝灰色系，与应用整体风格协调
+        const baseStyle = { bgColor: 'bg-slate-50', borderColor: 'border-slate-200', textColor: 'text-slate-600' };
         switch (type) {
-            case 'metric': return { icon: '📊', bgColor: 'bg-blue-50', borderColor: 'border-blue-200', textColor: 'text-blue-700' };
-            case 'insight': return { icon: '💡', bgColor: 'bg-purple-50', borderColor: 'border-purple-200', textColor: 'text-purple-700' };
-            case 'chart': return { icon: '📈', bgColor: 'bg-green-50', borderColor: 'border-green-200', textColor: 'text-green-700' };
-            case 'table': return { icon: '📋', bgColor: 'bg-amber-50', borderColor: 'border-amber-200', textColor: 'text-amber-700' };
-            case 'image': return { icon: '🖼️', bgColor: 'bg-cyan-50', borderColor: 'border-cyan-200', textColor: 'text-cyan-700' };
-            case 'file_download': return { icon: '📁', bgColor: 'bg-orange-50', borderColor: 'border-orange-200', textColor: 'text-orange-700' };
-            default: return { icon: '📦', bgColor: 'bg-gray-50', borderColor: 'border-gray-200', textColor: 'text-gray-700' };
+            case 'metric': return { icon: '📊', ...baseStyle };
+            case 'insight': return { icon: '💡', ...baseStyle };
+            case 'chart': return { icon: '📈', ...baseStyle };
+            case 'table': return { icon: '📋', ...baseStyle };
+            case 'image': return { icon: '🖼️', ...baseStyle };
+            case 'file_download': return { icon: '📁', ...baseStyle };
+            default: return { icon: '📦', ...baseStyle };
         }
     };
 
@@ -1832,7 +1834,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all text-sm cursor-pointer ${
                                         preparedReportId
                                             ? 'bg-green-50 border border-green-200 text-green-600 hover:bg-green-100'
-                                            : 'bg-purple-50 border border-purple-200 text-purple-600 hover:bg-purple-100'
+                                            : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
                                     }`}
                                     title={preparedReportId ? (t('report_ready_title')) : (t('reports_button_title'))}
                                 >
@@ -1899,7 +1901,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'metric') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>📊</span>
                                 <span>关键指标</span>
@@ -1924,7 +1926,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'chart') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>📈</span>
                                 <span>数据图表</span>
@@ -1949,7 +1951,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'insight') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>💡</span>
                                 <span>自动洞察</span>
@@ -1974,7 +1976,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'table') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>📋</span>
                                 <span>数据表格</span>
@@ -1999,7 +2001,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'image') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-cyan-50 border-cyan-200 text-cyan-700 hover:bg-cyan-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>🖼️</span>
                                 <span>图片</span>
@@ -2024,7 +2026,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                 className={`px-3 py-2 border rounded-lg transition-colors flex items-center gap-1.5 text-sm
                                     ${layout.some(i => i.type === 'file_download') 
                                         ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed' 
-                                        : 'bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100'}`}
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}
                             >
                                 <span>📁</span>
                                 <span>文件下载</span>
