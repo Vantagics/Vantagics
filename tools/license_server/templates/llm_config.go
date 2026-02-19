@@ -2,30 +2,27 @@ package templates
 
 // LLMConfigHTML contains the LLM configuration panel HTML
 const LLMConfigHTML = `
-<div id="panel-llm" class="tab-panel">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- LLM Groups -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-800">LLM 分组</h2>
-                <button onclick="showLLMGroupForm()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 添加</button>
+<div id="section-llm" class="section">
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div class="card" style="flex:0 0 280px;">
+            <div class="card-header">
+                <h2 class="card-title">LLM 分组</h2>
+                <button onclick="showLLMGroupForm()" class="btn btn-success btn-sm">+ 添加</button>
             </div>
-            <div id="llm-groups-list" class="space-y-2"></div>
+            <div id="llm-groups-list"></div>
         </div>
-        
-        <!-- LLM Configs -->
-        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-800">LLM API 配置</h2>
+        <div class="card" style="flex:1;min-width:400px;">
+            <div class="card-header">
+                <h2 class="card-title">LLM API 配置</h2>
                 <div class="flex items-center gap-2">
-                    <select id="llm-config-group-filter" onchange="loadLLMConfigs()" class="px-3 py-1.5 border rounded-lg text-sm">
+                    <select id="llm-config-group-filter" onchange="loadLLMConfigs()" class="form-select" style="width:auto">
                         <option value="">全部分组</option>
                         <option value="none">默认(无组)</option>
                     </select>
-                    <button onclick="showLLMForm()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">+ 添加配置</button>
+                    <button onclick="showLLMForm()" class="btn btn-success btn-sm">+ 添加配置</button>
                 </div>
             </div>
-            <div id="llm-list" class="space-y-2"></div>
+            <div id="llm-list"></div>
         </div>
     </div>
 </div>

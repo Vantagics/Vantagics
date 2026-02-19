@@ -2,143 +2,137 @@ package templates
 
 // SettingsHTML contains the settings panel HTML
 const SettingsHTML = `
-<div id="panel-settings" class="tab-panel">
-    <div class="grid grid-cols-2 gap-6">
-        <!-- Change Password -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">修改密码</h2>
-            <div class="space-y-3">
-                <input type="password" id="old-password" placeholder="当前密码" class="w-full px-3 py-2 border rounded-lg">
-                <input type="password" id="new-password" placeholder="新密码" class="w-full px-3 py-2 border rounded-lg">
-                <button onclick="changePassword()" class="w-full bg-blue-600 text-white py-2 rounded-lg">修改密码</button>
+<div id="section-settings" class="section">
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div class="card" style="flex:1;min-width:300px;">
+            <h2 class="card-title mb-4">修改密码</h2>
+            <div>
+                <input type="password" id="old-password" placeholder="当前密码" class="form-input mb-2">
+                <input type="password" id="new-password" placeholder="新密码" class="form-input mb-2">
+                <button onclick="changePassword()" class="btn btn-primary w-full">修改密码</button>
             </div>
         </div>
-        
-        <!-- Port Configuration -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">端口配置</h2>
-            <div class="space-y-3">
+        <div class="card" style="flex:1;min-width:300px;">
+            <h2 class="card-title mb-4">端口配置</h2>
+            <div>
+                <div class="mb-2">
+                    <label class="form-label">管理端口</label>
+                    <input type="number" id="manage-port" value="{{.ManagePort}}" class="form-input">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">授权端口</label>
+                    <input type="number" id="auth-port" value="{{.AuthPort}}" class="form-input">
+                </div>
+                <button onclick="changePorts()" class="btn btn-primary w-full">保存端口配置</button>
+                <p class="text-xs text-muted mt-2">* 修改端口后需要重启服务生效</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title mb-4">SSL/HTTPS 配置</h2>
+        <div>
+            <div class="flex items-center gap-3 mb-4">
+                <input type="checkbox" id="use-ssl">
+                <label class="text-sm">启用 HTTPS</label>
+            </div>
+            <div id="ssl-fields" class="hidden">
+                <div class="mb-2">
+                    <label class="form-label">SSL 证书文件路径</label>
+                    <input type="text" id="ssl-cert" placeholder="/path/to/cert.pem" class="form-input">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">SSL 密钥文件路径</label>
+                    <input type="text" id="ssl-key" placeholder="/path/to/key.pem" class="form-input">
+                </div>
+            </div>
+            <button onclick="saveSSLConfig()" class="btn btn-primary w-full">保存 SSL 配置</button>
+            <p class="text-xs text-muted mt-2">* 修改 SSL 配置后需要重启服务生效</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title mb-4">📧 SMTP 邮件配置</h2>
+        <p class="text-sm text-muted mb-4">配置 SMTP 服务器后，用户申请序列号时会自动发送邮件通知</p>
+        <div>
+            <div class="flex items-center gap-3 mb-4">
+                <input type="checkbox" id="smtp-enabled">
+                <label class="text-sm">启用邮件发送</label>
+            </div>
+            <div id="smtp-fields" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                 <div>
-                    <label class="text-sm text-slate-600">管理端口</label>
-                    <input type="number" id="manage-port" value="{{.ManagePort}}" class="w-full px-3 py-2 border rounded-lg">
+                    <label class="form-label">SMTP 服务器</label>
+                    <input type="text" id="smtp-host" placeholder="smtp.example.com" class="form-input">
                 </div>
                 <div>
-                    <label class="text-sm text-slate-600">授权端口</label>
-                    <input type="number" id="auth-port" value="{{.AuthPort}}" class="w-full px-3 py-2 border rounded-lg">
+                    <label class="form-label">端口</label>
+                    <input type="number" id="smtp-port" placeholder="587" class="form-input">
                 </div>
-                <button onclick="changePorts()" class="w-full bg-blue-600 text-white py-2 rounded-lg">保存端口配置</button>
-                <p class="text-xs text-slate-500">* 修改端口后需要重启服务生效</p>
-            </div>
-        </div>
-        
-        <!-- SSL Configuration -->
-        <div class="bg-white rounded-xl shadow-sm p-6 col-span-2">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">SSL/HTTPS 配置</h2>
-            <div class="space-y-3">
-                <div class="flex items-center gap-3">
-                    <input type="checkbox" id="use-ssl" class="w-4 h-4">
-                    <label class="text-sm text-slate-700">启用 HTTPS</label>
+                <div>
+                    <label class="form-label">用户名</label>
+                    <input type="text" id="smtp-username" placeholder="your@email.com" class="form-input">
                 </div>
-                <div id="ssl-fields" class="space-y-3 hidden">
-                    <div>
-                        <label class="text-sm text-slate-600">SSL 证书文件路径</label>
-                        <input type="text" id="ssl-cert" placeholder="/path/to/cert.pem" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">SSL 密钥文件路径</label>
-                        <input type="text" id="ssl-key" placeholder="/path/to/key.pem" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
+                <div>
+                    <label class="form-label">密码/授权码</label>
+                    <input type="password" id="smtp-password" placeholder="应用专用密码" class="form-input">
                 </div>
-                <button onclick="saveSSLConfig()" class="w-full bg-blue-600 text-white py-2 rounded-lg">保存 SSL 配置</button>
-                <p class="text-xs text-slate-500">* 修改 SSL 配置后需要重启服务生效</p>
-            </div>
-        </div>
-        
-        <!-- SMTP Configuration -->
-        <div class="bg-white rounded-xl shadow-sm p-6 col-span-2">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">📧 SMTP 邮件配置</h2>
-            <p class="text-sm text-slate-500 mb-4">配置 SMTP 服务器后，用户申请序列号时会自动发送邮件通知</p>
-            <div class="space-y-4">
-                <div class="flex items-center gap-3">
-                    <input type="checkbox" id="smtp-enabled" class="w-4 h-4">
-                    <label class="text-sm text-slate-700">启用邮件发送</label>
+                <div>
+                    <label class="form-label">发件人邮箱</label>
+                    <input type="text" id="smtp-from-email" placeholder="noreply@example.com" class="form-input">
                 </div>
-                <div id="smtp-fields" class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="text-sm text-slate-600">SMTP 服务器</label>
-                        <input type="text" id="smtp-host" placeholder="smtp.example.com" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">端口</label>
-                        <input type="number" id="smtp-port" placeholder="587" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">用户名</label>
-                        <input type="text" id="smtp-username" placeholder="your@email.com" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">密码/授权码</label>
-                        <input type="password" id="smtp-password" placeholder="应用专用密码" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">发件人邮箱</label>
-                        <input type="text" id="smtp-from-email" placeholder="noreply@example.com" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div>
-                        <label class="text-sm text-slate-600">发件人名称</label>
-                        <input type="text" id="smtp-from-name" placeholder="VantageData" class="w-full px-3 py-2 border rounded-lg">
-                    </div>
-                    <div class="col-span-2">
-                        <label class="text-sm text-slate-600">加密方式</label>
-                        <div class="flex gap-4 mt-2">
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="smtp-encryption" value="starttls" checked class="w-4 h-4">
-                                <span class="text-sm">STARTTLS (端口 587)</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="smtp-encryption" value="tls" class="w-4 h-4">
-                                <span class="text-sm">SSL/TLS (端口 465)</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="smtp-encryption" value="none" class="w-4 h-4">
-                                <span class="text-sm">无加密 (不推荐)</span>
-                            </label>
-                        </div>
-                    </div>
+                <div>
+                    <label class="form-label">发件人名称</label>
+                    <input type="text" id="smtp-from-name" placeholder="VantageData" class="form-input">
                 </div>
-                <div class="flex gap-3">
-                    <button onclick="saveSMTPConfig()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg">保存配置</button>
-                    <button onclick="testSMTP()" class="px-6 bg-green-600 text-white py-2 rounded-lg">发送测试邮件</button>
-                </div>
-                <div class="bg-slate-50 p-3 rounded-lg">
-                    <p class="text-xs text-slate-600 font-medium mb-2">常用 SMTP 服务器配置：</p>
-                    <ul class="text-xs text-slate-500 space-y-1">
-                        <li>• <strong>Gmail:</strong> smtp.gmail.com:587 (STARTTLS) - 需使用应用专用密码</li>
-                        <li>• <strong>Outlook:</strong> smtp.office365.com:587 (STARTTLS)</li>
-                        <li>• <strong>QQ邮箱:</strong> smtp.qq.com:587 (STARTTLS) - 需使用授权码</li>
-                        <li>• <strong>163邮箱:</strong> smtp.163.com:465 (SSL/TLS) - 需使用授权码</li>
-                        <li>• <strong>阿里企业邮:</strong> smtp.qiye.aliyun.com:465 (SSL/TLS)</li>
-                    </ul>
+                <div style="grid-column:span 2;">
+                    <label class="form-label">加密方式</label>
+                    <div class="flex gap-3 mt-2">
+                        <label class="flex items-center gap-2">
+                            <input type="radio" name="smtp-encryption" value="starttls" checked>
+                            <span class="text-sm">STARTTLS (端口 587)</span>
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="radio" name="smtp-encryption" value="tls">
+                            <span class="text-sm">SSL/TLS (端口 465)</span>
+                        </label>
+                        <label class="flex items-center gap-2">
+                            <input type="radio" name="smtp-encryption" value="none">
+                            <span class="text-sm">无加密 (不推荐)</span>
+                        </label>
+                    </div>
                 </div>
             </div>
+            <div class="flex gap-3 mt-4">
+                <button onclick="saveSMTPConfig()" class="btn btn-primary" style="flex:1">保存配置</button>
+                <button onclick="testSMTP()" class="btn btn-success">发送测试邮件</button>
+            </div>
+            <div class="mt-4" style="padding:12px;background:#f8fafc;border-radius:8px;">
+                <p class="text-xs font-medium mb-2">常用 SMTP 服务器配置：</p>
+                <ul class="text-xs text-muted" style="list-style:none;">
+                    <li>• <strong>Gmail:</strong> smtp.gmail.com:587 (STARTTLS) - 需使用应用专用密码</li>
+                    <li>• <strong>Outlook:</strong> smtp.office365.com:587 (STARTTLS)</li>
+                    <li>• <strong>QQ邮箱:</strong> smtp.qq.com:587 (STARTTLS) - 需使用授权码</li>
+                    <li>• <strong>163邮箱:</strong> smtp.163.com:465 (SSL/TLS) - 需使用授权码</li>
+                    <li>• <strong>阿里企业邮:</strong> smtp.qiye.aliyun.com:465 (SSL/TLS)</li>
+                </ul>
+            </div>
         </div>
-        
-        <!-- Danger Zone -->
-        <div class="bg-white rounded-xl shadow-sm p-6 col-span-2">
-            <h2 class="text-lg font-bold text-red-600 mb-4">⚠️ 危险操作</h2>
-            <div class="space-y-3">
-                <div class="flex items-center gap-3">
-                    <button onclick="showClearIPRecords()" class="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">🌐 清除IP请求记录</button>
-                    <p class="text-xs text-slate-500">清除指定IP的所有SN请求次数记录，清除后该IP可重新申请序列号（方便测试）</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <button onclick="showClearEmailRecords()" class="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">📧 清除邮箱记录</button>
-                    <p class="text-xs text-slate-500">清除指定邮箱的所有申请绑定记录，清除后该邮箱可重新申请序列号</p>
-                </div>
-                <div class="flex items-center gap-3">
-                    <button onclick="showForceDeleteLicense()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">🗑️ 强制删除序列号</button>
-                    <p class="text-xs text-slate-500">强制删除指定序列号及其所有相关记录（邮箱申请记录等），此操作不可恢复</p>
-                </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title text-danger mb-4">⚠️ 危险操作</h2>
+        <div>
+            <div class="flex items-center gap-3 mb-2">
+                <button onclick="showClearIPRecords()" class="btn btn-warning">🌐 清除IP请求记录</button>
+                <p class="text-xs text-muted">清除指定IP的所有SN请求次数记录，清除后该IP可重新申请序列号（方便测试）</p>
+            </div>
+            <div class="flex items-center gap-3 mb-2">
+                <button onclick="showClearEmailRecords()" class="btn btn-warning">📧 清除邮箱记录</button>
+                <p class="text-xs text-muted">清除指定邮箱的所有申请绑定记录，清除后该邮箱可重新申请序列号</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="showForceDeleteLicense()" class="btn btn-danger">🗑️ 强制删除序列号</button>
+                <p class="text-xs text-muted">强制删除指定序列号及其所有相关记录（邮箱申请记录等），此操作不可恢复</p>
             </div>
         </div>
     </div>

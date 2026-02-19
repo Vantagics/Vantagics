@@ -2,36 +2,36 @@ package templates
 
 // LicensesHTML contains the licenses management panel HTML
 const LicensesHTML = `
-<div id="panel-licenses" class="tab-panel active">
-    <div class="bg-white rounded-xl shadow-sm p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-slate-800">序列号列表</h2>
+<div id="section-licenses" class="section active">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">序列号列表</h2>
             <div class="flex items-center gap-2 flex-wrap">
-                <select id="product-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="product-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="form-select" style="width:auto">
                     <option value="">全部产品</option>
                     <option value="0">不分类 (ID: 0)</option>
                 </select>
-                <select id="license-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="license-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="form-select" style="width:auto">
                     <option value="">全部序列号组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <select id="llm-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="llm-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="form-select" style="width:auto">
                     <option value="">全部LLM组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <select id="search-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="search-group-filter" onchange="loadLicenses(1, licenseSearchTerm)" class="form-select" style="width:auto">
                     <option value="">全部搜索组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <input type="text" id="license-search" placeholder="搜索序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchLicenses()">
-                <button onclick="searchLicenses()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
-                <button onclick="showBatchCreate()" class="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">批量生成</button>
-                <button onclick="deleteUnusedByGroup()" class="px-3 py-1.5 bg-orange-600 text-white rounded-lg text-sm">🗑️ 删除未使用</button>
-                <button onclick="purgeDisabledLicenses()" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm">🧹 清除已禁用</button>
+                <input type="text" id="license-search" placeholder="搜索序列号..." class="form-input" style="width:12rem" onkeypress="if(event.key==='Enter')searchLicenses()">
+                <button onclick="searchLicenses()" class="btn btn-primary btn-sm">搜索</button>
+                <button onclick="showBatchCreate()" class="btn btn-success btn-sm">批量生成</button>
+                <button onclick="deleteUnusedByGroup()" class="btn btn-warning btn-sm">🗑️ 删除未使用</button>
+                <button onclick="purgeDisabledLicenses()" class="btn btn-danger btn-sm">🧹 清除已禁用</button>
             </div>
         </div>
-        <div id="license-list" class="space-y-2"></div>
-        <div id="license-pagination" class="flex justify-center items-center gap-2 mt-4"></div>
+        <div id="license-list"></div>
+        <div id="license-pagination" class="pagination"></div>
     </div>
 </div>
 `

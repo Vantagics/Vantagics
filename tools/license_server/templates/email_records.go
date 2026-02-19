@@ -2,26 +2,26 @@ package templates
 
 // EmailRecordsHTML contains the email records panel HTML
 const EmailRecordsHTML = `
-<div id="panel-email-records" class="tab-panel">
-    <div class="bg-white rounded-xl shadow-sm p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-slate-800">邮箱申请记录</h2>
+<div id="section-email-records" class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">邮箱申请记录</h2>
             <div class="flex items-center gap-2 flex-wrap">
-                <select id="email-product-filter" onchange="filterEmailsByProduct()" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="email-product-filter" onchange="filterEmailsByProduct()" class="form-select" style="width:auto">
                     <option value="-1">全部产品</option>
                     <option value="0">VantageData (ID: 0)</option>
                 </select>
-                <select id="email-license-group-filter" onchange="filterEmailsByLicenseGroup()" class="px-3 py-1.5 border rounded-lg text-sm">
+                <select id="email-license-group-filter" onchange="filterEmailsByLicenseGroup()" class="form-select" style="width:auto">
                     <option value="">全部序列号组</option>
                     <option value="none">默认(无组)</option>
                 </select>
-                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="px-3 py-1.5 border rounded-lg text-sm w-48" onkeypress="if(event.key==='Enter')searchEmails()">
-                <button onclick="searchEmails()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm">搜索</button>
-                <button onclick="showManualRequest()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 手工绑定</button>
+                <input type="text" id="email-search" placeholder="搜索邮箱或序列号..." class="form-input" style="width:12rem" onkeypress="if(event.key==='Enter')searchEmails()">
+                <button onclick="searchEmails()" class="btn btn-primary btn-sm">搜索</button>
+                <button onclick="showManualRequest()" class="btn btn-success btn-sm">+ 手工绑定</button>
             </div>
         </div>
-        <div id="email-records-list" class="space-y-3"></div>
-        <div id="email-pagination" class="flex justify-center items-center gap-2 mt-4"></div>
+        <div id="email-records-list"></div>
+        <div id="email-pagination" class="pagination"></div>
     </div>
 </div>
 `

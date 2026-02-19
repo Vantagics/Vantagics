@@ -87,6 +87,7 @@ function AppContent() {
     const [dataBrowserSourceId, setDataBrowserSourceId] = useState<string | null>(null);
     const [dataBrowserSourceName, setDataBrowserSourceName] = useState<string | null>(null);
     const [dataBrowserWidth, setDataBrowserWidth] = useState(500);
+    const dataBrowserOpenRef = useRef(false);
 
     // Refs for AnalysisResultBridge to access current session/message IDs
     const activeSessionIdRef = useRef<string | null>(null);
@@ -100,6 +101,10 @@ function AppContent() {
     useEffect(() => {
         selectedMessageIdRef.current = selectedMessageId;
     }, [selectedMessageId]);
+
+    useEffect(() => {
+        dataBrowserOpenRef.current = dataBrowserOpen;
+    }, [dataBrowserOpen]);
 
     // Sound notification setting ref
     const soundEnabledRef = useRef<boolean>(true);
@@ -421,6 +426,20 @@ function AppContent() {
                 setDataBrowserSourceId(data.sourceId);
                 setDataBrowserSourceName(data.sourceName || null);
                 setDataBrowserOpen(true);
+            }
+        });
+        return () => { if (unsub) unsub(); };
+    }, []);
+
+    // When a data source is selected in the sidebar, update the data browser if it's open
+    useEffect(() => {
+        const unsub = EventsOn('data-source-selected', (source: any) => {
+            if (source && source.id) {
+                setSelectedDataSourceId(source.id);
+                if (dataBrowserOpenRef.current) {
+                    setDataBrowserSourceId(source.id);
+                    setDataBrowserSourceName(source.name || null);
+                }
             }
         });
         return () => { if (unsub) unsub(); };

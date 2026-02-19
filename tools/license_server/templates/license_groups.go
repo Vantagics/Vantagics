@@ -2,19 +2,19 @@ package templates
 
 // LicenseGroupsHTML contains the license groups panel HTML
 const LicenseGroupsHTML = `
-<div id="panel-license-groups" class="tab-panel">
-    <div class="bg-white rounded-xl shadow-sm p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-slate-800">序列号分组管理</h2>
-            <button onclick="showLicenseGroupForm()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 添加分组</button>
+<div id="section-license-groups" class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">序列号分组管理</h2>
+            <button onclick="showLicenseGroupForm()" class="btn btn-success btn-sm">+ 添加分组</button>
         </div>
-        <p class="text-xs text-slate-500 mb-4">* 序列号分组用于组织和管理序列号，可设置可信度级别（高可信=正式版，低可信=试用版）</p>
-        <div class="mb-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+        <p class="text-xs text-muted mb-4">* 序列号分组用于组织和管理序列号，可设置可信度级别（高可信=正式版，低可信=试用版）</p>
+        <div class="mb-4" style="padding:12px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;">
             <strong>可信度说明：</strong>
-            <br>• <span class="font-semibold text-green-600">高可信（正式）</span>：每月刷新一次序列号验证
-            <br>• <span class="font-semibold text-orange-600">低可信（试用）</span>：每天强制刷新序列号验证
+            <br>• <span class="font-bold text-success">高可信（正式）</span>：每月刷新一次序列号验证
+            <br>• <span class="font-bold" style="color:#ea580c">低可信（试用）</span>：每天强制刷新序列号验证
         </div>
-        <div id="license-groups-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        <div id="license-groups-list" class="flex flex-wrap gap-3"></div>
     </div>
 </div>
 `

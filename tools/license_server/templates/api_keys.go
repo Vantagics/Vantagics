@@ -2,20 +2,20 @@ package templates
 
 // APIKeysHTML contains the API keys management panel HTML
 const APIKeysHTML = `
-<div id="panel-api-keys" class="tab-panel">
-    <div class="bg-white rounded-xl shadow-sm p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-slate-800">API Key 管理</h2>
-            <button onclick="showAPIKeyForm()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 创建 API Key</button>
+<div id="section-api-keys" class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">API Key 管理</h2>
+            <button onclick="showAPIKeyForm()" class="btn btn-success btn-sm">+ 创建 API Key</button>
         </div>
-        <p class="text-xs text-slate-500 mb-4">* API Key 用于第三方系统通过 API 接口创建正式授权。每个 API Key 绑定特定产品。</p>
-        <div class="mb-4 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
+        <p class="text-xs text-muted mb-4">* API Key 用于第三方系统通过 API 接口创建正式授权。每个 API Key 绑定特定产品。</p>
+        <div class="mb-4" style="padding:12px;background:#eff6ff;border-radius:8px;font-size:12px;color:#1d4ed8;">
             <strong>API 接口说明：</strong>
             <br>• <code>POST /api/bind-license</code> - 通过 API Key 创建正式授权
             <br>• 请求参数：<code>{"api_key": "sk-xxx", "email": "user@example.com", "days": 365}</code>
             <br>• 返回：<code>{"success": true, "sn": "XXXX-XXXX-XXXX-XXXX"}</code>
         </div>
-        <div id="api-keys-list" class="space-y-3"></div>
+        <div id="api-keys-list"></div>
     </div>
 </div>
 `

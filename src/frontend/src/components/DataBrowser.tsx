@@ -162,21 +162,21 @@ const DataBrowser: React.FC<DataBrowserProps> = ({
      * Requirement 8.2
      */
     useEffect(() => {
+        // Reset content state whenever sourceId changes or panel closes
+        setSelectedTable(null);
+        setTableData([]);
+        setTableRowCount(0);
+        setCurrentPage(1);
+        setError(null);
+        setSearchQuery('');
+        setEditingColumn(null);
+        setEditError(null);
+        setDeleteColumnTarget(null);
+
         if (isOpen && sourceId) {
             loadTables(sourceId);
-        }
-        if (!isOpen) {
-            // Reset state when closing
+        } else {
             setTables([]);
-            setSelectedTable(null);
-            setTableData([]);
-            setTableRowCount(0);
-            setCurrentPage(1);
-            setError(null);
-            setSearchQuery('');
-            setEditingColumn(null);
-            setEditError(null);
-            setDeleteColumnTarget(null);
         }
     }, [isOpen, sourceId]);
 

@@ -11,29 +11,47 @@ var licenseSearchTerm = '';
 var emailCurrentPage = 1;
 var emailSearchTerm = '';
 
-// Tab switching
-function showTab(name) {
-    document.querySelectorAll('.tab-panel').forEach(function(p) { 
-        p.classList.remove('active'); 
+// Section titles mapping
+var sectionTitles = {
+    'licenses': '序列号管理',
+    'email-records': '邮箱申请记录',
+    'email-filter': '邮箱过滤',
+    'product-types': '产品类型',
+    'license-groups': '序列号分组',
+    'api-keys': 'API Key',
+    'llm': 'LLM配置',
+    'search': '搜索引擎配置',
+    'backup': '备份恢复',
+    'settings': '系统设置'
+};
+
+// Sidebar navigation switching
+function showSection(name) {
+    // Hide all sections
+    document.querySelectorAll('.section').forEach(function(s) {
+        s.classList.remove('active');
     });
-    document.querySelectorAll('.tab-btn').forEach(function(b) {
-        b.classList.remove('bg-blue-600', 'text-white');
-        b.classList.add('bg-slate-200', 'text-slate-700');
+    // Show target section
+    var section = document.getElementById('section-' + name);
+    if (section) section.classList.add('active');
+    // Remove active from all nav links
+    document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+        a.classList.remove('active');
     });
-    var panel = document.getElementById('panel-' + name);
-    if (panel) panel.classList.add('active');
-    var btn = document.getElementById('tab-' + name);
-    if (btn) {
-        btn.classList.remove('bg-slate-200', 'text-slate-700');
-        btn.classList.add('bg-blue-600', 'text-white');
-    }
+    // Highlight current nav link
+    var nav = document.getElementById('nav-' + name);
+    if (nav) nav.classList.add('active');
+    // Update topbar title
+    var title = sectionTitles[name] || name;
+    var pageTitle = document.getElementById('page-title');
+    if (pageTitle) pageTitle.textContent = title;
 }
 
 // Modal functions
 function showModal(content) {
+    var modal = document.getElementById('modal');
     document.getElementById('modal-content').innerHTML = content;
-    document.getElementById('modal').classList.remove('hidden');
-    document.getElementById('modal').classList.add('flex');
+    modal.classList.add('show');
     setTimeout(function() {
         var firstInput = document.querySelector('#modal-content input:not([type=hidden]), #modal-content select');
         if (firstInput) firstInput.focus();
@@ -41,8 +59,7 @@ function showModal(content) {
 }
 
 function hideModal() {
-    document.getElementById('modal').classList.add('hidden');
-    document.getElementById('modal').classList.remove('flex');
+    document.getElementById('modal').classList.remove('show');
 }
 
 // Helper functions
@@ -80,7 +97,7 @@ document.getElementById('modal').addEventListener('mousedown', function(e) {
     modalMouseDownTarget = e.target;
 });
 document.getElementById('modal').addEventListener('mouseup', function(e) { 
-    // Only close if both mousedown and mouseup happened on the modal background
+    // Only close if both mousedown and mouseup happened on the modal overlay background
     if (e.target.id === 'modal' && modalMouseDownTarget && modalMouseDownTarget.id === 'modal') {
         hideModal();
     }
@@ -91,7 +108,7 @@ document.getElementById('modal').addEventListener('mouseup', function(e) {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape' || e.keyCode === 27) {
         var modal = document.getElementById('modal');
-        if (modal && !modal.classList.contains('hidden')) {
+        if (modal && modal.classList.contains('show')) {
             hideModal();
         }
     }

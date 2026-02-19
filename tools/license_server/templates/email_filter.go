@@ -2,56 +2,49 @@ package templates
 
 // EmailFilterHTML contains the email filter panel HTML
 const EmailFilterHTML = `
-<div id="panel-email-filter" class="tab-panel">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Filter Settings -->
-        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-3">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">过滤模式设置</h2>
-            <div class="flex items-center gap-6 mb-4">
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="blacklist-enabled" class="w-4 h-4" onchange="saveFilterSettings()">
-                    <span class="text-sm">启用黑名单</span>
-                </label>
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="whitelist-enabled" class="w-4 h-4" onchange="saveFilterSettings()">
-                    <span class="text-sm">启用白名单</span>
-                </label>
-                <label class="flex items-center gap-2">
-                    <input type="checkbox" id="conditions-enabled" class="w-4 h-4" onchange="saveFilterSettings()">
-                    <span class="text-sm">启用条件名单</span>
-                </label>
-            </div>
-            <p class="text-xs text-slate-500">* 黑名单优先检查。启用白名单时，邮箱必须在白名单中且不在黑名单中</p>
+<div id="section-email-filter" class="section">
+    <div class="card mb-4">
+        <h2 class="card-title mb-4">过滤模式设置</h2>
+        <div class="flex items-center gap-3 mb-4">
+            <label class="flex items-center gap-2">
+                <input type="checkbox" id="blacklist-enabled" onchange="saveFilterSettings()">
+                <span class="text-sm">启用黑名单</span>
+            </label>
+            <label class="flex items-center gap-2">
+                <input type="checkbox" id="whitelist-enabled" onchange="saveFilterSettings()">
+                <span class="text-sm">启用白名单</span>
+            </label>
+            <label class="flex items-center gap-2">
+                <input type="checkbox" id="conditions-enabled" onchange="saveFilterSettings()">
+                <span class="text-sm">启用条件名单</span>
+            </label>
         </div>
-        
-        <!-- Blacklist -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-800">⚫ 黑名单</h2>
-                <button onclick="showAddBlacklist()" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm">+ 添加</button>
+        <p class="text-xs text-muted">* 黑名单优先检查。启用白名单时，邮箱必须在白名单中且不在黑名单中</p>
+    </div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;">
+        <div class="card" style="flex:1;min-width:280px;">
+            <div class="card-header">
+                <h2 class="card-title">⚫ 黑名单</h2>
+                <button onclick="showAddBlacklist()" class="btn btn-danger btn-sm">+ 添加</button>
             </div>
-            <p class="text-xs text-slate-500 mb-3">* 匹配的邮箱/域名将被拒绝</p>
-            <div id="blacklist-items" class="space-y-2 max-h-80 overflow-y-auto"></div>
+            <p class="text-xs text-muted mb-2">* 匹配的邮箱/域名将被拒绝</p>
+            <div id="blacklist-items" style="max-height:320px;overflow-y:auto;"></div>
         </div>
-        
-        <!-- Whitelist -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-800">⚪ 白名单</h2>
-                <button onclick="showAddWhitelist()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 添加</button>
+        <div class="card" style="flex:1;min-width:280px;">
+            <div class="card-header">
+                <h2 class="card-title">⚪ 白名单</h2>
+                <button onclick="showAddWhitelist()" class="btn btn-success btn-sm">+ 添加</button>
             </div>
-            <p class="text-xs text-slate-500 mb-3">* 启用时，只有匹配的邮箱/域名才能申请</p>
-            <div id="whitelist-items" class="space-y-2 max-h-80 overflow-y-auto"></div>
+            <p class="text-xs text-muted mb-2">* 启用时，只有匹配的邮箱/域名才能申请</p>
+            <div id="whitelist-items" style="max-height:320px;overflow-y:auto;"></div>
         </div>
-        
-        <!-- Conditions -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-bold text-slate-800">🔶 条件名单</h2>
-                <button onclick="showAddCondition()" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-sm">+ 添加</button>
+        <div class="card" style="flex:1;min-width:280px;">
+            <div class="card-header">
+                <h2 class="card-title">🔶 条件名单</h2>
+                <button onclick="showAddCondition()" class="btn btn-warning btn-sm">+ 添加</button>
             </div>
-            <p class="text-xs text-slate-500 mb-3">* 匹配的邮箱/域名将分配指定分组的序列号</p>
-            <div id="condition-items" class="space-y-2 max-h-80 overflow-y-auto"></div>
+            <p class="text-xs text-muted mb-2">* 匹配的邮箱/域名将分配指定分组的序列号</p>
+            <div id="condition-items" style="max-height:320px;overflow-y:auto;"></div>
         </div>
     </div>
 </div>

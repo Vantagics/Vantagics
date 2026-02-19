@@ -2,14 +2,14 @@ package templates
 
 // ProductTypesHTML contains the product types panel HTML
 const ProductTypesHTML = `
-<div id="panel-product-types" class="tab-panel">
-    <div class="bg-white rounded-xl shadow-sm p-6">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-bold text-slate-800">产品类型管理</h2>
-            <button onclick="showProductTypeForm()" class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">+ 添加产品类型</button>
+<div id="section-product-types" class="section">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">产品类型管理</h2>
+            <button onclick="showProductTypeForm()" class="btn btn-success btn-sm">+ 添加产品类型</button>
         </div>
-        <p class="text-xs text-slate-500 mb-4">* 产品类型用于区分不同产品的序列号。ID=0 为默认产品 VantageData（不可删除）。集成时使用产品 ID 进行区分。</p>
-        <div id="product-types-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        <p class="text-xs text-muted mb-4">* 产品类型用于区分不同产品的序列号。ID=0 为默认产品 VantageData（不可删除）。集成时使用产品 ID 进行区分。</p>
+        <div id="product-types-list" class="flex flex-wrap gap-3"></div>
     </div>
 </div>
 `

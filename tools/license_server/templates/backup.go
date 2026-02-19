@@ -2,103 +2,79 @@ package templates
 
 // BackupHTML contains the backup and restore panel HTML
 const BackupHTML = `
-<div id="panel-backup" class="tab-panel hidden">
-    <div class="grid grid-cols-1 gap-6">
-        <!-- Backup Section -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">📦 数据备份</h2>
-            <div class="grid grid-cols-2 gap-6">
-                <!-- Full Backup -->
-                <div class="border rounded-lg p-4">
-                    <h3 class="font-semibold text-slate-700 mb-2">🗄️ 完全备份</h3>
-                    <p class="text-sm text-slate-500 mb-4">备份数据库中的所有数据，包括序列号、配置、邮件记录等。</p>
-                    <button onclick="createBackup('full')" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
-                        创建完全备份
-                    </button>
-                </div>
-                
-                <!-- Incremental Backup -->
-                <div class="border rounded-lg p-4">
-                    <h3 class="font-semibold text-slate-700 mb-2">📈 增量备份</h3>
-                    <p class="text-sm text-slate-500 mb-4">仅备份自上次备份以来新增或修改的数据。</p>
-                    <div id="last-backup-info" class="text-xs text-slate-400 mb-2"></div>
-                    <button onclick="createBackup('incremental')" class="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700">
-                        创建增量备份
-                    </button>
-                </div>
+<div id="section-backup" class="section">
+    <div class="card">
+        <h2 class="card-title mb-4">📦 数据备份</h2>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:250px;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">
+                <h3 class="font-medium mb-2">🗄️ 完全备份</h3>
+                <p class="text-sm text-muted mb-4">备份数据库中的所有数据，包括序列号、配置、邮件记录等。</p>
+                <button onclick="createBackup('full')" class="btn btn-primary w-full">创建完全备份</button>
             </div>
-            
-            <!-- Backup Domain Setting -->
-            <div class="mt-4 p-4 bg-slate-50 rounded-lg">
-                <label class="text-sm text-slate-600 font-medium">备份标识（域名/服务器名）</label>
-                <input type="text" id="backup-domain" placeholder="例如: license.example.com" 
-                    class="w-full mt-2 px-3 py-2 border rounded-lg" value="">
-                <p class="text-xs text-slate-400 mt-1">此标识将包含在备份文件名中，便于区分不同服务器的备份</p>
+            <div style="flex:1;min-width:250px;border:1px solid #e2e8f0;border-radius:8px;padding:16px;">
+                <h3 class="font-medium mb-2">📈 增量备份</h3>
+                <p class="text-sm text-muted mb-4">仅备份自上次备份以来新增或修改的数据。</p>
+                <div id="last-backup-info" class="text-xs text-muted mb-2"></div>
+                <button onclick="createBackup('incremental')" class="btn btn-success w-full">创建增量备份</button>
             </div>
         </div>
-        
-        <!-- Restore Section -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">🔄 数据恢复</h2>
-            <div class="space-y-4">
-                <div class="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center" id="restore-drop-zone">
-                    <input type="file" id="restore-file" accept=".json" class="hidden" onchange="handleRestoreFile(this)">
-                    <div class="text-slate-500">
-                        <svg class="w-12 h-12 mx-auto mb-2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                        </svg>
-                        <p class="mb-2">拖拽备份文件到此处，或</p>
-                        <button onclick="document.getElementById('restore-file').click()" class="px-4 py-2 bg-slate-200 rounded-lg hover:bg-slate-300">
-                            选择文件
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- Restore Options -->
-                <div id="restore-options" class="hidden">
-                    <div class="bg-slate-50 rounded-lg p-4">
-                        <h4 class="font-medium text-slate-700 mb-2">备份文件信息</h4>
-                        <div id="backup-file-info" class="text-sm text-slate-600 space-y-1"></div>
-                    </div>
-                    
-                    <div class="mt-4">
-                        <label class="text-sm text-slate-600 font-medium">恢复类型</label>
-                        <div class="flex gap-4 mt-2">
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="restore-type" value="full" class="w-4 h-4">
-                                <span class="text-sm">完全恢复（删除现有数据）</span>
-                            </label>
-                            <label class="flex items-center gap-2">
-                                <input type="radio" name="restore-type" value="incremental" class="w-4 h-4">
-                                <span class="text-sm">增量恢复（合并数据）</span>
-                            </label>
-                        </div>
-                        <p id="restore-type-warning" class="text-xs text-red-500 mt-2 hidden"></p>
-                    </div>
-                    
-                    <div class="flex gap-3 mt-4">
-                        <button onclick="cancelRestore()" class="flex-1 py-2 bg-slate-200 rounded-lg hover:bg-slate-300">取消</button>
-                        <button onclick="executeRestore()" class="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">执行恢复</button>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <p class="text-xs text-yellow-700">
-                    <strong>⚠️ 注意：</strong>
-                    <br>• 完全恢复会删除所有现有数据，请谨慎操作
-                    <br>• 恢复类型必须与备份文件类型匹配
-                    <br>• 建议在恢复前先创建一个完全备份
-                </p>
+        <div class="mt-4" style="padding:16px;background:#f8fafc;border-radius:8px;">
+            <label class="form-label">备份标识（域名/服务器名）</label>
+            <input type="text" id="backup-domain" placeholder="例如: license.example.com" class="form-input mt-2" value="">
+            <p class="text-xs text-muted mt-2">此标识将包含在备份文件名中，便于区分不同服务器的备份</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title mb-4">🔄 数据恢复</h2>
+        <div style="border:2px dashed #cbd5e1;border-radius:8px;padding:24px;text-align:center;" id="restore-drop-zone">
+            <input type="file" id="restore-file" accept=".json" class="hidden" onchange="handleRestoreFile(this)">
+            <div class="text-muted">
+                <svg style="width:48px;height:48px;margin:0 auto 8px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="mb-2">拖拽备份文件到此处，或</p>
+                <button onclick="document.getElementById('restore-file').click()" class="btn btn-secondary">选择文件</button>
             </div>
         </div>
-        
-        <!-- Backup History -->
-        <div class="bg-white rounded-xl shadow-sm p-6">
-            <h2 class="text-lg font-bold text-slate-800 mb-4">📋 备份记录</h2>
-            <div id="backup-history" class="space-y-2">
-                <p class="text-sm text-slate-500">加载中...</p>
+        <div id="restore-options" class="hidden">
+            <div class="mt-4" style="padding:16px;background:#f8fafc;border-radius:8px;">
+                <h4 class="font-medium mb-2">备份文件信息</h4>
+                <div id="backup-file-info" class="text-sm"></div>
             </div>
+            <div class="mt-4">
+                <label class="form-label">恢复类型</label>
+                <div class="flex gap-3 mt-2">
+                    <label class="flex items-center gap-2">
+                        <input type="radio" name="restore-type" value="full">
+                        <span class="text-sm">完全恢复（删除现有数据）</span>
+                    </label>
+                    <label class="flex items-center gap-2">
+                        <input type="radio" name="restore-type" value="incremental">
+                        <span class="text-sm">增量恢复（合并数据）</span>
+                    </label>
+                </div>
+                <p id="restore-type-warning" class="text-xs text-danger mt-2 hidden"></p>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button onclick="cancelRestore()" class="btn btn-secondary" style="flex:1">取消</button>
+                <button onclick="executeRestore()" class="btn btn-warning" style="flex:1">执行恢复</button>
+            </div>
+        </div>
+        <div class="mt-4" style="padding:12px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;">
+            <p class="text-xs" style="color:#a16207;">
+                <strong>⚠️ 注意：</strong>
+                <br>• 完全恢复会删除所有现有数据，请谨慎操作
+                <br>• 恢复类型必须与备份文件类型匹配
+                <br>• 建议在恢复前先创建一个完全备份
+            </p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2 class="card-title mb-4">📋 备份记录</h2>
+        <div id="backup-history">
+            <p class="text-sm text-muted">加载中...</p>
         </div>
     </div>
 </div>
