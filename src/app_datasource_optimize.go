@@ -6,51 +6,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"vantagedata/agent"
 	"vantagedata/i18n"
-	"strings"
 )
 
-// IndexSuggestion represents a suggested index
-type IndexSuggestion struct {
-	TableName  string   `json:"table_name"`
-	IndexName  string   `json:"index_name"`
-	Columns    []string `json:"columns"`
-	Reason     string   `json:"reason"`
-	SQLCommand string   `json:"sql_command"`
-	Applied    bool     `json:"applied"`
-	Error      string   `json:"error,omitempty"`
+// OptimizeSuggestion represents a DuckDB-specific optimization suggestion
+type OptimizeSuggestion struct {
+	TableName   string   `json:"table_name"`
+	Type        string   `json:"type"` // "column_type", "enum_conversion", "sort_order", "compression"
+	Description string   `json:"description"`
+	Columns     []string `json:"columns"`
+	Reason      string   `json:"reason"`
+	SQLCommands []string `json:"sql_commands"`
+	Applied     bool     `json:"applied"`
+	Error       string   `json:"error,omitempty"`
 }
+
+// Keep IndexSuggestion for backward compatibility with existing callers
+type IndexSuggestion = OptimizeSuggestion
 
 // OptimizeSuggestionsResult represents the suggestions result
 type OptimizeSuggestionsResult struct {
-	DataSourceID   string            `json:"data_source_id"`
-	DataSourceName string            `json:"data_source_name"`
-	Suggestions    []IndexSuggestion `json:"suggestions"`
-	Success        bool              `json:"success"`
-	Error          string            `json:"error,omitempty"`
+	DataSourceID   string               `json:"data_source_id"`
+	DataSourceName string               `json:"data_source_name"`
+	Suggestions    []OptimizeSuggestion `json:"suggestions"`
+	Success        bool                 `json:"success"`
+	Error          string               `json:"error,omitempty"`
 }
 
 // OptimizeDataSourceResult represents the optimization result
 type OptimizeDataSourceResult struct {
-	DataSourceID   string            `json:"data_source_id"`
-	DataSourceName string            `json:"data_source_name"`
-	Suggestions    []IndexSuggestion `json:"suggestions"`
-	Summary        string            `json:"summary"`
-	Success        bool              `json:"success"`
-	Error          string            `json:"error,omitempty"`
+	DataSourceID   string               `json:"data_source_id"`
+	DataSourceName string               `json:"data_source_name"`
+	Suggestions    []OptimizeSuggestion `json:"suggestions"`
+	Summary        string               `json:"summary"`
+	Success        bool                 `json:"success"`
+	Error          string               `json:"error,omitempty"`
 }
 
-// GetOptimizeSuggestions generates optimization suggestions without applying them
+// GetOptimizeSuggestions generates DuckDB-specific optimization suggestions
 func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsResult, error) {
 	a.Log(fmt.Sprintf("[OPTIMIZE] Generating suggestions for data source: %s", dataSourceID))
 
-	// Check if dataSourceService is initialized
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
 
-	// Load data source
 	sources, err := a.dataSourceService.LoadDataSources()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load data sources: %w", err)
@@ -68,7 +70,7 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 		return nil, fmt.Errorf("data source not found: %s", dataSourceID)
 	}
 
-	// Check if it's a remote database (not allowed to optimize)
+	// Remote databases cannot be optimized
 	if dataSource.Type == "mysql" || dataSource.Type == "doris" || dataSource.Type == "postgresql" {
 		if !dataSource.Config.StoreLocally {
 			return &OptimizeSuggestionsResult{
@@ -80,35 +82,30 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 		}
 	}
 
-	// Check if it's a local SQLite database
 	if dataSource.Config.DBPath == "" {
 		return &OptimizeSuggestionsResult{
 			DataSourceID:   dataSourceID,
 			DataSourceName: dataSource.Name,
 			Success:        false,
-			Error:          "数据源没有本地存储，无法优化。请先将数据导入到本地。",
+			Error:          i18n.T("optimize.no_local_storage"),
 		}, nil
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Data source: %s, DBPath: %s", dataSource.Name, dataSource.Config.DBPath))
 
-	// Get data cache directory from config
 	cfg, err := a.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	// Get full database path
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
-	// Open database in read-only mode (we only query schema info here).
 	db, err := a.dataSourceService.DB.OpenReadOnly(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	// Get schema information and generate suggestions
 	suggestions, err := a.generateOptimizeSuggestions(db, dataSourceID)
 	if err != nil {
 		return nil, err
@@ -122,20 +119,17 @@ func (a *App) GetOptimizeSuggestions(dataSourceID string) (*OptimizeSuggestionsR
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Generated %d suggestions", len(suggestions)))
-
 	return result, nil
 }
 
-// ApplyOptimizeSuggestions applies the given optimization suggestions
-func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexSuggestion) (*OptimizeDataSourceResult, error) {
+// ApplyOptimizeSuggestions applies the given DuckDB optimization suggestions
+func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []OptimizeSuggestion) (*OptimizeDataSourceResult, error) {
 	a.Log(fmt.Sprintf("[OPTIMIZE] Applying %d suggestions for data source: %s", len(suggestions), dataSourceID))
 
-	// Check if dataSourceService is initialized
 	if a.dataSourceService == nil {
 		return nil, fmt.Errorf("data source service not initialized")
 	}
 
-	// Load data source
 	sources, err := a.dataSourceService.LoadDataSources()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load data sources: %w", err)
@@ -153,7 +147,6 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 		return nil, fmt.Errorf("data source not found: %s", dataSourceID)
 	}
 
-	// Check if it's a remote database (not allowed to optimize)
 	if dataSource.Type == "mysql" || dataSource.Type == "doris" || dataSource.Type == "postgresql" {
 		if !dataSource.Config.StoreLocally {
 			return &OptimizeDataSourceResult{
@@ -165,87 +158,88 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 		}
 	}
 
-	// Check if it's a local SQLite database
 	if dataSource.Config.DBPath == "" {
 		return &OptimizeDataSourceResult{
 			DataSourceID:   dataSourceID,
 			DataSourceName: dataSource.Name,
 			Success:        false,
-			Error:          "数据源没有本地存储，无法优化。",
+			Error:          i18n.T("optimize.no_local_storage"),
 		}, nil
 	}
 
-	// Get data cache directory from config
 	cfg, err := a.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	// Get full database path
 	dbPath := filepath.Join(cfg.DataCacheDir, dataSource.Config.DBPath)
 
-	// Open database with retry logic via unified DBManager.
 	db, err := a.dataSourceService.DB.OpenWritable(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 	defer db.Close()
 
-	// Apply suggestions
 	appliedCount := 0
 	for i := range suggestions {
-		// Validate that the SQL command is a CREATE INDEX statement (defense in depth)
-		sqlCmd := strings.TrimSpace(suggestions[i].SQLCommand)
-		sqlUpper := strings.ToUpper(sqlCmd)
-		if !strings.HasPrefix(sqlUpper, "CREATE INDEX") && !strings.HasPrefix(sqlUpper, "CREATE UNIQUE INDEX") {
-			suggestions[i].Applied = false
-			suggestions[i].Error = "rejected: only CREATE INDEX statements are allowed"
-			a.Log(fmt.Sprintf("[OPTIMIZE] Rejected non-index SQL: %s", sqlCmd[:min(len(sqlCmd), 80)]))
+		// Validate SQL commands are safe (only ALTER TABLE, CREATE INDEX, COPY allowed)
+		allSafe := true
+		for _, sqlCmd := range suggestions[i].SQLCommands {
+			if !isAllowedOptimizeSQL(sqlCmd) {
+				suggestions[i].Applied = false
+				suggestions[i].Error = "rejected: SQL command not in allowed list"
+				a.Log(fmt.Sprintf("[OPTIMIZE] Rejected SQL: %s", sqlCmd[:min(len(sqlCmd), 80)]))
+				allSafe = false
+				break
+			}
+		}
+		if !allSafe {
 			continue
 		}
 
-		// Execute SQL
-		_, err := db.Exec(suggestions[i].SQLCommand)
-		if err != nil {
-			suggestions[i].Applied = false
-			suggestions[i].Error = err.Error()
-			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to create index %s: %v", suggestions[i].IndexName, err))
-		} else {
+		// Execute all SQL commands for this suggestion
+		allSucceeded := true
+		for _, sqlCmd := range suggestions[i].SQLCommands {
+			_, err := db.Exec(sqlCmd)
+			if err != nil {
+				suggestions[i].Applied = false
+				suggestions[i].Error = err.Error()
+				a.Log(fmt.Sprintf("[OPTIMIZE] Failed to execute: %s, error: %v", sqlCmd[:min(len(sqlCmd), 80)], err))
+				allSucceeded = false
+				break
+			}
+		}
+
+		if allSucceeded {
 			suggestions[i].Applied = true
 			appliedCount++
-			a.Log(fmt.Sprintf("[OPTIMIZE] Created index: %s", suggestions[i].IndexName))
+			a.Log(fmt.Sprintf("[OPTIMIZE] Applied optimization: %s on %s", suggestions[i].Type, suggestions[i].TableName))
 		}
 	}
 
 	// Mark data source as optimized
 	if appliedCount > 0 {
 		dataSource.Config.Optimized = true
-		
-		// Load all sources, update this one, and save
 		sources, err := a.dataSourceService.LoadDataSources()
 		if err != nil {
 			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to load data sources: %v", err))
 		} else {
 			found := false
-			for i := range sources {
-				if sources[i].ID == dataSource.ID {
-					sources[i].Config.Optimized = true
+			for j := range sources {
+				if sources[j].ID == dataSource.ID {
+					sources[j].Config.Optimized = true
 					found = true
 					break
 				}
 			}
-			
 			if found {
 				if err := a.dataSourceService.SaveDataSources(sources); err != nil {
 					a.Log(fmt.Sprintf("[OPTIMIZE] Failed to save optimized status: %v", err))
-				} else {
-					a.Log(fmt.Sprintf("[OPTIMIZE] Marked data source as optimized"))
 				}
 			}
 		}
 	}
 
-	// Generate summary
 	summary := i18n.T("optimize.summary", appliedCount, len(suggestions))
 
 	result := &OptimizeDataSourceResult{
@@ -257,94 +251,107 @@ func (a *App) ApplyOptimizeSuggestions(dataSourceID string, suggestions []IndexS
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Optimization complete: %s", summary))
-
 	return result, nil
 }
 
-// generateOptimizeSuggestions generates optimization suggestions using LLM
-func (a *App) generateOptimizeSuggestions(db *sql.DB, dataSourceID string) ([]IndexSuggestion, error) {
-	// Get tables
+// isAllowedOptimizeSQL checks if a SQL command is safe for optimization
+func isAllowedOptimizeSQL(sqlCmd string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(sqlCmd))
+	allowedPrefixes := []string{
+		"ALTER TABLE",
+		"CREATE INDEX",
+		"CREATE UNIQUE INDEX",
+		"COPY",
+		"CREATE TABLE",
+		"INSERT INTO",
+		"DROP TABLE",
+	}
+	for _, prefix := range allowedPrefixes {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// generateOptimizeSuggestions generates DuckDB-specific optimization suggestions using LLM
+func (a *App) generateOptimizeSuggestions(db *sql.DB, dataSourceID string) ([]OptimizeSuggestion, error) {
 	tables, err := a.dataSourceService.GetDataSourceTables(dataSourceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tables: %w", err)
 	}
 
-	// Build schema description for LLM
+	// Build schema description with column stats for LLM
 	var schemaDesc strings.Builder
-	schemaDesc.WriteString("Database Schema:\n\n")
+	schemaDesc.WriteString("DuckDB Database Schema and Statistics:\n\n")
 
 	for _, tableName := range tables {
-		columns, err := a.dataSourceService.GetDataSourceTableColumns(dataSourceID, tableName)
-		if err != nil {
-			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get columns for table %s: %v", tableName, err))
-			continue
-		}
-
-		// Get column types
 		columnTypes, err := a.getColumnTypes(db, tableName)
 		if err != nil {
 			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get column types for table %s: %v", tableName, err))
+			continue
 		}
 
-		schemaDesc.WriteString(fmt.Sprintf("Table: %s\n", tableName))
+		// Get row count
+		rowCount := a.getTableRowCount(db, tableName)
+
+		schemaDesc.WriteString(fmt.Sprintf("Table: %s (rows: %d)\n", tableName, rowCount))
 		schemaDesc.WriteString("Columns:\n")
-		for _, col := range columns {
-			colType := "UNKNOWN"
-			if ct, ok := columnTypes[col]; ok {
-				colType = ct
+
+		for colName, colType := range columnTypes {
+			// Get cardinality for string/categorical columns
+			card := a.getColumnCardinality(db, tableName, colName)
+			if card > 0 {
+				schemaDesc.WriteString(fmt.Sprintf("  - %s (%s) [distinct values: %d]\n", colName, colType, card))
+			} else {
+				schemaDesc.WriteString(fmt.Sprintf("  - %s (%s)\n", colName, colType))
 			}
-			schemaDesc.WriteString(fmt.Sprintf("  - %s (%s)\n", col, colType))
 		}
 		schemaDesc.WriteString("\n")
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Schema description:\n%s", schemaDesc.String()))
 
-	// Get existing indexes
-	existingIndexes, err := a.getExistingIndexes(db)
-	if err != nil {
-		a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get existing indexes: %v", err))
-	} else {
-		schemaDesc.WriteString("Existing Indexes:\n")
-		for _, idx := range existingIndexes {
-			schemaDesc.WriteString(fmt.Sprintf("  - %s\n", idx))
-		}
-		schemaDesc.WriteString("\n")
-	}
-
-	// Ask LLM for index suggestions
 	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
-	prompt := fmt.Sprintf(`You are a database optimization expert. Analyze the following DuckDB database schema and suggest indexes to improve query performance.
+	prompt := fmt.Sprintf(`You are a DuckDB optimization expert. Analyze the following DuckDB database schema and statistics, then suggest optimizations.
 
 %s
 
-Please provide index suggestions in JSON format. For each suggestion, include:
-- table_name: The table name
-- index_name: A descriptive index name (e.g., idx_tablename_column)
-- columns: Array of column names to include in the index
-- reason: Why this index would improve performance
+DuckDB is a columnar analytical database. Traditional B-tree indexes are NOT useful for analytical workloads. Instead, focus on these DuckDB-specific optimizations:
 
-Consider:
-1. Primary keys and foreign keys (if identifiable from column names like *_id)
-2. Columns likely used in WHERE clauses (dates, status, categories)
-3. Columns used in JOIN operations
-4. Columns used in ORDER BY or GROUP BY
-5. Avoid creating indexes on very small tables (< 1000 rows estimated)
-6. Avoid duplicate indexes
+1. **Column Type Optimization**: Suggest more efficient types. For example:
+   - VARCHAR columns with low cardinality (few distinct values relative to row count) should be converted to ENUM type
+   - Overly wide numeric types (e.g., DOUBLE for integer data, BIGINT for small numbers) can be narrowed
+   - Date/time stored as VARCHAR should be converted to DATE/TIMESTAMP
 
-Return ONLY a JSON array of suggestions, no other text:
-[
-  {
-    "table_name": "orders",
-    "index_name": "idx_orders_date",
-    "columns": ["order_date"],
-    "reason": "Improve performance for date range queries"
-  }
-]`, schemaDesc.String())
+2. **Sort Order Optimization**: Suggest sorting tables by frequently filtered columns (dates, categories) to improve zone map effectiveness. This requires recreating the table with sorted data.
+
+3. **Compression Hints**: For very large tables, suggest explicit compression if beneficial.
+
+IMPORTANT RULES:
+- Only suggest changes that will genuinely improve performance or reduce storage
+- For ENUM conversion, only suggest when distinct values < 1000 AND distinct values < 10%% of total rows
+- For sort order, only suggest for tables with > 10000 rows
+- Each suggestion must include executable DuckDB SQL commands
+- For column type changes, use ALTER TABLE ... ALTER COLUMN ... SET DATA TYPE ...
+- For ENUM conversions, first CREATE TYPE, then ALTER TABLE
+- For sort order, use: CREATE TABLE new AS SELECT * FROM old ORDER BY col; DROP TABLE old; ALTER TABLE new RENAME TO old;
+
+Return ONLY a JSON array (no other text). Each element:
+{
+  "table_name": "orders",
+  "type": "enum_conversion",
+  "description": "Convert status column to ENUM type",
+  "columns": ["status"],
+  "reason": "Column has only 5 distinct values in 100000 rows, ENUM saves storage and speeds up filtering",
+  "sql_commands": ["CREATE TYPE status_enum AS ENUM ('active','inactive','pending','completed','cancelled')", "ALTER TABLE orders ALTER COLUMN status SET DATA TYPE status_enum"]
+}
+
+If no optimizations are needed, return an empty array: []`, schemaDesc.String())
 
 	llm := agent.NewLLMService(cfg, a.Log)
 	response, err := llm.Chat(context.Background(), prompt)
@@ -354,20 +361,16 @@ Return ONLY a JSON array of suggestions, no other text:
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] LLM response: %s", response))
 
-	// Parse LLM response
-	suggestions, err := a.parseIndexSuggestions(response)
+	suggestions, err := a.parseOptimizeSuggestions(response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse LLM suggestions: %w", err)
 	}
 
-	// Build a map of table -> columns for validation
-	// Use direct database query instead of cache to ensure accuracy
+	// Validate suggestions against actual schema
 	tableColumns := make(map[string]map[string]bool)
 	for _, tableName := range tables {
-		// Get columns directly from database to avoid cache inconsistency
 		columnTypes, err := a.getColumnTypes(db, tableName)
 		if err != nil {
-			a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get columns for table %s: %v", tableName, err))
 			continue
 		}
 		tableColumns[tableName] = make(map[string]bool)
@@ -376,64 +379,68 @@ Return ONLY a JSON array of suggestions, no other text:
 		}
 	}
 
-	// Filter and generate SQL commands for each suggestion
-	validSuggestions := []IndexSuggestion{}
-	for i := range suggestions {
-		// Validate table exists
-		colMap, tableExists := tableColumns[suggestions[i].TableName]
+	validSuggestions := []OptimizeSuggestion{}
+	for _, sug := range suggestions {
+		colMap, tableExists := tableColumns[sug.TableName]
 		if !tableExists {
-			a.Log(fmt.Sprintf("[OPTIMIZE] Skipping index %s: table %s does not exist", suggestions[i].IndexName, suggestions[i].TableName))
+			a.Log(fmt.Sprintf("[OPTIMIZE] Skipping: table %s does not exist", sug.TableName))
 			continue
 		}
 
-		// Validate all columns exist
 		allColumnsExist := true
-		for _, col := range suggestions[i].Columns {
+		for _, col := range sug.Columns {
 			if !colMap[col] {
-				a.Log(fmt.Sprintf("[OPTIMIZE] Skipping index %s: column '%s' does not exist in table '%s'. Available columns: %v", 
-					suggestions[i].IndexName, col, suggestions[i].TableName, getMapKeys(colMap)))
+				a.Log(fmt.Sprintf("[OPTIMIZE] Skipping: column '%s' does not exist in table '%s'", col, sug.TableName))
 				allColumnsExist = false
 				break
 			}
 		}
-
 		if !allColumnsExist {
 			continue
 		}
 
-		suggestions[i].SQLCommand = fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON "%s" (%s)`,
-			strings.ReplaceAll(suggestions[i].IndexName, `"`, `""`),
-			strings.ReplaceAll(suggestions[i].TableName, `"`, `""`),
-			func() string {
-				quoted := make([]string, len(suggestions[i].Columns))
-				for j, col := range suggestions[i].Columns {
-					quoted[j] = fmt.Sprintf(`"%s"`, strings.ReplaceAll(col, `"`, `""`))
-				}
-				return strings.Join(quoted, ", ")
-			}())
-		validSuggestions = append(validSuggestions, suggestions[i])
+		if len(sug.SQLCommands) == 0 {
+			a.Log(fmt.Sprintf("[OPTIMIZE] Skipping: no SQL commands for %s", sug.Description))
+			continue
+		}
+
+		validSuggestions = append(validSuggestions, sug)
 	}
 
 	a.Log(fmt.Sprintf("[OPTIMIZE] Filtered from %d to %d valid suggestions", len(suggestions), len(validSuggestions)))
 	return validSuggestions, nil
 }
 
-// getMapKeys returns all keys from a map
-func getMapKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
+// getTableRowCount returns the approximate row count for a table
+func (a *App) getTableRowCount(db *sql.DB, tableName string) int64 {
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM "%s"`, strings.ReplaceAll(tableName, `"`, `""`))
+	var count int64
+	err := db.QueryRow(query).Scan(&count)
+	if err != nil {
+		a.Log(fmt.Sprintf("[OPTIMIZE] Failed to get row count for %s: %v", tableName, err))
+		return 0
 	}
-	return keys
+	return count
+}
+
+// getColumnCardinality returns the number of distinct values in a column
+func (a *App) getColumnCardinality(db *sql.DB, tableName, columnName string) int64 {
+	query := fmt.Sprintf(`SELECT COUNT(DISTINCT "%s") FROM "%s"`,
+		strings.ReplaceAll(columnName, `"`, `""`),
+		strings.ReplaceAll(tableName, `"`, `""`))
+	var count int64
+	err := db.QueryRow(query).Scan(&count)
+	if err != nil {
+		return 0
+	}
+	return count
 }
 
 // getColumnTypes retrieves column types for a table
 func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, error) {
-	// Use PRAGMA table_info which is safe for DuckDB and doesn't require quoting
 	query := fmt.Sprintf(`PRAGMA table_info("%s")`, strings.ReplaceAll(tableName, `"`, `""`))
 	rows, err := db.Query(query)
 	if err != nil {
-		// Fallback to DESCRIBE for MySQL compatibility
 		query = fmt.Sprintf("DESCRIBE `%s`", strings.ReplaceAll(tableName, "`", "``"))
 		rows, err = db.Query(query)
 		if err != nil {
@@ -448,14 +455,12 @@ func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, e
 
 	for rows.Next() {
 		if numCols >= 6 {
-			// DESCRIBE format: name, type, nullable, key, default, extra
 			var name, colType, nullable, key, defaultValue, extra sql.NullString
 			if err := rows.Scan(&name, &colType, &nullable, &key, &defaultValue, &extra); err != nil {
 				continue
 			}
 			columnTypes[name.String] = colType.String
 		} else {
-			// PRAGMA table_info format: cid, name, type, notnull, dflt_value, pk
 			var cid int
 			var name, colType string
 			var notnull int
@@ -474,34 +479,8 @@ func (a *App) getColumnTypes(db *sql.DB, tableName string) (map[string]string, e
 	return columnTypes, nil
 }
 
-// getExistingIndexes retrieves existing indexes
-func (a *App) getExistingIndexes(db *sql.DB) ([]string, error) {
-	query := "SELECT index_name FROM duckdb_indexes()"
-	rows, err := db.Query(query)
-	if err != nil {
-		// Fallback for older versions or if duckdb_indexes() fails
-		return []string{}, nil
-	}
-	defer rows.Close()
-
-	var indexes []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			continue
-		}
-		indexes = append(indexes, name)
-	}
-	if err := rows.Err(); err != nil {
-		return indexes, fmt.Errorf("error iterating index rows: %w", err)
-	}
-
-	return indexes, nil
-}
-
-// parseIndexSuggestions parses LLM response into index suggestions
-func (a *App) parseIndexSuggestions(response string) ([]IndexSuggestion, error) {
-	// Extract JSON from response (might be wrapped in markdown code blocks)
+// parseOptimizeSuggestions parses LLM response into optimization suggestions
+func (a *App) parseOptimizeSuggestions(response string) ([]OptimizeSuggestion, error) {
 	jsonStr := response
 
 	// Remove markdown code blocks if present
@@ -528,7 +507,7 @@ func (a *App) parseIndexSuggestions(response string) ([]IndexSuggestion, error) 
 		jsonStr = jsonStr[startIdx : endIdx+1]
 	}
 
-	var suggestions []IndexSuggestion
+	var suggestions []OptimizeSuggestion
 	if err := json.Unmarshal([]byte(jsonStr), &suggestions); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON: %w, JSON: %s", err, jsonStr)
 	}

@@ -12,6 +12,36 @@ import (
 	"time"
 )
 
+// testInsertPackListing inserts a pack listing with a share_token and returns (listingID, shareToken).
+func testInsertPackListing(userID, categoryID int64, packName, shareMode string, creditsPrice int, status string) (int64, string, error) {
+	token := generateShareToken()
+	res, err := db.Exec(
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, share_token)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", shareMode, creditsPrice, status, token,
+	)
+	if err != nil {
+		return 0, "", err
+	}
+	id, _ := res.LastInsertId()
+	return id, token, nil
+}
+
+// testInsertPackListingFull inserts a pack listing with full metadata and a share_token.
+func testInsertPackListingFull(userID, categoryID int64, packName, packDesc, sourceName, authorName, shareMode string, creditsPrice, downloadCount int) (int64, string, error) {
+	token := generateShareToken()
+	res, err := db.Exec(
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, download_count, share_token)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?, ?)`,
+		userID, categoryID, []byte("fake-data"), packName, packDesc, sourceName, authorName, shareMode, creditsPrice, downloadCount, token,
+	)
+	if err != nil {
+		return 0, "", err
+	}
+	id, _ := res.LastInsertId()
+	return id, token, nil
+}
+
 // Feature: qap-share-url, Property 10: pack_name 查询 listing_id 一致性
 // **Validates: Requirements 7.2**
 //
@@ -62,16 +92,11 @@ func TestProperty10_PackNameQueryListingIDConsistency(t *testing.T) {
 
 		for i := 0; i < numListings; i++ {
 			packName := fmt.Sprintf("SharePack_%d_%d_%d", seed, i, r.Intn(10000))
-			listRes, err := db.Exec(
-				`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
-				userID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", "free", 0,
-			)
+			lid, _, err := testInsertPackListing(userID, categoryID, packName, "free", 0, "published")
 			if err != nil {
 				t.Logf("seed=%d: failed to create listing %d: %v", seed, i, err)
 				return false
 			}
-			lid, _ := listRes.LastInsertId()
 			packs = append(packs, packInfo{listingID: lid, packName: packName})
 		}
 
@@ -164,16 +189,11 @@ func TestProperty2_PackDetailAPIReturnsCompleteInfo(t *testing.T) {
 		downloadCount := r.Intn(1000)
 
 		// Insert the pack listing
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, download_count)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published', ?)`,
-			userID, categoryID, []byte("fake-data"), packName, packDesc, sourceName, authorName, shareMode, creditsPrice, downloadCount,
-		)
+		listingID, _, err := testInsertPackListingFull(userID, categoryID, packName, packDesc, sourceName, authorName, shareMode, creditsPrice, downloadCount)
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Call the detail API
 		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/packs/%d/detail", listingID), nil)
@@ -301,16 +321,11 @@ func TestProperty3_NonExistentOrUnpublishedPackReturns404(t *testing.T) {
 		nonPublishedStatuses := []string{"pending", "rejected", "delisted"}
 		status := nonPublishedStatuses[r.Intn(len(nonPublishedStatuses))]
 		packName := fmt.Sprintf("UnpubPack_%d_%d", seed, r.Intn(10000))
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			userID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", "free", 0, status,
-		)
+		unpubID, _, err := testInsertPackListing(userID, categoryID, packName, "free", 0, status)
 		if err != nil {
 			t.Logf("seed=%d: failed to create unpublished listing: %v", seed, err)
 			return false
 		}
-		unpubID, _ := listRes.LastInsertId()
 
 		req2 := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/packs/%d/detail", unpubID), nil)
 		rr2 := httptest.NewRecorder()
@@ -430,19 +445,14 @@ func TestProperty4_DetailPageShowsCorrectButtonByShareMode(t *testing.T) {
 		packName := fmt.Sprintf("BtnPack_%d_%d", seed, r.Intn(10000))
 
 		// Insert a published pack listing
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
-			userID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", shareMode, creditsPrice,
-		)
+		_, shareToken, err := testInsertPackListing(userID, categoryID, packName, shareMode, creditsPrice, "published")
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Call handlePackDetailPage (no session cookie → unauthenticated visitor)
-		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/pack/%d", listingID), nil)
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/pack/%s", shareToken), nil)
 		rr := httptest.NewRecorder()
 		handlePackDetailPage(rr, req)
 
@@ -496,8 +506,8 @@ func TestProperty4_DetailPageShowsCorrectButtonByShareMode(t *testing.T) {
 // Feature: qap-share-url, Property 5: 登录重定向往返一致性
 // **Validates: Requirements 4.1, 4.3**
 //
-// For any valid listing_id, when an unauthenticated user visits /pack/{listing_id},
-// the page should contain a login link with redirect=/pack/{listing_id}, preserving
+// For any valid share_token, when an unauthenticated user visits /pack/{share_token},
+// the page should contain a login link with redirect=/pack/{share_token}, preserving
 // the original pack path for post-login redirection.
 func TestProperty5_LoginRedirectRoundtripConsistency(t *testing.T) {
 	cfg := &quick.Config{
@@ -543,19 +553,14 @@ func TestProperty5_LoginRedirectRoundtripConsistency(t *testing.T) {
 		packName := fmt.Sprintf("RedirPack_%d_%d", seed, r.Intn(10000))
 
 		// Insert a published pack listing
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
-			userID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", shareMode, creditsPrice,
-		)
+		_, shareToken, err := testInsertPackListing(userID, categoryID, packName, shareMode, creditsPrice, "published")
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Call handlePackDetailPage WITHOUT a session cookie (unauthenticated)
-		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/pack/%d", listingID), nil)
+		req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/pack/%s", shareToken), nil)
 		rr := httptest.NewRecorder()
 		handlePackDetailPage(rr, req)
 
@@ -566,16 +571,15 @@ func TestProperty5_LoginRedirectRoundtripConsistency(t *testing.T) {
 
 		body := rr.Body.String()
 
-		// The page should contain a login redirect link that preserves the pack path
-		expectedRedirect := fmt.Sprintf("/user/login?redirect=/pack/%d", listingID)
+		// The page should contain a login redirect link that preserves the pack path (using share_token)
+		expectedRedirect := fmt.Sprintf("/user/login?redirect=/pack/%s", shareToken)
 		if !strings.Contains(body, expectedRedirect) {
 			t.Logf("seed=%d: HTML does not contain expected redirect URL %q", seed, expectedRedirect)
 			return false
 		}
 
 		// Verify the redirect path in the link matches the original pack path
-		// Extract the redirect parameter value and verify roundtrip consistency
-		expectedPackPath := fmt.Sprintf("/pack/%d", listingID)
+		expectedPackPath := fmt.Sprintf("/pack/%s", shareToken)
 		redirectParam := fmt.Sprintf("redirect=%s", expectedPackPath)
 		if !strings.Contains(body, redirectParam) {
 			t.Logf("seed=%d: redirect param %q not found in HTML", seed, redirectParam)
@@ -633,20 +637,19 @@ func TestProperty6_FreeClaimCreatesRecords(t *testing.T) {
 
 		// Create a random number of free pack listings (1-3)
 		numPacks := r.Intn(3) + 1
-		listingIDs := make([]int64, 0, numPacks)
+		type listingInfo struct {
+			id    int64
+			token string
+		}
+		listings := make([]listingInfo, 0, numPacks)
 		for i := 0; i < numPacks; i++ {
 			packName := fmt.Sprintf("FreePack_%d_%d_%d", seed, i, r.Intn(10000))
-			listRes, err := db.Exec(
-				`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, 'free', 0, 'published')`,
-				authorID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author",
-			)
+			lid, token, err := testInsertPackListing(authorID, categoryID, packName, "free", 0, "published")
 			if err != nil {
 				t.Logf("seed=%d: failed to create listing %d: %v", seed, i, err)
 				return false
 			}
-			lid, _ := listRes.LastInsertId()
-			listingIDs = append(listingIDs, lid)
+			listings = append(listings, listingInfo{id: lid, token: token})
 		}
 
 		// Create a claiming user
@@ -662,14 +665,14 @@ func TestProperty6_FreeClaimCreatesRecords(t *testing.T) {
 		claimerID, _ := claimerRes.LastInsertId()
 
 		// Claim each free pack
-		for _, lid := range listingIDs {
-			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%d/claim", lid), nil)
+		for _, li := range listings {
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%s/claim", li.token), nil)
 			req.Header.Set("X-User-ID", fmt.Sprintf("%d", claimerID))
 			rr := httptest.NewRecorder()
 			handleClaimFreePack(rr, req)
 
 			if rr.Code != http.StatusOK {
-				t.Logf("seed=%d: claim listing %d: expected 200, got %d, body: %s", seed, lid, rr.Code, rr.Body.String())
+				t.Logf("seed=%d: claim listing %d: expected 200, got %d, body: %s", seed, li.id, rr.Code, rr.Body.String())
 				return false
 			}
 
@@ -677,14 +680,14 @@ func TestProperty6_FreeClaimCreatesRecords(t *testing.T) {
 			var isHidden int
 			err := db.QueryRow(
 				"SELECT is_hidden FROM user_purchased_packs WHERE user_id = ? AND listing_id = ?",
-				claimerID, lid,
+				claimerID, li.id,
 			).Scan(&isHidden)
 			if err != nil {
-				t.Logf("seed=%d: no user_purchased_packs record for user=%d listing=%d: %v", seed, claimerID, lid, err)
+				t.Logf("seed=%d: no user_purchased_packs record for user=%d listing=%d: %v", seed, claimerID, li.id, err)
 				return false
 			}
 			if isHidden != 0 {
-				t.Logf("seed=%d: user_purchased_packs is_hidden=%d, expected 0 for user=%d listing=%d", seed, isHidden, claimerID, lid)
+				t.Logf("seed=%d: user_purchased_packs is_hidden=%d, expected 0 for user=%d listing=%d", seed, isHidden, claimerID, li.id)
 				return false
 			}
 
@@ -692,14 +695,14 @@ func TestProperty6_FreeClaimCreatesRecords(t *testing.T) {
 			var downloadCount int
 			err = db.QueryRow(
 				"SELECT COUNT(*) FROM user_downloads WHERE user_id = ? AND listing_id = ?",
-				claimerID, lid,
+				claimerID, li.id,
 			).Scan(&downloadCount)
 			if err != nil {
-				t.Logf("seed=%d: failed to query user_downloads for user=%d listing=%d: %v", seed, claimerID, lid, err)
+				t.Logf("seed=%d: failed to query user_downloads for user=%d listing=%d: %v", seed, claimerID, li.id, err)
 				return false
 			}
 			if downloadCount < 1 {
-				t.Logf("seed=%d: no user_downloads record for user=%d listing=%d", seed, claimerID, lid)
+				t.Logf("seed=%d: no user_downloads record for user=%d listing=%d", seed, claimerID, li.id)
 				return false
 			}
 		}
@@ -753,16 +756,11 @@ func TestProperty7_FreeClaimIdempotency(t *testing.T) {
 
 		// Create a free pack listing
 		packName := fmt.Sprintf("IdempPack_%d_%d", seed, r.Intn(10000))
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, 'free', 0, 'published')`,
-			authorID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author",
-		)
+		listingID, shareToken, err := testInsertPackListing(authorID, categoryID, packName, "free", 0, "published")
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Create a claiming user
 		claimerRes, err := db.Exec(
@@ -778,7 +776,7 @@ func TestProperty7_FreeClaimIdempotency(t *testing.T) {
 		// Claim the pack multiple times (2-5 times)
 		numClaims := r.Intn(4) + 2
 		for i := 0; i < numClaims; i++ {
-			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%d/claim", listingID), nil)
+			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%s/claim", shareToken), nil)
 			req.Header.Set("X-User-ID", fmt.Sprintf("%d", claimerID))
 			rr := httptest.NewRecorder()
 			handleClaimFreePack(rr, req)
@@ -872,16 +870,12 @@ func TestProperty8_PurchaseBalanceCheckCorrectness(t *testing.T) {
 
 		// Create a paid pack listing
 		packName := fmt.Sprintf("BalPack_%d_%d", seed, r.Intn(10000))
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
-			authorID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", shareMode, creditsPrice,
-		)
+		listingID, shareToken, err := testInsertPackListing(authorID, categoryID, packName, shareMode, creditsPrice, "published")
+		_ = listingID
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Generate purchase parameters
 		var quantity, months int
@@ -909,7 +903,7 @@ func TestProperty8_PurchaseBalanceCheckCorrectness(t *testing.T) {
 		}
 		buyerID1, _ := buyerRes1.LastInsertId()
 
-		req1 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%d/purchase", listingID), strings.NewReader(bodyStr))
+		req1 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%s/purchase", shareToken), strings.NewReader(bodyStr))
 		req1.Header.Set("X-User-ID", fmt.Sprintf("%d", buyerID1))
 		req1.Header.Set("Content-Type", "application/json")
 		rr1 := httptest.NewRecorder()
@@ -949,7 +943,7 @@ func TestProperty8_PurchaseBalanceCheckCorrectness(t *testing.T) {
 		}
 		buyerID2, _ := buyerRes2.LastInsertId()
 
-		req2 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%d/purchase", listingID), strings.NewReader(bodyStr))
+		req2 := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%s/purchase", shareToken), strings.NewReader(bodyStr))
 		req2.Header.Set("X-User-ID", fmt.Sprintf("%d", buyerID2))
 		req2.Header.Set("Content-Type", "application/json")
 		rr2 := httptest.NewRecorder()
@@ -1024,16 +1018,11 @@ func TestProperty9_PurchaseBalanceDeductionCorrectness(t *testing.T) {
 
 		// Create a paid pack listing
 		packName := fmt.Sprintf("DeductPack_%d_%d", seed, r.Intn(10000))
-		listRes, err := db.Exec(
-			`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'published')`,
-			authorID, categoryID, []byte("fake-data"), packName, "desc", "Src", "Author", shareMode, creditsPrice,
-		)
+		_, shareToken, err := testInsertPackListing(authorID, categoryID, packName, shareMode, creditsPrice, "published")
 		if err != nil {
 			t.Logf("seed=%d: failed to create listing: %v", seed, err)
 			return false
 		}
-		listingID, _ := listRes.LastInsertId()
 
 		// Generate purchase parameters and calculate expected cost
 		var quantity, months int
@@ -1062,7 +1051,7 @@ func TestProperty9_PurchaseBalanceDeductionCorrectness(t *testing.T) {
 		buyerID, _ := buyerRes.LastInsertId()
 
 		// Execute purchase
-		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%d/purchase", listingID), strings.NewReader(bodyStr))
+		req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/pack/%s/purchase", shareToken), strings.NewReader(bodyStr))
 		req.Header.Set("X-User-ID", fmt.Sprintf("%d", buyerID))
 		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()

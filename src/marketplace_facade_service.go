@@ -46,6 +46,7 @@ type MarketplaceManager interface {
 	ValidateSubscriptionLicenseAsync(listingID int64)
 	GetMarketplaceNotifications() ([]NotificationInfo, error)
 	GetPackListingID(packName string) (int64, error)
+	GetPackShareToken(packName string) (string, error)
 	GetShareURL(packName string) (string, error)
 	ServicePortalLogin() (string, error)
 }
@@ -1247,7 +1248,8 @@ func (m *MarketplaceFacadeService) GetPackListingID(packName string) (int64, err
 	}
 
 	var result struct {
-		ListingID int64 `json:"listing_id"`
+		ListingID int64  `json:"listing_id"`
+		ShareToken string `json:"share_token"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return 0, fmt.Errorf("failed to decode listing-id response: %w", err)
@@ -1255,14 +1257,51 @@ func (m *MarketplaceFacadeService) GetPackListingID(packName string) (int64, err
 	return result.ListingID, nil
 }
 
-// GetShareURL generates a share URL for the given pack and copies it to the clipboard.
-func (m *MarketplaceFacadeService) GetShareURL(packName string) (string, error) {
-	listingID, err := m.GetPackListingID(packName)
+// GetPackShareToken queries the marketplace server for the share_token of a pack by its name.
+func (m *MarketplaceFacadeService) GetPackShareToken(packName string) (string, error) {
+	if err := m.EnsureMarketplaceAuth(); err != nil {
+		return "", fmt.Errorf("marketplace auth failed: %w", err)
+	}
+	mc := m.marketplaceClient
+
+	reqURL := mc.ServerURL + "/api/packs/listing-id?pack_name=" + url.QueryEscape(packName)
+	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get listing ID: %w", err)
+		return "", fmt.Errorf("failed to create listing-id request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+mc.Token)
+
+	resp, err := mc.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch share token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("server returned status %d: %s", resp.StatusCode, readErrorBody(resp.Body))
 	}
 
-	shareURL := fmt.Sprintf("https://market.vantagics.com/pack/%d", listingID)
+	var result struct {
+		ListingID  int64  `json:"listing_id"`
+		ShareToken string `json:"share_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode share token response: %w", err)
+	}
+	if result.ShareToken == "" {
+		return "", fmt.Errorf("share token not available for pack %q", packName)
+	}
+	return result.ShareToken, nil
+}
+
+// GetShareURL generates a share URL for the given pack and copies it to the clipboard.
+func (m *MarketplaceFacadeService) GetShareURL(packName string) (string, error) {
+	shareToken, err := m.GetPackShareToken(packName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get share token: %w", err)
+	}
+
+	shareURL := fmt.Sprintf("https://market.vantagics.com/pack/%s", shareToken)
 
 	runtime.ClipboardSetText(m.ctx, shareURL)
 

@@ -412,7 +412,8 @@ var chineseTranslations = map[string]string{
 
 	// 数据源优化
 	"optimize.remote_not_allowed":     "无法优化远程数据库（%s）。为了安全起见，只能优化已导入到本地的数据源。",
-	"optimize.summary":                "优化完成：成功创建 %d 个索引，共 %d 个建议",
+	"optimize.no_local_storage":       "数据源没有本地存储，无法优化。请先将数据导入到本地。",
+	"optimize.summary":                "优化完成：成功应用 %d 项优化，共 %d 个建议",
 
 	// 市场
 	"marketplace.insufficient_credits": "积分余额不足，需要 %d 积分，当前余额 %.0f 积分",

@@ -1,34 +1,46 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
-	"math/rand"
-	"strconv"
 	"strings"
 	"testing"
 	"testing/quick"
+	mrand "math/rand"
 	"time"
 )
 
-// generateShareURL generates a Share URL from a listing_id.
-func generateShareURL(listingID int64) string {
-	return fmt.Sprintf("https://market.vantagics.com/pack/%d", listingID)
+// generateShareToken creates a random URL-safe token (same logic as server).
+func generateShareToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// parseListingIDFromURL extracts the listing_id from a Share URL path.
-// Returns the parsed listing_id and an error if the path is invalid.
-func parseListingIDFromURL(url string) (int64, error) {
+// generateShareURL generates a Share URL from a share_token.
+func generateShareURL(shareToken string) string {
+	return fmt.Sprintf("https://market.vantagics.com/pack/%s", shareToken)
+}
+
+// parseShareTokenFromURL extracts the share_token from a Share URL path.
+func parseShareTokenFromURL(url string) (string, error) {
 	const prefix = "/pack/"
 	idx := strings.Index(url, prefix)
 	if idx == -1 {
-		return 0, fmt.Errorf("URL does not contain /pack/ path")
+		return "", fmt.Errorf("URL does not contain /pack/ path")
 	}
-	idStr := url[idx+len(prefix):]
+	token := url[idx+len(prefix):]
 	// Remove any trailing slash or query string
-	if i := strings.IndexAny(idStr, "/?#"); i != -1 {
-		idStr = idStr[:i]
+	if i := strings.IndexAny(token, "/?#"); i != -1 {
+		token = token[:i]
 	}
-	return strconv.ParseInt(idStr, 10, 64)
+	if token == "" {
+		return "", fmt.Errorf("empty share token")
+	}
+	return token, nil
 }
 
 // Feature: qap-share-url, Property 1: Share URL 往返一致性
@@ -36,32 +48,26 @@ func parseListingIDFromURL(url string) (int64, error) {
 func TestProperty1_ShareURLRoundtripConsistency(t *testing.T) {
 	cfg := &quick.Config{
 		MaxCount: 200,
-		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		Rand:     mrand.New(mrand.NewSource(time.Now().UnixNano())),
 	}
 
-	f := func(raw int64) bool {
-		// Constrain to positive integers (valid listing_id)
-		if raw <= 0 {
-			raw = -raw
-		}
-		if raw <= 0 {
-			raw = 1
-		}
-		listingID := raw
+	f := func(_ uint64) bool {
+		// Generate a random share token
+		shareToken := generateShareToken()
 
 		// Generate the Share URL
-		shareURL := generateShareURL(listingID)
+		shareURL := generateShareURL(shareToken)
 
-		// Parse the listing_id back from the URL
-		parsed, err := parseListingIDFromURL(shareURL)
+		// Parse the share_token back from the URL
+		parsed, err := parseShareTokenFromURL(shareURL)
 		if err != nil {
-			t.Logf("listingID=%d: parse failed: %v", listingID, err)
+			t.Logf("shareToken=%s: parse failed: %v", shareToken, err)
 			return false
 		}
 
-		// Property: roundtrip must preserve the listing_id
-		if parsed != listingID {
-			t.Logf("listingID=%d: roundtrip mismatch: parsed=%d", listingID, parsed)
+		// Property: roundtrip must preserve the share_token
+		if parsed != shareToken {
+			t.Logf("shareToken=%s: roundtrip mismatch: parsed=%s", shareToken, parsed)
 			return false
 		}
 

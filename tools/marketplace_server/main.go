@@ -441,6 +441,12 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add version column for pack replacement tracking (ignore error if already exists)
 	database.Exec("ALTER TABLE pack_listings ADD COLUMN version INTEGER DEFAULT 1")
 
+	// Add share_token column for public URLs (prevents sequential ID enumeration)
+	database.Exec("ALTER TABLE pack_listings ADD COLUMN share_token TEXT")
+	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pack_listings_share_token ON pack_listings(share_token) WHERE share_token IS NOT NULL")
+	// Backfill share_token for existing rows that don't have one
+	backfillShareTokens(database)
+
 	// Add username and password_hash columns to users table (ignore error if already exists)
 	database.Exec("ALTER TABLE users ADD COLUMN username TEXT")
 	database.Exec("ALTER TABLE users ADD COLUMN password_hash TEXT")
@@ -1162,6 +1168,49 @@ func softDeleteUserPurchasedPack(userID int64, listingID int64) error {
 	return err
 }
 
+
+// generateShareToken creates a cryptographically random URL-safe token (22 chars, ~131 bits of entropy).
+func generateShareToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use timestamp + random suffix (should never happen)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// backfillShareTokens assigns share_token to any existing pack_listings rows that lack one.
+func backfillShareTokens(database *sql.DB) {
+	rows, err := database.Query("SELECT id FROM pack_listings WHERE share_token IS NULL OR share_token = ''")
+	if err != nil {
+		log.Printf("[BACKFILL] failed to query rows without share_token: %v", err)
+		return
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range ids {
+		token := generateShareToken()
+		if _, err := database.Exec("UPDATE pack_listings SET share_token = ? WHERE id = ?", token, id); err != nil {
+			log.Printf("[BACKFILL] failed to set share_token for id=%d: %v", id, err)
+		}
+	}
+	if len(ids) > 0 {
+		log.Printf("[BACKFILL] assigned share_token to %d existing pack_listings", len(ids))
+	}
+}
+
+// resolveShareToken looks up the listing_id for a given share_token.
+func resolveShareToken(token string) (int64, error) {
+	var listingID int64
+	err := db.QueryRow("SELECT id FROM pack_listings WHERE share_token = ?", token).Scan(&listingID)
+	return listingID, err
+}
 
 // jsonResponse writes a JSON response with the given status code.
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
@@ -2562,6 +2611,7 @@ type AuthorPackInfo struct {
 	SoldCount    int
 	TotalRevenue float64
 	Version      int
+	ShareToken   string
 }
 
 // AuthorDashboardData holds all author panel data for the user dashboard.
@@ -2865,7 +2915,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	authorRows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, pl.pack_description, pl.share_mode, pl.credits_price, pl.status,
 		       COALESCE(sales.sold_count, 0), COALESCE(sales.total_revenue, 0) * ? / 100,
-		       COALESCE(pl.version, 1)
+		       COALESCE(pl.version, 1), COALESCE(pl.share_token, '')
 		FROM pack_listings pl
 		LEFT JOIN (
 		    SELECT listing_id, COUNT(*) as sold_count, SUM(ABS(amount)) as total_revenue
@@ -2883,7 +2933,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		defer authorRows.Close()
 		for authorRows.Next() {
 			var ap AuthorPackInfo
-			if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode, &ap.CreditsPrice, &ap.Status, &ap.SoldCount, &ap.TotalRevenue, &ap.Version); err != nil {
+			if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode, &ap.CreditsPrice, &ap.Status, &ap.SoldCount, &ap.TotalRevenue, &ap.Version, &ap.ShareToken); err != nil {
 				log.Printf("[USER-DASHBOARD] failed to scan author pack row: %v", err)
 				continue
 			}
@@ -4383,10 +4433,11 @@ func handleGetListingID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var listingID int64
+	var shareToken sql.NullString
 	err = db.QueryRow(
-		"SELECT id FROM pack_listings WHERE pack_name = ? AND user_id = ? AND status = 'published'",
+		"SELECT id, share_token FROM pack_listings WHERE pack_name = ? AND user_id = ? AND status = 'published'",
 		packName, userID,
-	).Scan(&listingID)
+	).Scan(&listingID, &shareToken)
 	if err == sql.ErrNoRows {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "listing not found"})
 		return
@@ -4398,7 +4449,8 @@ func handleGetListingID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"listing_id": listingID,
+		"listing_id":  listingID,
+		"share_token": shareToken.String,
 	})
 }
 
@@ -4455,7 +4507,7 @@ func handleGetPackDetail(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, detail)
 }
 
-// handlePackDetailPage handles GET /pack/{listing_id}.
+// handlePackDetailPage handles GET /pack/{share_token}.
 // Renders the server-side pack detail HTML page.
 // Optionally checks user login status via user_session cookie (not enforced).
 func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
@@ -4464,15 +4516,18 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse listing_id from URL path: /pack/{listing_id}
-	path := strings.TrimPrefix(r.URL.Path, "/pack/")
-	path = strings.TrimSuffix(path, "/")
-	listingID, err := strconv.ParseInt(path, 10, 64)
+	// Parse share_token from URL path: /pack/{share_token}
+	shareToken := strings.TrimPrefix(r.URL.Path, "/pack/")
+	shareToken = strings.TrimSuffix(shareToken, "/")
+
+	// Resolve share_token to listing_id
+	listingID, err := resolveShareToken(shareToken)
 	if err != nil || listingID <= 0 {
 		lang := i18n.DetectLang(r)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
 			"ListingID":    int64(0),
+			"ShareToken":   "",
 			"PackName":     "",
 			"PackDescription": "",
 			"SourceName":   "",
@@ -4506,6 +4561,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
 			"ListingID":    listingID,
+			"ShareToken":   shareToken,
 			"PackName":     "",
 			"PackDescription": "",
 			"SourceName":   "",
@@ -4552,6 +4608,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	templates.PackDetailTmpl.Execute(w, map[string]interface{}{
 		"ListingID":       listingID,
+		"ShareToken":      shareToken,
 		"PackName":        packName,
 		"PackDescription": packDesc,
 		"SourceName":      sourceName,
@@ -4567,7 +4624,7 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleClaimFreePack handles POST /pack/{listing_id}/claim.
+// handleClaimFreePack handles POST /pack/{share_token}/claim.
 // Protected by userAuth middleware. Only allows claiming free packs (share_mode='free').
 // Creates a purchase record via upsertUserPurchasedPack and records a download in user_downloads.
 func handleClaimFreePack(w http.ResponseWriter, r *http.Request) {
@@ -4585,11 +4642,14 @@ func handleClaimFreePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse listing_id from URL path: /pack/{listing_id}/claim
+	// Parse share_token from URL path: /pack/{share_token}/claim
 	path := strings.TrimPrefix(r.URL.Path, "/pack/")
 	path = strings.TrimSuffix(path, "/claim")
 	path = strings.TrimSuffix(path, "/")
-	listingID, err := strconv.ParseInt(path, 10, 64)
+	shareToken := path
+
+	// Resolve share_token to listing_id
+	listingID, err := resolveShareToken(shareToken)
 	if err != nil || listingID <= 0 {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_listing_id"})
 		return
@@ -4647,11 +4707,14 @@ func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse listing_id from URL path: /pack/{listing_id}/purchase
+	// Parse share_token from URL path: /pack/{share_token}/purchase
 	path := strings.TrimPrefix(r.URL.Path, "/pack/")
 	path = strings.TrimSuffix(path, "/purchase")
 	path = strings.TrimSuffix(path, "/")
-	listingID, err := strconv.ParseInt(path, 10, 64)
+	shareToken := path
+
+	// Resolve share_token to listing_id
+	listingID, err := resolveShareToken(shareToken)
 	if err != nil || listingID <= 0 {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_listing_id"})
 		return
@@ -5027,11 +5090,12 @@ func handleUploadPack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert pack_listing record (with original fileData to get listingID first)
+	shareToken := generateShareToken()
 	result, err := db.Exec(
-		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info, encryption_password)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+		`INSERT INTO pack_listings (user_id, category_id, file_data, pack_name, pack_description, source_name, author_name, share_mode, credits_price, status, meta_info, encryption_password, share_token)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
 		userID, categoryID, fileData, packName, qapContent.Metadata.Description,
-		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, metaInfoJSON, encryptionPassword,
+		qapContent.Metadata.SourceName, qapContent.Metadata.Author, shareMode, creditsPrice, metaInfoJSON, encryptionPassword, shareToken,
 	)
 	if err != nil {
 		log.Printf("Failed to insert pack listing: %v", err)

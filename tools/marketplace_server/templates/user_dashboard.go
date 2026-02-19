@@ -946,7 +946,7 @@ const userDashboardHTML = `<!DOCTYPE html>
                                     data-pack-name="{{.PackName}}"
                                     onclick="openAuthorDelistModal(this)" data-i18n="delist">下架</button>
                                 <button class="btn-share-link btn-sm" title="复制分享链接"
-                                    data-listing-id="{{.ListingID}}"
+                                    data-share-token="{{.ShareToken}}"
                                     onclick="copyShareLink(this)">🔗</button>
                                 {{end}}
                                 {{if eq .Status "rejected"}}
@@ -1933,8 +1933,8 @@ function submitAuthorDelete(){document.getElementById("authorDeleteForm").submit
 
 /* Copy Share Link */
 function copyShareLink(btn){
-    var lid=btn.getAttribute("data-listing-id");
-    var url=window.location.origin+"/pack/"+lid;
+    var token=btn.getAttribute("data-share-token");
+    var url=window.location.origin+"/pack/"+token;
     if(navigator.clipboard&&navigator.clipboard.writeText){
         navigator.clipboard.writeText(url).then(function(){showShareToast(btn)}).catch(function(){fallbackCopy(url,btn)});
     }else{fallbackCopy(url,btn)}

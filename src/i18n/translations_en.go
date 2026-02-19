@@ -412,7 +412,8 @@ var englishTranslations = map[string]string{
 
 	// Data Source Optimization
 	"optimize.remote_not_allowed":     "Cannot optimize remote database (%s). For safety, only locally imported data sources can be optimized.",
-	"optimize.summary":                "Optimization complete: successfully created %d indexes, %d suggestions total",
+	"optimize.no_local_storage":       "Data source has no local storage. Please import data locally first.",
+	"optimize.summary":                "Optimization complete: successfully applied %d optimizations, %d suggestions total",
 
 	// Marketplace
 	"marketplace.insufficient_credits": "Insufficient credits, need %d credits, current balance %.0f credits",

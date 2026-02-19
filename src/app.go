@@ -963,19 +963,12 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 	var keyInsights []string
 	var dataPatterns []string
 
-	tablePattern := regexp.MustCompile(`(?i)(?:table|from|join)\s+["\x60]?(\w+)["\x60]?`)
-	insightPatterns := []string{
-		`(?i)(?:发现|found|shows?|indicates?|suggests?|reveals?)[：:\s]+(.{20,100})`,
-		`(?i)(?:结论|conclusion|result|总结)[：:\s]+(.{20,100})`,
-		`(?i)(?:趋势|trend|pattern|规律)[：:\s]+(.{20,100})`,
-	}
-
 	seenTables := make(map[string]bool)
 	for _, msg := range messages {
 		content := msg.Content
 
 		// Extract mentioned tables
-		tableMatches := tablePattern.FindAllStringSubmatch(content, -1)
+		tableMatches := reTablePattern.FindAllStringSubmatch(content, -1)
 		for _, match := range tableMatches {
 			if len(match) > 1 {
 				tableName := strings.ToLower(match[1])
@@ -990,8 +983,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 
 		// Extract insights from assistant messages
 		if msg.Role == "assistant" {
-			for _, pattern := range insightPatterns {
-				re := regexp.MustCompile(pattern)
+			for _, re := range reInsightPatterns {
 				matches := re.FindAllStringSubmatch(content, 2)
 				for _, match := range matches {
 					if len(match) > 1 && len(keyInsights) < 5 {
@@ -1004,8 +996,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 			}
 
 			// Extract data patterns (numbers, percentages, trends)
-			numPattern := regexp.MustCompile(`(\d+(?:\.\d+)?%|\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*(?:万|亿|million|billion|k|M|B))`)
-			numMatches := numPattern.FindAllString(content, 5)
+			numMatches := reNumPattern.FindAllString(content, 5)
 			for _, num := range numMatches {
 				if len(dataPatterns) < 3 {
 					dataPatterns = append(dataPatterns, num)
@@ -1183,26 +1174,34 @@ func compressFile(srcPath, dstPath string) error {
 	defer zipFile.Close()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
 
 	info, err := srcFile.Stat()
 	if err != nil {
+		zipWriter.Close()
 		return err
 	}
 
 	header, err := zip.FileInfoHeader(info)
 	if err != nil {
+		zipWriter.Close()
 		return err
 	}
 	header.Method = zip.Deflate
 
 	writer, err := zipWriter.CreateHeader(header)
 	if err != nil {
+		zipWriter.Close()
 		return err
 	}
 
-	_, err = io.Copy(writer, srcFile)
-	return err
+	if _, err = io.Copy(writer, srcFile); err != nil {
+		zipWriter.Close()
+		return err
+	}
+
+	// Close the zip writer explicitly to flush the central directory.
+	// A deferred Close() would silently swallow this error, producing corrupt archives.
+	return zipWriter.Close()
 }
 
 // cleanupOldSystemLogArchives removes old system log archives, keeping only the most recent ones
@@ -2879,7 +2878,6 @@ func cleanEChartsJSON(jsonStr string) string {
 	result = strings.ReplaceAll(result, "FUNC_SKIP", "function")
 
 	// Clean up trailing commas before } or ]
-	reTrailingComma := regexp.MustCompile(`,(\s*[}\]])`)
 	result = reTrailingComma.ReplaceAllString(result, "$1")
 
 	return result
@@ -3874,6 +3872,20 @@ var (
 	reStepHeader          = regexp.MustCompile(`步骤\s+\d+\s+\(([^)]+)\)`)
 )
 
+// Pre-compiled regexes for GetAgentMemory long-term extraction (avoid recompiling per call)
+var (
+	reTablePattern   = regexp.MustCompile(`(?i)(?:table|from|join)\s+["\x60]?(\w+)["\x60]?`)
+	reInsightPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(?:发现|found|shows?|indicates?|suggests?|reveals?)[：:\s]+(.{20,100})`),
+		regexp.MustCompile(`(?i)(?:结论|conclusion|result|总结)[：:\s]+(.{20,100})`),
+		regexp.MustCompile(`(?i)(?:趋势|trend|pattern|规律)[：:\s]+(.{20,100})`),
+	}
+	reNumPattern      = regexp.MustCompile(`(\d+(?:\.\d+)?%|\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*(?:万|亿|million|billion|k|M|B))`)
+	reBoldListItem    = regexp.MustCompile(`^\d*[.、)]\s*\*\*(.+?)\*\*`)
+	reTrailingComma   = regexp.MustCompile(`,(\s*[}\]])`)
+)
+
+
 // extractStepDescriptionFromContent extracts step description from message content.
 // It first tries to extract from "📋 分析请求：" line, then falls back to step header "步骤 N (描述)".
 func extractStepDescriptionFromContent(content string) string {
@@ -4104,8 +4116,7 @@ func extractTableTitle(lines []string, tableStartIdx int) string {
 		}
 		
 		// Check for numbered list with bold: 1. **Title** or **1.** Title
-		boldPattern := regexp.MustCompile(`^\d*[.、)]\s*\*\*(.+?)\*\*`)
-		if matches := boldPattern.FindStringSubmatch(line); len(matches) > 1 {
+		if matches := reBoldListItem.FindStringSubmatch(line); len(matches) > 1 {
 			return strings.TrimSpace(matches[1])
 		}
 		
