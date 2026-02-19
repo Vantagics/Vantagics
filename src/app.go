@@ -3945,6 +3945,22 @@ func (a *App) RequestSN(serverURL, email string) (*RequestSNResult, error) {
 	return a.licenseFacadeService.RequestSN(serverURL, email)
 }
 
+// RequestFreeSN requests a permanent free serial number from the license server
+func (a *App) RequestFreeSN(serverURL, email string) (*RequestSNResult, error) {
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "RequestFreeSN", fmt.Errorf("license facade service not initialized"))
+	}
+	return a.licenseFacadeService.RequestFreeSN(serverURL, email)
+}
+
+// IsPermanentFreeMode returns true if the current activation has trust_level "permanent_free"
+func (a *App) IsPermanentFreeMode() bool {
+	if a.licenseFacadeService == nil {
+		return false
+	}
+	return a.licenseFacadeService.IsPermanentFreeMode()
+}
+
 // GetActivationStatus returns the current activation status
 func (a *App) GetActivationStatus() map[string]interface{} {
 	if a.licenseFacadeService == nil {

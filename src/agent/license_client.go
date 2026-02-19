@@ -492,6 +492,44 @@ type RequestSNResponse struct {
 	SN      string `json:"sn,omitempty"`
 	Code    string `json:"code,omitempty"`
 }
+// RequestFreeSN requests a permanent free serial number from the license server
+func (c *LicenseClient) RequestFreeSN(serverURL, email string) (*RequestSNResponse, error) {
+	// VantageData product_id is 0
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"email":      email,
+		"product_id": 0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s", i18n.T("license_client.build_request_failed", err))
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Post(serverURL+"/request-free-sn", "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("%s", i18n.T("license_client.connect_failed", err))
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("%s", i18n.T("license_client.read_response_failed", err))
+	}
+
+	var result RequestSNResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("%s", i18n.T("license_client.parse_response_failed", err))
+	}
+
+	if c.log != nil {
+		if result.Success {
+			c.log(fmt.Sprintf("[LICENSE] Free SN requested successfully for email: %s", email))
+		} else {
+			c.log(fmt.Sprintf("[LICENSE] Free SN request failed: %s", result.Message))
+		}
+	}
+
+	return &result, nil
+}
 
 // RequestSN requests a serial number from the license server
 func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, error) {

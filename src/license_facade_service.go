@@ -24,6 +24,7 @@ type LicenseManager interface {
 	GetLicenseActivationError() string
 	GetActivatedLLMConfig() *agent.ActivationData
 	IsLicenseActivated() bool
+	IsPermanentFreeMode() bool
 	HasActiveAnalysis() bool
 }
 
@@ -180,6 +181,28 @@ func (l *LicenseFacadeService) RequestSN(serverURL, email string) (*RequestSNRes
 	}, nil
 }
 
+// RequestFreeSN requests a permanent free serial number from the license server
+func (l *LicenseFacadeService) RequestFreeSN(serverURL, email string) (*RequestSNResult, error) {
+	if l.licenseClient == nil {
+		l.licenseClient = agent.NewLicenseClient(l.log)
+	}
+
+	result, err := l.licenseClient.RequestFreeSN(serverURL, email)
+	if err != nil {
+		return &RequestSNResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &RequestSNResult{
+		Success: result.Success,
+		Message: result.Message,
+		SN:      result.SN,
+		Code:    result.Code,
+	}, nil
+}
+
 // GetActivationStatus returns the current activation status
 func (l *LicenseFacadeService) GetActivationStatus() map[string]interface{} {
 	l.mu.RLock()
@@ -225,6 +248,7 @@ func (l *LicenseFacadeService) GetActivationStatus() map[string]interface{} {
 		"used_credits":         usedCredits,
 		"credits_mode":         isCreditsMode,
 		"email":                cfg.LicenseEmail,
+		"is_permanent_free":    data.TrustLevel == "permanent_free",
 	}
 }
 
@@ -272,6 +296,15 @@ func (l *LicenseFacadeService) GetActivatedLLMConfig() *agent.ActivationData {
 		return nil
 	}
 	return l.licenseClient.GetData()
+}
+
+// IsPermanentFreeMode returns true if the current activation has trust_level "permanent_free"
+func (l *LicenseFacadeService) IsPermanentFreeMode() bool {
+	if l.licenseClient == nil || !l.licenseClient.IsActivated() {
+		return false
+	}
+	data := l.licenseClient.GetData()
+	return data != nil && data.TrustLevel == "permanent_free"
 }
 
 // IsLicenseActivated returns true if license is activated

@@ -30,11 +30,12 @@ interface SidebarProps {
     width: number;
     isChatOpen: boolean; // 添加当前会话区状态
     isAnalysisLoading?: boolean; // 分析进行中状态
+    isPermanentFree?: boolean; // 永久免费模式状态
     onSessionSelect: (sessionId: string) => void;
     selectedSessionId: string | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading, onSessionSelect, selectedSessionId }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading, isPermanentFree, onSessionSelect, selectedSessionId }) => {
     const { t } = useLanguage();
     const { isLoading: isSessionAnalysisLoading } = useLoadingState();
     const [sources, setSources] = useState<any[]>([]);
@@ -507,6 +508,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         )}
                     </div>
                     <div className="px-4 py-3 border-t border-slate-200/60 dark:border-[#3c3c3c] flex flex-col gap-2">
+                        {/* Analysis Session button - hidden in permanent free mode (Req 4.4) */}
+                        {!isPermanentFree && (
                         <button
                             onClick={handleStartChatAnalysis}
                             aria-label={t('chat_analysis')}
@@ -514,9 +517,11 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         >
                             <span>💬</span> {t('chat_analysis')}
                         </button>
+                        )}
                         {/* System Assistant and Customer Service - row layout */}
                         <div className="flex gap-2">
-                            {freeChatThreadId && (
+                            {/* System Assistant button - hidden in permanent free mode (Req 4.3) */}
+                            {freeChatThreadId && !isPermanentFree && (
                                 <button
                                     className={`flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all duration-200 flex items-center justify-center gap-1.5 border ${selectedSessionId === freeChatThreadId ? 'bg-slate-200 dark:bg-[#5f1e1e] text-slate-700 dark:text-[#d69656] border-slate-300 dark:border-[#783026]' : 'bg-white/70 dark:bg-[#3a1f1f] hover:bg-slate-50 dark:hover:bg-[#4a2626] text-slate-500 dark:text-[#d69656] border-slate-200 dark:border-[#5f2e2e]'}`}
                                     onClick={() => {

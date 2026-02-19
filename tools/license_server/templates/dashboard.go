@@ -18,6 +18,7 @@ func GetDashboardHTML() string {
 		SearchConfigHTML,
 		BackupHTML,
 		SettingsHTML,
+		EmailNotifyHTML,
 	}, "\n")
 	
 	// Combine all scripts
@@ -33,6 +34,7 @@ func GetDashboardHTML() string {
 		SearchConfigScripts,
 		BackupScripts,
 		SettingsScripts,
+		EmailNotifyScripts,
 		InitScripts,
 	}, "\n")
 	

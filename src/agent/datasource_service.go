@@ -1192,6 +1192,14 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 	singlePlaceholder := "(" + strings.Join(placeholders, ",") + ")"
 
 	dataRows := rows[dataStartRow:]
+
+	// Pre-allocate slices for the maximum batch to avoid repeated allocation
+	maxBatchVals := make([]interface{}, batchSize*numCols)
+	maxBatchPHs := make([]string, batchSize)
+	for i := range maxBatchPHs {
+		maxBatchPHs[i] = singlePlaceholder
+	}
+
 	for batchStart := 0; batchStart < len(dataRows); batchStart += batchSize {
 		batchEnd := batchStart + batchSize
 		if batchEnd > len(dataRows) {
@@ -1201,8 +1209,7 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 
 		// Build multi-row VALUES clause
 		numHeaders := len(headers)
-		allVals := make([]interface{}, len(batch)*numHeaders)
-		rowPlaceholders := make([]string, len(batch))
+		allVals := maxBatchVals[:len(batch)*numHeaders]
 
 		for rowIdx, row := range batch {
 			base := rowIdx * numHeaders
@@ -1233,9 +1240,9 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 					allVals[base+j] = nil
 				}
 			}
-			rowPlaceholders[rowIdx] = singlePlaceholder
 		}
 
+		rowPlaceholders := maxBatchPHs[:len(batch)]
 		batchSQL := fmt.Sprintf(`INSERT INTO "%s" VALUES %s`, tableName, strings.Join(rowPlaceholders, ","))
 		if _, err := db.Exec(batchSQL, allVals...); err != nil {
 			// Log details for debugging bind errors
@@ -1552,6 +1559,7 @@ func toUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
+	// Create a fresh decoder each call — Decoder is stateful and not safe to reuse.
 	decoded, err := charmap.Windows1252.NewDecoder().String(s)
 	if err != nil {
 		return strings.ToValidUTF8(s, "\uFFFD")
@@ -1571,10 +1579,7 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xlsReader.Sheet) [][]string {
 	}
 
 	// First pass: read all rows and determine the maximum column count.
-	type rawRow struct {
-		data []string
-	}
-	var rawRows []rawRow
+	rows := make([][]string, 0, numRows+1)
 	maxCols := 0
 
 	for rowIdx := 0; rowIdx <= numRows; rowIdx++ {
@@ -1585,16 +1590,11 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xlsReader.Sheet) [][]string {
 
 		cols := row.GetCols()
 		rowData := make([]string, len(cols))
+		hasData := false
 		for colIdx, cell := range cols {
 			rowData[colIdx] = toUTF8(cell.GetString())
-		}
-
-		// Skip completely empty rows
-		hasData := false
-		for _, cell := range rowData {
-			if strings.TrimSpace(cell) != "" {
+			if !hasData && strings.TrimSpace(rowData[colIdx]) != "" {
 				hasData = true
-				break
 			}
 		}
 
@@ -1605,23 +1605,20 @@ func (s *DataSourceService) xlsSheetToRows(sheet *xlsReader.Sheet) [][]string {
 		if len(rowData) > maxCols {
 			maxCols = len(rowData)
 		}
-		rawRows = append(rawRows, rawRow{data: rowData})
+		rows = append(rows, rowData)
 	}
 
-	if len(rawRows) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
 
 	// Second pass: normalize all rows to the same column count so that
 	// downstream column-filtering logic in processSheet works correctly.
-	rows := make([][]string, len(rawRows))
-	for i, rr := range rawRows {
-		if len(rr.data) < maxCols {
+	for i, row := range rows {
+		if len(row) < maxCols {
 			padded := make([]string, maxCols)
-			copy(padded, rr.data)
+			copy(padded, row)
 			rows[i] = padded
-		} else {
-			rows[i] = rr.data
 		}
 	}
 

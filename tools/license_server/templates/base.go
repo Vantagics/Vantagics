@@ -418,6 +418,9 @@ const BaseHTML = `<!DOCTYPE html>
                 <a onclick="showSection('search')" id="nav-search">
                     <span class="nav-icon">🔎</span> 搜索引擎配置
                 </a>
+                <a onclick="showSection('email-notify')" id="nav-email-notify">
+                    <span class="nav-icon">📬</span> 邮件发送
+                </a>
                 <a onclick="showSection('backup')" id="nav-backup">
                     <span class="nav-icon">💾</span> 备份恢复
                 </a>

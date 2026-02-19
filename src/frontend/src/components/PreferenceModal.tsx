@@ -53,6 +53,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     const [activeTab, setActiveTab] = useState<Tab>(initialTab || 'system');
     const [showExitConfirm, setShowExitConfirm] = useState(false);  // 退出确认对话框状态
     const [isCommercialMode, setIsCommercialMode] = useState(false);  // 是否是商业模式（已激活）
+    const [isPermanentFreeMode, setIsPermanentFreeMode] = useState(false);  // 是否是永久免费模式
     const [activationInfo, setActivationInfo] = useState<{
         llm_type?: string;
         search_type?: string;
@@ -113,6 +114,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                 setIsCommercialMode(activated);
                 if (activated) {
                     GetActivationStatus().then(status => {
+                        // Check if permanent free mode (Req 4.2)
+                        setIsPermanentFreeMode(status.is_permanent_free === true);
                         setActivationInfo({
                             llm_type: status.llm_type,
                             search_type: status.search_type,
@@ -198,6 +201,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     setToast({ message: result.message || '授权已失效，已切换到开源模式', type: 'warning' });
                     // Update UI to reflect open source mode
                     setIsCommercialMode(false);
+                    setIsPermanentFreeMode(false);
                     setActivationInfo(null);
                     // Reload config to get updated settings
                     const newConfig = await GetConfig();
@@ -408,8 +412,8 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     <nav className="space-y-1">
                         {(['system', 'session', 'llm', 'search', 'network', 'mcp', 'runenv', 'skills', 'intent', 'other'] as const)
                             .filter(tab => {
-                                // Hide LLM and Search tabs in commercial mode
-                                if (isCommercialMode && (tab === 'llm' || tab === 'search')) {
+                                // Hide LLM and Search tabs in commercial mode or permanent free mode (Req 4.2)
+                                if ((isCommercialMode || isPermanentFreeMode) && (tab === 'llm' || tab === 'search')) {
                                     return false;
                                 }
                                 return true;

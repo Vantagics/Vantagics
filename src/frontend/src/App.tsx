@@ -450,6 +450,10 @@ function AppContent() {
     const [startupStatus, setStartupStatus] = useState<"checking" | "failed" | "need_mode_select">("checking");
     const [startupMessage, setStartupMessage] = useState(t('initializing'));
     const [showStartupModeModal, setShowStartupModeModal] = useState(false);
+    const [startupInitialMode, setStartupInitialMode] = useState<string | undefined>(undefined);
+
+    // Permanent free mode state (Requirements 4.2, 4.3, 4.4, 4.5, 4.6)
+    const [isPermanentFree, setIsPermanentFree] = useState(false);
 
     // Layout State
     const [sidebarWidth, setSidebarWidth] = useState(256);
@@ -563,6 +567,7 @@ function AppContent() {
 
     const checkLLM = async () => {
         setStartupStatus("checking");
+        setIsPermanentFree(false); // Reset on re-check
         
         // First check if LLM is configured at all
         setStartupMessage(t('checking_llm_config'));
@@ -617,6 +622,25 @@ function AppContent() {
             
             const isActivated = activationStatus.activated && activationStatus.has_llm;
             
+            // Check if in permanent free mode (Requirements 4.2-4.6)
+            if (activationStatus.activated && activationStatus.is_permanent_free) {
+                logger.info("Permanent free mode detected, skipping LLM check");
+                setIsPermanentFree(true);
+                setIsAppReady(true);
+                setShowStartupModeModal(false);
+                // Fetch dashboard data
+                GetDashboardData().then(data => {
+                    setDashboardData(data);
+                    if (data && data.insights) {
+                        setOriginalSystemInsights(Array.isArray(data.insights) ? data.insights : []);
+                    }
+                    if (data && data.metrics) {
+                        setOriginalSystemMetrics(Array.isArray(data.metrics) ? data.metrics : []);
+                    }
+                }).catch(console.error);
+                return;
+            }
+
             if (!hasLLMConfig && !isActivated) {
                 // No LLM configured and not activated - show mode selection
                 logger.info("No LLM configuration found, showing mode selection");
@@ -662,6 +686,7 @@ function AppContent() {
 
     const handleStartupModeComplete = () => {
         setShowStartupModeModal(false);
+        setStartupInitialMode(undefined);
         checkLLM();
     };
 
@@ -810,7 +835,12 @@ function AppContent() {
         });
 
         // Listen for open startup mode modal event (from AboutModal when switching to commercial mode)
-        const unsubscribeStartupMode = EventsOn("open-startup-mode-modal", () => {
+        const unsubscribeStartupMode = EventsOn("open-startup-mode-modal", (data?: any) => {
+            if (data?.initialMode) {
+                setStartupInitialMode(data.initialMode);
+            } else {
+                setStartupInitialMode(undefined);
+            }
             setShowStartupModeModal(true);
         });
 
@@ -1763,6 +1793,7 @@ function AppContent() {
                     isOpen={showStartupModeModal}
                     onComplete={handleStartupModeComplete}
                     onOpenSettings={handleOpenSettingsFromStartup}
+                    initialMode={startupInitialMode as any}
                 />
             </div>
         );
@@ -1778,6 +1809,7 @@ function AppContent() {
                     onToggleChat={() => setIsChatOpen(!isChatOpen)}
                     isChatOpen={isChatOpen}
                     isAnalysisLoading={isAnalysisLoading}
+                    isPermanentFree={isPermanentFree}
                     onSessionSelect={(sessionId) => {
                         logger.debug(`Session selected: ${sessionId}`);
                         setDataBrowserOpen(false);
@@ -1898,6 +1930,7 @@ function AppContent() {
                     isOpen={showStartupModeModal}
                     onComplete={handleStartupModeComplete}
                     onOpenSettings={handleOpenSettingsFromStartup}
+                    initialMode={startupInitialMode as any}
                 />
 
                 <MessageModal

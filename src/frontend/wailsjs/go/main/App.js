@@ -634,6 +634,10 @@ export function ReportPackUsage(arg1, arg2) {
   return window['go']['main']['App']['ReportPackUsage'](arg1, arg2);
 }
 
+export function RequestFreeSN(arg1, arg2) {
+  return window['go']['main']['App']['RequestFreeSN'](arg1, arg2);
+}
+
 export function RequestSN(arg1, arg2) {
   return window['go']['main']['App']['RequestSN'](arg1, arg2);
 }

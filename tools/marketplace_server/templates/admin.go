@@ -730,6 +730,8 @@ const AdminHTML = `<!DOCTYPE html>
 // Permission system
 var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
+// Lazy _i18n wrapper: safe to call before I18nJS loads
+if (!window._i18n) { window._i18n = function(key, fallback) { return fallback || key; }; }
 var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理") };
 
 function hasPerm(p) { return permissions.indexOf(p) !== -1; }

@@ -36,6 +36,12 @@ document.addEventListener('DOMContentLoaded', function() {
         loadWhitelist();
         loadConditions();
         loadBackupInfo();
+        
+        // Initialize email notify panel
+        initEmailNotify();
+        
+        // Show the first section (licenses) by default
+        showSection('licenses');
     });
 });
 `

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	texttemplate "text/template"
 	"image"
 	"image/color"
 	"image/png"
@@ -123,6 +124,16 @@ type ProductType struct {
 	ID          int    `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// EmailTemplate holds email template information
+type EmailTemplate struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Subject   string `json:"subject"`
+	Body      string `json:"body"`
+	IsPreset  bool   `json:"is_preset"`
+	CreatedAt string `json:"created_at"`
 }
 
 // LLMConfig holds LLM API configuration
@@ -490,6 +501,95 @@ func initDB() {
 		db.Exec("INSERT INTO settings (key, value) VALUES ('daily_request_limit', '5')")
 		db.Exec("INSERT INTO settings (key, value) VALUES ('daily_email_limit', '5')")
 	}
+
+	// Migration: Create email_templates table for email notification templates
+	db.Exec(`CREATE TABLE IF NOT EXISTS email_templates (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		body TEXT NOT NULL,
+		is_preset BOOLEAN DEFAULT 0,
+		created_at DATETIME
+	)`)
+
+	// Migration: Create email_send_tasks table for batch send tasks
+	db.Exec(`CREATE TABLE IF NOT EXISTS email_send_tasks (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		subject TEXT NOT NULL,
+		body TEXT NOT NULL,
+		total_count INTEGER,
+		sent_count INTEGER DEFAULT 0,
+		failed_count INTEGER DEFAULT 0,
+		status TEXT DEFAULT 'running',
+		created_at DATETIME,
+		completed_at DATETIME
+	)`)
+
+	// Migration: Create email_send_items table for individual send items
+	db.Exec(`CREATE TABLE IF NOT EXISTS email_send_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		task_id INTEGER NOT NULL,
+		email TEXT NOT NULL,
+		status TEXT DEFAULT 'pending',
+		error TEXT,
+		sent_at DATETIME
+	)`)
+
+	// Insert preset email templates (5 preset templates with HTML body)
+	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
+		SELECT '产品重大更新通知', '{{.ProductName}} 重大更新通知', '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<h2 style="color:#1a56db">{{.ProductName}} 重大更新通知</h2>
+<p>尊敬的用户（{{.Email}}），您好！</p>
+<p>我们很高兴地通知您，<strong>{{.ProductName}}</strong> 已发布重大更新。本次更新包含多项功能改进和性能优化，将为您带来更好的使用体验。</p>
+<p><strong>您的序列号：</strong>{{.SN}}</p>
+<p>请及时更新至最新版本，以享受全部新功能。如有任何问题，请随时联系我们的技术支持团队。</p>
+<p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
+</div>', 1, datetime('now')
+		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='产品重大更新通知' AND is_preset=1)`)
+
+	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
+		SELECT '服务器临时维护通知', '{{.ProductName}} 服务器临时维护通知', '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<h2 style="color:#d97706">{{.ProductName}} 服务器临时维护通知</h2>
+<p>尊敬的用户（{{.Email}}），您好！</p>
+<p>为了提升服务质量，<strong>{{.ProductName}}</strong> 将进行服务器临时维护。维护期间，部分服务可能暂时不可用。</p>
+<p><strong>您的序列号：</strong>{{.SN}}</p>
+<p>我们将尽快完成维护工作，届时服务将自动恢复。感谢您的理解与支持。</p>
+<p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
+</div>', 1, datetime('now')
+		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='服务器临时维护通知' AND is_preset=1)`)
+
+	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
+		SELECT '新版本发布通知', '{{.ProductName}} 新版本发布通知', '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<h2 style="color:#059669">{{.ProductName}} 新版本发布通知</h2>
+<p>尊敬的用户（{{.Email}}），您好！</p>
+<p><strong>{{.ProductName}}</strong> 新版本已正式发布！新版本带来了诸多改进和新功能，欢迎您下载体验。</p>
+<p><strong>您的序列号：</strong>{{.SN}}</p>
+<p>请前往官方网站下载最新版本。如需帮助，请联系我们的技术支持团队。</p>
+<p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
+</div>', 1, datetime('now')
+		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='新版本发布通知' AND is_preset=1)`)
+
+	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
+		SELECT '服务到期提醒', '{{.ProductName}} 服务到期提醒', '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<h2 style="color:#dc2626">{{.ProductName}} 服务到期提醒</h2>
+<p>尊敬的用户（{{.Email}}），您好！</p>
+<p>您的 <strong>{{.ProductName}}</strong> 授权即将到期，为避免影响您的正常使用，请及时续费。</p>
+<p><strong>您的序列号：</strong>{{.SN}}</p>
+<p>如您已完成续费，请忽略此邮件。如需帮助，请联系我们的技术支持团队。</p>
+<p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
+</div>', 1, datetime('now')
+		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='服务到期提醒' AND is_preset=1)`)
+
+	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
+		SELECT '安全公告通知', '{{.ProductName}} 安全公告通知', '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<h2 style="color:#7c3aed">{{.ProductName}} 安全公告通知</h2>
+<p>尊敬的用户（{{.Email}}），您好！</p>
+<p>我们发布了一项关于 <strong>{{.ProductName}}</strong> 的重要安全公告。为保障您的数据安全，请务必关注以下信息并采取相应措施。</p>
+<p><strong>您的序列号：</strong>{{.SN}}</p>
+<p>建议您尽快更新至最新版本，以获取最新的安全补丁。如有疑问，请联系我们的技术支持团队。</p>
+<p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
+</div>', 1, datetime('now')
+		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='安全公告通知' AND is_preset=1)`)
 }
 
 func loadPorts() {
@@ -588,18 +688,13 @@ func sendEmail(to, subject, htmlBody string) error {
 		fromHeader = fmt.Sprintf("%s <%s>", config.FromName, config.FromEmail)
 	}
 	
-	headers := make(map[string]string)
-	headers["From"] = fromHeader
-	headers["To"] = to
-	headers["Subject"] = subject
-	headers["MIME-Version"] = "1.0"
-	headers["Content-Type"] = "text/html; charset=UTF-8"
-	
-	// Build message
+	// Build message with deterministic header order
 	var msg bytes.Buffer
-	for k, v := range headers {
-		msg.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
-	}
+	msg.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", to))
+	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	msg.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
 	msg.WriteString("\r\n")
 	msg.WriteString(htmlBody)
 	
@@ -968,6 +1063,14 @@ func startManageServer() {
 	mux.HandleFunc("/api/backup/restore", authMiddleware(handleBackupRestore))
 	mux.HandleFunc("/api/backup/history", authMiddleware(handleBackupHistory))
 	mux.HandleFunc("/api/credits-usage-log", authMiddleware(handleCreditsUsageLog))
+	mux.HandleFunc("/api/email-templates", authMiddleware(handleEmailTemplates))
+	mux.HandleFunc("/api/email-templates/delete", authMiddleware(handleDeleteEmailTemplate))
+	mux.HandleFunc("/api/email-notify/recipients", authMiddleware(handleEmailNotifyRecipients))
+	mux.HandleFunc("/api/email-notify/send", authMiddleware(handleEmailNotifySend))
+	mux.HandleFunc("/api/email-notify/progress/", authMiddleware(handleEmailNotifyProgress))
+	mux.HandleFunc("/api/email-notify/cancel/", authMiddleware(handleEmailNotifyCancel))
+	mux.HandleFunc("/api/email-history", authMiddleware(handleEmailHistory))
+	mux.HandleFunc("/api/email-history/", authMiddleware(handleEmailHistoryDetail))
 
 	addr := fmt.Sprintf(":%d", managePort)
 	if useSSL && sslCert != "" && sslKey != "" {
@@ -1851,19 +1954,23 @@ func handlePurgeDisabledLicenses(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Get the SNs to be deleted for logging
-	rows, _ := db.Query(`SELECT sn FROM licenses 
+	rows, err := db.Query(`SELECT sn FROM licenses 
 		WHERE is_active = 0 
 		AND sn NOT IN (SELECT sn FROM email_records)`)
 	var sns []string
-	for rows.Next() {
-		var sn string
-		rows.Scan(&sn)
-		sns = append(sns, sn)
+	if err != nil {
+		log.Printf("Warning: failed to query SNs for logging: %v", err)
+	} else {
+		for rows.Next() {
+			var sn string
+			rows.Scan(&sn)
+			sns = append(sns, sn)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: rows iteration error: %v", err)
+		}
+		rows.Close()
 	}
-	if err := rows.Err(); err != nil {
-		log.Printf("Warning: rows iteration error: %v", err)
-	}
-	rows.Close()
 	
 	// Delete disabled licenses that are not bound to email
 	result, err := db.Exec(`DELETE FROM licenses 
@@ -2105,7 +2212,11 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 
 func handleLLMConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs")
+		rows, err := db.Query("SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var configs []LLMConfig
 		for rows.Next() {
@@ -2148,7 +2259,11 @@ func handleLLMConfig(w http.ResponseWriter, r *http.Request) {
 
 func handleSearchConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs")
+		rows, err := db.Query("SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var configs []SearchConfig
 		for rows.Next() {
@@ -2191,7 +2306,11 @@ func handleSearchConfig(w http.ResponseWriter, r *http.Request) {
 
 func handleLLMGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description FROM llm_groups ORDER BY name")
+		rows, err := db.Query("SELECT id, name, description FROM llm_groups ORDER BY name")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var groups []LLMGroup
 		for rows.Next() {
@@ -2233,7 +2352,11 @@ func handleLLMGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description FROM search_groups ORDER BY name")
+		rows, err := db.Query("SELECT id, name, description FROM search_groups ORDER BY name")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var groups []SearchGroup
 		for rows.Next() {
@@ -2276,7 +2399,11 @@ func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 
 func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description, COALESCE(trust_level, 'low'), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM license_groups ORDER BY name")
+		rows, err := db.Query("SELECT id, name, description, COALESCE(trust_level, 'low'), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM license_groups ORDER BY name")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var groups []LicenseGroup
 		for rows.Next() {
@@ -2389,7 +2516,11 @@ func handleLicenseGroupConfig(w http.ResponseWriter, r *http.Request) {
 // handleProductTypes manages product types for license categorization
 func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		rows, _ := db.Query("SELECT id, name, description FROM product_types ORDER BY id")
+		rows, err := db.Query("SELECT id, name, description FROM product_types ORDER BY id")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
 		defer rows.Close()
 		var products []ProductType
 		for rows.Next() {
@@ -3077,22 +3208,14 @@ func getOrCreateProductOfficialGroup(productID int) string {
 	groupID := fmt.Sprintf("official_%d", productID)
 	groupName := fmt.Sprintf("%s 正式授权", productName)
 	
-	// Check if group exists
-	var existingID string
-	err := db.QueryRow("SELECT id FROM license_groups WHERE id = ?", groupID).Scan(&existingID)
-	if err == nil {
-		return existingID
-	}
-	
-	// Create the group
-	_, err = db.Exec("INSERT INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'high')",
+	// Use INSERT OR IGNORE to avoid race conditions
+	_, err := db.Exec("INSERT OR IGNORE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'high')",
 		groupID, groupName, fmt.Sprintf("%s 产品内置高可信正式授权组", productName))
 	if err != nil {
 		log.Printf("[LICENSE-GROUP] Failed to create official group for product %d: %v", productID, err)
 		return ""
 	}
 	
-	log.Printf("[LICENSE-GROUP] Created official group '%s' for product %s (ID: %d)", groupID, productName, productID)
 	return groupID
 }
 
@@ -3102,24 +3225,33 @@ func getOrCreateProductTrialGroup(productID int) string {
 	groupID := fmt.Sprintf("trial_%d", productID)
 	groupName := fmt.Sprintf("%s 试用授权", productName)
 	
-	// Check if group exists
-	var existingID string
-	err := db.QueryRow("SELECT id FROM license_groups WHERE id = ?", groupID).Scan(&existingID)
-	if err == nil {
-		return existingID
-	}
-	
-	// Create the group
-	_, err = db.Exec("INSERT INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'low')",
+	// Use INSERT OR IGNORE to avoid race conditions
+	_, err := db.Exec("INSERT OR IGNORE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'low')",
 		groupID, groupName, fmt.Sprintf("%s 产品内置低可信试用授权组", productName))
 	if err != nil {
 		log.Printf("[LICENSE-GROUP] Failed to create trial group for product %d: %v", productID, err)
 		return ""
 	}
 	
-	log.Printf("[LICENSE-GROUP] Created trial group '%s' for product %s (ID: %d)", groupID, productName, productID)
 	return groupID
 }
+
+func getOrCreateProductFreeGroup(productID int) string {
+	productName := getProductName(productID)
+	groupID := fmt.Sprintf("free_%d", productID)
+	groupName := fmt.Sprintf("%s 永久免费授权", productName)
+
+	// Use INSERT OR IGNORE to avoid race conditions
+	_, err := db.Exec("INSERT OR IGNORE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'permanent_free')",
+		groupID, groupName, fmt.Sprintf("%s 产品内置永久免费授权组", productName))
+	if err != nil {
+		log.Printf("[LICENSE-GROUP] Failed to create free group for product %d: %v", productID, err)
+		return ""
+	}
+
+	return groupID
+}
+
 
 // handleManualBind handles manual SN binding from admin panel (creates new high-trust official license)
 func handleManualBind(w http.ResponseWriter, r *http.Request) {
@@ -3778,13 +3910,26 @@ func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	expiresAtTime := now.AddDate(0, 0, req.Days)
 	
+	// Use transaction to ensure license creation and email binding are atomic
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INTERNAL_ERROR",
+			"message": "系统错误，请稍后重试",
+		})
+		return
+	}
+	
 	// Create the license with high-trust group, unlimited analysis
-	_, err = db.Exec(`INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, 
+	_, err = tx.Exec(`INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, 
 		daily_analysis, license_group_id, llm_group_id, search_group_id, product_id) 
 		VALUES (?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?)`,
 		sn, now, expiresAtTime, req.Days, fmt.Sprintf("API绑定: %s", email), 
 		licenseGroupID, llmGroupID, searchGroupID, productID)
 	if err != nil {
+		tx.Rollback()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3795,11 +3940,10 @@ func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Create email record with api_key_id for tracking
-	_, err = db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, api_key_id) VALUES (?, ?, ?, ?, ?, ?)",
+	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, api_key_id) VALUES (?, ?, ?, ?, ?, ?)",
 		email, sn, "api-bind", now, productID, keyID)
 	if err != nil {
-		// Rollback: delete the license
-		db.Exec("DELETE FROM licenses WHERE sn=?", sn)
+		tx.Rollback()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
@@ -3810,7 +3954,17 @@ func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Increment API key usage count
-	db.Exec("UPDATE api_keys SET usage_count = usage_count + 1 WHERE id=?", keyID)
+	_, _ = tx.Exec("UPDATE api_keys SET usage_count = usage_count + 1 WHERE id=?", keyID)
+	
+	if txErr = tx.Commit(); txErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"code": "INTERNAL_ERROR",
+			"message": "系统错误，请稍后重试",
+		})
+		return
+	}
 	
 	log.Printf("[BIND-API] Created license %s for email %s via API key (Product: %d, Days: %d)", 
 		sn, email, productID, req.Days)
@@ -4195,6 +4349,7 @@ func startAuthServer() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/activate", handleActivate)
 	mux.HandleFunc("/request-sn", handleRequestSN)
+	mux.HandleFunc("/request-free-sn", handleRequestFreeSN)
 	mux.HandleFunc("/api/bind-license", handleBindLicenseAPI)
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/report-usage", handleReportUsage)
@@ -4625,79 +4780,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNDisabled, Message: "序列号已被禁用"})
 		return
 	}
-	if time.Now().After(license.ExpiresAt) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNExpired, Message: "序列号已过期"})
-		return
-	}
-	
-	// Update usage
-	db.Exec("UPDATE licenses SET usage_count=usage_count+1, last_used_at=? WHERE sn=?", time.Now(), sn)
-	
-	// Get best LLM config for the license's group (or all if no group specified)
-	today := time.Now().Format("2006-01-02")
-	var bestLLM *LLMConfig
-	var llmQuery string
-	var llmArgs []interface{}
-	if license.LLMGroupID != "" {
-		llmQuery = "SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs WHERE group_id=?"
-		llmArgs = []interface{}{license.LLMGroupID}
-	} else {
-		llmQuery = "SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs"
-	}
-	rows, err := db.Query(llmQuery, llmArgs...)
-	if err != nil {
-		log.Printf("[ACTIVATE] failed to query LLM configs: %v", err)
-	} else {
-		for rows.Next() {
-			var c LLMConfig
-			rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
-			if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
-				continue
-			}
-			// Priority: latest start_date, then is_active
-			if bestLLM == nil || c.StartDate > bestLLM.StartDate || (c.IsActive && !bestLLM.IsActive && c.StartDate == bestLLM.StartDate) {
-				bestLLM = &c
-			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Warning: rows iteration error: %v", err)
-		}
-		rows.Close()
-	}
-	
-	// Get best Search config for the license's group (or all if no group specified)
-	var bestSearch *SearchConfig
-	var searchQuery string
-	var searchArgs []interface{}
-	if license.SearchGroupID != "" {
-		searchQuery = "SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs WHERE group_id=?"
-		searchArgs = []interface{}{license.SearchGroupID}
-	} else {
-		searchQuery = "SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs"
-	}
-	rows, err = db.Query(searchQuery, searchArgs...)
-	if err != nil {
-		log.Printf("[ACTIVATE] failed to query search configs: %v", err)
-	} else {
-		for rows.Next() {
-			var c SearchConfig
-			rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
-			if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
-				continue
-			}
-			// Priority: latest start_date, then is_active
-			if bestSearch == nil || c.StartDate > bestSearch.StartDate || (c.IsActive && !bestSearch.IsActive && c.StartDate == bestSearch.StartDate) {
-				bestSearch = &c
-			}
-		}
-		if err := rows.Err(); err != nil {
-			log.Printf("Warning: rows iteration error: %v", err)
-		}
-		rows.Close()
-	}
-	
-	// Get trust level from license group
+
+	// Get trust level from license group early so we can skip expiration check for permanent_free
 	trustLevel := "low"
 	refreshInterval := 1 // Default: daily refresh for low trust
 	if license.LicenseGroupID != "" {
@@ -4707,8 +4791,88 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 			trustLevel = groupTrustLevel
 		}
 	}
+
+	// Skip expiration check for permanent_free SN (Requirement 3.5)
+	if trustLevel != "permanent_free" && time.Now().After(license.ExpiresAt) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNExpired, Message: "序列号已过期"})
+		return
+	}
+	
+	// Update usage
+	db.Exec("UPDATE licenses SET usage_count=usage_count+1, last_used_at=? WHERE sn=?", time.Now(), sn)
+
+	var bestLLM *LLMConfig
+	var bestSearch *SearchConfig
+
+	// For permanent_free, skip LLM and Search config queries, return empty values (Requirements 3.2, 3.3)
+	if trustLevel != "permanent_free" {
+		// Get best LLM config for the license's group (or all if no group specified)
+		today := time.Now().Format("2006-01-02")
+		var llmQuery string
+		var llmArgs []interface{}
+		if license.LLMGroupID != "" {
+			llmQuery = "SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs WHERE group_id=?"
+			llmArgs = []interface{}{license.LLMGroupID}
+		} else {
+			llmQuery = "SELECT id, name, type, base_url, api_key, model, is_active, start_date, end_date, COALESCE(group_id, '') FROM llm_configs"
+		}
+		rows, err := db.Query(llmQuery, llmArgs...)
+		if err != nil {
+			log.Printf("[ACTIVATE] failed to query LLM configs: %v", err)
+		} else {
+			for rows.Next() {
+				var c LLMConfig
+				rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+				if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
+					continue
+				}
+				// Priority: latest start_date, then is_active
+				if bestLLM == nil || c.StartDate > bestLLM.StartDate || (c.IsActive && !bestLLM.IsActive && c.StartDate == bestLLM.StartDate) {
+					bestLLM = &c
+				}
+			}
+			if err := rows.Err(); err != nil {
+				log.Printf("Warning: rows iteration error: %v", err)
+			}
+			rows.Close()
+		}
+
+		// Get best Search config for the license's group (or all if no group specified)
+		var searchQuery string
+		var searchArgs []interface{}
+		if license.SearchGroupID != "" {
+			searchQuery = "SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs WHERE group_id=?"
+			searchArgs = []interface{}{license.SearchGroupID}
+		} else {
+			searchQuery = "SELECT id, name, type, api_key, is_active, start_date, end_date, COALESCE(group_id, '') FROM search_configs"
+		}
+		rows, err = db.Query(searchQuery, searchArgs...)
+		if err != nil {
+			log.Printf("[ACTIVATE] failed to query search configs: %v", err)
+		} else {
+			for rows.Next() {
+				var c SearchConfig
+				rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+				if !isKeyValidForDate(c.StartDate, c.EndDate, today) {
+					continue
+				}
+				// Priority: latest start_date, then is_active
+				if bestSearch == nil || c.StartDate > bestSearch.StartDate || (c.IsActive && !bestSearch.IsActive && c.StartDate == bestSearch.StartDate) {
+					bestSearch = &c
+				}
+			}
+			if err := rows.Err(); err != nil {
+				log.Printf("Warning: rows iteration error: %v", err)
+			}
+			rows.Close()
+		}
+	}
+
 	// Set refresh interval based on trust level
-	if trustLevel == "high" {
+	if trustLevel == "permanent_free" {
+		refreshInterval = 365 // Yearly refresh for permanent free (Requirement 3.4)
+	} else if trustLevel == "high" {
 		refreshInterval = 30 // Monthly refresh for high trust (正式)
 	} else {
 		refreshInterval = 1 // Daily refresh for low trust (试用)
@@ -5010,16 +5174,45 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		hasExpiresAt = false
 	}
 	
-	// Bind the SN to the email
-	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, clientIP, now, productID)
+	// Bind the SN to the email and update license in a transaction
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		log.Printf("[REQUEST-SN] Failed to begin transaction: %v", txErr)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "系统错误，请稍后重试"})
+		return
+	}
+	
+	_, txErr = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, clientIP, now, productID)
+	if txErr != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-SN] Failed to bind SN to email %s: %v", email, txErr)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "绑定邮箱失败"})
+		return
+	}
 	
 	// Update the license: set expires_at (only if not already set) and description
 	if hasExpiresAt {
 		// Old SN with existing expiry, just update description
-		db.Exec("UPDATE licenses SET description = ? WHERE sn = ?", fmt.Sprintf("Email申请: %s", email), sn)
+		_, txErr = tx.Exec("UPDATE licenses SET description = ? WHERE sn = ?", fmt.Sprintf("Email申请: %s", email), sn)
 	} else {
 		// New SN, set expiry date
-		db.Exec("UPDATE licenses SET expires_at = ?, description = ? WHERE sn = ?", expiresAt, fmt.Sprintf("Email申请: %s", email), sn)
+		_, txErr = tx.Exec("UPDATE licenses SET expires_at = ?, description = ? WHERE sn = ?", expiresAt, fmt.Sprintf("Email申请: %s", email), sn)
+	}
+	if txErr != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-SN] Failed to update license for email %s: %v", email, txErr)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "更新序列号失败"})
+		return
+	}
+	
+	if txErr = tx.Commit(); txErr != nil {
+		log.Printf("[REQUEST-SN] Failed to commit transaction: %v", txErr)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "系统错误，请稍后重试"})
+		return
 	}
 	
 	log.Printf("[REQUEST-SN] SN allocated for email %s from IP %s: %s (Product: %d, LLM Group: %s, Search Group: %s, HasExpiry: %v)", email, clientIP, sn, productID, llmGroupID, searchGroupID, hasExpiresAt)
@@ -5041,6 +5234,160 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: fmt.Sprintf("序列号分配成功，有效期 %d 天", daysLeft), SN: sn})
+}
+
+func handleRequestFreeSN(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email     string `json:"email"`
+		ProductID int    `json:"product_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidRequest, Message: "无效的请求格式"})
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	productID := req.ProductID
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidEmail, Message: "请输入有效的邮箱地址"})
+		return
+	}
+
+	// Check email whitelist/blacklist (reuse existing logic, ignore group bindings)
+	allowed, code, reason, _, _ := isEmailAllowedWithGroups(email)
+	if !allowed {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: code, Message: reason})
+		return
+	}
+
+	// Idempotency: if the same email+product already has a free SN, return it
+	freeGroupID := fmt.Sprintf("free_%d", productID)
+	var existingSN string
+	if err := db.QueryRow(`SELECT e.sn FROM email_records e
+		JOIN licenses l ON e.sn = l.sn
+		WHERE e.email = ? AND e.product_id = ? AND l.license_group_id = ?`,
+		email, productID, freeGroupID).Scan(&existingSN); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "免费序列号已存在", SN: existingSN})
+		return
+	}
+
+	// Rate limiting (reuse existing logic)
+	dailyRequestLimitStr := getSetting("daily_request_limit")
+	if dailyRequestLimitStr == "" {
+		dailyRequestLimitStr = "5"
+	}
+	dailyRequestLimit := 5
+	fmt.Sscanf(dailyRequestLimitStr, "%d", &dailyRequestLimit)
+
+	dailyEmailLimitStr := getSetting("daily_email_limit")
+	if dailyEmailLimitStr == "" {
+		dailyEmailLimitStr = "5"
+	}
+	dailyEmailLimit := 5
+	fmt.Sscanf(dailyEmailLimitStr, "%d", &dailyEmailLimit)
+
+	clientIP := getClientIP(r)
+	today := time.Now().Format("2006-01-02")
+
+	var count int
+	db.QueryRow("SELECT count FROM request_limits WHERE ip=? AND date=?", clientIP, today).Scan(&count)
+	if count >= dailyRequestLimit {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeRateLimitExceeded, Message: fmt.Sprintf("今日申请次数已达上限（%d次），请明天再试", dailyRequestLimit)})
+		return
+	}
+
+	var emailCount int
+	db.QueryRow("SELECT COUNT(DISTINCT email) FROM email_records WHERE ip=? AND DATE(created_at)=?", clientIP, today).Scan(&emailCount)
+	if emailCount >= dailyEmailLimit {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeEmailLimitExceeded, Message: fmt.Sprintf("同一IP今日使用不同邮箱申请次数已达上限（%d个），请明天再试", dailyEmailLimit)})
+		return
+	}
+
+	db.Exec("INSERT OR REPLACE INTO request_limits (ip, date, count) VALUES (?, ?, ?)", clientIP, today, count+1)
+
+	// Ensure the free group exists
+	groupID := getOrCreateProductFreeGroup(productID)
+	if groupID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建免费授权组失败"})
+		return
+	}
+
+	// Generate a new free SN
+	sn := generateSN()
+	now := time.Now()
+	validDays := 36500
+	expiresAt := now.AddDate(0, 0, validDays)
+
+	// Use transaction to ensure license creation and email binding are atomic
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[REQUEST-FREE-SN] Failed to begin transaction: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建免费序列号失败"})
+		return
+	}
+
+	_, err = tx.Exec(
+		"INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id, total_credits, credits_mode) VALUES (?, ?, ?, ?, ?, 1, 0, ?, '', '', ?, 0, 0)",
+		sn, now, expiresAt, validDays, fmt.Sprintf("永久免费: %s", email), groupID, productID)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-FREE-SN] Failed to create free license for email %s: %v", email, err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建免费序列号失败"})
+		return
+	}
+
+	// Bind SN to email
+	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)",
+		email, sn, clientIP, now, productID)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-FREE-SN] Failed to bind free SN to email %s: %v", email, err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "绑定邮箱失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[REQUEST-FREE-SN] Failed to commit transaction: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建免费序列号失败"})
+		return
+	}
+
+	log.Printf("[REQUEST-FREE-SN] Free SN created for email %s from IP %s: %s (Product: %d)", email, clientIP, sn, productID)
+
+	// Send confirmation email (async)
+	go func() {
+		if err := sendSNEmail(email, sn, expiresAt, productID); err != nil {
+			log.Printf("[EMAIL] Failed to send free SN email to %s: %v", email, err)
+		} else {
+			log.Printf("[EMAIL] Free SN email sent successfully to %s", email)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "免费序列号创建成功", SN: sn})
 }
 
 // ============ Backup and Restore Handlers ============
@@ -5612,5 +5959,825 @@ func handleCreditsUsageLog(w http.ResponseWriter, r *http.Request) {
 		"total_credits": totalCredits,
 		"used_credits":  usedCredits,
 		"credits_mode":  creditsMode == 1,
+	})
+}
+
+// handleEmailTemplates handles GET and POST for email templates
+func handleEmailTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		rows, err := db.Query("SELECT id, name, subject, body, is_preset, created_at FROM email_templates ORDER BY is_preset DESC, id ASC")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("database error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		var templates []EmailTemplate
+		for rows.Next() {
+			var t EmailTemplate
+			var isPreset int
+			if err := rows.Scan(&t.ID, &t.Name, &t.Subject, &t.Body, &isPreset, &t.CreatedAt); err != nil {
+				continue
+			}
+			t.IsPreset = isPreset == 1
+			templates = append(templates, t)
+		}
+		if err := rows.Err(); err != nil {
+			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if templates == nil {
+			templates = []EmailTemplate{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(templates)
+		return
+	}
+	if r.Method == "POST" {
+		var t EmailTemplate
+		if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求数据"})
+			return
+		}
+		if t.Name == "" || t.Subject == "" || t.Body == "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "模板名称、标题和内容不能为空"})
+			return
+		}
+		if t.ID == 0 {
+			// Create new custom template
+			result, err := db.Exec("INSERT INTO email_templates (name, subject, body, is_preset, created_at) VALUES (?, ?, ?, 0, datetime('now'))", t.Name, t.Subject, t.Body)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+			id, _ := result.LastInsertId()
+			t.ID = int(id)
+		} else {
+			// Update existing template - only allow updating non-preset templates
+			var isPreset int
+			err := db.QueryRow("SELECT is_preset FROM email_templates WHERE id=?", t.ID).Scan(&isPreset)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "模板不存在"})
+				return
+			}
+			if isPreset == 1 {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "预置模板不可修改"})
+				return
+			}
+			_, err = db.Exec("UPDATE email_templates SET name=?, subject=?, body=? WHERE id=? AND is_preset=0", t.Name, t.Subject, t.Body, t.ID)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "id": t.ID})
+		return
+	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// handleDeleteEmailTemplate handles DELETE for email templates
+func handleDeleteEmailTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "DELETE" && r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		ID int `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求数据"})
+		return
+	}
+	if req.ID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "模板 ID 不能为空"})
+		return
+	}
+	// Check if template exists and is not preset
+	var isPreset int
+	err := db.QueryRow("SELECT is_preset FROM email_templates WHERE id=?", req.ID).Scan(&isPreset)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "模板不存在"})
+		return
+	}
+	if isPreset == 1 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "预置模板不可删除"})
+		return
+	}
+	_, err = db.Exec("DELETE FROM email_templates WHERE id=? AND is_preset=0", req.ID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+// TemplateVars holds the variables available for email template rendering.
+type TemplateVars struct {
+	ProductName string
+	Email       string
+	SN          string
+}
+
+// renderEmailTemplate renders an email template string by replacing
+// {{.ProductName}}, {{.Email}}, {{.SN}} with the provided values.
+// It uses Go's text/template engine for rendering.
+func renderEmailTemplate(tmplStr string, vars TemplateVars) (string, error) {
+	t, err := texttemplate.New("email").Parse(tmplStr)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, vars); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+func handleEmailNotifyRecipients(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := r.URL.Query()
+	productID := query.Get("product_id")
+	search := query.Get("search")
+
+	var rows *sql.Rows
+	var err error
+
+	if productID != "" {
+		pid := 0
+		fmt.Sscanf(productID, "%d", &pid)
+		rows, err = db.Query("SELECT DISTINCT email FROM email_records WHERE product_id = ?", pid)
+	} else if search != "" {
+		searchPattern := "%" + strings.ToLower(search) + "%"
+		rows, err = db.Query("SELECT DISTINCT email FROM email_records WHERE LOWER(email) LIKE ?", searchPattern)
+	} else {
+		rows, err = db.Query("SELECT DISTINCT email FROM email_records")
+	}
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var emails []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			continue
+		}
+		emails = append(emails, email)
+	}
+	if err := rows.Err(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	if emails == nil {
+		emails = []string{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"emails": emails,
+		"count":  len(emails),
+	})
+}
+
+// handleEmailNotifySend creates a new batch send task.
+// POST /api/email-notify/send
+// Body: {"subject": "...", "body": "...", "emails": ["a@b.com", ...]}
+func handleEmailNotifySend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Subject string   `json:"subject"`
+		Body    string   `json:"body"`
+		Emails  []string `json:"emails"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "无效的请求数据"})
+		return
+	}
+
+	if req.Subject == "" || req.Body == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "邮件标题和内容不能为空"})
+		return
+	}
+
+	if len(req.Emails) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "收件人列表不能为空"})
+		return
+	}
+
+	// Check if another task is already running
+	if sendQueue.IsRunning() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "已有发送任务正在执行，请等待完成或取消后再试"})
+		return
+	}
+
+	// Create the send task and items in a single transaction
+	tx, err := db.Begin()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "创建发送任务失败: " + err.Error()})
+		return
+	}
+
+	result, err := tx.Exec(
+		"INSERT INTO email_send_tasks (subject, body, total_count, sent_count, failed_count, status, created_at) VALUES (?, ?, ?, 0, 0, 'running', datetime('now'))",
+		req.Subject, req.Body, len(req.Emails),
+	)
+	if err != nil {
+		tx.Rollback()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "创建发送任务失败: " + err.Error()})
+		return
+	}
+
+	taskID, _ := result.LastInsertId()
+
+	// Insert all recipients as send_items with status='pending'
+	stmt, err := tx.Prepare("INSERT INTO email_send_items (task_id, email, status) VALUES (?, ?, 'pending')")
+	if err != nil {
+		tx.Rollback()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "创建发送明细失败: " + err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	for _, email := range req.Emails {
+		if _, err := stmt.Exec(taskID, email); err != nil {
+			tx.Rollback()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "写入收件人失败: " + err.Error()})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "提交事务失败: " + err.Error()})
+		return
+	}
+
+	// Start the send queue
+	sendQueue.Start(taskID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"taskId":     taskID,
+		"totalCount": len(req.Emails),
+		"status":     "running",
+	})
+}
+
+// handleEmailNotifyProgress returns the progress of a send task.
+// GET /api/email-notify/progress/:taskId
+func handleEmailNotifyProgress(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract taskId from URL path
+	taskIdStr := strings.TrimPrefix(r.URL.Path, "/api/email-notify/progress/")
+	if taskIdStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "缺少任务ID"})
+		return
+	}
+
+	taskID := int64(0)
+	fmt.Sscanf(taskIdStr, "%d", &taskID)
+	if taskID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "无效的任务ID"})
+		return
+	}
+
+	// Query task info
+	var status string
+	var totalCount int
+	err := db.QueryRow(
+		"SELECT status, total_count FROM email_send_tasks WHERE id=?",
+		taskID,
+	).Scan(&status, &totalCount)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "任务不存在"})
+		return
+	}
+
+	// Count all statuses from send_items for accurate real-time progress
+	var sentCount, failedCount, pendingCount, cancelledCount int
+	db.QueryRow(
+		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='sent'",
+		taskID,
+	).Scan(&sentCount)
+	db.QueryRow(
+		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='failed'",
+		taskID,
+	).Scan(&failedCount)
+	db.QueryRow(
+		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='pending'",
+		taskID,
+	).Scan(&pendingCount)
+	db.QueryRow(
+		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='cancelled'",
+		taskID,
+	).Scan(&cancelledCount)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"taskId":    taskID,
+		"status":    status,
+		"total":     totalCount,
+		"sent":      sentCount,
+		"failed":    failedCount,
+		"pending":   pendingCount,
+		"cancelled": cancelledCount,
+	})
+}
+
+// handleEmailNotifyCancel cancels a running send task.
+// POST /api/email-notify/cancel/:taskId
+func handleEmailNotifyCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract taskId from URL path
+	taskIdStr := strings.TrimPrefix(r.URL.Path, "/api/email-notify/cancel/")
+	if taskIdStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "缺少任务ID"})
+		return
+	}
+
+	taskID := int64(0)
+	fmt.Sscanf(taskIdStr, "%d", &taskID)
+	if taskID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "无效的任务ID"})
+		return
+	}
+
+	// Check task exists and is running
+	var status string
+	err := db.QueryRow("SELECT status FROM email_send_tasks WHERE id=?", taskID).Scan(&status)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "任务不存在"})
+		return
+	}
+
+	if status != "running" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "任务不在运行状态，无法取消"})
+		return
+	}
+
+	// Cancel the send queue
+	sendQueue.Cancel()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "发送任务已取消",
+	})
+}
+
+// SendQueue manages rate-limited email sending with a background goroutine.
+// It processes email_send_items in batches of up to 5, with 10-second intervals.
+type SendQueue struct {
+	mu         sync.Mutex
+	activeTask *int64         // current active task ID, nil means idle
+	cancel     chan struct{}  // signal channel to cancel the current task
+}
+
+// global send queue instance
+var sendQueue = &SendQueue{}
+
+// Start launches a background goroutine to process the send task identified by taskID.
+// It fetches pending items from email_send_items in batches of 5, sends each email,
+// and updates the item status accordingly. Batches are separated by 10-second intervals.
+func (q *SendQueue) Start(taskID int64) {
+	q.mu.Lock()
+	if q.activeTask != nil {
+		q.mu.Unlock()
+		log.Printf("[SendQueue] already running task %d, ignoring Start(%d)", *q.activeTask, taskID)
+		return
+	}
+	id := taskID
+	q.activeTask = &id
+	q.cancel = make(chan struct{})
+	q.mu.Unlock()
+
+	go q.runLoop(taskID)
+}
+
+// Cancel stops the currently running send task. All remaining pending items
+// are marked as 'cancelled'. Already sent items are not affected.
+func (q *SendQueue) Cancel() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.activeTask == nil {
+		return
+	}
+
+	// Signal the goroutine to stop
+	select {
+	case <-q.cancel:
+		// already closed
+	default:
+		close(q.cancel)
+	}
+}
+
+// IsRunning returns true if a send task is currently being processed.
+func (q *SendQueue) IsRunning() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.activeTask != nil
+}
+
+// runLoop is the core send loop executed in a background goroutine.
+func (q *SendQueue) runLoop(taskID int64) {
+	defer q.finish(taskID)
+
+	// Recover from panics to ensure task state is always cleaned up
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SendQueue] panic in task %d: %v", taskID, r)
+			q.markTaskStatus(taskID, "completed")
+		}
+	}()
+
+	// Fetch the task's subject and body for sending
+	var subject, body string
+	err := db.QueryRow("SELECT subject, body FROM email_send_tasks WHERE id=?", taskID).Scan(&subject, &body)
+	if err != nil {
+		log.Printf("[SendQueue] failed to load task %d: %v", taskID, err)
+		q.markTaskStatus(taskID, "completed")
+		return
+	}
+
+	for {
+		// Check for cancellation before each batch
+		select {
+		case <-q.cancel:
+			q.cancelPendingItems(taskID)
+			q.markTaskStatus(taskID, "cancelled")
+			return
+		default:
+		}
+
+		// Fetch next batch of pending items (max 5)
+		rows, err := db.Query(
+			"SELECT id, email FROM email_send_items WHERE task_id=? AND status='pending' LIMIT 5",
+			taskID,
+		)
+		if err != nil {
+			log.Printf("[SendQueue] query error for task %d: %v", taskID, err)
+			break
+		}
+
+		type sendItem struct {
+			ID    int64
+			Email string
+		}
+		var items []sendItem
+		for rows.Next() {
+			var item sendItem
+			if err := rows.Scan(&item.ID, &item.Email); err != nil {
+				continue
+			}
+			items = append(items, item)
+		}
+		if rowErr := rows.Err(); rowErr != nil {
+			log.Printf("[SendQueue] rows iteration error for task %d: %v", taskID, rowErr)
+		}
+		rows.Close()
+
+		// No more pending items — we're done
+		if len(items) == 0 {
+			break
+		}
+
+		// Process each item in the batch
+		for _, item := range items {
+			// Check cancellation between individual sends
+			select {
+			case <-q.cancel:
+				q.cancelPendingItems(taskID)
+				q.markTaskStatus(taskID, "cancelled")
+				return
+			default:
+			}
+
+			err := sendEmail(item.Email, subject, body)
+			if err != nil {
+				// Mark as failed with error message
+				db.Exec(
+					"UPDATE email_send_items SET status='failed', error=? WHERE id=?",
+					err.Error(), item.ID,
+				)
+				db.Exec(
+					"UPDATE email_send_tasks SET failed_count = failed_count + 1 WHERE id=?",
+					taskID,
+				)
+				log.Printf("[SendQueue] task %d: failed to send to %s: %v", taskID, item.Email, err)
+			} else {
+				// Mark as sent with timestamp
+				db.Exec(
+					"UPDATE email_send_items SET status='sent', sent_at=datetime('now') WHERE id=?",
+					item.ID,
+				)
+				db.Exec(
+					"UPDATE email_send_tasks SET sent_count = sent_count + 1 WHERE id=?",
+					taskID,
+				)
+			}
+		}
+
+		// Wait 10 seconds between batches, or exit on cancel
+		select {
+		case <-q.cancel:
+			q.cancelPendingItems(taskID)
+			q.markTaskStatus(taskID, "cancelled")
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
+
+	// All items processed — mark task as completed
+	q.markTaskStatus(taskID, "completed")
+}
+
+// cancelPendingItems marks all remaining pending items for a task as cancelled.
+func (q *SendQueue) cancelPendingItems(taskID int64) {
+	_, err := db.Exec(
+		"UPDATE email_send_items SET status='cancelled' WHERE task_id=? AND status='pending'",
+		taskID,
+	)
+	if err != nil {
+		log.Printf("[SendQueue] failed to cancel pending items for task %d: %v", taskID, err)
+	}
+}
+
+// markTaskStatus updates the task's status and sets completed_at timestamp.
+func (q *SendQueue) markTaskStatus(taskID int64, status string) {
+	_, err := db.Exec(
+		"UPDATE email_send_tasks SET status=?, completed_at=datetime('now') WHERE id=?",
+		status, taskID,
+	)
+	if err != nil {
+		log.Printf("[SendQueue] failed to update task %d status to %s: %v", taskID, status, err)
+	}
+}
+
+// finish clears the active task state so the queue can accept new tasks.
+func (q *SendQueue) finish(taskID int64) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.activeTask != nil && *q.activeTask == taskID {
+		q.activeTask = nil
+		q.cancel = nil
+	}
+}
+
+// handleEmailHistory returns a paginated list of email send tasks, ordered by created_at DESC.
+// GET /api/email-history?page=1&pageSize=20
+func handleEmailHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	query := r.URL.Query()
+	page, pageSize := 1, 20
+	fmt.Sscanf(query.Get("page"), "%d", &page)
+	fmt.Sscanf(query.Get("pageSize"), "%d", &pageSize)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	// Get total count
+	var total int
+	db.QueryRow("SELECT COUNT(*) FROM email_send_tasks").Scan(&total)
+
+	// Get paginated tasks ordered by created_at DESC
+	rows, err := db.Query(
+		"SELECT id, subject, total_count, sent_count, failed_count, status, created_at, completed_at FROM email_send_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		pageSize, (page-1)*pageSize,
+	)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "查询发送历史失败: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var tasks []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var subject, status string
+		var totalCount, sentCount, failedCount int
+		var createdAt string
+		var completedAt sql.NullString
+		if err := rows.Scan(&id, &subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt); err != nil {
+			continue
+		}
+		task := map[string]interface{}{
+			"id":           id,
+			"subject":      subject,
+			"total_count":  totalCount,
+			"sent_count":   sentCount,
+			"failed_count": failedCount,
+			"status":       status,
+			"created_at":   createdAt,
+		}
+		if completedAt.Valid {
+			task["completed_at"] = completedAt.String
+		} else {
+			task["completed_at"] = nil
+		}
+		tasks = append(tasks, task)
+	}
+	if tasks == nil {
+		tasks = []map[string]interface{}{}
+	}
+
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"tasks":      tasks,
+		"total":      total,
+		"page":       page,
+		"pageSize":   pageSize,
+		"totalPages": totalPages,
+	})
+}
+
+// handleEmailHistoryDetail returns the detail of a specific send task including all recipient statuses.
+// GET /api/email-history/<taskId>
+func handleEmailHistoryDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract taskId from URL path
+	taskIdStr := strings.TrimPrefix(r.URL.Path, "/api/email-history/")
+	if taskIdStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "缺少任务ID"})
+		return
+	}
+
+	taskID := int64(0)
+	fmt.Sscanf(taskIdStr, "%d", &taskID)
+	if taskID == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "无效的任务ID"})
+		return
+	}
+
+	// Query task info
+	var subject, status, createdAt string
+	var totalCount, sentCount, failedCount int
+	var completedAt sql.NullString
+	err := db.QueryRow(
+		"SELECT subject, total_count, sent_count, failed_count, status, created_at, completed_at FROM email_send_tasks WHERE id=?",
+		taskID,
+	).Scan(&subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "任务不存在"})
+		return
+	}
+
+	// Query all send items for this task
+	rows, err := db.Query(
+		"SELECT id, email, status, error, sent_at FROM email_send_items WHERE task_id=? ORDER BY id ASC",
+		taskID,
+	)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "查询发送明细失败: " + err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	var items []map[string]interface{}
+	for rows.Next() {
+		var itemID int64
+		var email, itemStatus string
+		var itemError sql.NullString
+		var sentAt sql.NullString
+		if err := rows.Scan(&itemID, &email, &itemStatus, &itemError, &sentAt); err != nil {
+			continue
+		}
+		item := map[string]interface{}{
+			"id":     itemID,
+			"email":  email,
+			"status": itemStatus,
+		}
+		if itemError.Valid {
+			item["error"] = itemError.String
+		} else {
+			item["error"] = nil
+		}
+		if sentAt.Valid {
+			item["sent_at"] = sentAt.String
+		} else {
+			item["sent_at"] = nil
+		}
+		items = append(items, item)
+	}
+	if items == nil {
+		items = []map[string]interface{}{}
+	}
+
+	taskInfo := map[string]interface{}{
+		"id":           taskID,
+		"subject":      subject,
+		"total_count":  totalCount,
+		"sent_count":   sentCount,
+		"failed_count": failedCount,
+		"status":       status,
+		"created_at":   createdAt,
+	}
+	if completedAt.Valid {
+		taskInfo["completed_at"] = completedAt.String
+	} else {
+		taskInfo["completed_at"] = nil
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"task":  taskInfo,
+		"items": items,
 	})
 }

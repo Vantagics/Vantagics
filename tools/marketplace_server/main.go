@@ -1625,7 +1625,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers", "sales"}
+var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers", "sales", "notifications"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.

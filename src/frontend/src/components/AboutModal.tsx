@@ -19,6 +19,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
     const { t, language } = useLanguage();
     const [activationStatus, setActivationStatus] = useState<{
         activated: boolean;
+        is_permanent_free?: boolean;
         sn?: string;
         expires_at?: string;
         daily_analysis_limit?: number;
@@ -31,7 +32,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
     // State for license mode switch feature
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-    const [confirmAction, setConfirmAction] = useState<'toCommercial' | 'toOpenSource' | null>(null);
+    const [confirmAction, setConfirmAction] = useState<'toCommercial' | 'toOpenSource' | 'toFree' | null>(null);
     const [isDeactivating, setIsDeactivating] = useState(false);
     const [deactivateError, setDeactivateError] = useState<string | null>(null);
 
@@ -40,6 +41,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             GetActivationStatus().then((status) => {
                 setActivationStatus({
                     activated: status.activated || false,
+                    is_permanent_free: status.is_permanent_free || false,
                     sn: status.sn || '',
                     expires_at: status.expires_at || '',
                     daily_analysis_limit: status.daily_analysis_limit || 0,
@@ -63,6 +65,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
             GetActivationStatus().then((status) => {
                 setActivationStatus({
                     activated: status.activated || false,
+                    is_permanent_free: status.is_permanent_free || false,
                     sn: status.sn || '',
                     expires_at: status.expires_at || '',
                     daily_analysis_limit: status.daily_analysis_limit || 0,
@@ -108,62 +111,99 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
         (activationStatus.credits_mode === true && activationStatus.total_credits !== undefined && activationStatus.total_credits > 0)
     );
 
+    // Determine if in permanent free mode
+    const isPermanentFree = activationStatus.is_permanent_free === true;
+
     const handleSubscribe = () => {
         BrowserOpenURL(PURCHASE_URL);
-    };
-
-    // Handle mode switch button click
-    const handleSwitchClick = () => {
-        if (activationStatus.activated) {
-            setConfirmAction('toOpenSource');
-        } else {
-            setConfirmAction('toCommercial');
-        }
-        setShowConfirmDialog(true);
     };
 
     // Handle confirm action
     const handleConfirm = async () => {
         if (confirmAction === 'toCommercial') {
-            // Close the confirm dialog and AboutModal, then emit event to open StartupModeModal
-            setShowConfirmDialog(false);
-            onClose();
-            // Delay event emission to ensure AboutModal is fully closed
-            setTimeout(() => {
-                EventsEmit('open-startup-mode-modal');
-            }, 100);
-        } else if (confirmAction === 'toOpenSource') {
-            // Deactivate the license
-            setIsDeactivating(true);
-            setDeactivateError(null);
-            try {
-                await DeactivateLicense();
-                // Refresh activation status
-                const status = await GetActivationStatus();
-                setActivationStatus({
-                    activated: status.activated || false,
-                    sn: status.sn || '',
-                    expires_at: status.expires_at || '',
-                    daily_analysis_limit: status.daily_analysis_limit || 0,
-                    daily_analysis_count: status.daily_analysis_count || 0,
-                    total_credits: status.total_credits || 0,
-                    used_credits: status.used_credits || 0,
-                    credits_mode: status.credits_mode || false,
-                    email: status.email || '',
-                });
+            if (isPermanentFree) {
+                // Free → Commercial: deactivate free SN first, then open StartupModeModal
+                setIsDeactivating(true);
+                setDeactivateError(null);
+                try {
+                    await DeactivateLicense();
+                    setShowConfirmDialog(false);
+                    setConfirmAction(null);
+                    onClose();
+                    setTimeout(() => {
+                        EventsEmit('open-startup-mode-modal');
+                    }, 100);
+                } catch (error: any) {
+                    const errorMsg = error?.message || error?.toString() || t('deactivate_failed');
+                    setDeactivateError(errorMsg);
+                } finally {
+                    setIsDeactivating(false);
+                }
+            } else {
+                // OpenSource → Commercial: just open StartupModeModal
                 setShowConfirmDialog(false);
-                setConfirmAction(null);
-                
-                // Close AboutModal and open Settings with LLM tab
                 onClose();
-                // Emit event to open settings with LLM tab
-                EventsEmit('open-settings', { tab: 'llm' });
-            } catch (error: any) {
-                // Show error message
-                const errorMsg = error?.message || error?.toString() || t('deactivate_failed');
-                setDeactivateError(errorMsg);
-            } finally {
-                setIsDeactivating(false);
+                setTimeout(() => {
+                    EventsEmit('open-startup-mode-modal');
+                }, 100);
+            }
+        } else if (confirmAction === 'toOpenSource') {
+            if (isPermanentFree || activationStatus.activated) {
+                // Free → OpenSource or Commercial → OpenSource: deactivate first
+                setIsDeactivating(true);
+                setDeactivateError(null);
+                try {
+                    await DeactivateLicense();
+                    const status = await GetActivationStatus();
+                    setActivationStatus({
+                        activated: status.activated || false,
+                        is_permanent_free: status.is_permanent_free || false,
+                        sn: status.sn || '',
+                        expires_at: status.expires_at || '',
+                        daily_analysis_limit: status.daily_analysis_limit || 0,
+                        daily_analysis_count: status.daily_analysis_count || 0,
+                        total_credits: status.total_credits || 0,
+                        used_credits: status.used_credits || 0,
+                        credits_mode: status.credits_mode || false,
+                        email: status.email || '',
+                    });
+                    setShowConfirmDialog(false);
+                    setConfirmAction(null);
+                    onClose();
+                    EventsEmit('open-settings', { tab: 'llm' });
+                } catch (error: any) {
+                    const errorMsg = error?.message || error?.toString() || t('deactivate_failed');
+                    setDeactivateError(errorMsg);
+                } finally {
+                    setIsDeactivating(false);
+                }
+            }
+        } else if (confirmAction === 'toFree') {
+            if (activationStatus.activated && !isPermanentFree) {
+                // Commercial → Free: deactivate commercial SN first, then open StartupModeModal in free mode
+                setIsDeactivating(true);
+                setDeactivateError(null);
+                try {
+                    await DeactivateLicense();
+                    setShowConfirmDialog(false);
+                    setConfirmAction(null);
+                    onClose();
+                    setTimeout(() => {
+                        EventsEmit('open-startup-mode-modal', { initialMode: 'free' });
+                    }, 100);
+                } catch (error: any) {
+                    const errorMsg = error?.message || error?.toString() || t('deactivate_failed');
+                    setDeactivateError(errorMsg);
+                } finally {
+                    setIsDeactivating(false);
+                }
+            } else {
+                // OpenSource → Free: just open StartupModeModal in free mode
+                setShowConfirmDialog(false);
+                onClose();
+                setTimeout(() => {
+                    EventsEmit('open-startup-mode-modal', { initialMode: 'free' });
+                }, 100);
             }
         }
     };
@@ -224,7 +264,11 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                             <span className="text-slate-500 text-xs">{t('working_mode')}</span>
                             <div className="flex items-center gap-2">
                                 {/* Current Mode Badge */}
-                                {activationStatus.activated ? (
+                                {isPermanentFree ? (
+                                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-sm">
+                                        {t('permanent_free')}
+                                    </span>
+                                ) : activationStatus.activated ? (
                                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
                                         isTrial 
                                             ? 'bg-gradient-to-r from-orange-400 to-amber-500 text-white shadow-sm' 
@@ -237,21 +281,68 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                                         {t('opensource_license')}
                                     </span>
                                 )}
-                                {/* Mode Switch Button - Outlined style for distinction */}
-                                <button
-                                    onClick={handleSwitchClick}
-                                    disabled={isDeactivating}
-                                    className={`text-xs px-2.5 py-1 rounded border transition-all disabled:opacity-50
-                                        ${activationStatus.activated 
-                                            ? 'border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50' 
-                                            : 'border-blue-300 text-blue-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50'
-                                        }`}
-                                >
-                                    {activationStatus.activated 
-                                        ? t('switch_to_opensource') 
-                                        : t('switch_to_commercial')}
-                                </button>
                             </div>
+                        </div>
+                        {/* Mode Switch Buttons */}
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                            {isPermanentFree ? (
+                                <>
+                                    {/* Free → Commercial */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toCommercial'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-blue-300 text-blue-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_commercial')}
+                                    </button>
+                                    {/* Free → OpenSource */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toOpenSource'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_opensource')}
+                                    </button>
+                                </>
+                            ) : activationStatus.activated ? (
+                                <>
+                                    {/* Commercial → OpenSource */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toOpenSource'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_opensource')}
+                                    </button>
+                                    {/* Commercial → Free */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toFree'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-purple-300 text-purple-500 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_free')}
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    {/* OpenSource → Commercial */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toCommercial'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-blue-300 text-blue-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_commercial')}
+                                    </button>
+                                    {/* OpenSource → Free */}
+                                    <button
+                                        onClick={() => { setConfirmAction('toFree'); setShowConfirmDialog(true); setDeactivateError(null); }}
+                                        disabled={isDeactivating}
+                                        className="text-xs px-2.5 py-1 rounded border border-purple-300 text-purple-500 hover:border-purple-400 hover:text-purple-600 hover:bg-purple-50 transition-all disabled:opacity-50"
+                                    >
+                                        {t('switch_to_free')}
+                                    </button>
+                                </>
+                            )}
                         </div>
                         {activationStatus.activated && activationStatus.sn && (
                             <div className="flex justify-between items-center">
@@ -268,17 +359,23 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                         {activationStatus.activated && activationStatus.expires_at && (
                             <div className="flex justify-between items-center">
                                 <span className="text-slate-500 text-xs">{t('expires')}</span>
-                                <span className={`text-xs ${isExpired ? 'text-red-600 font-medium' : daysUntilExpiration !== null && daysUntilExpiration <= 31 ? 'text-orange-600' : 'text-slate-700'}`}>
-                                    {activationStatus.expires_at}
-                                    {isExpired && ` (${t('expired')})`}
-                                    {!isExpired && daysUntilExpiration !== null && daysUntilExpiration <= 31 && ` (${daysUntilExpiration}${t('days_remaining')})`}
-                                </span>
+                                {isPermanentFree ? (
+                                    <span className="text-xs text-purple-600 font-medium">
+                                        {t('permanent_license')}
+                                    </span>
+                                ) : (
+                                    <span className={`text-xs ${isExpired ? 'text-red-600 font-medium' : daysUntilExpiration !== null && daysUntilExpiration <= 31 ? 'text-orange-600' : 'text-slate-700'}`}>
+                                        {activationStatus.expires_at}
+                                        {isExpired && ` (${t('expired')})`}
+                                        {!isExpired && daysUntilExpiration !== null && daysUntilExpiration <= 31 && ` (${daysUntilExpiration}${t('days_remaining')})`}
+                                    </span>
+                                )}
                             </div>
                         )}
                     </div>
 
-                    {/* Subscribe Button - Show when less than 31 days until expiration */}
-                    {showSubscribeButton && (
+                    {/* Subscribe Button - Show when less than 31 days until expiration (not for permanent free) */}
+                    {showSubscribeButton && !isPermanentFree && (
                         <button
                             onClick={handleSubscribe}
                             className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${
@@ -365,12 +462,22 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                         <h3 className="text-lg font-semibold text-slate-800 dark:text-[#d4d4d4] mb-2">
                             {confirmAction === 'toCommercial' 
                                 ? t('confirm_switch_to_commercial') 
-                                : t('confirm_switch_to_opensource')}
+                                : confirmAction === 'toFree'
+                                    ? t('confirm_switch_to_free')
+                                    : t('confirm_switch_to_opensource')}
                         </h3>
                         <p className="text-sm text-slate-600 mb-4">
                             {confirmAction === 'toCommercial' 
-                                ? t('confirm_switch_to_commercial_desc') 
-                                : t('confirm_switch_to_opensource_desc')}
+                                ? (isPermanentFree 
+                                    ? t('confirm_switch_free_to_commercial_desc')
+                                    : t('confirm_switch_to_commercial_desc'))
+                                : confirmAction === 'toFree'
+                                    ? (activationStatus.activated && !isPermanentFree
+                                        ? t('confirm_switch_to_free_from_commercial_desc')
+                                        : t('confirm_switch_to_free_desc'))
+                                    : (isPermanentFree
+                                        ? t('confirm_switch_free_to_opensource_desc')
+                                        : t('confirm_switch_to_opensource_desc'))}
                         </p>
                         {deactivateError && (
                             <p className="text-sm text-red-600 mb-4">{deactivateError}</p>
@@ -388,9 +495,11 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
                                 onClick={handleConfirm}
                                 disabled={isDeactivating}
                                 className={`px-4 py-2 text-sm text-white rounded-lg transition-colors
-                                    ${confirmAction === 'toOpenSource' 
-                                        ? 'bg-orange-500 hover:bg-orange-600' 
-                                        : 'bg-blue-500 hover:bg-blue-600'}
+                                    ${confirmAction === 'toFree' 
+                                        ? 'bg-purple-500 hover:bg-purple-600'
+                                        : confirmAction === 'toOpenSource' 
+                                            ? 'bg-orange-500 hover:bg-orange-600' 
+                                            : 'bg-blue-500 hover:bg-blue-600'}
                                     disabled:opacity-50`}
                             >
                                 {isDeactivating ? '...' : t('confirm')}

@@ -321,6 +321,8 @@ export function ReplayAnalysisRecording(arg1:string,arg2:string,arg3:boolean,arg
 
 export function ReportPackUsage(arg1:number,arg2:string):Promise<main.ReportPackUsageResponse>;
 
+export function RequestFreeSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
+
 export function RequestSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
 
 export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
