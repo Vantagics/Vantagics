@@ -47,14 +47,13 @@ const packDetailHTML = `<!DOCTYPE html>
         .pack-author{display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;font-weight:500}
         .pack-author svg{opacity:.5}
         .dl-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+        .hero-desc{margin-top:12px;padding:10px 14px;background:rgba(255,255,255,0.55);border-radius:8px;border:1px solid rgba(226,232,240,0.5);overflow:hidden}
+        .hero-desc-text{font-size:13px;color:#475569;line-height:1.6;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
         .dl-btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;text-decoration:none;transition:all .25s;border:1px solid #e2e8f0;background:#fff;color:#475569}
         .dl-btn:hover{background:#f8fafc;border-color:#cbd5e1;box-shadow:0 2px 8px rgba(0,0,0,0.06);transform:translateY(-1px)}
         .dl-btn svg{width:18px;height:18px;flex-shrink:0}
         .dl-btn-primary{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(99,102,241,0.2)}
         .dl-btn-primary:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);color:#fff}
-        .desc{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;margin-bottom:10px}
-        .desc-heading{font-size:13px;font-weight:600;color:#6366f1;margin-bottom:8px;letter-spacing:0.2px}
-        .desc-text{font-size:14px;color:#475569;line-height:1.7;white-space:pre-wrap}
         .action-bar{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
         .price{font-size:26px;font-weight:800;letter-spacing:-0.5px;color:#6366f1}
         .price-free{color:#16a34a}
@@ -113,6 +112,7 @@ const packDetailHTML = `<!DOCTYPE html>
         <h1 class="pack-title">{{.PackName}}</h1>
         <p class="pack-author"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.AuthorName}}</p>
         <div class="dl-buttons" id="dlButtons"></div>
+        {{if .PackDescription}}<div class="hero-desc"><span class="hero-desc-text">{{.PackDescription}}</span></div>{{end}}
         </div>
         <div class="hero-right">
             <div class="hero-stat"><div class="hero-stat-label" data-i18n="data_source">数据源</div><div class="hero-stat-val">{{.SourceName}}</div></div>
@@ -125,7 +125,6 @@ const packDetailHTML = `<!DOCTYPE html>
             </div>
         </div>
     </div></div>
-    {{if .PackDescription}}<div class="desc"><h3 class="desc-heading" data-i18n="pack_intro">分析包介绍</h3><p class="desc-text">{{.PackDescription}}</p></div>{{end}}
     <div class="action-bar">
         <div>
             {{if eq .ShareMode "free"}}<div class="price price-free" data-i18n="free">免费</div><div class="price-sub" data-i18n="no_credits_free">无需 Credits，直接领取</div>
@@ -179,6 +178,22 @@ var dlURLWindows="{{.DownloadURLWindows}}",dlURLMacOS="{{.DownloadURLMacOS}}";
         if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_vantagics_macos','下载Vantagics macOS版',false);
     }
     c.innerHTML=html;
+})();
+(function(){
+    var left=document.querySelector('.hero-left'),right=document.querySelector('.hero-right'),desc=document.querySelector('.hero-desc');
+    if(!left||!right||!desc)return;
+    function fit(){
+        desc.style.maxHeight='none';desc.style.display='';
+        var rh=right.offsetHeight,lh=left.offsetHeight;
+        if(lh>rh){
+            var over=lh-rh;
+            var dh=desc.offsetHeight;
+            var avail=dh-over;
+            if(avail<24){desc.style.display='none'}
+            else{desc.style.maxHeight=avail+'px'}
+        }
+    }
+    fit();window.addEventListener('resize',fit);
 })();
 function showMsg(a,b){var s=document.getElementById("successMsg"),e=document.getElementById("errorMsg");if(s)s.style.display="none";if(e)e.style.display="none";if(a==="success"&&s){s.textContent=b;s.style.display="block"}else if(e){e.textContent=b;e.style.display="block"}}
 function copyLink(){navigator.clipboard.writeText(location.href).then(function(){var t=document.getElementById("copyToast");t.classList.add("show");setTimeout(function(){t.classList.remove("show")},2e3)})}
