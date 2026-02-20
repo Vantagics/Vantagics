@@ -25,10 +25,12 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -292,8 +294,19 @@ func main() {
 	loadPorts()
 	loadSSLConfig()
 	
+	// Graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	
 	go startManageServer()
-	startAuthServer()
+	go startAuthServer()
+	
+	<-quit
+	log.Println("Shutting down servers...")
+	if db != nil {
+		db.Close()
+	}
+	log.Println("Server stopped")
 }
 
 func initDB() {
@@ -446,6 +459,53 @@ func initDB() {
 	db.Exec("ALTER TABLE email_records ADD COLUMN product_id INTEGER DEFAULT 0")
 	// Migration: Add api_key_id to email_records for tracking API-created bindings
 	db.Exec("ALTER TABLE email_records ADD COLUMN api_key_id TEXT DEFAULT ''")
+	// Migration: Add sn_type to email_records to distinguish free/oss/commercial bindings.
+	// This allows one email to have up to 3 SNs per product (one of each type).
+	// SQLite cannot drop the old UNIQUE(email, product_id) constraint, so we rebuild the table.
+	db.Exec("ALTER TABLE email_records ADD COLUMN sn_type TEXT DEFAULT 'commercial'")
+	// Backfill sn_type for existing records based on license_group_id
+	db.Exec(`UPDATE email_records SET sn_type = 'free' WHERE sn IN (SELECT sn FROM licenses WHERE license_group_id LIKE 'free_%')`)
+	db.Exec(`UPDATE email_records SET sn_type = 'oss' WHERE sn IN (SELECT sn FROM licenses WHERE license_group_id LIKE 'oss_%')`)
+	// Rebuild table to replace UNIQUE(email, product_id) with UNIQUE(email, product_id, sn_type)
+	var hasSnType int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('email_records') WHERE name='sn_type'").Scan(&hasSnType)
+	if hasSnType > 0 {
+		// Check if we need to rebuild the table (old UNIQUE(email, product_id) constraint still present)
+		var idxCount int
+		db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_email_product_sntype'").Scan(&idxCount)
+		if idxCount == 0 {
+			tx, txErr := db.Begin()
+			if txErr == nil {
+				_, err := tx.Exec(`CREATE TABLE email_records_new (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					email TEXT,
+					sn TEXT,
+					ip TEXT,
+					created_at DATETIME,
+					product_id INTEGER DEFAULT 0,
+					api_key_id TEXT DEFAULT '',
+					sn_type TEXT DEFAULT 'commercial',
+					UNIQUE(email, product_id, sn_type)
+				)`)
+				if err != nil {
+					tx.Rollback()
+					log.Printf("[MIGRATION] Failed to create email_records_new: %v", err)
+				} else {
+					tx.Exec(`INSERT OR IGNORE INTO email_records_new (id, email, sn, ip, created_at, product_id, api_key_id, sn_type)
+						SELECT id, email, sn, ip, created_at, product_id, COALESCE(api_key_id, ''), COALESCE(sn_type, 'commercial') FROM email_records`)
+					tx.Exec(`DROP TABLE email_records`)
+					tx.Exec(`ALTER TABLE email_records_new RENAME TO email_records`)
+					// Mark migration as done (the UNIQUE constraint creates an implicit index, but we add a named one for detection)
+					tx.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_email_product_sntype ON email_records(email, product_id, sn_type)`)
+					if err := tx.Commit(); err != nil {
+						log.Printf("[MIGRATION] Failed to rebuild email_records table: %v", err)
+					} else {
+						log.Printf("[MIGRATION] Rebuilt email_records with UNIQUE(email, product_id, sn_type)")
+					}
+				}
+			}
+		}
+	}
 	// Migration: Create email_conditions table if not exists (for existing databases)
 	db.Exec(`CREATE TABLE IF NOT EXISTS email_conditions (
 		pattern TEXT PRIMARY KEY,
@@ -823,12 +883,12 @@ func sendEmailSTARTTLS(config SMTPConfig, to string, msg []byte, auth smtp.Auth,
 // getProductName returns the product name for a given product ID
 func getProductName(productID int) string {
 	if productID == 0 {
-		return "VantageData"
+		return "Vantagics"
 	}
 	var name string
 	err := db.QueryRow("SELECT name FROM product_types WHERE id = ?", productID).Scan(&name)
 	if err != nil || name == "" {
-		return "VantageData"
+		return "Vantagics"
 	}
 	return name
 }
@@ -836,12 +896,12 @@ func getProductName(productID int) string {
 // getProductInfo returns the product name and description for a given product ID
 func getProductInfo(productID int) (string, string) {
 	if productID == 0 {
-		return "VantageData", "Intelligent Data Analytics Platform"
+		return "Vantagics", "Intelligent Data Analytics Platform"
 	}
 	var name, description string
 	err := db.QueryRow("SELECT name, COALESCE(description, '') FROM product_types WHERE id = ?", productID).Scan(&name, &description)
 	if err != nil || name == "" {
-		return "VantageData", "Intelligent Data Analytics Platform"
+		return "Vantagics", "Intelligent Data Analytics Platform"
 	}
 	if description == "" {
 		description = name
@@ -1002,6 +1062,12 @@ func getClientIP(r *http.Request) string {
 		return realIP
 	}
 	ip := r.RemoteAddr
+	// Handle IPv6 addresses like [::1]:port
+	if strings.HasPrefix(ip, "[") {
+		if bracketIdx := strings.LastIndex(ip, "]"); bracketIdx != -1 {
+			return ip[1:bracketIdx]
+		}
+	}
 	if colonIdx := strings.LastIndex(ip, ":"); colonIdx != -1 {
 		ip = ip[:colonIdx]
 	}
@@ -1075,12 +1141,12 @@ func startManageServer() {
 	addr := fmt.Sprintf(":%d", managePort)
 	if useSSL && sslCert != "" && sslKey != "" {
 		log.Printf("Management server starting on %s (HTTPS)", addr)
-		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, mux); err != nil {
+		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, mux); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Management server failed: %v", err)
 		}
 	} else {
 		log.Printf("Management server starting on %s (HTTP)", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		if err := http.ListenAndServe(addr, mux); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Management server failed: %v", err)
 		}
 	}
@@ -1089,9 +1155,40 @@ func startManageServer() {
 var sessions = make(map[string]time.Time)
 var sessionLock sync.RWMutex
 
-// Captcha storage
-var captchas = make(map[string]string)
+// Captcha storage: maps captchaID -> {answer, expiresAt}
+type captchaEntry struct {
+	answer    string
+	expiresAt time.Time
+}
+var captchas = make(map[string]captchaEntry)
 var captchaLock sync.RWMutex
+
+func init() {
+	// Periodic cleanup of expired sessions and captchas every 5 minutes
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			
+			sessionLock.Lock()
+			for token, expiry := range sessions {
+				if now.After(expiry) {
+					delete(sessions, token)
+				}
+			}
+			sessionLock.Unlock()
+			
+			captchaLock.Lock()
+			for id, entry := range captchas {
+				if now.After(entry.expiresAt) {
+					delete(captchas, id)
+				}
+			}
+			captchaLock.Unlock()
+		}
+	}()
+}
 
 func createSession() string {
 	b := make([]byte, 32)
@@ -1193,16 +1290,8 @@ func generateCaptcha() (string, string) {
 	// Store captcha answer with 5 minute expiry
 	answer := fmt.Sprintf("%d", result)
 	captchaLock.Lock()
-	captchas[captchaID] = answer
+	captchas[captchaID] = captchaEntry{answer: answer, expiresAt: time.Now().Add(5 * time.Minute)}
 	captchaLock.Unlock()
-	
-	// Clean old captchas periodically
-	go func() {
-		time.Sleep(5 * time.Minute)
-		captchaLock.Lock()
-		delete(captchas, captchaID)
-		captchaLock.Unlock()
-	}()
 	
 	// Generate image with the expression
 	captchaImage := generateCaptchaImage(expression)
@@ -1323,19 +1412,19 @@ func drawDigit(img *image.RGBA, digit rune, startX, startY int, c color.RGBA) {
 
 func validateCaptcha(captchaID, answer string) bool {
 	captchaLock.RLock()
-	correctAnswer, exists := captchas[captchaID]
+	entry, exists := captchas[captchaID]
 	captchaLock.RUnlock()
 	
-	if !exists {
+	if !exists || time.Now().After(entry.expiresAt) {
 		return false
 	}
 	
-	// Delete captcha after use
+	// Delete captcha after use (one-time use)
 	captchaLock.Lock()
 	delete(captchas, captchaID)
 	captchaLock.Unlock()
 	
-	return strings.TrimSpace(answer) == correctAnswer
+	return strings.TrimSpace(answer) == entry.answer
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -1506,7 +1595,7 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	clearLoginFailures(clientIP)
 
 	token := createSession()
-	http.SetCookie(w, &http.Cookie{Name: "session", Value: token, Path: "/", HttpOnly: true, MaxAge: 86400})
+	http.SetCookie(w, &http.Cookie{Name: "session", Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: useSSL, MaxAge: 86400})
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }
 
@@ -1516,14 +1605,14 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	data := struct {
-		ManagePort int
-		AuthPort   int
-		Username   string
-	}{ManagePort: managePort, AuthPort: authPort, Username: getSetting("admin_username")}
-	tmpl := template.Must(template.New("dashboard").Parse(templates.GetDashboardHTML()))
-	tmpl.Execute(w, data)
+	html := templates.GetDashboardHTML()
+	html = strings.Replace(html, "{{.Username}}", template.HTMLEscapeString(getSetting("admin_username")), -1)
+	html = strings.Replace(html, "{{.ManagePort}}", strconv.Itoa(managePort), -1)
+	html = strings.Replace(html, "{{.AuthPort}}", strconv.Itoa(authPort), -1)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(html))
 }
+
 
 func handleLicenses(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query("SELECT sn, created_at, expires_at, description, is_active, usage_count, last_used_at, COALESCE(daily_analysis, 20), COALESCE(license_group_id, ''), COALESCE(llm_group_id, ''), COALESCE(search_group_id, '') FROM licenses ORDER BY created_at DESC")
@@ -1537,7 +1626,10 @@ func handleLicenses(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var l License
 		var lastUsed sql.NullTime
-		rows.Scan(&l.SN, &l.CreatedAt, &l.ExpiresAt, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID)
+		if err := rows.Scan(&l.SN, &l.CreatedAt, &l.ExpiresAt, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID); err != nil {
+			log.Printf("[handleLicenses] scan error: %v", err)
+			continue
+		}
 		if lastUsed.Valid {
 			l.LastUsedAt = lastUsed.Time
 		}
@@ -1604,8 +1696,28 @@ func handleDeleteLicense(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SN string `json:"sn"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-	db.Exec("DELETE FROM licenses WHERE sn=?", req.SN)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+	if req.SN == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不能为空"})
+		return
+	}
+	result, err := db.Exec("DELETE FROM licenses WHERE sn=?", req.SN)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不存在"})
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
@@ -1618,7 +1730,16 @@ func handleToggleLicense(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SN string `json:"sn"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无效的请求格式"})
+		return
+	}
+	if req.SN == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "序列号不能为空"})
+		return
+	}
 	db.Exec("UPDATE licenses SET is_active = NOT is_active WHERE sn=?", req.SN)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
@@ -1969,7 +2090,7 @@ func handlePurgeDisabledLicenses(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Err(); err != nil {
 			log.Printf("Warning: rows iteration error: %v", err)
 		}
-		rows.Close()
+		rows.Close() // Close before DELETE to avoid lock contention
 	}
 	
 	// Delete disabled licenses that are not bound to email
@@ -2187,7 +2308,10 @@ func handleSearchLicenses(w http.ResponseWriter, r *http.Request) {
 		var l License
 		var lastUsed sql.NullTime
 		var expiresAt sql.NullTime
-		rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID, &l.TotalCredits, &l.CreditsMode, &l.UsedCredits)
+		if err := rows.Scan(&l.SN, &l.CreatedAt, &expiresAt, &l.ValidDays, &l.Description, &l.IsActive, &l.UsageCount, &lastUsed, &l.DailyAnalysis, &l.LicenseGroupID, &l.LLMGroupID, &l.SearchGroupID, &l.ProductID, &l.TotalCredits, &l.CreditsMode, &l.UsedCredits); err != nil {
+			log.Printf("[handleSearchLicenses] scan error: %v", err)
+			continue
+		}
 		if lastUsed.Valid {
 			l.LastUsedAt = lastUsed.Time
 		}
@@ -2221,7 +2345,10 @@ func handleLLMConfig(w http.ResponseWriter, r *http.Request) {
 		var configs []LLMConfig
 		for rows.Next() {
 			var c LLMConfig
-			rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+			if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.BaseURL, &c.APIKey, &c.Model, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID); err != nil {
+				log.Printf("[handleLLMConfig] scan error: %v", err)
+				continue
+			}
 			configs = append(configs, c)
 		}
 		if err := rows.Err(); err != nil {
@@ -2268,7 +2395,10 @@ func handleSearchConfig(w http.ResponseWriter, r *http.Request) {
 		var configs []SearchConfig
 		for rows.Next() {
 			var c SearchConfig
-			rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID)
+			if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.APIKey, &c.IsActive, &c.StartDate, &c.EndDate, &c.GroupID); err != nil {
+				log.Printf("[handleSearchConfig] scan error: %v", err)
+				continue
+			}
 			configs = append(configs, c)
 		}
 		if err := rows.Err(); err != nil {
@@ -2315,7 +2445,10 @@ func handleLLMGroups(w http.ResponseWriter, r *http.Request) {
 		var groups []LLMGroup
 		for rows.Next() {
 			var g LLMGroup
-			rows.Scan(&g.ID, &g.Name, &g.Description)
+			if err := rows.Scan(&g.ID, &g.Name, &g.Description); err != nil {
+				log.Printf("[handleLLMGroups] scan error: %v", err)
+				continue
+			}
 			groups = append(groups, g)
 		}
 		if err := rows.Err(); err != nil {
@@ -2361,7 +2494,10 @@ func handleSearchGroups(w http.ResponseWriter, r *http.Request) {
 		var groups []SearchGroup
 		for rows.Next() {
 			var g SearchGroup
-			rows.Scan(&g.ID, &g.Name, &g.Description)
+			if err := rows.Scan(&g.ID, &g.Name, &g.Description); err != nil {
+				log.Printf("[handleSearchGroups] scan error: %v", err)
+				continue
+			}
 			groups = append(groups, g)
 		}
 		if err := rows.Err(); err != nil {
@@ -2408,7 +2544,10 @@ func handleLicenseGroups(w http.ResponseWriter, r *http.Request) {
 		var groups []LicenseGroup
 		for rows.Next() {
 			var g LicenseGroup
-			rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel, &g.LLMGroupID, &g.SearchGroupID)
+			if err := rows.Scan(&g.ID, &g.Name, &g.Description, &g.TrustLevel, &g.LLMGroupID, &g.SearchGroupID); err != nil {
+				log.Printf("[handleLicenseGroups] scan error: %v", err)
+				continue
+			}
 			groups = append(groups, g)
 		}
 		if err := rows.Err(); err != nil {
@@ -2525,7 +2664,10 @@ func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 		var products []ProductType
 		for rows.Next() {
 			var p ProductType
-			rows.Scan(&p.ID, &p.Name, &p.Description)
+			if err := rows.Scan(&p.ID, &p.Name, &p.Description); err != nil {
+				log.Printf("[handleProductTypes] scan error: %v", err)
+				continue
+			}
 			products = append(products, p)
 		}
 		if err := rows.Err(); err != nil {
@@ -2650,7 +2792,10 @@ func handleProductExtraInfo(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var id, pid int
 			var key, value, valueType string
-			rows.Scan(&id, &pid, &key, &value, &valueType)
+			if err := rows.Scan(&id, &pid, &key, &value, &valueType); err != nil {
+				log.Printf("[handleProductExtraInfo] scan error: %v", err)
+				continue
+			}
 			items = append(items, map[string]interface{}{
 				"id": id, "product_id": pid, "key": key, "value": value, "value_type": valueType,
 			})
@@ -2831,6 +2976,7 @@ func handleSSLConfig(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "SSL配置已保存，请重启服务生效"})
 		return
 	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func handleSMTPConfig(w http.ResponseWriter, r *http.Request) {
@@ -2854,6 +3000,7 @@ func handleSMTPConfig(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "SMTP配置已保存"})
 		return
 	}
+	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
 func handleSMTPTest(w http.ResponseWriter, r *http.Request) {
@@ -2879,7 +3026,7 @@ func handleSMTPTest(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Send test email
-	subject := "VantageData SMTP 测试邮件"
+	subject := "Vantagics SMTP 测试邮件"
 	htmlBody := `
 <!DOCTYPE html>
 <html>
@@ -2887,7 +3034,7 @@ func handleSMTPTest(w http.ResponseWriter, r *http.Request) {
 <body style="font-family: sans-serif; padding: 20px;">
     <h2>🎉 SMTP 配置测试成功！</h2>
     <p>如果您收到这封邮件，说明 SMTP 配置正确。</p>
-    <p style="color: #666; font-size: 12px;">此邮件由 VantageData 授权服务器发送。</p>
+    <p style="color: #666; font-size: 12px;">此邮件由 Vantagics 授权服务器发送。</p>
 </body>
 </html>
 `
@@ -3028,7 +3175,10 @@ func handleEmailRecords(w http.ResponseWriter, r *http.Request) {
 	var records []EmailRecord
 	for rows.Next() {
 		var r EmailRecord
-		rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID)
+		if err := rows.Scan(&r.ID, &r.Email, &r.SN, &r.IP, &r.CreatedAt, &r.ProductID); err != nil {
+			log.Printf("[handleEmailRecords] scan error: %v", err)
+			continue
+		}
 		records = append(records, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -3252,6 +3402,23 @@ func getOrCreateProductFreeGroup(productID int) string {
 	return groupID
 }
 
+func getOrCreateProductOpenSourceGroup(productID int) string {
+	productName := getProductName(productID)
+	groupID := fmt.Sprintf("oss_%d", productID)
+	groupName := fmt.Sprintf("%s 开源授权", productName)
+
+	// Use INSERT OR IGNORE to avoid race conditions
+	// trust_level = "open_source": similar to permanent_free but for open source users
+	_, err := db.Exec("INSERT OR IGNORE INTO license_groups (id, name, description, trust_level) VALUES (?, ?, ?, 'open_source')",
+		groupID, groupName, fmt.Sprintf("%s 产品开源授权组", productName))
+	if err != nil {
+		log.Printf("[LICENSE-GROUP] Failed to create open source group for product %d: %v", productID, err)
+		return ""
+	}
+
+	return groupID
+}
+
 
 // handleManualBind handles manual SN binding from admin panel (creates new high-trust official license)
 func handleManualBind(w http.ResponseWriter, r *http.Request) {
@@ -3286,12 +3453,12 @@ func handleManualBind(w http.ResponseWriter, r *http.Request) {
 	
 	// Check if email already has a license for this product
 	var existingSN string
-	err := db.QueryRow("SELECT sn FROM email_records WHERE email = ? AND product_id = ?", email, req.ProductID).Scan(&existingSN)
+	err := db.QueryRow("SELECT sn FROM email_records WHERE email = ? AND product_id = ? AND sn_type = 'commercial'", email, req.ProductID).Scan(&existingSN)
 	if err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false, 
-			"message": fmt.Sprintf("该邮箱已绑定序列号 %s，请先删除旧记录", existingSN),
+			"message": fmt.Sprintf("该邮箱已绑定商业序列号 %s，请先删除旧记录", existingSN),
 		})
 		return
 	}
@@ -3322,7 +3489,7 @@ func handleManualBind(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Create email record
-	_, err = db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)",
+	_, err = db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, sn_type) VALUES (?, ?, ?, ?, ?, 'commercial')",
 		email, sn, "admin-manual-bind", now, req.ProductID)
 	if err != nil {
 		// Rollback: delete the license
@@ -3390,16 +3557,16 @@ func handleManualRequest(w http.ResponseWriter, r *http.Request) {
 	var existingSN string
 	if err := db.QueryRow(`SELECT e.sn FROM email_records e 
 		JOIN licenses l ON e.sn = l.sn 
-		WHERE e.email=? AND e.product_id=?`, email, productID).Scan(&existingSN); err == nil {
+		WHERE e.email=? AND e.product_id=? AND e.sn_type='commercial'`, email, productID).Scan(&existingSN); err == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该邮箱已申请过此产品的序列号: " + existingSN})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "该邮箱已申请过此产品的商业序列号: " + existingSN})
 		return
 	}
 	
-	// Check if there's an orphaned record (SN was deleted) for this email+product
+	// Check if there's an orphaned commercial record (SN was deleted) for this email+product
 	var orphanedSN string
-	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=?`, email, productID).Scan(&orphanedSN); err == nil {
-		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=?", email, productID)
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=? AND sn_type='commercial'`, email, productID).Scan(&orphanedSN); err == nil {
+		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=? AND sn_type='commercial'", email, productID)
 		log.Printf("[MANUAL-REQUEST] Old SN %s for email %s product %d was deleted, generating new one", orphanedSN, email, productID)
 	}
 	
@@ -3407,75 +3574,9 @@ func handleManualRequest(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var sn string
 	var validDays int
-	var query string
-	var args []interface{}
 	var hasExpiresAt bool
 	
-	productCondition := "(product_id IS NULL OR product_id = 0)"
-	if productID > 0 {
-		productCondition = "product_id = ?"
-	}
-	
-	// Support both new SNs (expires_at IS NULL) and old unused SNs (expires_at > now)
-	baseCondition := "is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
-	
-	if llmGroupID != "" && searchGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID, searchGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID, searchGroupID, now}
-		}
-	} else if llmGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID, now}
-		}
-	} else if searchGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, searchGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{searchGroupID, now}
-		}
-	} else {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + `
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + `
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{now}
-		}
-	}
+	query, args := buildAvailableSNQuery(productID, llmGroupID, searchGroupID, now, false, false)
 	
 	var nullableExpiresAt sql.NullTime
 	err := db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
@@ -3505,7 +3606,7 @@ func handleManualRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Bind the SN to the email
-	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, "manual", now, productID)
+	db.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, sn_type) VALUES (?, ?, ?, ?, ?, 'commercial')", email, sn, "manual", now, productID)
 	
 	// Update the license: set expires_at (only if not already set) and description
 	if hasExpiresAt {
@@ -3877,13 +3978,13 @@ func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	
 	// Check if email already has a license for this product
 	var existingSN string
-	err = db.QueryRow("SELECT sn FROM email_records WHERE email=? AND product_id=?", email, productID).Scan(&existingSN)
+	err = db.QueryRow("SELECT sn FROM email_records WHERE email=? AND product_id=? AND sn_type='commercial'", email, productID).Scan(&existingSN)
 	if err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
 			"code": "EMAIL_ALREADY_BOUND",
-			"message": fmt.Sprintf("该邮箱已绑定序列号 %s", existingSN),
+			"message": fmt.Sprintf("该邮箱已绑定商业序列号 %s", existingSN),
 		})
 		return
 	}
@@ -3940,7 +4041,7 @@ func handleBindLicenseAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// Create email record with api_key_id for tracking
-	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, api_key_id) VALUES (?, ?, ?, ?, ?, ?)",
+	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, api_key_id, sn_type) VALUES (?, ?, ?, ?, ?, ?, 'commercial')",
 		email, sn, "api-bind", now, productID, keyID)
 	if err != nil {
 		tx.Rollback()
@@ -4243,7 +4344,7 @@ func isEmailAllowed(email string) (bool, string) {
 }
 
 // isEmailAllowedWithGroups checks if an email is allowed and returns group bindings
-// Returns: allowed, reason, llmGroupID, searchGroupID
+// Returns: allowed, code, reason, llmGroupID, searchGroupID
 // Logic:
 // 1. Check blacklist first - if match, deny
 // 2. Check whitelist (if enabled) - if enabled and no match, deny
@@ -4266,16 +4367,21 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 		if err != nil {
 			log.Printf("[EMAIL-FILTER] failed to query blacklist: %v", err)
 		} else {
-			defer rows.Close()
+			blacklisted := false
 			for rows.Next() {
 				var pattern string
 				rows.Scan(&pattern)
 				if matchEmailPattern(email, pattern) {
-					return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
+					blacklisted = true
+					break
 				}
 			}
-			if err := rows.Err(); err != nil {
-				log.Printf("Warning: rows iteration error: %v", err)
+			if rowErr := rows.Err(); rowErr != nil {
+				log.Printf("Warning: rows iteration error: %v", rowErr)
+			}
+			rows.Close()
+			if blacklisted {
+				return false, CodeEmailBlacklisted, "您的邮箱已被限制申请", "", ""
 			}
 		}
 	}
@@ -4286,7 +4392,6 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 		if err != nil {
 			log.Printf("[EMAIL-FILTER] failed to query whitelist: %v", err)
 		} else {
-			defer rows.Close()
 			matched := false
 			for rows.Next() {
 				var pattern string
@@ -4296,9 +4401,10 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 					break
 				}
 			}
-			if err := rows.Err(); err != nil {
-				log.Printf("Warning: rows iteration error: %v", err)
+			if rowErr := rows.Err(); rowErr != nil {
+				log.Printf("Warning: rows iteration error: %v", rowErr)
 			}
+			rows.Close()
 			if !matched {
 				return false, CodeEmailNotWhitelisted, "您的邮箱不在白名单中", "", ""
 			}
@@ -4311,16 +4417,24 @@ func isEmailAllowedWithGroups(email string) (bool, string, string, string, strin
 		if err != nil {
 			log.Printf("[EMAIL-FILTER] failed to query conditions: %v", err)
 		} else {
-			defer rows.Close()
+			var matchedLLMGroupID, matchedSearchGroupID string
+			conditionMatched := false
 			for rows.Next() {
 				var pattern, llmGroupID, searchGroupID string
 				rows.Scan(&pattern, &llmGroupID, &searchGroupID)
 				if matchEmailPattern(email, pattern) {
-					return true, "", "", llmGroupID, searchGroupID // Condition match = allow with group bindings
+					matchedLLMGroupID = llmGroupID
+					matchedSearchGroupID = searchGroupID
+					conditionMatched = true
+					break
 				}
 			}
-			if err := rows.Err(); err != nil {
-				log.Printf("Warning: rows iteration error: %v", err)
+			if rowErr := rows.Err(); rowErr != nil {
+				log.Printf("Warning: rows iteration error: %v", rowErr)
+			}
+			rows.Close()
+			if conditionMatched {
+				return true, "", "", matchedLLMGroupID, matchedSearchGroupID
 			}
 		}
 	}
@@ -4343,6 +4457,57 @@ func matchEmailPattern(email, pattern string) bool {
 	return email == pattern
 }
 
+// buildAvailableSNQuery builds a SQL query to find an available SN based on product, LLM group,
+// search group, and conditions settings. Returns the query string and args.
+// If excludeGrouped is true and conditions are enabled, it first tries to exclude SNs with group bindings.
+// If excludeFreeOSS is true, SNs belonging to free or open-source license groups are excluded
+// (so that trial SN requests don't accidentally pick up a free/oss SN).
+func buildAvailableSNQuery(productID int, llmGroupID, searchGroupID string, now time.Time, excludeGrouped bool, excludeFreeOSS bool) (string, []interface{}) {
+	productCondition := "(product_id IS NULL OR product_id = 0)"
+	if productID > 0 {
+		productCondition = "product_id = ?"
+	}
+	baseCondition := "is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
+	orderClause := " ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1"
+
+	var conditions []string
+	var args []interface{}
+
+	conditions = append(conditions, productCondition)
+	if productID > 0 {
+		args = append(args, productID)
+	}
+
+	if llmGroupID != "" {
+		conditions = append(conditions, "llm_group_id = ?")
+		args = append(args, llmGroupID)
+	}
+	if searchGroupID != "" {
+		conditions = append(conditions, "search_group_id = ?")
+		args = append(args, searchGroupID)
+	}
+
+	// When no group specified and conditions enabled, exclude grouped SNs
+	groupExclusion := ""
+	if llmGroupID == "" && searchGroupID == "" && excludeGrouped {
+		groupExclusion = " AND (llm_group_id IS NULL OR llm_group_id = '') AND (search_group_id IS NULL OR search_group_id = '')"
+	}
+
+	// Exclude free and open-source group SNs (for trial SN requests)
+	freeOSSExclusion := ""
+	if excludeFreeOSS {
+		freeOSSExclusion = " AND (license_group_id IS NULL OR (license_group_id NOT LIKE 'free_%' AND license_group_id NOT LIKE 'oss_%'))"
+	}
+
+	conditions = append(conditions, baseCondition)
+	args = append(args, now)
+
+	query := "SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses WHERE " +
+		strings.Join(conditions, " AND ") + groupExclusion + freeOSSExclusion + orderClause
+
+	return query, args
+}
+
 // ============ Auth Server ============
 
 func startAuthServer() {
@@ -4350,21 +4515,25 @@ func startAuthServer() {
 	mux.HandleFunc("/activate", handleActivate)
 	mux.HandleFunc("/request-sn", handleRequestSN)
 	mux.HandleFunc("/request-free-sn", handleRequestFreeSN)
+	mux.HandleFunc("/request-oss-sn", handleRequestOpenSourceSN)
 	mux.HandleFunc("/api/bind-license", handleBindLicenseAPI)
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/report-usage", handleReportUsage)
 	mux.HandleFunc("/api/marketplace-auth", handleMarketplaceAuth)
 	mux.HandleFunc("/api/marketplace-verify", handleMarketplaceVerify)
 
+	// Wrap with request body size limit (1MB) to prevent abuse
+	handler := http.MaxBytesHandler(mux, 1<<20)
+
 	addr := fmt.Sprintf(":%d", authPort)
 	if useSSL && sslCert != "" && sslKey != "" {
 		log.Printf("Auth server starting on %s (HTTPS)", addr)
-		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, mux); err != nil {
+		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, handler); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Auth server failed: %v", err)
 		}
 	} else {
 		log.Printf("Auth server starting on %s (HTTP)", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		if err := http.ListenAndServe(addr, handler); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Auth server failed: %v", err)
 		}
 	}
@@ -4792,8 +4961,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Skip expiration check for permanent_free SN (Requirement 3.5)
-	if trustLevel != "permanent_free" && time.Now().After(license.ExpiresAt) {
+	// Skip expiration check for permanent_free and open_source SN
+	if trustLevel != "permanent_free" && trustLevel != "open_source" && time.Now().After(license.ExpiresAt) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(ActivationResponse{Success: false, Code: CodeSNExpired, Message: "序列号已过期"})
 		return
@@ -4805,8 +4974,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	var bestLLM *LLMConfig
 	var bestSearch *SearchConfig
 
-	// For permanent_free, skip LLM and Search config queries, return empty values (Requirements 3.2, 3.3)
-	if trustLevel != "permanent_free" {
+	// For permanent_free and open_source, skip LLM and Search config queries, return empty values
+	if trustLevel != "permanent_free" && trustLevel != "open_source" {
 		// Get best LLM config for the license's group (or all if no group specified)
 		today := time.Now().Format("2006-01-02")
 		var llmQuery string
@@ -4870,8 +5039,8 @@ func handleActivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set refresh interval based on trust level
-	if trustLevel == "permanent_free" {
-		refreshInterval = 365 // Yearly refresh for permanent free (Requirement 3.4)
+	if trustLevel == "permanent_free" || trustLevel == "open_source" {
+		refreshInterval = 365 // Yearly refresh for permanent free and open source
 	} else if trustLevel == "high" {
 		refreshInterval = 30 // Monthly refresh for high trust (正式)
 	} else {
@@ -4963,22 +5132,22 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Check if email already has SN for this product
+	// Check if email already has a commercial/trial SN for this product
 	var existingSN string
 	if err := db.QueryRow(`SELECT e.sn FROM email_records e 
 		JOIN licenses l ON e.sn = l.sn 
-		WHERE e.email=? AND e.product_id=?`, email, productID).Scan(&existingSN); err == nil {
-		// Email already has SN for this product
+		WHERE e.email=? AND e.product_id=? AND e.sn_type='commercial'`, email, productID).Scan(&existingSN); err == nil {
+		// Email already has a commercial SN for this product, return it
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeEmailAlreadyUsed, Message: "您已申请过该产品的序列号", SN: existingSN})
 		return
 	}
 	
-	// Check if there's an orphaned record (SN was deleted) for this email+product
+	// Check if there's an orphaned commercial record (SN was deleted) for this email+product
 	var orphanedSN string
-	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=?`, email, productID).Scan(&orphanedSN); err == nil {
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email=? AND product_id=? AND sn_type='commercial'`, email, productID).Scan(&orphanedSN); err == nil {
 		// SN was deleted, remove the old email record
-		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=?", email, productID)
+		db.Exec("DELETE FROM email_records WHERE email=? AND product_id=? AND sn_type='commercial'", email, productID)
 		log.Printf("[REQUEST-SN] Old SN %s for email %s product %d was deleted, generating new one", orphanedSN, email, productID)
 	}
 	
@@ -5033,112 +5202,22 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 	var sn string
 	var validDays int
 	var hasExpiresAt bool
-	var query string
-	var args []interface{}
 	
-	// Base condition: product_id must match
-	productCondition := "(product_id IS NULL OR product_id = 0)"
-	if productID > 0 {
-		productCondition = "product_id = ?"
-	}
+	conditionsEnabled := getSetting("conditions_enabled") == "true"
+	excludeGrouped := conditionsEnabled && llmGroupID == "" && searchGroupID == ""
 	
-	// Support both new SNs (expires_at IS NULL) and old unused SNs (expires_at > now)
-	baseCondition := "is_active = 1 AND (expires_at IS NULL OR expires_at > ?) AND usage_count = 0 AND sn NOT IN (SELECT sn FROM email_records)"
-	
-	if llmGroupID != "" && searchGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID, searchGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ? AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID, searchGroupID, now}
-		}
-	} else if llmGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, llmGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND llm_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{llmGroupID, now}
-		}
-	} else if searchGroupID != "" {
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, searchGroupID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + ` AND search_group_id = ?
-				AND ` + baseCondition + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{searchGroupID, now}
-		}
-	} else {
-		// No group specified, find any available SN with matching product_id
-		// When conditions are enabled, first try to exclude SNs that have group bindings
-		// (those are reserved for condition-matched emails only)
-		// If no ungrouped SNs are available, fall back to any available SN
-		conditionsEnabled := getSetting("conditions_enabled") == "true"
-		groupExclusion := ""
-		if conditionsEnabled {
-			groupExclusion = ` AND (llm_group_id IS NULL OR llm_group_id = '') AND (search_group_id IS NULL OR search_group_id = '')`
-		}
-		if productID > 0 {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + `
-				AND ` + baseCondition + groupExclusion + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{productID, now}
-		} else {
-			query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-				WHERE ` + productCondition + `
-				AND ` + baseCondition + groupExclusion + `
-				ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-			args = []interface{}{now}
-		}
-
-		// Try the query with group exclusion first
-		if conditionsEnabled {
-			var testSN string
-			var testDays int
-			var testExpires sql.NullTime
-			testErr := db.QueryRow(query, args...).Scan(&testSN, &testDays, &testExpires)
-			if testErr != nil {
-				// No ungrouped SNs available, fall back to any available SN
-				log.Printf("[REQUEST-SN] No ungrouped SNs available, falling back to any available SN for email %s", email)
-				if productID > 0 {
-					query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-						WHERE ` + productCondition + `
-						AND ` + baseCondition + `
-						ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-					args = []interface{}{productID, now}
-				} else {
-					query = `SELECT sn, COALESCE(valid_days, 365), expires_at FROM licenses 
-						WHERE ` + productCondition + `
-						AND ` + baseCondition + `
-						ORDER BY expires_at IS NULL DESC, created_at ASC LIMIT 1`
-					args = []interface{}{now}
-				}
-			}
-		}
-	}
+	query, args := buildAvailableSNQuery(productID, llmGroupID, searchGroupID, now, excludeGrouped, true)
 	
 	var nullableExpiresAt sql.NullTime
 	err := db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
+	
+	// If no ungrouped SNs available and we were excluding grouped ones, fall back to any available SN
+	if err != nil && excludeGrouped {
+		log.Printf("[REQUEST-SN] No ungrouped SNs available, falling back to any available SN for email %s", email)
+		query, args = buildAvailableSNQuery(productID, llmGroupID, searchGroupID, now, false, true)
+		err = db.QueryRow(query, args...).Scan(&sn, &validDays, &nullableExpiresAt)
+	}
+	
 	if err != nil {
 		// Diagnostic logging: count available SNs at each filter stage
 		var totalCount, activeCount, unexpiredCount, unusedCount, unboundCount int
@@ -5183,7 +5262,7 @@ func handleRequestSN(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	_, txErr = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)", email, sn, clientIP, now, productID)
+	_, txErr = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, sn_type) VALUES (?, ?, ?, ?, ?, 'commercial')", email, sn, clientIP, now, productID)
 	if txErr != nil {
 		tx.Rollback()
 		log.Printf("[REQUEST-SN] Failed to bind SN to email %s: %v", email, txErr)
@@ -5280,11 +5359,19 @@ func handleRequestFreeSN(w http.ResponseWriter, r *http.Request) {
 	var existingSN string
 	if err := db.QueryRow(`SELECT e.sn FROM email_records e
 		JOIN licenses l ON e.sn = l.sn
-		WHERE e.email = ? AND e.product_id = ? AND l.license_group_id = ?`,
+		WHERE e.email = ? AND e.product_id = ? AND e.sn_type = 'free' AND l.license_group_id = ?`,
 		email, productID, freeGroupID).Scan(&existingSN); err == nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "免费序列号已存在", SN: existingSN})
 		return
+	}
+
+	// Check if there's an orphaned free record (SN was deleted) for this email+product
+	var oldSN string
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email = ? AND product_id = ? AND sn_type = 'free'`,
+		email, productID).Scan(&oldSN); err == nil {
+		db.Exec("DELETE FROM email_records WHERE email = ? AND product_id = ? AND sn_type = 'free'", email, productID)
+		log.Printf("[REQUEST-FREE-SN] Removed orphaned free record for %s (old SN: %s)", email, oldSN)
 	}
 
 	// Rate limiting (reuse existing logic)
@@ -5358,7 +5445,7 @@ func handleRequestFreeSN(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bind SN to email
-	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id) VALUES (?, ?, ?, ?, ?)",
+	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, sn_type) VALUES (?, ?, ?, ?, ?, 'free')",
 		email, sn, clientIP, now, productID)
 	if err != nil {
 		tx.Rollback()
@@ -5388,6 +5475,168 @@ func handleRequestFreeSN(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "免费序列号创建成功", SN: sn})
+}
+
+func handleRequestOpenSourceSN(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email     string `json:"email"`
+		ProductID int    `json:"product_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidRequest, Message: "无效的请求格式"})
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	productID := req.ProductID
+	if email == "" || !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInvalidEmail, Message: "请输入有效的邮箱地址"})
+		return
+	}
+
+	// Check email whitelist/blacklist (reuse existing logic, ignore group bindings)
+	allowed, code, reason, _, _ := isEmailAllowedWithGroups(email)
+	if !allowed {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: code, Message: reason})
+		return
+	}
+
+	// Idempotency: if the same email+product already has an open source SN, return it
+	ossGroupID := fmt.Sprintf("oss_%d", productID)
+	var existingSN string
+	if err := db.QueryRow(`SELECT e.sn FROM email_records e
+		JOIN licenses l ON e.sn = l.sn
+		WHERE e.email = ? AND e.product_id = ? AND e.sn_type = 'oss' AND l.license_group_id = ?`,
+		email, productID, ossGroupID).Scan(&existingSN); err == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "开源授权序列号已存在", SN: existingSN})
+		return
+	}
+
+	// Check if there's an orphaned oss record (SN was deleted) for this email+product
+	var oldSN string
+	if err := db.QueryRow(`SELECT sn FROM email_records WHERE email = ? AND product_id = ? AND sn_type = 'oss'`,
+		email, productID).Scan(&oldSN); err == nil {
+		db.Exec("DELETE FROM email_records WHERE email = ? AND product_id = ? AND sn_type = 'oss'", email, productID)
+		log.Printf("[REQUEST-OSS-SN] Removed orphaned oss record for %s (old SN: %s)", email, oldSN)
+	}
+
+	// Rate limiting (reuse existing logic)
+	dailyRequestLimitStr := getSetting("daily_request_limit")
+	if dailyRequestLimitStr == "" {
+		dailyRequestLimitStr = "5"
+	}
+	dailyRequestLimit := 5
+	fmt.Sscanf(dailyRequestLimitStr, "%d", &dailyRequestLimit)
+
+	dailyEmailLimitStr := getSetting("daily_email_limit")
+	if dailyEmailLimitStr == "" {
+		dailyEmailLimitStr = "5"
+	}
+	dailyEmailLimit := 5
+	fmt.Sscanf(dailyEmailLimitStr, "%d", &dailyEmailLimit)
+
+	clientIP := getClientIP(r)
+	today := time.Now().Format("2006-01-02")
+
+	var count int
+	db.QueryRow("SELECT count FROM request_limits WHERE ip=? AND date=?", clientIP, today).Scan(&count)
+	if count >= dailyRequestLimit {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeRateLimitExceeded, Message: fmt.Sprintf("今日申请次数已达上限（%d次），请明天再试", dailyRequestLimit)})
+		return
+	}
+
+	var emailCount int
+	db.QueryRow("SELECT COUNT(DISTINCT email) FROM email_records WHERE ip=? AND DATE(created_at)=?", clientIP, today).Scan(&emailCount)
+	if emailCount >= dailyEmailLimit {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeEmailLimitExceeded, Message: fmt.Sprintf("同一IP今日使用不同邮箱申请次数已达上限（%d个），请明天再试", dailyEmailLimit)})
+		return
+	}
+
+	db.Exec("INSERT OR REPLACE INTO request_limits (ip, date, count) VALUES (?, ?, ?)", clientIP, today, count+1)
+
+	// Ensure the open source group exists
+	groupID := getOrCreateProductOpenSourceGroup(productID)
+	if groupID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建开源授权组失败"})
+		return
+	}
+
+	// Generate a new open source SN
+	sn := generateSN()
+	now := time.Now()
+	validDays := 36500
+	expiresAt := now.AddDate(0, 0, validDays)
+
+	// Use transaction to ensure license creation and email binding are atomic
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[REQUEST-OSS-SN] Failed to begin transaction: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建开源授权序列号失败"})
+		return
+	}
+
+	_, err = tx.Exec(
+		"INSERT INTO licenses (sn, created_at, expires_at, valid_days, description, is_active, daily_analysis, license_group_id, llm_group_id, search_group_id, product_id, total_credits, credits_mode) VALUES (?, ?, ?, ?, ?, 1, 0, ?, '', '', ?, 0, 0)",
+		sn, now, expiresAt, validDays, fmt.Sprintf("开源授权: %s", email), groupID, productID)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-OSS-SN] Failed to create open source license for email %s: %v", email, err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建开源授权序列号失败"})
+		return
+	}
+
+	// Bind SN to email
+	_, err = tx.Exec("INSERT INTO email_records (email, sn, ip, created_at, product_id, sn_type) VALUES (?, ?, ?, ?, ?, 'oss')",
+		email, sn, clientIP, now, productID)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[REQUEST-OSS-SN] Failed to bind open source SN to email %s: %v", email, err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "绑定邮箱失败"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[REQUEST-OSS-SN] Failed to commit transaction: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(RequestSNResponse{Success: false, Code: CodeInternalError, Message: "创建开源授权序列号失败"})
+		return
+	}
+
+	log.Printf("[REQUEST-OSS-SN] Open source SN created for email %s from IP %s: %s (Product: %d)", email, clientIP, sn, productID)
+
+	// Send confirmation email (async)
+	go func() {
+		if err := sendSNEmail(email, sn, expiresAt, productID); err != nil {
+			log.Printf("[EMAIL] Failed to send open source SN email to %s: %v", email, err)
+		} else {
+			log.Printf("[EMAIL] Open source SN email sent successfully to %s", email)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(RequestSNResponse{Success: true, Code: CodeSuccess, Message: "开源授权序列号创建成功", SN: sn})
 }
 
 // ============ Backup and Restore Handlers ============
