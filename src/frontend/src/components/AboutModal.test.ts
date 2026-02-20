@@ -36,8 +36,8 @@ const translations: Record<Language, Record<string, string>> = {
         'switch_to_opensource': 'Switch to Open Source',
     },
     '简体中文': {
-        'switch_to_commercial': '切换到商业模式',
-        'switch_to_opensource': '切换到开源模式',
+        'switch_to_commercial': '切换到商业软件模式',
+        'switch_to_opensource': '切换到开源软件模式',
     }
 };
 
@@ -97,9 +97,9 @@ describe('Feature: license-mode-switch, Property 1: Button Text Correctness', ()
      * (Chinese/English), the switch button text SHALL correctly reflect both the current mode 
      * and the target mode in the appropriate language.
      * 
-     * - When `activated: false` and language is Chinese → "切换到商业模式"
+     * - When `activated: false` and language is Chinese → "切换到商业软件模式"
      * - When `activated: false` and language is English → "Switch to Commercial"
-     * - When `activated: true` and language is Chinese → "切换到开源模式"
+     * - When `activated: true` and language is Chinese → "切换到开源软件模式"
      * - When `activated: true` and language is English → "Switch to Open Source"
      */
 
@@ -147,7 +147,7 @@ describe('Feature: license-mode-switch, Property 1: Button Text Correctness', ()
                     if (language === 'English') {
                         expect(buttonText).toBe('Switch to Commercial');
                     } else {
-                        expect(buttonText).toBe('切换到商业模式');
+                        expect(buttonText).toBe('切换到商业软件模式');
                     }
                     
                     return true;
@@ -174,7 +174,7 @@ describe('Feature: license-mode-switch, Property 1: Button Text Correctness', ()
                     if (language === 'English') {
                         expect(buttonText).toBe('Switch to Open Source');
                     } else {
-                        expect(buttonText).toBe('切换到开源模式');
+                        expect(buttonText).toBe('切换到开源软件模式');
                     }
                     
                     return true;
@@ -545,11 +545,11 @@ describe('Feature: license-mode-switch, Property 3: Language Consistency', () =>
             'deactivate_failed': 'Failed to deactivate license',
         },
         '简体中文': {
-            'switch_to_commercial': '切换到商业模式',
-            'switch_to_opensource': '切换到开源模式',
-            'confirm_switch_to_commercial': '切换到商业模式',
-            'confirm_switch_to_commercial_desc': '您将被重定向到激活页面，输入序列号以激活商业模式。',
-            'confirm_switch_to_opensource': '切换到开源模式',
+            'switch_to_commercial': '切换到商业软件模式',
+            'switch_to_opensource': '切换到开源软件模式',
+            'confirm_switch_to_commercial': '切换到商业软件模式',
+            'confirm_switch_to_commercial_desc': '您将被重定向到激活页面，输入序列号以激活商业软件模式。',
+            'confirm_switch_to_opensource': '切换到开源软件模式',
             'confirm_switch_to_opensource_desc': '警告：您当前的授权将被取消激活。您需要配置自己的 LLM API 才能继续使用应用程序。',
             'deactivate_failed': '取消激活授权失败',
         }
@@ -900,8 +900,8 @@ describe('Unit Tests: License Mode Switch', () => {
                 'switch_to_opensource': 'Switch to Open Source',
             },
             '简体中文': {
-                'switch_to_commercial': '切换到商业模式',
-                'switch_to_opensource': '切换到开源模式',
+                'switch_to_commercial': '切换到商业软件模式',
+                'switch_to_opensource': '切换到开源软件模式',
             }
         };
         const key = activated ? 'switch_to_opensource' : 'switch_to_commercial';
@@ -924,7 +924,7 @@ describe('Unit Tests: License Mode Switch', () => {
             const buttonTextZh = getButtonText(state.activationStatus.activated, '简体中文');
             
             expect(buttonTextEn).toBe('Switch to Commercial');
-            expect(buttonTextZh).toBe('切换到商业模式');
+            expect(buttonTextZh).toBe('切换到商业软件模式');
         });
 
         /**
@@ -940,7 +940,7 @@ describe('Unit Tests: License Mode Switch', () => {
             const buttonTextZh = getButtonText(state.activationStatus.activated, '简体中文');
             
             expect(buttonTextEn).toBe('Switch to Open Source');
-            expect(buttonTextZh).toBe('切换到开源模式');
+            expect(buttonTextZh).toBe('切换到开源软件模式');
         });
 
         /**

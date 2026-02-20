@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM VantageData License Server Build Script (Windows)
+REM Vantagics License Server Build Script (Windows)
 REM Builds for Windows locally and Linux on remote server
 
 set BUILD_DIR=build
@@ -17,7 +17,7 @@ REM SSH options to handle host key changes
 set SSH_OPTS=-o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL
 
 echo ==========================================
-echo VantageData License Server Build (Windows)
+echo Vantagics License Server Build (Windows)
 echo ==========================================
 
 REM Build Windows version locally

@@ -82,7 +82,7 @@ const SettingsHTML = `
                 </div>
                 <div>
                     <label class="form-label">发件人名称</label>
-                    <input type="text" id="smtp-from-name" placeholder="VantageData" class="form-input">
+                    <input type="text" id="smtp-from-name" placeholder="Vantagics" class="form-input">
                 </div>
                 <div style="grid-column:span 2;">
                     <label class="form-label">加密方式</label>
@@ -269,21 +269,37 @@ function testSMTP() {
     var email = prompt('请输入测试邮箱地址：');
     if (!email) return;
     
-    // First save the config
-    saveSMTPConfig();
+    // Silently save config first (no alert), then send test email
+    var encryption = document.querySelector('input[name="smtp-encryption"]:checked').value;
+    var config = {
+        enabled: document.getElementById('smtp-enabled').checked,
+        host: document.getElementById('smtp-host').value,
+        port: parseInt(document.getElementById('smtp-port').value) || 587,
+        username: document.getElementById('smtp-username').value,
+        password: document.getElementById('smtp-password').value,
+        from_email: document.getElementById('smtp-from-email').value,
+        from_name: document.getElementById('smtp-from-name').value,
+        use_tls: encryption === 'tls',
+        use_starttls: encryption === 'starttls'
+    };
     
-    // Then send test email
-    setTimeout(function() {
-        fetch('/api/smtp/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email})})
-            .then(function(resp) { return resp.json(); })
-            .then(function(result) { 
-                if (result.success) { 
-                    alert('测试邮件已发送，请检查收件箱（包括垃圾邮件文件夹）'); 
-                } else { 
-                    alert('发送失败: ' + result.error); 
-                } 
-            });
-    }, 500);
+    fetch('/api/smtp', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(config)})
+        .then(function(resp) { return resp.json(); })
+        .then(function() {
+            // Config saved silently, now send test email
+            return fetch('/api/smtp/test', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email: email})});
+        })
+        .then(function(resp) { return resp.json(); })
+        .then(function(result) { 
+            if (result.success) { 
+                alert('测试邮件已发送，请检查收件箱（包括垃圾邮件文件夹）'); 
+            } else { 
+                alert('发送失败: ' + result.error); 
+            } 
+        })
+        .catch(function(err) {
+            alert('请求失败: ' + err.message);
+        });
 }
 
 function showForceDeleteLicense() {

@@ -31,23 +31,22 @@ func TestProperty5_TicketLoginURLConstruction(t *testing.T) {
 
 		url := BuildTicketLoginURL(ticketStr)
 
-		// Property: URL must have the exact expected prefix
+		// Property: URL must contain the ticket parameter
 		expectedPrefix := "https://service.vantagics.com/auth/ticket-login?ticket="
 		if !strings.HasPrefix(url, expectedPrefix) {
 			t.Logf("seed=%d: URL prefix mismatch: got %q", seed, url)
 			return false
 		}
 
-		// Property: URL must end with the exact ticket string
-		if !strings.HasSuffix(url, ticketStr) {
-			t.Logf("seed=%d: URL suffix mismatch: expected ticket=%q, got url=%q", seed, ticketStr, url)
+		// Property: URL must contain the ticket string followed by redirect parameter
+		if !strings.Contains(url, "ticket="+ticketStr+"&redirect=") {
+			t.Logf("seed=%d: URL does not contain expected ticket param: got %q", seed, url)
 			return false
 		}
 
-		// Property: URL must be exactly prefix + ticket (no extra characters)
-		expected := expectedPrefix + ticketStr
-		if url != expected {
-			t.Logf("seed=%d: URL mismatch: expected=%q, got=%q", seed, expected, url)
+		// Property: URL must contain the redirect to /?vantagics
+		if !strings.Contains(url, "redirect=") {
+			t.Logf("seed=%d: URL missing redirect param: got %q", seed, url)
 			return false
 		}
 

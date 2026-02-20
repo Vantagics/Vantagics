@@ -293,8 +293,8 @@ var chineseTranslations = map[string]string{
 	"error.unknown":                     "发生未知错误",
 
 	// 应用程序对话框
-	"app.about_title":                   "关于 观界",
-	"app.about_message":                 "观界 (VantageData)\n\n观数据之界，见商业全貌。\n\n版本：1.0.0\n© 2026 VantageData. All rights reserved.",
+	"app.about_title":                   "关于 万策",
+	"app.about_message":                 "万策 (Vantagics)\n\n于万千数据中，定最优之策。\n\n版本：1.0.0\n© 2026 Vantagics. All rights reserved.",
 	"app.devtools_title":                "打开开发者工具",
 	"app.devtools_message":              "请使用以下方法打开开发者工具：\n\n方法1：按 F12 键\n方法2：按 Ctrl+Shift+I\n方法3：按 Ctrl+Shift+J\n方法4：在空白区域右键点击，选择\"检查\"\n\n如果以上方法都不行，请在开发模式下运行：\nwails dev",
 	"app.confirm_exit_title":            "确认退出",
@@ -506,10 +506,10 @@ var chineseTranslations = map[string]string{
 	"license_refresh.no_sn":             "未找到序列号",
 	"license_refresh.no_server":         "未找到授权服务器地址",
 	"license_refresh.failed":            "刷新失败: %v",
-	"license_refresh.invalid_sn":        "序列号无效，已切换到开源模式。请使用您自己的 LLM API 配置。",
-	"license_refresh.sn_expired":        "序列号已过期，已切换到开源模式。请使用您自己的 LLM API 配置。",
-	"license_refresh.sn_disabled":       "序列号已被禁用，已切换到开源模式。请使用您自己的 LLM API 配置。",
-	"license_refresh.default_invalid":   "授权已失效，已切换到开源模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.invalid_sn":        "序列号无效，已切换到开源软件模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.sn_expired":        "序列号已过期，已切换到开源软件模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.sn_disabled":       "序列号已被禁用，已切换到开源软件模式。请使用您自己的 LLM API 配置。",
+	"license_refresh.default_invalid":   "授权已失效，已切换到开源软件模式。请使用您自己的 LLM API 配置。",
 
 	// 数据源导出元数据
 	"datasource.export_description":     "数据源 %s",

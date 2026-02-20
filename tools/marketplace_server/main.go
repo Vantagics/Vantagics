@@ -724,7 +724,167 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create notification_targets table: %w", err)
 	}
 
+	// Create email_wallets table for unified per-email balance
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS email_wallets (
+			email TEXT PRIMARY KEY,
+			credits_balance REAL DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create email_wallets table: %w", err)
+	}
+
+	// Migrate existing per-user balances into email_wallets (one-time)
+	// Sum all users.credits_balance grouped by email into email_wallets
+	database.Exec(`
+		INSERT OR IGNORE INTO email_wallets (email, credits_balance, updated_at)
+		SELECT email, SUM(credits_balance), CURRENT_TIMESTAMP
+		FROM users WHERE email IS NOT NULL AND email != '' GROUP BY email
+	`)
+
 	return database, nil
+}
+
+// --- Email Wallet helpers ---
+
+// getEmailForUser returns the email for a given user ID.
+func getEmailForUser(userID int64) string {
+	var email string
+	db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	return email
+}
+
+// getEmailForUserTx returns the email for a given user ID within a transaction.
+func getEmailForUserTx(tx *sql.Tx, userID int64) string {
+	var email string
+	tx.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	return email
+}
+
+// getWalletBalance returns the email wallet balance for a user.
+// Falls back to per-user balance if no email or no wallet row.
+func getWalletBalance(userID int64) float64 {
+	email := getEmailForUser(userID)
+	if email == "" {
+		var balance float64
+		db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+		return balance
+	}
+	var balance float64
+	err := db.QueryRow("SELECT credits_balance FROM email_wallets WHERE email = ?", email).Scan(&balance)
+	if err != nil {
+		// Wallet row missing — create from sum of all user balances for this email
+		var totalBal float64
+		db.QueryRow("SELECT COALESCE(SUM(credits_balance), 0) FROM users WHERE email = ?", email).Scan(&totalBal)
+		db.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance, updated_at)
+			VALUES (?, ?, CURRENT_TIMESTAMP)`, email, totalBal)
+		return totalBal
+	}
+	return balance
+}
+
+// deductWalletBalance deducts amount from the email wallet within a transaction.
+// Returns rows affected (0 = insufficient balance).
+// Also syncs the deduction to users.credits_balance for backward compatibility.
+func deductWalletBalance(tx *sql.Tx, userID int64, amount float64) (int64, error) {
+	email := getEmailForUserTx(tx, userID)
+	if email == "" {
+		// No email — fall back to per-user deduction
+		result, err := tx.Exec(
+			"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
+			amount, userID, amount)
+		if err != nil {
+			return 0, err
+		}
+		return result.RowsAffected()
+	}
+	// Ensure wallet row exists — initialize from sum of all user balances for this email if new
+	tx.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance)
+		SELECT ?, COALESCE(SUM(credits_balance), 0) FROM users WHERE email = ?`, email, email)
+	result, err := tx.Exec(
+		"UPDATE email_wallets SET credits_balance = credits_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE email = ? AND credits_balance >= ?",
+		amount, email, amount)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	// Sync to users.credits_balance for backward compatibility (floor at 0)
+	if rows > 0 {
+		tx.Exec("UPDATE users SET credits_balance = CASE WHEN credits_balance >= ? THEN credits_balance - ? ELSE 0 END WHERE id = ?", amount, amount, userID)
+	}
+	return rows, nil
+}
+
+
+// addWalletBalance adds amount to the email wallet within a transaction.
+func addWalletBalance(tx *sql.Tx, userID int64, amount float64) error {
+	email := getEmailForUserTx(tx, userID)
+	if email == "" {
+		_, err := tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", amount, userID)
+		return err
+	}
+	// Ensure wallet row exists — initialize from sum of all user balances for this email if new
+	tx.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance)
+		SELECT ?, COALESCE(SUM(credits_balance), 0) FROM users WHERE email = ?`, email, email)
+	_, err := tx.Exec(
+		"UPDATE email_wallets SET credits_balance = credits_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?",
+		amount, email)
+	if err != nil {
+		return err
+	}
+	// Sync to users.credits_balance for backward compatibility
+	tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", amount, userID)
+	return nil
+}
+
+// addWalletBalanceByEmail adds amount to the email wallet directly by email.
+// If the wallet row doesn't exist yet, it initializes from the sum of all users' balances for that email.
+func addWalletBalanceByEmail(email string, amount float64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Ensure wallet row exists — initialize from sum of user balances if new
+	tx.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance, updated_at)
+		SELECT ?, COALESCE(SUM(credits_balance), 0), CURRENT_TIMESTAMP
+		FROM users WHERE email = ?`, email, email)
+	_, err = tx.Exec(
+		"UPDATE email_wallets SET credits_balance = credits_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?",
+		amount, email)
+	if err != nil {
+		return err
+	}
+	// Sync to primary user's credits_balance for backward compatibility
+	var primaryID int64
+	if tx.QueryRow("SELECT id FROM users WHERE email = ? ORDER BY id ASC LIMIT 1", email).Scan(&primaryID) == nil {
+		tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", amount, primaryID)
+	}
+	return tx.Commit()
+}
+
+// getWalletBalanceByEmail returns the wallet balance for an email.
+func getWalletBalanceByEmail(email string) float64 {
+	var balance float64
+	db.QueryRow("SELECT credits_balance FROM email_wallets WHERE email = ?", email).Scan(&balance)
+	return balance
+}
+
+// ensureWalletExists makes sure an email_wallets row exists for the given email.
+// If not, initializes it from the sum of all users' credits_balance for that email.
+func ensureWalletExists(email string) {
+	if email == "" {
+		return
+	}
+	db.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance, updated_at)
+		SELECT ?, COALESCE(SUM(credits_balance), 0), CURRENT_TIMESTAMP
+		FROM users WHERE email = ?`, email, email)
 }
 
 // isNotificationVisible determines whether a notification should be visible
@@ -2558,6 +2718,11 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Initialize email wallet (balance already in users table, just ensure wallet row exists)
+	if email != "" {
+		ensureWalletExists(email)
+	}
+
 	log.Printf("[USER-REGISTER] success: email=%q sn=%q userID=%d username=%q", email, sn, userID, username)
 
 	// Step 6: Create session and redirect
@@ -2660,6 +2825,8 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(i18n.DetectLang(r), "load_data_failed"), http.StatusInternalServerError)
 		return
 	}
+	// Override with email wallet balance
+	user.CreditsBalance = getWalletBalance(userID)
 
 	// Query all purchased/downloaded packs using a UNION approach:
 	// 1. From user_purchased_packs (canonical record)
@@ -3214,14 +3381,8 @@ func handleUserRenewPerUse(w http.ResponseWriter, r *http.Request) {
 
 	totalCost := creditsPrice * quantity
 
-	// Check user balance
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		log.Printf("[USER-RENEW-USES] failed to query balance for user %d: %v", userID, err)
-		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
-		return
-	}
+	// Check user balance (email wallet)
+	balance := getWalletBalance(userID)
 
 	if balance < float64(totalCost) {
 		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
@@ -3237,16 +3398,12 @@ func handleUserRenewPerUse(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec(
-		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		totalCost, userID, totalCost,
-	)
+	rowsAffected, err := deductWalletBalance(tx, userID, float64(totalCost))
 	if err != nil {
 		log.Printf("[USER-RENEW-USES] failed to deduct credits: %v", err)
 		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
 		return
@@ -3349,14 +3506,8 @@ func handleUserRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	// Calculate cost: monthly = credits_price * months, yearly = credits_price * 12 (grants 14 months)
 	totalCost := creditsPrice * months
 
-	// Check user balance
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		log.Printf("[USER-RENEW-SUB] failed to query balance for user %d: %v", userID, err)
-		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
-		return
-	}
+	// Check user balance (email wallet)
+	balance := getWalletBalance(userID)
 
 	if balance < float64(totalCost) {
 		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
@@ -3372,16 +3523,12 @@ func handleUserRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec(
-		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		totalCost, userID, totalCost,
-	)
+	rowsAffected, err := deductWalletBalance(tx, userID, float64(totalCost))
 	if err != nil {
 		log.Printf("[USER-RENEW-SUB] failed to deduct credits: %v", err)
 		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		http.Redirect(w, r, "/user/?error=insufficient_credits", http.StatusFound)
 		return
@@ -3638,6 +3785,11 @@ func handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Initialize email wallet (balance already in users table, just ensure wallet row exists)
+		if req.Email != "" {
+			ensureWalletExists(req.Email)
+		}
+
 		// Read back the created user
 		err = db.QueryRow(
 			"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE id = ?",
@@ -3858,6 +4010,11 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Initialize email wallet (balance already in users table, just ensure wallet row exists)
+		if email != "" {
+			ensureWalletExists(email)
+		}
+
 		// Read back the created user
 		err = db.QueryRow(
 			"SELECT id, auth_type, auth_id, display_name, email, credits_balance, created_at FROM users WHERE id = ?",
@@ -3899,7 +4056,7 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 			"id":              user.ID,
 			"display_name":    user.DisplayName,
 			"email":           user.Email,
-			"credits_balance": user.CreditsBalance,
+			"credits_balance": getWalletBalance(user.ID),
 		},
 	})
 }
@@ -4774,14 +4931,8 @@ func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check user's credits balance
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		log.Printf("[PURCHASE-FROM-DETAIL] failed to query balance for user %d: %v", userID, err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-		return
-	}
+	// Check user's credits balance (email wallet)
+	balance := getWalletBalance(userID)
 
 	if balance < float64(totalCost) {
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -4800,17 +4951,13 @@ func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// Deduct credits atomically
-	result, err := tx.Exec(
-		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		totalCost, userID, totalCost,
-	)
+	// Deduct credits atomically (email wallet)
+	rowsAffected, err := deductWalletBalance(tx, userID, float64(totalCost))
 	if err != nil {
 		log.Printf("[PURCHASE-FROM-DETAIL] failed to deduct credits: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusOK, map[string]interface{}{
 			"insufficient_balance": true,
@@ -6019,14 +6166,8 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Check user's credits balance
-		var balance float64
-		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-		if err != nil {
-			log.Printf("Failed to query user balance: %v", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
+		// Check user's credits balance (email wallet)
+		balance := getWalletBalance(userID)
 
 		if balance < float64(creditsPrice) {
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
@@ -6046,17 +6187,13 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback()
 
-		// Deduct credits from user balance
-		result, err := tx.Exec(
-			"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-			creditsPrice, userID, creditsPrice,
-		)
+		// Deduct credits from email wallet
+		rowsAffected, err := deductWalletBalance(tx, userID, float64(creditsPrice))
 		if err != nil {
 			log.Printf("Failed to deduct credits: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
-		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
 			// Race condition: balance changed between check and update
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
@@ -6125,13 +6262,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		// Legacy "paid" mode or unknown: treat as paid with basic deduction
-		var balance float64
-		err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-		if err != nil {
-			log.Printf("Failed to query user balance: %v", err)
-			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-			return
-		}
+		balance := getWalletBalance(userID)
 
 		if balance < float64(creditsPrice) {
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
@@ -6150,16 +6281,12 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		}
 		defer tx.Rollback()
 
-		result, err := tx.Exec(
-			"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-			creditsPrice, userID, creditsPrice,
-		)
+		rowsAffected, err := deductWalletBalance(tx, userID, float64(creditsPrice))
 		if err != nil {
 			log.Printf("Failed to deduct credits: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 			return
 		}
-		rowsAffected, _ := result.RowsAffected()
 		if rowsAffected == 0 {
 			jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
 				"error":    "INSUFFICIENT_CREDITS",
@@ -6294,14 +6421,8 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 
 	totalCost := creditsPrice * req.Quantity
 
-	// Check user's credits balance
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		log.Printf("Failed to query user balance: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-		return
-	}
+	// Check user's credits balance (email wallet)
+	balance := getWalletBalance(userID)
 
 	if balance < float64(totalCost) {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
@@ -6321,17 +6442,13 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// Deduct credits
-	result, err := tx.Exec(
-		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		totalCost, userID, totalCost,
-	)
+	// Deduct credits (email wallet)
+	rowsAffected, err := deductWalletBalance(tx, userID, float64(totalCost))
 	if err != nil {
 		log.Printf("Failed to deduct credits: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
 			"error":    "INSUFFICIENT_CREDITS",
@@ -6460,14 +6577,8 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 		grantedMonths = reqBody.Months + yearlyBlocks*2
 	}
 
-	// Check user's credits balance
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		log.Printf("Failed to query user balance: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-		return
-	}
+	// Check user's credits balance (email wallet)
+	balance := getWalletBalance(userID)
 
 	if balance < float64(totalCost) {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
@@ -6487,17 +6598,13 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
-	// Deduct credits
-	result, err := tx.Exec(
-		"UPDATE users SET credits_balance = credits_balance - ? WHERE id = ? AND credits_balance >= ?",
-		totalCost, userID, totalCost,
-	)
+	// Deduct credits (email wallet)
+	rowsAffected, err := deductWalletBalance(tx, userID, float64(totalCost))
 	if err != nil {
 		log.Printf("Failed to deduct credits: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
 			"error":    "INSUFFICIENT_CREDITS",
@@ -6596,7 +6703,7 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 
 
 
-// handleGetBalance returns the authenticated user's current credits balance.
+// handleGetBalance returns the authenticated user's current credits balance (email wallet).
 // GET /api/credits/balance
 func handleGetBalance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -6611,17 +6718,15 @@ func handleGetBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var balance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err == sql.ErrNoRows {
+	// Check user exists
+	var exists int
+	err = db.QueryRow("SELECT COUNT(*) FROM users WHERE id = ?", userID).Scan(&exists)
+	if err != nil || exists == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user not found"})
-		return
-	} else if err != nil {
-		log.Printf("Failed to query user balance: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 
+	balance := getWalletBalance(userID)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"credits_balance": balance,
 	})
@@ -6679,9 +6784,8 @@ func handlePurchaseCredits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update balance
-	_, err = tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, userID)
-	if err != nil {
+	// Update balance (email wallet)
+	if err := addWalletBalance(tx, userID, req.Amount); err != nil {
 		log.Printf("Failed to update credits balance: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
@@ -6705,7 +6809,7 @@ func handlePurchaseCredits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newBalance := currentBalance + req.Amount
+	newBalance := getWalletBalance(userID)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"credits_balance": newBalance,
 		"amount_added":    req.Amount,
@@ -7783,10 +7887,8 @@ func handleAuthorWithdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = tx.Exec(
-		`UPDATE users SET credits_balance = credits_balance - ? WHERE id = ?`,
-		creditsAmount, userID,
-	)
+	// Deduct from email wallet
+	_, err = deductWalletBalance(tx, userID, creditsAmount)
 	if err != nil {
 		log.Printf("[AUTHOR-WITHDRAW] failed to update credits_balance: %v", err)
 		withdrawError("internal", i18n.T(lang, "system_error"))
@@ -8502,14 +8604,45 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get per-pack details
+	// Pagination
+	page := 1
+	pageSize := 10
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if v, err := strconv.Atoi(ps); err == nil && v > 0 && v <= 100 {
+			pageSize = v
+		}
+	}
+
+	// Get total count
+	var totalPacks int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pack_listings pl WHERE pl.user_id = ? AND pl.status IN ('published', 'delisted')`, userID).Scan(&totalPacks)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	totalPages := (totalPacks + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * pageSize
+
+	// Get per-pack details with pagination
 	rows, err := db.Query(`
 		SELECT pl.id, pl.pack_name, c.name, pl.share_mode, pl.credits_price, pl.download_count,
 		       pl.download_count * pl.credits_price as total_revenue, pl.status, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
 		WHERE pl.user_id = ? AND pl.status IN ('published', 'delisted')
-		ORDER BY pl.download_count DESC`, userID)
+		ORDER BY pl.download_count DESC
+		LIMIT ? OFFSET ?`, userID, pageSize, offset)
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
@@ -8535,6 +8668,10 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 		"display_name": displayName,
 		"email":        email,
 		"packs":        packs,
+		"page":         page,
+		"page_size":    pageSize,
+		"total_packs":  totalPacks,
+		"total_pages":  totalPages,
 	})
 }
 
@@ -8571,7 +8708,7 @@ func handleAdminAuthorRoutes(w http.ResponseWriter, r *http.Request) {
 
 // --- Customer Management ---
 
-// handleAdminCustomerList lists all marketplace users (customers).
+// handleAdminCustomerList lists marketplace customers grouped by email.
 // GET /api/admin/customers?search=&sort=created_at&order=desc
 func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -8579,6 +8716,7 @@ func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// First, query all individual user records (with aggregated download/spent per user)
 	query := `
 		SELECT u.id, u.auth_type, u.auth_id, u.display_name, COALESCE(u.email, ''),
 		       u.credits_balance, COALESCE(u.is_blocked, 0), u.created_at,
@@ -8586,45 +8724,18 @@ func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(SUM(CASE WHEN ct.transaction_type = 'download' THEN ABS(ct.amount) ELSE 0 END), 0) as total_spent
 		FROM users u
 		LEFT JOIN user_downloads ud ON ud.user_id = u.id
-		LEFT JOIN credits_transactions ct ON ct.user_id = u.id
-		GROUP BY u.id`
+		LEFT JOIN credits_transactions ct ON ct.user_id = u.id`
 
 	args := []interface{}{}
 
-	// Search by email or display_name
+	// Search by email, display_name, or auth_id (SN)
 	if search := r.URL.Query().Get("search"); search != "" {
-		query = `
-		SELECT u.id, u.auth_type, u.auth_id, u.display_name, COALESCE(u.email, ''),
-		       u.credits_balance, COALESCE(u.is_blocked, 0), u.created_at,
-		       COUNT(DISTINCT ud.listing_id) as download_count,
-		       COALESCE(SUM(CASE WHEN ct.transaction_type = 'download' THEN ABS(ct.amount) ELSE 0 END), 0) as total_spent
-		FROM users u
-		LEFT JOIN user_downloads ud ON ud.user_id = u.id
-		LEFT JOIN credits_transactions ct ON ct.user_id = u.id
-		WHERE u.email LIKE ? OR u.display_name LIKE ? OR u.auth_id LIKE ?
-		GROUP BY u.id`
+		query += ` WHERE u.email LIKE ? OR u.display_name LIKE ? OR u.auth_id LIKE ?`
 		like := "%" + search + "%"
 		args = append(args, like, like, like)
 	}
 
-	// Sort
-	sortField := r.URL.Query().Get("sort")
-	order := r.URL.Query().Get("order")
-	if order != "asc" {
-		order = "desc"
-	}
-	switch sortField {
-	case "credits":
-		query += " ORDER BY u.credits_balance " + order
-	case "downloads":
-		query += " ORDER BY download_count " + order
-	case "spent":
-		query += " ORDER BY total_spent " + order
-	case "name":
-		query += " ORDER BY u.display_name " + order
-	default:
-		query += " ORDER BY u.created_at " + order
-	}
+	query += ` GROUP BY u.id ORDER BY u.created_at DESC`
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -8634,12 +8745,11 @@ func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	type CustomerInfo struct {
+	type SubAccount struct {
 		ID             int64   `json:"id"`
 		AuthType       string  `json:"auth_type"`
 		AuthID         string  `json:"auth_id"`
 		DisplayName    string  `json:"display_name"`
-		Email          string  `json:"email"`
 		CreditsBalance float64 `json:"credits_balance"`
 		IsBlocked      bool    `json:"is_blocked"`
 		CreatedAt      string  `json:"created_at"`
@@ -8647,21 +8757,123 @@ func handleAdminCustomerList(w http.ResponseWriter, r *http.Request) {
 		TotalSpent     float64 `json:"total_spent"`
 	}
 
-	customers := []CustomerInfo{}
+	type CustomerGroup struct {
+		Email          string       `json:"email"`
+		DisplayName    string       `json:"display_name"`
+		AccountCount   int          `json:"account_count"`
+		TotalBalance   float64      `json:"total_balance"`
+		TotalDownloads int          `json:"total_downloads"`
+		TotalSpent     float64      `json:"total_spent"`
+		IsBlocked      bool         `json:"is_blocked"`
+		BlockedCount   int          `json:"blocked_count"`
+		CreatedAt      string       `json:"created_at"`
+		Accounts       []SubAccount `json:"accounts"`
+	}
+
+	// Group by email
+	emailMap := map[string]*CustomerGroup{}
+	emailOrder := []string{}
+
 	for rows.Next() {
-		var c CustomerInfo
+		var sub SubAccount
+		var email string
 		var blocked int
-		if err := rows.Scan(&c.ID, &c.AuthType, &c.AuthID, &c.DisplayName, &c.Email,
-			&c.CreditsBalance, &blocked, &c.CreatedAt, &c.DownloadCount, &c.TotalSpent); err != nil {
+		if err := rows.Scan(&sub.ID, &sub.AuthType, &sub.AuthID, &sub.DisplayName, &email,
+			&sub.CreditsBalance, &blocked, &sub.CreatedAt, &sub.DownloadCount, &sub.TotalSpent); err != nil {
 			log.Printf("Failed to scan customer: %v", err)
 			continue
 		}
-		c.IsBlocked = blocked == 1
-		customers = append(customers, c)
+		sub.IsBlocked = blocked == 1
+
+		if email == "" {
+			email = fmt.Sprintf("(no-email-id-%d)", sub.ID)
+		}
+
+		group, exists := emailMap[email]
+		if !exists {
+			group = &CustomerGroup{
+				Email:       email,
+				DisplayName: sub.DisplayName,
+				CreatedAt:   sub.CreatedAt,
+				Accounts:    []SubAccount{},
+			}
+			emailMap[email] = group
+			emailOrder = append(emailOrder, email)
+		}
+		group.Accounts = append(group.Accounts, sub)
+		group.AccountCount++
+		group.TotalBalance += sub.CreditsBalance
+		group.TotalDownloads += sub.DownloadCount
+		group.TotalSpent += sub.TotalSpent
+		if sub.IsBlocked {
+			group.BlockedCount++
+		}
+		// Keep earliest created_at
+		if sub.CreatedAt < group.CreatedAt {
+			group.CreatedAt = sub.CreatedAt
+		}
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("[handleAdminCustomerList] rows iteration error: %v", err)
 	}
+
+	// Build ordered result and finalize blocked status, use email wallet balance
+	// Batch-load all wallet balances in one query
+	walletBalances := map[string]float64{}
+	if len(emailOrder) > 0 {
+		wRows, wErr := db.Query("SELECT email, credits_balance FROM email_wallets")
+		if wErr == nil {
+			for wRows.Next() {
+				var e string
+				var b float64
+				if wRows.Scan(&e, &b) == nil {
+					walletBalances[e] = b
+				}
+			}
+			wRows.Close()
+		}
+	}
+
+	customers := make([]CustomerGroup, 0, len(emailOrder))
+	for _, email := range emailOrder {
+		g := emailMap[email]
+		g.IsBlocked = g.BlockedCount > 0 && g.BlockedCount == g.AccountCount
+		// Use email wallet balance instead of summing per-user balances
+		if !strings.HasPrefix(email, "(no-email-id-") {
+			if wb, ok := walletBalances[email]; ok {
+				g.TotalBalance = wb
+			}
+			// If no wallet row, TotalBalance stays as the sum from users (already accumulated above)
+		}
+		customers = append(customers, *g)
+	}
+
+	// Sort
+	sortField := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "asc" {
+		order = "desc"
+	}
+	sort.SliceStable(customers, func(i, j int) bool {
+		var less bool
+		switch sortField {
+		case "credits":
+			less = customers[i].TotalBalance < customers[j].TotalBalance
+		case "downloads":
+			less = customers[i].TotalDownloads < customers[j].TotalDownloads
+		case "spent":
+			less = customers[i].TotalSpent < customers[j].TotalSpent
+		case "name":
+			less = customers[i].DisplayName < customers[j].DisplayName
+		default: // created_at
+			less = customers[i].CreatedAt < customers[j].CreatedAt
+		}
+		if order == "desc" {
+			return !less
+		}
+		return less
+	})
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"customers": customers})
 }
 
@@ -8700,23 +8912,26 @@ func handleAdminCustomerTopup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check user exists
-	var currentBalance float64
-	err = db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&currentBalance)
-	if err == sql.ErrNoRows {
+	var exists int
+	err = db.QueryRow("SELECT COUNT(*) FROM users WHERE id = ?", userID).Scan(&exists)
+	if err != nil || exists == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
 		return
 	}
-	if err != nil {
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
-		return
-	}
 
-	// Update balance
-	newBalance := currentBalance + req.Amount
-	_, err = db.Exec("UPDATE users SET credits_balance = ? WHERE id = ?", newBalance, userID)
-	if err != nil {
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
-		return
+	// Update balance (email wallet)
+	email := getEmailForUser(userID)
+	if email != "" {
+		if err := addWalletBalanceByEmail(email, req.Amount); err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+			return
+		}
+	} else {
+		_, err = db.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, userID)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+			return
+		}
 	}
 
 	// Record transaction
@@ -8730,6 +8945,7 @@ func handleAdminCustomerTopup(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to record topup transaction: %v", err)
 	}
 
+	newBalance := getWalletBalance(userID)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":      "ok",
 		"new_balance": newBalance,
@@ -8788,7 +9004,7 @@ func handleAdminCustomerToggleBlock(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAdminCustomerTransactions returns credits transaction history for a customer.
-// GET /api/admin/customers/{id}/transactions
+// GET /api/admin/customers/{id}/transactions?page=1&pageSize=20
 func handleAdminCustomerTransactions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -8808,9 +9024,29 @@ func handleAdminCustomerTransactions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page, pageSize := 1, 20
+	if v := r.URL.Query().Get("page"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := r.URL.Query().Get("pageSize"); v != "" {
+		fmt.Sscanf(v, "%d", &pageSize)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	var total int
+	db.QueryRow("SELECT COUNT(*) FROM credits_transactions WHERE user_id = ?", userID).Scan(&total)
+
 	rows, err := db.Query(`
 		SELECT id, transaction_type, amount, COALESCE(listing_id, 0), COALESCE(description, ''), created_at
-		FROM credits_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`, userID)
+		FROM credits_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, userID, pageSize, (page-1)*pageSize)
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
@@ -8837,14 +9073,214 @@ func handleAdminCustomerTransactions(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		log.Printf("[handleAdminCustomerTransactions] rows iteration error: %v", err)
 	}
-	jsonResponse(w, http.StatusOK, map[string]interface{}{"transactions": txns})
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"transactions": txns,
+		"total":        total,
+		"page":         page,
+		"pageSize":     pageSize,
+		"totalPages":   totalPages,
+	})
 }
 
 // handleAdminCustomerRoutes dispatches customer admin API requests.
+// handleAdminEmailTopup adds credits to the email wallet.
+// POST /api/admin/customers/email-topup  body: {"email": "x@y.com", "amount": 100, "reason": "..."}
+func handleAdminEmailTopup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Email  string  `json:"email"`
+		Amount float64 `json:"amount"`
+		Reason string  `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+	if req.Amount <= 0 || req.Email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "email and positive amount required"})
+		return
+	}
+
+	// Verify at least one user exists with this email
+	var userCount int
+	db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", req.Email).Scan(&userCount)
+	if userCount == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "no_accounts_for_email"})
+		return
+	}
+
+	// Add to email wallet
+	if err := addWalletBalanceByEmail(req.Email, req.Amount); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	// Record transaction against the first user under this email
+	var primaryUserID int64
+	db.QueryRow("SELECT id FROM users WHERE email = ? ORDER BY id ASC LIMIT 1", req.Email).Scan(&primaryUserID)
+	desc := "Admin topup (email)"
+	if req.Reason != "" {
+		desc = "Admin topup (email): " + req.Reason
+	}
+	_, _ = db.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
+		primaryUserID, req.Amount, desc)
+
+	newBalance := getWalletBalanceByEmail(req.Email)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status":      "ok",
+		"new_balance": newBalance,
+	})
+}
+
+// handleAdminEmailTransactions returns aggregated transaction history for all accounts under an email.
+// GET /api/admin/customers/email-transactions?email=x@y.com&page=1&pageSize=20
+func handleAdminEmailTransactions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		return
+	}
+
+	page, pageSize := 1, 20
+	if v := r.URL.Query().Get("page"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := r.URL.Query().Get("pageSize"); v != "" {
+		fmt.Sscanf(v, "%d", &pageSize)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	var total int
+	db.QueryRow(`SELECT COUNT(*) FROM credits_transactions ct JOIN users u ON u.id = ct.user_id WHERE u.email = ?`, email).Scan(&total)
+
+	rows, err := db.Query(`
+		SELECT ct.id, ct.transaction_type, ct.amount, COALESCE(ct.listing_id, 0),
+		       COALESCE(ct.description, ''), ct.created_at, u.display_name
+		FROM credits_transactions ct
+		JOIN users u ON u.id = ct.user_id
+		WHERE u.email = ?
+		ORDER BY ct.created_at DESC LIMIT ? OFFSET ?`, email, pageSize, (page-1)*pageSize)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer rows.Close()
+
+	type TxInfo struct {
+		ID              int64   `json:"id"`
+		TransactionType string  `json:"transaction_type"`
+		Amount          float64 `json:"amount"`
+		ListingID       int64   `json:"listing_id,omitempty"`
+		Description     string  `json:"description"`
+		CreatedAt       string  `json:"created_at"`
+		AccountName     string  `json:"account_name"`
+	}
+
+	txns := []TxInfo{}
+	for rows.Next() {
+		var t TxInfo
+		if err := rows.Scan(&t.ID, &t.TransactionType, &t.Amount, &t.ListingID, &t.Description, &t.CreatedAt, &t.AccountName); err != nil {
+			continue
+		}
+		txns = append(txns, t)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminEmailTransactions] rows iteration error: %v", err)
+	}
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"transactions": txns,
+		"total":        total,
+		"page":         page,
+		"pageSize":     pageSize,
+		"totalPages":   totalPages,
+	})
+}
+
+// handleAdminEmailToggleBlock blocks or unblocks ALL accounts under an email.
+// POST /api/admin/customers/email-toggle-block  body: {"email": "x@y.com"}
+func handleAdminEmailToggleBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		return
+	}
+
+	// Check if all accounts are currently blocked
+	var totalCount, blockedCount int
+	db.QueryRow("SELECT COUNT(*), COALESCE(SUM(CASE WHEN is_blocked=1 THEN 1 ELSE 0 END),0) FROM users WHERE email=?", req.Email).Scan(&totalCount, &blockedCount)
+	if totalCount == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "no_accounts_for_email"})
+		return
+	}
+
+	// If all blocked → unblock all; otherwise → block all
+	newBlocked := 1
+	if blockedCount == totalCount {
+		newBlocked = 0
+	}
+
+	_, err := db.Exec("UPDATE users SET is_blocked = ? WHERE email = ?", newBlocked, req.Email)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	status := "blocked"
+	if newBlocked == 0 {
+		status = "unblocked"
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
+}
+
 func handleAdminCustomerRoutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/customers")
 	if path == "" || path == "/" {
 		handleAdminCustomerList(w, r)
+		return
+	}
+	// Email-level operations (must be checked before ID-based routes)
+	if path == "/email-topup" {
+		handleAdminEmailTopup(w, r)
+		return
+	}
+	if path == "/email-transactions" {
+		handleAdminEmailTransactions(w, r)
+		return
+	}
+	if path == "/email-toggle-block" {
+		handleAdminEmailToggleBlock(w, r)
 		return
 	}
 	if strings.HasSuffix(path, "/topup") {

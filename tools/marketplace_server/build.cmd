@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-REM VantageData Marketplace Server - One-Click Build & Deploy
+REM Vantagics Marketplace Server - One-Click Build & Deploy
 REM Target: market.vantagics.com:8088
 
 set BUILD_DIR=build
@@ -18,7 +18,7 @@ REM SSH options
 set SSH_OPTS=-o StrictHostKeyChecking=no -o UserKnownHostsFile=NUL
 
 echo ==========================================
-echo VantageData Marketplace Server Deploy
+echo Vantagics Marketplace Server Deploy
 echo Target: %SERVER%:%PORT%
 echo ==========================================
 

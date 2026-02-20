@@ -293,8 +293,8 @@ var englishTranslations = map[string]string{
 	"error.unknown":                     "Unknown error occurred",
 
 	// Application Dialogs
-	"app.about_title":                   "About VantageData",
-	"app.about_message":                 "VantageData\n\nSee Beyond Data. Master Your Vantage.\n\nVersion: 1.0.0\n© 2026 VantageData. All rights reserved.",
+	"app.about_title":                   "About Vantagics",
+	"app.about_message":                 "Vantagics\n\nSee Beyond. Decide Better.\n\nVersion: 1.0.0\n© 2026 Vantagics. All rights reserved.",
 	"app.devtools_title":                "Open Developer Tools",
 	"app.devtools_message":              "Please use one of the following methods to open DevTools:\n\nMethod 1: Press F12\nMethod 2: Press Ctrl+Shift+I\nMethod 3: Press Ctrl+Shift+J\nMethod 4: Right-click in blank area and select \"Inspect\"\n\nIf none of the above works, run in development mode:\nwails dev",
 	"app.confirm_exit_title":            "Confirm Exit",
@@ -506,10 +506,10 @@ var englishTranslations = map[string]string{
 	"license_refresh.no_sn":             "Serial number not found",
 	"license_refresh.no_server":         "License server address not found",
 	"license_refresh.failed":            "Refresh failed: %v",
-	"license_refresh.invalid_sn":        "Serial number is invalid, switched to open source mode. Please use your own LLM API configuration.",
-	"license_refresh.sn_expired":        "Serial number has expired, switched to open source mode. Please use your own LLM API configuration.",
-	"license_refresh.sn_disabled":       "Serial number has been disabled, switched to open source mode. Please use your own LLM API configuration.",
-	"license_refresh.default_invalid":   "License is no longer valid, switched to open source mode. Please use your own LLM API configuration.",
+	"license_refresh.invalid_sn":        "Serial number is invalid, switched to open source software mode. Please use your own LLM API configuration.",
+	"license_refresh.sn_expired":        "Serial number has expired, switched to open source software mode. Please use your own LLM API configuration.",
+	"license_refresh.sn_disabled":       "Serial number has been disabled, switched to open source software mode. Please use your own LLM API configuration.",
+	"license_refresh.default_invalid":   "License is no longer valid, switched to open source software mode. Please use your own LLM API configuration.",
 
 	// Data Source Export Metadata
 	"datasource.export_description":     "Data Source %s",

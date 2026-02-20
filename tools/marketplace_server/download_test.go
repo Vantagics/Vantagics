@@ -16,14 +16,17 @@ var testUserCounter int64
 func createTestUserWithBalance(t *testing.T, balance float64) int64 {
 	t.Helper()
 	testUserCounter++
+	email := fmt.Sprintf("dl-%d@test.com", testUserCounter)
 	result, err := db.Exec(
-		"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES ('google', ?, 'Downloader', 'dl@test.com', ?)",
-		fmt.Sprintf("dl-user-%d-%f", testUserCounter, balance), balance,
+		"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES ('google', ?, 'Downloader', ?, ?)",
+		fmt.Sprintf("dl-user-%d-%f", testUserCounter, balance), email, balance,
 	)
 	if err != nil {
 		t.Fatalf("failed to create test user: %v", err)
 	}
 	id, _ := result.LastInsertId()
+	// Initialize email wallet
+	db.Exec("INSERT INTO email_wallets (email, credits_balance) VALUES (?, ?) ON CONFLICT(email) DO UPDATE SET credits_balance = ?", email, balance, balance)
 	return id
 }
 
@@ -111,12 +114,8 @@ func TestDownloadPack_PaidPack_SufficientBalance(t *testing.T) {
 		t.Error("response body does not match original file data")
 	}
 
-	// Verify balance was deducted
-	var balance float64
-	err := db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
-	if err != nil {
-		t.Fatalf("failed to query balance: %v", err)
-	}
+	// Verify balance was deducted (from email wallet)
+	balance := getWalletBalance(userID)
 	if balance != 400 {
 		t.Errorf("expected balance=400 after deduction, got %v", balance)
 	}
@@ -137,9 +136,8 @@ func TestDownloadPack_PaidPack_ExactBalance(t *testing.T) {
 		t.Fatalf("expected 200 with exact balance, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 
-	// Verify balance is now 0
-	var balance float64
-	db.QueryRow("SELECT credits_balance FROM users WHERE id = ?", userID).Scan(&balance)
+	// Verify balance is now 0 (from email wallet)
+	balance := getWalletBalance(userID)
 	if balance != 0 {
 		t.Errorf("expected balance=0 after exact deduction, got %v", balance)
 	}

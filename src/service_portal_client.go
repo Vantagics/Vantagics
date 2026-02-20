@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -31,7 +32,7 @@ func NewServicePortalClient(serverURL string) *ServicePortalClient {
 }
 // BuildTicketLoginURL constructs the ticket-login URL for the given login ticket.
 func BuildTicketLoginURL(ticket string) string {
-	return DefaultServicePortalURL + "/auth/ticket-login?ticket=" + ticket
+	return DefaultServicePortalURL + "/auth/ticket-login?ticket=" + ticket + "&redirect=" + url.QueryEscape(DefaultServicePortalURL+"/?vantagics")
 }
 
 // LoginResult represents the response from the service portal sn-login endpoint.

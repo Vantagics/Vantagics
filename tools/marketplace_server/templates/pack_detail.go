@@ -146,7 +146,7 @@ const packDetailHTML = `<!DOCTYPE html>
     <div class="msg msg-ok" id="successMsg"></div>
     <div class="msg msg-err" id="errorMsg"></div>
     {{end}}
-    <div class="foot"><p class="foot-text">VantageData <span data-i18n="site_name">快捷分析包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p></div>
+    <div class="foot"><p class="foot-text">Vantagics <span data-i18n="site_name">快捷分析包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p></div>
 </div>
 <div class="copy-toast" id="copyToast" data-i18n="link_copied">链接已复制</div>
 <script>

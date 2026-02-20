@@ -16,6 +16,8 @@ import (
 // ExecuteQuickAnalysisPack loads a .qap file, creates a Replay_Session, and executes
 // all steps sequentially. Results are sent to the EventAggregator for dashboard display.
 // On step failure, the error is logged and emitted, but execution continues to the next step.
+// If a replay session already exists for the same datasource + qap file, it will be reused
+// (re-executed) instead of creating a duplicate session.
 func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, password string) error {
 	a.Log(fmt.Sprintf("%s Starting execution: file=%s, dataSource=%s", logTagExecute, filePath, dataSourceID))
 
@@ -38,7 +40,14 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 		return err
 	}
 
-	// 3. Create a new Replay_Session thread
+	// 3. Check if a replay session already exists for this datasource + qap file
+	existingThread, _ := a.chatService.FindReplaySessionByQapFile(dataSourceID, filePath)
+	if existingThread != nil {
+		a.Log(fmt.Sprintf("%s Found existing replay session %s for datasource=%s, file=%s — re-executing", logTagExecute, existingThread.ID, dataSourceID, filePath))
+		return a.ReExecuteQuickAnalysisPack(existingThread.ID)
+	}
+
+	// 4. Create a new Replay_Session thread
 	threadTitle := fmt.Sprintf("⚡ %s (by %s)", pack.Metadata.PackName, pack.Metadata.Author)
 	thread, err := a.CreateChatThread(dataSourceID, threadTitle)
 	if err != nil {
@@ -57,25 +66,33 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 
 	a.Log(fmt.Sprintf("%s Created replay session: %s", logTagExecute, thread.ID))
 
-	// 4. Notify frontend to switch to this thread
+	// 5. Notify frontend to switch to this thread
 	runtime.EventsEmit(a.ctx, "qap-session-created", map[string]string{
 		"threadId":     thread.ID,
 		"dataSourceId": dataSourceID,
 		"title":        thread.Title,
 	})
 
-	// 5. Execute all steps
+	// 6. Execute all steps
 	a.executeStepLoop(thread.ID, dataSourceID, pack.ExecutableSteps, logTagExecute)
 
-	// 6. Emit completion
+	// 7. Emit completion
 	a.emitCompletion(thread.ID, len(pack.ExecutableSteps), i18n.T("qap.execution_complete", len(pack.ExecutableSteps)))
 
 	a.Log(fmt.Sprintf("%s Execution completed successfully", logTagExecute))
 
-	// 7. Billing
+	// 8. Billing
 	a.handleBilling(pack.Metadata.ListingID, logTagExecute)
 
 	return nil
+}
+
+// ExecuteQuickAnalysisPackDirect executes a quick analysis pack directly with a known datasource,
+// skipping the datasource selection step. This is called when the user triggers execution
+// from a datasource item's execute button (the datasource context is already known).
+func (a *App) ExecuteQuickAnalysisPackDirect(filePath string, dataSourceID string, password string) error {
+	a.Log(fmt.Sprintf("%s Direct execution (datasource pre-selected): file=%s, dataSource=%s", logTagExecute, filePath, dataSourceID))
+	return a.ExecuteQuickAnalysisPack(filePath, dataSourceID, password)
 }
 
 // ReExecuteQuickAnalysisPack re-executes a quick analysis pack in the current session.

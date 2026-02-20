@@ -394,6 +394,14 @@ func (a *App) startup(ctx context.Context) {
 		a.dataSourceService = agent.NewDataSourceService(dataDir, a.Log)
 		a.memoryService = agent.NewMemoryService(cfg)
 
+		// Set data cache dir on PythonService for uv environment management
+		if a.pythonService != nil {
+			a.pythonService.SetDataCacheDir(dataDir)
+
+			// Auto-setup uv environment in background if not ready
+			go a.autoSetupUvEnvironment(&cfg)
+		}
+
 		// Initialize working context manager for UI state tracking
 		a.workingContextManager = agent.NewWorkingContextManager(dataDir)
 		a.Log("[STARTUP] Working context manager initialized")
@@ -1744,9 +1752,9 @@ func (a *App) CleanupLogs() error {
 func (a *App) updateWindowTitle(language string) {
 	var title string
 	if language == "简体中文" {
-		title = "观界 - 智能数据分析"
+		title = "万策"
 	} else {
-		title = "VantageData - Smart Data Analysis"
+		title = "Vantagics"
 	}
 	runtime.WindowSetTitle(a.ctx, title)
 	a.Log(fmt.Sprintf("Window title updated to: %s", title))
@@ -1779,6 +1787,11 @@ func (a *App) reinitializeServices(cfg config.Config) {
 			a.Log(fmt.Sprintf("[REINIT] Using activated license LLM config: Provider=%s, Model=%s, BaseURL=%s",
 				cfg.LLMProvider, cfg.ModelName, cfg.BaseURL))
 		}
+	}
+
+	// Update PythonService dataCacheDir when config changes
+	if a.pythonService != nil && cfg.DataCacheDir != "" {
+		a.pythonService.SetDataCacheDir(cfg.DataCacheDir)
 	}
 
 	// Reinitialize MemoryService if configuration changed
@@ -2946,6 +2959,45 @@ func (a *App) DiagnosePythonInstallation() map[string]interface{} {
 	return a.pythonFacadeService.DiagnosePythonInstallation()
 }
 
+// SetupUvEnvironment creates a uv virtual environment and installs required packages
+func (a *App) SetupUvEnvironment() (string, error) {
+	if a.pythonFacadeService == nil {
+		return "", WrapError("App", "SetupUvEnvironment", fmt.Errorf("python facade service not initialized"))
+	}
+	return a.pythonFacadeService.SetupUvEnvironment()
+}
+
+// autoSetupUvEnvironment checks if the uv environment is ready and sets it up in background if not
+func (a *App) autoSetupUvEnvironment(cfg *config.Config) {
+	if a.pythonService == nil {
+		return
+	}
+	if a.pythonService.IsUvEnvironmentReady() {
+		a.Log("[STARTUP] uv environment already ready, skipping auto-setup")
+		return
+	}
+	if !a.pythonService.IsUvAvailable() {
+		a.Log("[STARTUP] uv not available, skipping auto-setup")
+		return
+	}
+	a.Log("[STARTUP] Auto-setting up uv environment in background...")
+	pythonPath, err := a.pythonService.SetupUvEnvironment()
+	if err != nil {
+		a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup failed: %v", err))
+		return
+	}
+	a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup complete: %s", pythonPath))
+}
+
+
+// GetUvEnvironmentStatus returns the current status of the uv environment
+func (a *App) GetUvEnvironmentStatus() agent.UvEnvironmentStatus {
+	if a.pythonFacadeService == nil {
+		return agent.UvEnvironmentStatus{}
+	}
+	return a.pythonFacadeService.GetUvEnvironmentStatus()
+}
+
 // GetChatHistory loads the chat history
 func (a *App) GetChatHistory() ([]ChatThread, error) {
 	if a.chatFacadeService == nil {
@@ -3953,12 +4005,28 @@ func (a *App) RequestFreeSN(serverURL, email string) (*RequestSNResult, error) {
 	return a.licenseFacadeService.RequestFreeSN(serverURL, email)
 }
 
+// RequestOpenSourceSN requests an open source serial number from the license server
+func (a *App) RequestOpenSourceSN(serverURL, email string) (*RequestSNResult, error) {
+	if a.licenseFacadeService == nil {
+		return nil, WrapError("App", "RequestOpenSourceSN", fmt.Errorf("license facade service not initialized"))
+	}
+	return a.licenseFacadeService.RequestOpenSourceSN(serverURL, email)
+}
+
 // IsPermanentFreeMode returns true if the current activation has trust_level "permanent_free"
 func (a *App) IsPermanentFreeMode() bool {
 	if a.licenseFacadeService == nil {
 		return false
 	}
 	return a.licenseFacadeService.IsPermanentFreeMode()
+}
+
+// IsOpenSourceMode returns true if the current activation has trust_level "open_source"
+func (a *App) IsOpenSourceMode() bool {
+	if a.licenseFacadeService == nil {
+		return false
+	}
+	return a.licenseFacadeService.IsOpenSourceMode()
 }
 
 // GetActivationStatus returns the current activation status

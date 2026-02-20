@@ -18,6 +18,8 @@ type LicenseManager interface {
 	DeactivateLicense() error
 	RefreshLicense() (*ActivationResult, error)
 	RequestSN(serverURL, email string) (*RequestSNResult, error)
+	RequestFreeSN(serverURL, email string) (*RequestSNResult, error)
+	RequestOpenSourceSN(serverURL, email string) (*RequestSNResult, error)
 	GetActivationStatus() map[string]interface{}
 	LoadSavedActivation(sn string) (*ActivationResult, error)
 	CheckLicenseActivationFailed() bool
@@ -25,6 +27,7 @@ type LicenseManager interface {
 	GetActivatedLLMConfig() *agent.ActivationData
 	IsLicenseActivated() bool
 	IsPermanentFreeMode() bool
+	IsOpenSourceMode() bool
 	HasActiveAnalysis() bool
 }
 
@@ -203,6 +206,28 @@ func (l *LicenseFacadeService) RequestFreeSN(serverURL, email string) (*RequestS
 	}, nil
 }
 
+// RequestOpenSourceSN requests an open source serial number from the license server
+func (l *LicenseFacadeService) RequestOpenSourceSN(serverURL, email string) (*RequestSNResult, error) {
+	if l.licenseClient == nil {
+		l.licenseClient = agent.NewLicenseClient(l.log)
+	}
+
+	result, err := l.licenseClient.RequestOpenSourceSN(serverURL, email)
+	if err != nil {
+		return &RequestSNResult{
+			Success: false,
+			Message: err.Error(),
+		}, nil
+	}
+
+	return &RequestSNResult{
+		Success: result.Success,
+		Message: result.Message,
+		SN:      result.SN,
+		Code:    result.Code,
+	}, nil
+}
+
 // GetActivationStatus returns the current activation status
 func (l *LicenseFacadeService) GetActivationStatus() map[string]interface{} {
 	l.mu.RLock()
@@ -249,6 +274,7 @@ func (l *LicenseFacadeService) GetActivationStatus() map[string]interface{} {
 		"credits_mode":         isCreditsMode,
 		"email":                cfg.LicenseEmail,
 		"is_permanent_free":    data.TrustLevel == "permanent_free",
+		"is_open_source":       data.TrustLevel == "open_source",
 	}
 }
 
@@ -305,6 +331,15 @@ func (l *LicenseFacadeService) IsPermanentFreeMode() bool {
 	}
 	data := l.licenseClient.GetData()
 	return data != nil && data.TrustLevel == "permanent_free"
+}
+
+// IsOpenSourceMode returns true if the current activation has trust_level "open_source"
+func (l *LicenseFacadeService) IsOpenSourceMode() bool {
+	if l.licenseClient == nil || !l.licenseClient.IsActivated() {
+		return false
+	}
+	data := l.licenseClient.GetData()
+	return data != nil && data.TrustLevel == "open_source"
 }
 
 // IsLicenseActivated returns true if license is activated
@@ -433,13 +468,13 @@ func (l *LicenseFacadeService) RefreshLicense() (*ActivationResult, error) {
 			var message string
 			switch result.Code {
 			case "INVALID_SN":
-				message = "序列号无效，已切换到开源模式。请使用您自己的 LLM API 配置。"
+				message = "序列号无效，已切换到开源软件模式。请使用您自己的 LLM API 配置。"
 			case "SN_EXPIRED":
-				message = "序列号已过期，已切换到开源模式。请使用您自己的 LLM API 配置。"
+				message = "序列号已过期，已切换到开源软件模式。请使用您自己的 LLM API 配置。"
 			case "SN_DISABLED":
-				message = "序列号已被禁用，已切换到开源模式。请使用您自己的 LLM API 配置。"
+				message = "序列号已被禁用，已切换到开源软件模式。请使用您自己的 LLM API 配置。"
 			default:
-				message = "授权已失效，已切换到开源模式。请使用您自己的 LLM API 配置。"
+				message = "授权已失效，已切换到开源软件模式。请使用您自己的 LLM API 配置。"
 			}
 
 			return &ActivationResult{

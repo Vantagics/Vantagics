@@ -7,13 +7,15 @@ interface OnboardingWizardProps {
     onClose: () => void;
     onSelectPlatform: (platform: string) => void;
     onSelectSelfImport: () => void;
+    isPermanentFree?: boolean;
 }
 
 const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     isOpen,
     onClose,
     onSelectPlatform,
-    onSelectSelfImport
+    onSelectSelfImport,
+    isPermanentFree = false
 }) => {
     const { t } = useLanguage();
 
@@ -86,7 +88,8 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         </div>
                     </div>
 
-                    {/* Project Management Section */}
+                    {/* Project Management Section - hidden in permanent free mode */}
+                    {!isPermanentFree && (
                     <div>
                         <div className="flex items-center gap-1.5 mb-2">
                             <Briefcase className="w-4 h-4 text-indigo-500" />
@@ -110,8 +113,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             ))}
                         </div>
                     </div>
+                    )}
 
-                    {/* Data Warehouse Section */}
+                    {/* Data Warehouse Section - hidden in permanent free mode */}
+                    {!isPermanentFree && (
                     <div>
                         <div className="flex items-center gap-1.5 mb-2">
                             <Database className="w-4 h-4 text-cyan-500" />
@@ -135,6 +140,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             ))}
                         </div>
                     </div>
+                    )}
 
                     {/* Divider */}
                     <div className="flex items-center gap-3">

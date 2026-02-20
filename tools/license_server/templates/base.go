@@ -6,14 +6,14 @@ const LoginHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VantageData License Server - 登录</title>
+    <title>Vantagics License Server - 登录</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center">
     <div class="bg-white p-8 rounded-xl shadow-lg w-96">
         <div class="text-center mb-6">
             <h1 class="text-2xl font-bold text-slate-800">🔐 License Server</h1>
-            <p class="text-sm text-slate-500 mt-1">VantageData 授权管理系统</p>
+            <p class="text-sm text-slate-500 mt-1">Vantagics 授权管理系统</p>
         </div>
         {{if .Error}}
         <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-4 text-sm">
@@ -61,6 +61,7 @@ const BaseHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>序列号管理系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* ===== Reset & Base ===== */
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -391,7 +392,7 @@ const BaseHTML = `<!DOCTYPE html>
         <aside class="sidebar">
             <div class="sidebar-brand">
                 <h1>🔐 License Server</h1>
-                <p>VantageData 授权管理</p>
+                <p>Vantagics 授权管理</p>
             </div>
             <nav class="sidebar-nav">
                 <a onclick="showSection('licenses')" id="nav-licenses" class="active">

@@ -38,7 +38,7 @@ function loadAPIKeys() {
         apiKeys.forEach(function(k, idx) { 
             var isExpired = k.expires_at && new Date(k.expires_at) < new Date();
             var statusClass = !k.is_active ? 'opacity-50' : (isExpired ? 'bg-orange-50' : '');
-            var productName = getProductTypeName(k.product_id) || 'VantageData';
+            var productName = getProductTypeName(k.product_id) || 'Vantagics';
             
             html += '<div class="p-4 bg-slate-50 rounded-lg ' + statusClass + '">';
             html += '<div class="flex items-start justify-between">';
@@ -154,7 +154,7 @@ function showAPIKeyForm(key) {
     var k = key || {id: '', product_id: 0, organization: '', contact_name: '', description: '', expires_at: '', is_active: true};
     var isEdit = !!k.id;
     
-    var productOpts = '<option value="0">VantageData (ID: 0)</option>';
+    var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
     productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '"' + (p.id === k.product_id ? ' selected' : '') + '>' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
     
     var expiresDate = k.expires_at ? new Date(k.expires_at).toISOString().split('T')[0] : '';

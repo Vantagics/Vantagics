@@ -24,11 +24,168 @@ type PythonExecutor interface {
 }
 
 // PythonService handles Python environment detection and validation
-type PythonService struct{}
+type PythonService struct {
+	dataCacheDir string // Data cache directory for uv environment
+}
 
 // NewPythonService creates a new PythonService
 func NewPythonService() *PythonService {
 	return &PythonService{}
+}
+
+// SetDataCacheDir sets the data cache directory used for uv virtual environment
+func (s *PythonService) SetDataCacheDir(dir string) {
+	s.dataCacheDir = dir
+}
+
+// GetUvEnvironmentPath returns the path to the uv virtual environment directory
+func (s *PythonService) GetUvEnvironmentPath() string {
+	if s.dataCacheDir == "" {
+		return ""
+	}
+	return filepath.Join(s.dataCacheDir, ".venv")
+}
+
+// GetUvEnvironmentPythonPath returns the Python executable path inside the uv venv
+func (s *PythonService) GetUvEnvironmentPythonPath() string {
+	venvPath := s.GetUvEnvironmentPath()
+	if venvPath == "" {
+		return ""
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.Join(venvPath, "Scripts", "python.exe")
+	}
+	return filepath.Join(venvPath, "bin", "python")
+}
+
+// IsUvAvailable checks if the uv command is available on the system
+func (s *PythonService) IsUvAvailable() bool {
+	_, err := exec.LookPath("uv")
+	return err == nil
+}
+
+// GetUvVersion returns the uv version string, or empty if not available
+func (s *PythonService) GetUvVersion() string {
+	cmd := exec.Command("uv", "--version")
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = getSysProcAttr()
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// SetupUvEnvironment creates a uv virtual environment in {DataCacheDir}/.venv
+// and installs all required packages. Returns the Python path inside the venv.
+func (s *PythonService) SetupUvEnvironment() (string, error) {
+	if s.dataCacheDir == "" {
+		return "", fmt.Errorf("data cache directory not configured")
+	}
+
+	// Check if uv is available
+	if !s.IsUvAvailable() {
+		return "", fmt.Errorf("uv is not installed. Please install uv first: https://docs.astral.sh/uv/getting-started/installation/")
+	}
+
+	venvPath := s.GetUvEnvironmentPath()
+	pythonPath := s.GetUvEnvironmentPythonPath()
+
+	// Create the virtual environment using uv
+	cmd := exec.Command("uv", "venv", venvPath, "--python", "3.12")
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = getSysProcAttr()
+	}
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If python 3.12 is not available, try without specifying version
+		cmd2 := exec.Command("uv", "venv", venvPath)
+		if runtime.GOOS == "windows" {
+			cmd2.SysProcAttr = getSysProcAttr()
+		}
+		cmd2.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+		output2, err2 := cmd2.CombinedOutput()
+		if err2 != nil {
+			return "", fmt.Errorf("failed to create uv virtual environment: %v\nOutput: %s\nFallback output: %s", err, string(output), string(output2))
+		}
+	}
+
+	// Verify the python executable exists
+	if _, err := os.Stat(pythonPath); err != nil {
+		return "", fmt.Errorf("uv venv created but Python executable not found at: %s", pythonPath)
+	}
+
+	// Install required packages using uv pip
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+	for _, pkg := range requiredPackages {
+		installCmd := exec.Command("uv", "pip", "install", pkg, "--python", pythonPath)
+		if runtime.GOOS == "windows" {
+			installCmd.SysProcAttr = getSysProcAttr()
+		}
+		installCmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "VIRTUAL_ENV="+venvPath)
+		installOutput, installErr := installCmd.CombinedOutput()
+		if installErr != nil {
+			// Non-fatal: log but continue
+			fmt.Printf("[UV] Warning: failed to install %s: %v\nOutput: %s\n", pkg, installErr, string(installOutput))
+		}
+	}
+
+	return pythonPath, nil
+}
+
+// IsUvEnvironmentReady checks if the uv environment exists and has a valid Python
+func (s *PythonService) IsUvEnvironmentReady() bool {
+	pythonPath := s.GetUvEnvironmentPythonPath()
+	if pythonPath == "" {
+		return false
+	}
+	_, err := os.Stat(pythonPath)
+	return err == nil
+}
+
+// UvEnvironmentStatus returns detailed status of the uv environment
+type UvEnvironmentStatus struct {
+	Available       bool     `json:"available"`       // uv command available
+	UvVersion       string   `json:"uvVersion"`       // uv version
+	VenvPath        string   `json:"venvPath"`        // path to .venv
+	PythonPath      string   `json:"pythonPath"`      // path to python in .venv
+	Ready           bool     `json:"ready"`           // venv exists and python works
+	PythonVersion   string   `json:"pythonVersion"`   // python version in venv
+	MissingPackages []string `json:"missingPackages"` // packages not yet installed
+	InstalledOk     bool     `json:"installedOk"`     // all required packages installed
+}
+
+// GetUvEnvironmentStatus returns the current status of the uv environment
+func (s *PythonService) GetUvEnvironmentStatus() UvEnvironmentStatus {
+	status := UvEnvironmentStatus{
+		VenvPath:   s.GetUvEnvironmentPath(),
+		PythonPath: s.GetUvEnvironmentPythonPath(),
+	}
+
+	// Check uv availability
+	status.Available = s.IsUvAvailable()
+	if status.Available {
+		status.UvVersion = s.GetUvVersion()
+	}
+
+	// Check if venv is ready
+	status.Ready = s.IsUvEnvironmentReady()
+	if status.Ready {
+		status.PythonVersion = s.getPythonVersion(status.PythonPath)
+
+		// Check packages
+		requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+		for _, pkg := range requiredPackages {
+			if !s.checkPackage(status.PythonPath, pkg) {
+				status.MissingPackages = append(status.MissingPackages, pkg)
+			}
+		}
+		status.InstalledOk = len(status.MissingPackages) == 0
+	}
+
+	return status
 }
 
 // ProbePythonEnvironments searches for Python environments
@@ -57,6 +214,14 @@ func (s *PythonService) ProbePythonEnvironments() []PythonEnvironment {
 				})
 				seen[realPath] = true
 			}
+		}
+	}
+
+	// 0. Check uv virtual environment in DataCacheDir (highest priority)
+	if s.dataCacheDir != "" {
+		uvPythonPath := s.GetUvEnvironmentPythonPath()
+		if uvPythonPath != "" {
+			addEnv(uvPythonPath, "uv (VantageData)")
 		}
 	}
 
@@ -286,7 +451,27 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 		return nil
 	}
 
-	// Check if pip is available
+	// Check if this is a uv-managed environment and uv is available
+	uvVenvPath := s.GetUvEnvironmentPath()
+	useUv := s.IsUvAvailable() && uvVenvPath != "" && strings.Contains(pythonPath, uvVenvPath)
+
+	if useUv {
+		// Use uv pip install for uv-managed environments
+		for _, pkg := range installablePackages {
+			cmd := exec.Command("uv", "pip", "install", pkg, "--python", pythonPath)
+			if runtime.GOOS == "windows" {
+				cmd.SysProcAttr = getSysProcAttr()
+			}
+			cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8", "VIRTUAL_ENV="+uvVenvPath)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to install %s via uv: %v\nOutput: %s", pkg, err, string(output))
+			}
+		}
+		return nil
+	}
+
+	// Fallback: use pip
 	pipCmd := exec.Command(pythonPath, "-m", "pip", "--version")
 	if runtime.GOOS == "windows" {
 		pipCmd.SysProcAttr = getSysProcAttr()
@@ -319,6 +504,12 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 
 // CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
 func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
+	// Prefer uv if available and dataCacheDir is set
+	if s.dataCacheDir != "" && s.IsUvAvailable() {
+		return s.SetupUvEnvironment()
+	}
+
+	// Fallback to legacy venv/conda creation
 	// Find a suitable base Python interpreter
 	basePython, envManager, err := s.findBestPythonForVenv()
 	if err != nil {
@@ -799,13 +990,18 @@ func (s *PythonService) cleanupFailedEnvironment(envManager, envPath string) {
 			cmd.SysProcAttr = getSysProcAttr()
 		}
 		cmd.Run() // Ignore errors during cleanup
-	case "venv":
+	case "venv", "uv":
 		os.RemoveAll(envPath) // Remove the directory
 	}
 }
 
 // CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
 func (s *PythonService) CheckVantageDataEnvironmentExists() bool {
+	// Check uv environment first
+	if s.IsUvEnvironmentReady() {
+		return true
+	}
+	// Fallback: check legacy environments
 	envs := s.ProbePythonEnvironments()
 	for _, env := range envs {
 		if strings.Contains(strings.ToLower(env.Type), "vantagedata") {

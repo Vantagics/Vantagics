@@ -119,3 +119,26 @@ func (s *PythonFacadeService) DiagnosePythonInstallation() map[string]interface{
 	}
 	return s.pythonService.DiagnosePythonInstallation()
 }
+
+// SetupUvEnvironment 创建 uv 虚拟环境并安装必要的包
+func (s *PythonFacadeService) SetupUvEnvironment() (string, error) {
+	if s.pythonService == nil {
+		return "", WrapError("python", "SetupUvEnvironment", fmt.Errorf("python service not initialized"))
+	}
+	s.log("[PYTHON] Setting up uv virtual environment...")
+	pythonPath, err := s.pythonService.SetupUvEnvironment()
+	if err != nil {
+		s.log(fmt.Sprintf("[PYTHON] uv environment setup failed: %v", err))
+		return "", err
+	}
+	s.log(fmt.Sprintf("[PYTHON] uv environment ready: %s", pythonPath))
+	return pythonPath, nil
+}
+
+// GetUvEnvironmentStatus 获取 uv 环境状态
+func (s *PythonFacadeService) GetUvEnvironmentStatus() agent.UvEnvironmentStatus {
+	if s.pythonService == nil {
+		return agent.UvEnvironmentStatus{}
+	}
+	return s.pythonService.GetUvEnvironmentStatus()
+}

@@ -71,6 +71,8 @@ export function ExecuteImportAnalysis(arg1:main.AnalysisExport,arg2:string):Prom
 
 export function ExecuteQuickAnalysisPack(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ExecuteQuickAnalysisPackDirect(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ExportAnalysisProcess(arg1:string):Promise<void>;
 
 export function ExportComprehensiveReport(arg1:string,arg2:string):Promise<void>;
@@ -225,6 +227,8 @@ export function GetThreadExportableRequests(arg1:string):Promise<Array<main.Expo
 
 export function GetUsageLicenses():Promise<Array<main.UsageLicense>>;
 
+export function GetUvEnvironmentStatus():Promise<agent.UvEnvironmentStatus>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function HasActiveAnalysis():Promise<boolean>;
@@ -248,6 +252,10 @@ export function IsEcommerceDataSource(arg1:string):Promise<boolean>;
 export function IsLicenseActivated():Promise<boolean>;
 
 export function IsMarketplaceLoggedIn():Promise<boolean>;
+
+export function IsOpenSourceMode():Promise<boolean>;
+
+export function IsPermanentFreeMode():Promise<boolean>;
 
 export function IsRefreshableDataSource(arg1:string):Promise<boolean>;
 
@@ -323,6 +331,8 @@ export function ReportPackUsage(arg1:number,arg2:string):Promise<main.ReportPack
 
 export function RequestFreeSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
 
+export function RequestOpenSourceSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
+
 export function RequestSN(arg1:string,arg2:string):Promise<main.RequestSNResult>;
 
 export function SaveChatHistory(arg1:Array<main.ChatThread>):Promise<void>;
@@ -360,6 +370,8 @@ export function SendMessage(arg1:string,arg2:string,arg3:string,arg4:string):Pro
 export function ServicePortalLogin():Promise<string>;
 
 export function SetChatOpen(arg1:boolean):Promise<void>;
+
+export function SetupUvEnvironment():Promise<string>;
 
 export function SharePackToMarketplace(arg1:string,arg2:number,arg3:string,arg4:number,arg5:string):Promise<void>;
 

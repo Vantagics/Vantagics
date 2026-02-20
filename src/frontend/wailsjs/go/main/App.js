@@ -134,6 +134,10 @@ export function ExecuteQuickAnalysisPack(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExecuteQuickAnalysisPack'](arg1, arg2, arg3);
 }
 
+export function ExecuteQuickAnalysisPackDirect(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExecuteQuickAnalysisPackDirect'](arg1, arg2, arg3);
+}
+
 export function ExportAnalysisProcess(arg1) {
   return window['go']['main']['App']['ExportAnalysisProcess'](arg1);
 }
@@ -442,6 +446,10 @@ export function GetUsageLicenses() {
   return window['go']['main']['App']['GetUsageLicenses']();
 }
 
+export function GetUvEnvironmentStatus() {
+  return window['go']['main']['App']['GetUvEnvironmentStatus']();
+}
+
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -488,6 +496,14 @@ export function IsLicenseActivated() {
 
 export function IsMarketplaceLoggedIn() {
   return window['go']['main']['App']['IsMarketplaceLoggedIn']();
+}
+
+export function IsOpenSourceMode() {
+  return window['go']['main']['App']['IsOpenSourceMode']();
+}
+
+export function IsPermanentFreeMode() {
+  return window['go']['main']['App']['IsPermanentFreeMode']();
 }
 
 export function IsRefreshableDataSource(arg1) {
@@ -638,6 +654,10 @@ export function RequestFreeSN(arg1, arg2) {
   return window['go']['main']['App']['RequestFreeSN'](arg1, arg2);
 }
 
+export function RequestOpenSourceSN(arg1, arg2) {
+  return window['go']['main']['App']['RequestOpenSourceSN'](arg1, arg2);
+}
+
 export function RequestSN(arg1, arg2) {
   return window['go']['main']['App']['RequestSN'](arg1, arg2);
 }
@@ -712,6 +732,10 @@ export function ServicePortalLogin() {
 
 export function SetChatOpen(arg1) {
   return window['go']['main']['App']['SetChatOpen'](arg1);
+}
+
+export function SetupUvEnvironment() {
+  return window['go']['main']['App']['SetupUvEnvironment']();
 }
 
 export function SharePackToMarketplace(arg1, arg2, arg3, arg4, arg5) {

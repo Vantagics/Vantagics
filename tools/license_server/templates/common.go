@@ -21,6 +21,7 @@ var sectionTitles = {
     'api-keys': 'API Key',
     'llm': 'LLM配置',
     'search': '搜索引擎配置',
+    'email-notify': '邮件发送',
     'backup': '备份恢复',
     'settings': '系统设置'
 };

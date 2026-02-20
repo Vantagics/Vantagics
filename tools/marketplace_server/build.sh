@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# VantageData Marketplace Server - Build & Deploy
+# Vantagics Marketplace Server - Build & Deploy
 # Target: market.vantagics.com:8088
 
 set -e
@@ -19,7 +19,7 @@ PORT=8088
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 echo "=========================================="
-echo "VantageData Marketplace Server Deploy"
+echo "Vantagics Marketplace Server Deploy"
 echo "Target: $SERVER:$PORT"
 echo "=========================================="
 

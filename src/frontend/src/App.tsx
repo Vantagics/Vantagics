@@ -19,7 +19,7 @@ import ResizeHandle from './components/ResizeHandle';
 import DataBrowser from './components/DataBrowser';
 import { PanelWidths, PANEL_CONSTRAINTS, calculatePanelWidths, getDefaultPanelWidths, handleResizeDrag } from './utils/PanelWidths';
 import { EventsOn, EventsEmit, Quit } from '../wailsjs/runtime/runtime';
-import { GetDashboardData, GetConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense, EnsureMarketplaceAuth } from '../wailsjs/go/main/App';
+import { GetDashboardData, GetConfig, GetEffectiveConfig, SaveLayoutConfig, TestLLMConnection, SetChatOpen, CanStartNewAnalysis, GetActivationStatus, DeactivateLicense, EnsureMarketplaceAuth } from '../wailsjs/go/main/App';
 import { main } from '../wailsjs/go/models';
 import { createLogger } from './utils/systemLog';
 import { useLanguage } from './i18n';
@@ -41,6 +41,7 @@ function AppContent() {
     const [isAboutOpen, setIsAboutOpen] = useState(false);
     const [isSkillsOpen, setIsSkillsOpen] = useState(false);
     const [isPackManagerOpen, setIsPackManagerOpen] = useState(false);
+    const [packManagerDataSourceId, setPackManagerDataSourceId] = useState<string | null>(null);
     const [isMarketBrowseOpen, setIsMarketBrowseOpen] = useState(false);
     const [shareVersion, setShareVersion] = useState(0);
     // Sharing flow state (Task 11.1)
@@ -592,7 +593,7 @@ function AppContent() {
                 const userChoice = window.confirm(
                     `商业授权验证失败\n\n${errorMsg}\n\n` +
                     `请选择：\n` +
-                    `• 点击"确定"切换到开源授权模式（需要配置自己的API密钥）\n` +
+                    `• 点击"确定"切换到开源软件模式（需要配置自己的API密钥）\n` +
                     `• 点击"取消"退出程序`
                 );
                 
@@ -641,6 +642,22 @@ function AppContent() {
                 return;
             }
 
+            // Check if in open source mode (activated with open_source SN, user provides own LLM)
+            if (activationStatus.activated && activationStatus.is_open_source) {
+                logger.info("Open source mode detected (activated with SN)");
+                if (!hasLLMConfig) {
+                    // Open source SN activated but no LLM configured yet - open settings
+                    logger.info("No LLM config in open source mode, opening settings");
+                    setIsAppReady(true);
+                    setShowStartupModeModal(false);
+                    setTimeout(() => {
+                        EventsEmit('open-settings', { tab: 'llm' });
+                    }, 500);
+                    return;
+                }
+                // Has LLM config, proceed to test connection below
+            }
+
             if (!hasLLMConfig && !isActivated) {
                 // No LLM configured and not activated - show mode selection
                 logger.info("No LLM configuration found, showing mode selection");
@@ -656,7 +673,9 @@ function AppContent() {
             }
 
             setStartupMessage(t('testing_llm_connection'));
-            const result = await TestLLMConnection(config);
+            // Use GetEffectiveConfig to include license-provided LLM settings
+            const effectiveConfig = await GetEffectiveConfig();
+            const result = await TestLLMConnection(effectiveConfig);
 
             if (result.success) {
                 setIsAppReady(true);
@@ -826,6 +845,7 @@ function AppContent() {
 
         // Listen for pack manager menu event
         const unsubscribePackManager = EventsOn("open-pack-manager", () => {
+            setPackManagerDataSourceId(null);
             setIsPackManagerOpen(true);
         });
 
@@ -1816,6 +1836,10 @@ function AppContent() {
                         EventsEmit('switch-to-session', { threadId: sessionId, openChat: true });
                     }}
                     selectedSessionId={activeSessionId}
+                    onOpenPackManager={(dataSourceId) => {
+                        setPackManagerDataSourceId(dataSourceId || null);
+                        setIsPackManagerOpen(true);
+                    }}
                 />
 
                 {/* Sidebar Resizer */}
@@ -1894,9 +1918,15 @@ function AppContent() {
 
                 <PackManagerPage
                     isOpen={isPackManagerOpen}
-                    onClose={() => setIsPackManagerOpen(false)}
+                    onClose={() => {
+                        setIsPackManagerOpen(false);
+                        setPackManagerDataSourceId(null);
+                    }}
                     onSharePack={handleSharePack}
                     shareVersion={shareVersion}
+                    isPermanentFree={isPermanentFree}
+                    onOpenMarketplace={() => setIsMarketBrowseOpen(true)}
+                    preSelectedDataSourceId={packManagerDataSourceId}
                 />
 
                 {isMarketBrowseOpen && (

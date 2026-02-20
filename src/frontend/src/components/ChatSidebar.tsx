@@ -1,8 +1,8 @@
 ﻿import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ReactDOM from 'react-dom';
 import { MessageSquare, Plus, Trash2, Send, ChevronLeft, ChevronRight, Settings, Upload, Zap, XCircle, MessageCircle, Loader2, Database, FileText, FileChartColumn, Play, BarChart3 } from 'lucide-react';
-import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, ClearThreadMessages, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo } from '../../wailsjs/go/main/App';
-import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
+import { GetChatHistory, SaveChatHistory, SendMessage, SendFreeChatMessage, DeleteThread, ClearHistory, ClearThreadMessages, GetDataSources, CreateChatThread, UpdateThreadTitle, OpenSessionResultsDirectory, CancelAnalysis, GetConfig, SaveConfig, GenerateIntentSuggestions, GenerateIntentSuggestionsWithExclusions, RecordIntentSelection, GetActiveSearchAPIInfo, GetMessageAnalysisData, PrepareComprehensiveReport, ExportComprehensiveReport, ExecuteQuickAnalysisPack, ShowStepResultOnDashboard, ShowAllSessionResults, ReExecuteQuickAnalysisPack, GetPackLicenseInfo, GetActivationStatus } from '../../wailsjs/go/main/App';
+import { EventsOn, EventsEmit, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 import * as echarts from 'echarts';
 import MessageBubble from './MessageBubble';
@@ -92,6 +92,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const [comprehensiveReportExportDropdownOpen, setComprehensiveReportExportDropdownOpen] = useState(false);
     const [comprehensiveReportCached, setComprehensiveReportCached] = useState(false);
     const [comprehensiveReportError, setComprehensiveReportError] = useState<string | null>(null);
+    const [showFreeModReportDialog, setShowFreeModReportDialog] = useState(false);
 
     // QAP Replay Session State (Requirements: 5.7, 6.2, 6.3, 6.4)
     const [qapProgress, setQapProgress] = useState<{ threadId: string; currentStep: number; totalSteps: number; description: string } | null>(null);
@@ -1426,6 +1427,15 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
     // 处理"生成综合报告"按钮点击
     const handleGenerateComprehensiveReport = async (threadId?: string) => {
+        // Check if in permanent free mode - block report generation
+        try {
+            const status = await GetActivationStatus();
+            if (status.is_permanent_free === true) {
+                setShowFreeModReportDialog(true);
+                return;
+            }
+        } catch (_) { /* proceed if check fails */ }
+
         const targetThreadId = threadId || activeThreadId;
         if (!targetThreadId) {
             setToast({
@@ -3079,6 +3089,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
     const confirmClearConversation = async () => {
         const threadId = showClearConversationConfirm;
         if (!threadId) return;
+        // Preserve QAP complete state so re-execute/show-all-results buttons survive the clear
+        const wasQapComplete = qapCompleteThreads.has(threadId);
         try {
             await ClearThreadMessages(threadId);
             // Clear pending error ref if it targets this thread, to prevent
@@ -3088,6 +3100,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             }
             // Reload threads via loadThreads (handles pending error merging, QAP state, etc.)
             await loadThreads();
+            // Restore QAP complete state for this thread (messages are gone but pack info should persist)
+            if (wasQapComplete) {
+                setQapCompleteThreads(prev => {
+                    const next = new Set(prev);
+                    next.add(threadId);
+                    return next;
+                });
+            }
             // Clear dashboard since messages (and their analysis results) are gone
             if (activeThreadId === threadId) {
                 EventsEmit('clear-dashboard');
@@ -3985,7 +4005,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 onClick={confirmClearConversation}
                                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors"
                             >
-                                {t('clear')}
+                                {t('confirm_clear_conversation')}
                             </button>
                         </div>
                     </div>
@@ -4083,6 +4103,38 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 onClose={() => setRenameSessionTarget(null)}
                 onConfirm={handleRenameSession}
             />
+
+            {/* Free mode comprehensive report dialog */}
+            {showFreeModReportDialog && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+                    <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl border border-slate-200 dark:border-[#3c3c3c] p-6 max-w-sm w-full mx-4">
+                        <h3 className="text-base font-semibold text-slate-800 dark:text-[#d4d4d4] mb-3">
+                            {t('comprehensive_report_free_mode_title')}
+                        </h3>
+                        <p className="text-sm text-slate-600 dark:text-[#a0a0a0] mb-5">
+                            {t('comprehensive_report_free_mode_message')}
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setShowFreeModReportDialog(false)}
+                                className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#3c3c3c] text-slate-600 dark:text-[#a0a0a0] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
+                            >
+                                {t('comprehensive_report_free_mode_cancel')}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowFreeModReportDialog(false);
+                                    BrowserOpenURL('https://vantagics.com/#deployment');
+                                }}
+                                className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                            >
+                                {t('comprehensive_report_free_mode_confirm')}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
 
         </>
     );

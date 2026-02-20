@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Building2, Code2, Key, Mail, Loader2, CheckCircle, AlertCircle, ArrowLeft, Settings, ExternalLink, Gift } from 'lucide-react';
-import { GetConfig, SaveConfig, GetActivationStatus, ActivateLicense, TestLLMConnection, RequestSN, RequestFreeSN, LoadSavedActivation } from '../../wailsjs/go/main/App';
+import { GetConfig, GetEffectiveConfig, SaveConfig, GetActivationStatus, ActivateLicense, TestLLMConnection, RequestSN, RequestFreeSN, RequestOpenSourceSN, LoadSavedActivation } from '../../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { useLanguage } from '../i18n';
 import { createLogger } from '../utils/systemLog';
@@ -29,6 +29,9 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
             if (initialMode === 'free') {
                 setFreeEmail('');
                 setError(null);
+            } else if (initialMode === 'opensource') {
+                setOssEmail('');
+                setError(null);
             }
         }
     }, [isOpen, initialMode]);
@@ -45,6 +48,9 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
     // Free registration state
     const [freeEmail, setFreeEmail] = useState('');
+
+    // Open source registration state
+    const [ossEmail, setOssEmail] = useState('');
 
     const INVITE_URL = 'https://vantagics.com/invite';
 
@@ -98,7 +104,8 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
         setMode('commercial');
         setCommercialStep('activating');
         try {
-            const config = await GetConfig();
+            // Use GetEffectiveConfig to include license-provided LLM settings
+            const config = await GetEffectiveConfig();
             const result = await TestLLMConnection(config);
             if (result.success) {
                 onComplete();
@@ -139,7 +146,8 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
     const handleSelectOpenSource = () => {
         setMode('opensource');
-        onOpenSettings();
+        setError(null);
+        setOssEmail('');
     };
 
     const handleSelectFree = () => {
@@ -189,6 +197,54 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
             // Step 4: Emit event and complete
             EventsEmit('activation-status-changed');
             onComplete();
+        } catch (err: any) {
+            setError(err.toString());
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleOpenSourceRegister = async () => {
+        if (!ossEmail || !ossEmail.includes('@')) {
+            setError(t('please_enter_valid_email'));
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            // Step 1: Request open source SN
+            const result = await RequestOpenSourceSN(serverURL, ossEmail);
+            if (!result.success) {
+                if (result.code) {
+                    const localizedError = t(`license_error_${result.code}`);
+                    setError(localizedError || result.message);
+                } else {
+                    setError(result.message);
+                }
+                setIsLoading(false);
+                return;
+            }
+
+            // Step 2: Activate the open source SN
+            const activateResult = await ActivateLicense(serverURL, result.sn);
+            if (!activateResult.success) {
+                setError(activateResult.message);
+                setIsLoading(false);
+                return;
+            }
+
+            // Step 3: Save config
+            const config = await GetConfig() as any;
+            config.licenseSN = result.sn;
+            config.licenseServerURL = serverURL;
+            config.licenseEmail = ossEmail;
+            await SaveConfig(config);
+
+            // Step 4: Emit event and open settings for LLM configuration
+            EventsEmit('activation-status-changed');
+            onOpenSettings();
         } catch (err: any) {
             setError(err.toString());
         } finally {
@@ -305,6 +361,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
         setIsNotInvitedError(false);
         setSuccessMessage(null);
         setFreeEmail('');
+        setOssEmail('');
     };
 
     if (!isOpen) return null;
@@ -334,6 +391,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                 {mode === 'select' && (t('select_usage_mode'))}
                                 {mode === 'commercial' && (t('activate_with_sn'))}
                                 {mode === 'free' && (t('free_registration_subtitle'))}
+                                {mode === 'opensource' && (t('oss_registration_subtitle'))}
                             </p>
                         </div>
                     </div>
@@ -348,6 +406,32 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                 {t('mode_selection_desc')}
                             </p>
                             
+                            {/* Free Mode Card */}
+                            <button
+                                onClick={handleSelectFree}
+                                className="w-full p-5 border-2 border-slate-200 rounded-xl hover:border-purple-500 hover:bg-purple-50/50 transition-all text-left group"
+                            >
+                                <div className="flex items-start gap-4">
+                                    <div className="p-3 bg-purple-100 rounded-xl group-hover:bg-purple-200 transition-colors">
+                                        <Gift className="w-6 h-6 text-purple-600" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <h3 className="font-semibold text-slate-800 text-lg">
+                                            {t('free_registration')}
+                                        </h3>
+                                        <p className="text-slate-500 text-sm mt-1">
+                                            {t('free_registration_desc')}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-3 text-xs text-purple-600">
+                                            <Mail className="w-4 h-4" />
+                                            <span>{t('email_registration')}</span>
+                                            <Gift className="w-4 h-4 ml-2" />
+                                            <span>{t('permanent_free')}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+
                             {/* Commercial Mode Card */}
                             <button
                                 onClick={handleSelectCommercial}
@@ -395,32 +479,6 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                             <span>{t('custom_llm_config')}</span>
                                             <Code2 className="w-4 h-4 ml-2" />
                                             <span>{t('full_control')}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* Free Registration Card */}
-                            <button
-                                onClick={handleSelectFree}
-                                className="w-full p-5 border-2 border-slate-200 rounded-xl hover:border-purple-500 hover:bg-purple-50/50 transition-all text-left group"
-                            >
-                                <div className="flex items-start gap-4">
-                                    <div className="p-3 bg-purple-100 rounded-xl group-hover:bg-purple-200 transition-colors">
-                                        <Gift className="w-6 h-6 text-purple-600" />
-                                    </div>
-                                    <div className="flex-1">
-                                        <h3 className="font-semibold text-slate-800 text-lg">
-                                            {t('free_registration')}
-                                        </h3>
-                                        <p className="text-slate-500 text-sm mt-1">
-                                            {t('free_registration_desc')}
-                                        </p>
-                                        <div className="flex items-center gap-2 mt-3 text-xs text-purple-600">
-                                            <Mail className="w-4 h-4" />
-                                            <span>{t('email_registration')}</span>
-                                            <Gift className="w-4 h-4 ml-2" />
-                                            <span>{t('permanent_free')}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -616,6 +674,60 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
                             <p className="text-xs text-slate-400 text-center">
                                 {t('free_mode_limitation_note')}
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Open Source Registration Mode */}
+                    {mode === 'opensource' && (
+                        <div className="space-y-4">
+                            {error && (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                                    <div className="flex items-start gap-2">
+                                        <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                        <span className="text-sm text-red-700">{error}</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            <p className="text-sm text-slate-600">
+                                {t('oss_registration_email_hint')}
+                            </p>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    {t('email_address')}
+                                </label>
+                                <input
+                                    type="email"
+                                    value={ossEmail}
+                                    onChange={(e) => setOssEmail(e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
+                                    placeholder="your@email.com"
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleOpenSourceRegister}
+                                disabled={isLoading || !ossEmail}
+                                className="w-full py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        {t('registering')}
+                                    </>
+                                ) : (
+                                    <>
+                                        <Code2 className="w-4 h-4" />
+                                        {t('oss_register_and_activate')}
+                                    </>
+                                )}
+                            </button>
+
+                            <p className="text-xs text-slate-400 text-center">
+                                {t('oss_mode_limitation_note')}
                             </p>
                         </div>
                     )}

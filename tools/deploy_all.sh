@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================================
-# VantageData - 一键部署所有服务
+# Vantagics - 一键部署所有服务
 # License Server + Marketplace Server
 #
 # 用法:
@@ -21,7 +21,7 @@ TARGET="${1:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=========================================="
-echo "VantageData 一键部署"
+echo "Vantagics 一键部署"
 echo "Target: $TARGET"
 echo "=========================================="
 echo ""

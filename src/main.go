@@ -79,9 +79,9 @@ func getMenuTexts(language string) MenuTexts {
 // getWindowTitle returns localized window title based on language
 func getWindowTitle(language string) string {
 	if language == "简体中文" {
-		return "观界 - 智能数据分析"
+		return "万策"
 	}
-	return "VantageData - Smart Data Analysis"
+	return "Vantagics"
 }
 
 // getSystemLanguage detects the system language and returns appropriate app language
@@ -286,8 +286,8 @@ func main() {
 				UseToolbar:                 false,
 			},
 			About: &mac.AboutInfo{
-				Title:   "VantageData (观界)",
-				Message: "See Beyond Data. Master Your Vantage.\n观数据之界，见商业全貌。",
+				Title:   "Vantagics (万策)",
+				Message: "See Beyond. Decide Better.\n于万千数据中，定最优之策。",
 			},
 		},
 		Windows: &windows.Options{

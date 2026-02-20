@@ -20,7 +20,7 @@ import ExportPackDialog from './ExportPackDialog';
 import ImportPackDialog from './ImportPackDialog';
 import RenameSessionModal from './RenameSessionModal';
 import ServiceAuthErrorDialog from './ServiceAuthErrorDialog';
-import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History } from 'lucide-react';
+import { Trash2, Plus, Database, FileSpreadsheet, MessageCircle, BarChart3, History, Play } from 'lucide-react';
 import { useLoadingState } from '../hooks/useLoadingState';
 import './LeftPanel.css';
 
@@ -33,9 +33,10 @@ interface SidebarProps {
     isPermanentFree?: boolean; // 永久免费模式状态
     onSessionSelect: (sessionId: string) => void;
     selectedSessionId: string | null;
+    onOpenPackManager?: (dataSourceId?: string) => void; // 打开分析包管理
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading, isPermanentFree, onSessionSelect, selectedSessionId }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, isChatOpen, isAnalysisLoading, isPermanentFree, onSessionSelect, selectedSessionId, onOpenPackManager }) => {
     const { t } = useLanguage();
     const { isLoading: isSessionAnalysisLoading } = useLoadingState();
     const [sources, setSources] = useState<any[]>([]);
@@ -51,6 +52,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     const [isReplayLoading, setIsReplayLoading] = useState(false);
     const [isDataSourceExpanded, setIsDataSourceExpanded] = useState(true); // 数据源区域展开/折叠状态
     const [showNoDataSourcePrompt, setShowNoDataSourcePrompt] = useState(false); // 无数据源提示对话框
+    const [showFreeNoDataSourcePrompt, setShowFreeNoDataSourcePrompt] = useState(false); // 免费模式无数据源提示
     const [showOnboardingWizard, setShowOnboardingWizard] = useState(false); // 新手向导
     const [preSelectedDriverType, setPreSelectedDriverType] = useState<string | null>(null); // 预选的数据源类型
     const [hasShownOnboarding, setHasShownOnboarding] = useState(false); // 是否已显示过新手向导
@@ -422,6 +424,26 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
         }
     };
 
+    // 免费模式下"开始分析"按钮点击处理
+    const handleFreeStartAnalysis = () => {
+        if (!selectedId) {
+            setShowFreeNoDataSourcePrompt(true);
+            return;
+        }
+        // 有数据源时直接打开分析包管理，传递已选数据源ID
+        if (onOpenPackManager) {
+            onOpenPackManager(selectedId);
+        }
+    };
+
+    const handleFreeNoDataSourceConfirm = () => {
+        setShowFreeNoDataSourcePrompt(false);
+        // 确认后打开分析包管理（无预选数据源）
+        if (onOpenPackManager) {
+            onOpenPackManager();
+        }
+    };
+
     const handleNewChatSubmit = (sessionName: string) => {
         const source = sources?.find(s => s.id === selectedId);
         if (source) {
@@ -495,13 +517,31 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                                             )}
                                             <span className="truncate" title={source.name}>{source.name}</span>
                                         </div>
-                                        <button
-                                            onClick={(e) => handleDelete(source, e)}
-                                            className={`p-1 hover:text-red-400 transition-opacity relative z-10 ${selectedId === source.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                            title={t('delete_source')}
-                                        >
-                                            <Trash2 className="w-3 h-3" />
-                                        </button>
+                                        <div className={`flex items-center gap-3 transition-opacity ${selectedId === source.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                            {isPermanentFree && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        handleSourceClick(source);
+                                                        if (onOpenPackManager) {
+                                                            onOpenPackManager(source.id);
+                                                        }
+                                                    }}
+                                                    className="p-1 hover:text-blue-500 dark:hover:text-[#569cd6] relative z-10"
+                                                    title={t('start_new_analysis')}
+                                                >
+                                                    <Play className="w-3 h-3" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={(e) => handleDelete(source, e)}
+                                                className="p-1 hover:text-red-400 relative z-10"
+                                                title={t('delete_source')}
+                                            >
+                                                <Trash2 className="w-3 h-3" />
+                                            </button>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
@@ -520,6 +560,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                         )}
                         {/* System Assistant and Customer Service - row layout */}
                         <div className="flex gap-2">
+                            {/* Free mode: "开始分析" button - left of customer service */}
+                            {isPermanentFree && (
+                                <button
+                                    onClick={handleFreeStartAnalysis}
+                                    aria-label={t('chat_analysis')}
+                                    className="flex-1 py-2 px-3 rounded-lg text-[12px] font-medium transition-all duration-200 flex items-center justify-center gap-1.5 border bg-slate-700 dark:bg-[#1e3a5f] hover:bg-slate-800 dark:hover:bg-[#264f78] text-white dark:text-[#cdd6e4] border-slate-600 dark:border-[#2e4f6e] shadow-sm"
+                                >
+                                    <span>💬</span> {t('chat_analysis')}
+                                </button>
+                            )}
                             {/* System Assistant button - hidden in permanent free mode (Req 4.3) */}
                             {freeChatThreadId && !isPermanentFree && (
                                 <button
@@ -708,6 +758,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 onConfirm={handleStartFreeChat}
             />
 
+            <ConfirmationModal
+                isOpen={showFreeNoDataSourcePrompt}
+                title={t('no_data_source_free_prompt_title')}
+                message={t('no_data_source_free_prompt_message')}
+                confirmText={t('confirm')}
+                cancelText={t('cancel')}
+                onClose={() => setShowFreeNoDataSourcePrompt(false)}
+                onConfirm={handleFreeNoDataSourceConfirm}
+            />
+
             {contextMenu && (
                 <SourceContextMenu
                     position={{ x: contextMenu.x, y: contextMenu.y }}
@@ -754,12 +814,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                     onLoadPack={(dataSourceId) => {
                         setImportPackDataSourceId(dataSourceId);
                     }}
+                    isFreeMode={isPermanentFree}
                 />
             )}
 
             <OnboardingWizard
                 isOpen={showOnboardingWizard}
                 onClose={() => setShowOnboardingWizard(false)}
+                isPermanentFree={isPermanentFree}
                 onSelectPlatform={(platform) => {
                     setShowOnboardingWizard(false);
                     setPreSelectedDriverType(platform);

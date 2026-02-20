@@ -279,6 +279,14 @@ const AdminHTML = `<!DOCTYPE html>
                 </thead>
                 <tbody id="author-detail-packs"></tbody>
             </table>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
+                <span id="author-detail-page-info" style="font-size:12px;color:#6b7280;"></span>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <button id="author-detail-prev-btn" class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(authorDetailCurrentPage-1)" disabled>‹ <span data-i18n="prev_page">上一页</span></button>
+                    <span id="author-detail-page-nums" style="display:inline-flex;gap:4px;"></span>
+                    <button id="author-detail-next-btn" class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(authorDetailCurrentPage+1)" disabled><span data-i18n="next_page">下一页</span> ›</button>
+                </div>
+            </div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideAuthorDetailModal()" data-i18n="close">关闭</button>
             </div>
@@ -309,7 +317,7 @@ const AdminHTML = `<!DOCTYPE html>
             </div>
             <table>
                 <thead>
-                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="email_col">邮箱</th><th data-i18n="sn_col">SN</th><th data-i18n="balance_col">余额</th><th data-i18n="download_count_col">下载数</th><th data-i18n="spent_col">消费额</th><th data-i18n="status">状态</th><th data-i18n="register_time_col">注册时间</th><th data-i18n="actions">操作</th></tr>
+                    <tr><th data-i18n="email_col">邮箱</th><th data-i18n="name_col">名称</th><th data-i18n="account_count_col">账号数</th><th data-i18n="balance_col">余额</th><th data-i18n="download_count_col">下载数</th><th data-i18n="spent_col">消费额</th><th data-i18n="status">状态</th><th data-i18n="register_time_col">注册时间</th><th data-i18n="actions">操作</th></tr>
                 </thead>
                 <tbody id="customer-list"></tbody>
             </table>
@@ -341,12 +349,15 @@ const AdminHTML = `<!DOCTYPE html>
     <div id="customer-tx-modal" class="modal-overlay">
         <div class="modal" style="width:640px;">
             <h3 id="customer-tx-title" data-i18n="transaction_records">交易记录</h3>
-            <table>
-                <thead>
-                    <tr><th data-i18n="id_col">ID</th><th data-i18n="type_col">类型</th><th data-i18n="amount">金额</th><th data-i18n="description">描述</th><th data-i18n="time">时间</th></tr>
-                </thead>
-                <tbody id="customer-tx-list"></tbody>
-            </table>
+            <div style="max-height:480px;overflow-y:auto;">
+                <table>
+                    <thead>
+                        <tr><th data-i18n="id_col">ID</th><th data-i18n="type_col">类型</th><th data-i18n="amount">金额</th><th data-i18n="description">描述</th><th data-i18n="time">时间</th></tr>
+                    </thead>
+                    <tbody id="customer-tx-list"></tbody>
+                </table>
+            </div>
+            <div id="customer-tx-pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:13px;"></div>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideCustomerTxModal()" data-i18n="close">关闭</button>
             </div>
@@ -1243,13 +1254,22 @@ function loadAuthors() {
     }).catch(function(err) { showMsg(window._i18n("load_authors_failed","加载作者列表失败") + ': ' + err, true); });
 }
 
-function showAuthorDetail(userId) {
-    apiFetch('/api/admin/authors/' + userId).then(function(r) { return r.json(); }).then(function(data) {
+var authorDetailCurrentPage = 1;
+var authorDetailTotalPages = 1;
+var authorDetailCurrentUserId = 0;
+
+function showAuthorDetail(userId, page) {
+    if (typeof page !== 'number' || page < 1) page = 1;
+    authorDetailCurrentUserId = userId;
+    authorDetailCurrentPage = page;
+    apiFetch('/api/admin/authors/' + userId + '?page=' + page + '&page_size=10').then(function(r) { return r.json(); }).then(function(data) {
         document.getElementById('author-detail-title').textContent = escHtml(data.display_name) + ' ' + window._i18n("author_sales_detail","的销售详情");
         document.getElementById('author-detail-info').textContent = window._i18n("email","邮箱") + ': ' + (data.email || '-');
+        authorDetailCurrentPage = data.page || 1;
+        authorDetailTotalPages = data.total_pages || 1;
         var packs = data.packs || [];
         var tbody = document.getElementById('author-detail-packs');
-        if (packs.length === 0) {
+        if (packs.length === 0 && data.total_packs === 0) {
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">' + window._i18n("no_packs","暂无分析包") + '</td></tr>';
         } else {
             var html = '';
@@ -1268,8 +1288,49 @@ function showAuthorDetail(userId) {
             }
             tbody.innerHTML = html;
         }
+        renderAuthorDetailPagination(data.total_packs || 0);
         document.getElementById('author-detail-modal').className = 'modal-overlay show';
     }).catch(function(err) { showMsg(window._i18n("load_author_detail_failed","加载作者详情失败") + ': ' + err, true); });
+}
+
+function renderAuthorDetailPagination(totalPacks) {
+    var pageInfo = document.getElementById('author-detail-page-info');
+    var prevBtn = document.getElementById('author-detail-prev-btn');
+    var nextBtn = document.getElementById('author-detail-next-btn');
+    var pageNums = document.getElementById('author-detail-page-nums');
+    if (totalPacks === 0) {
+        pageInfo.textContent = '';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        pageNums.innerHTML = '';
+        return;
+    }
+    var start = (authorDetailCurrentPage - 1) * 10 + 1;
+    var end = Math.min(authorDetailCurrentPage * 10, totalPacks);
+    pageInfo.textContent = window._i18n("showing_range","显示 {start}-{end} 条，共 {total} 条").replace("{start}", start).replace("{end}", end).replace("{total}", totalPacks);
+    prevBtn.disabled = authorDetailCurrentPage <= 1;
+    nextBtn.disabled = authorDetailCurrentPage >= authorDetailTotalPages;
+    var html = '';
+    var lo = Math.max(1, authorDetailCurrentPage - 3);
+    var hi = Math.min(authorDetailTotalPages, authorDetailCurrentPage + 3);
+    if (lo > 1) html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(1)" style="min-width:32px;">1</button>';
+    if (lo > 2) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    for (var p = lo; p <= hi; p++) {
+        if (p === authorDetailCurrentPage) {
+            html += '<button class="btn btn-primary btn-sm" style="min-width:32px;" disabled>' + p + '</button>';
+        } else {
+            html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(' + p + ')" style="min-width:32px;">' + p + '</button>';
+        }
+    }
+    if (hi < authorDetailTotalPages - 1) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    if (hi < authorDetailTotalPages) html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(' + authorDetailTotalPages + ')" style="min-width:32px;">' + authorDetailTotalPages + '</button>';
+    pageNums.innerHTML = html;
+}
+
+function authorDetailGoPage(page) {
+    if (page < 1) page = 1;
+    if (page > authorDetailTotalPages) page = authorDetailTotalPages;
+    showAuthorDetail(authorDetailCurrentUserId, page);
 }
 
 function hideAuthorDetailModal() {
@@ -1287,36 +1348,89 @@ function loadCustomers() {
         var customers = data.customers || [];
         var tbody = document.getElementById('customer-list');
         if (customers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">' + window._i18n("no_customers","暂无客户数据") + '</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;">' + window._i18n("no_customers","暂无客户数据") + '</td></tr>';
             return;
         }
         var html = '';
         for (var i = 0; i < customers.length; i++) {
             var c = customers[i];
-            var statusBadge = c.is_blocked
-                ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>'
-                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
-            var blockBtn = c.is_blocked
-                ? '<button class="btn btn-primary btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
-                : '<button class="btn btn-danger btn-sm" onclick="toggleBlock(' + c.id + ',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
-            html += '<tr>';
-            html += '<td>' + c.id + '</td>';
-            html += '<td>' + escHtml(c.display_name) + '</td>';
+            var statusBadge;
+            if (c.is_blocked) {
+                statusBadge = '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>';
+            } else if (c.blocked_count > 0) {
+                statusBadge = '<span class="badge" style="background:#fffbeb;color:#92400e;">' + window._i18n("partial_blocked","部分禁用") + '</span>';
+            } else {
+                statusBadge = '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
+            }
+            var accountCountBadge = c.account_count > 1
+                ? '<span class="badge" style="background:#eff6ff;color:#1e40af;">' + c.account_count + ' ' + window._i18n("accounts","个账号") + '</span>'
+                : '<span style="color:#6b7280;">1</span>';
+            // Primary account (first in accounts array)
+            var primary = c.accounts && c.accounts.length > 0 ? c.accounts[0] : {};
+            var hasMultiple = c.account_count > 1;
+            html += '<tr' + (hasMultiple ? ' style="cursor:pointer;" onclick="toggleCustomerExpand(this,' + i + ')"' : '') + '>';
             html += '<td>' + escHtml(c.email || '-') + '</td>';
-            html += '<td>' + escHtml(c.auth_id || '-') + '</td>';
-            html += '<td>' + c.credits_balance.toFixed(0) + '</td>';
-            html += '<td>' + c.download_count + '</td>';
+            html += '<td>' + escHtml(c.display_name) + '</td>';
+            html += '<td>' + accountCountBadge + '</td>';
+            html += '<td>' + c.total_balance.toFixed(0) + '</td>';
+            html += '<td>' + c.total_downloads + '</td>';
             html += '<td>' + c.total_spent.toFixed(0) + '</td>';
             html += '<td>' + statusBadge + '</td>';
             html += '<td>' + c.created_at + '</td>';
             html += '<td class="actions" style="white-space:nowrap;">';
-            html += '<button class="btn btn-primary btn-sm" onclick="showTopupModal(' + c.id + ',\'' + escAttr(c.display_name) + '\',' + c.credits_balance + ')">' + window._i18n("topup","充值") + '</button> ';
-            html += '<button class="btn btn-secondary btn-sm" onclick="showCustomerTx(' + c.id + ',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
-            html += blockBtn;
+            if (!hasMultiple && primary.id) {
+                html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();showTopupModal(' + primary.id + ',\'' + escAttr(c.display_name) + '\',' + primary.credits_balance + ')">' + window._i18n("topup","充值") + '</button> ';
+                html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showCustomerTx(' + primary.id + ',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
+                var blockBtn = primary.is_blocked
+                    ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleBlock(' + primary.id + ',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
+                    : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleBlock(' + primary.id + ',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
+                html += blockBtn;
+            } else if (hasMultiple) {
+                html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();showEmailTopupModal(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',' + c.total_balance + ')">' + window._i18n("topup","充值") + '</button> ';
+                html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showEmailTx(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
+                var emailBlockBtn = c.is_blocked
+                    ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleEmailBlock(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
+                    : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleEmailBlock(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
+                html += emailBlockBtn;
+                html += ' <span style="color:#6b7280;font-size:12px;cursor:pointer;" onclick="event.stopPropagation();toggleCustomerExpand(this,' + i + ')">▼</span>';
+            }
             html += '</td></tr>';
+            // Hidden expandable sub-account rows (only for multi-account customers)
+            if (hasMultiple && c.accounts) {
+                for (var j = 0; j < c.accounts.length; j++) {
+                    var a = c.accounts[j];
+                    var subStatus = a.is_blocked
+                        ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>'
+                        : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
+                    var subBlockBtn = a.is_blocked
+                        ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleBlock(' + a.id + ',\'' + escAttr(a.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
+                        : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleBlock(' + a.id + ',\'' + escAttr(a.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
+                    html += '<tr class="customer-sub-row customer-sub-' + i + '" style="display:none;background:#f8fafc;">';
+                    html += '<td style="padding-left:28px;color:#6b7280;font-size:12px;">└ ' + escHtml(a.auth_id || '-') + '</td>';
+                    html += '<td>' + escHtml(a.display_name) + '</td>';
+                    html += '<td style="color:#6b7280;font-size:12px;">ID: ' + a.id + '</td>';
+                    html += '<td style="color:#9ca3af;font-size:12px;">' + window._i18n("shared_wallet","共享钱包") + '</td>';
+                    html += '<td>' + a.download_count + '</td>';
+                    html += '<td>' + a.total_spent.toFixed(0) + '</td>';
+                    html += '<td>' + subStatus + '</td>';
+                    html += '<td>' + a.created_at + '</td>';
+                    html += '<td class="actions" style="white-space:nowrap;">';
+                    html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showCustomerTx(' + a.id + ',\'' + escAttr(a.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
+                    html += subBlockBtn;
+                    html += '</td></tr>';
+                }
+            }
         }
         tbody.innerHTML = html;
     }).catch(function(err) { showMsg(window._i18n("load_customers_failed","加载客户列表失败") + ': ' + err, true); });
+}
+
+function toggleCustomerExpand(row, idx) {
+    var subRows = document.querySelectorAll('.customer-sub-' + idx);
+    var isVisible = subRows.length > 0 && subRows[0].style.display !== 'none';
+    for (var i = 0; i < subRows.length; i++) {
+        subRows[i].style.display = isVisible ? 'none' : '';
+    }
 }
 
 function showTopupModal(userId, name, balance) {
@@ -1329,27 +1443,6 @@ function showTopupModal(userId, name, balance) {
 
 function hideTopupModal() {
     document.getElementById('topup-modal').className = 'modal-overlay';
-}
-
-function submitTopup() {
-    var userId = document.getElementById('topup-user-id').value;
-    var amount = parseFloat(document.getElementById('topup-amount').value);
-    var reason = document.getElementById('topup-reason').value.trim();
-    if (!amount || amount <= 0) { alert(window._i18n("enter_valid_topup","请输入有效的充值数量")); return; }
-    apiFetch('/api/admin/customers/' + userId + '/topup', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({amount: amount, reason: reason})
-    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
-    .then(function(res) {
-        if (res.ok) {
-            hideTopupModal();
-            showMsg(window._i18n("topup_success","充值成功，新余额:") + ' ' + res.data.new_balance, false);
-            loadCustomers();
-        } else {
-            showMsg(res.data.error || window._i18n("topup_failed","充值失败"), true);
-        }
-    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
 function toggleBlock(userId, name, isCurrentlyBlocked) {
@@ -1369,12 +1462,28 @@ function toggleBlock(userId, name, isCurrentlyBlocked) {
 
 function showCustomerTx(userId, name) {
     document.getElementById('customer-tx-title').textContent = escHtml(name) + ' ' + window._i18n("transaction_records","的交易记录");
-    var tbody = document.getElementById('customer-tx-list');
-    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("loading","加载中...") + '</td></tr>';
     document.getElementById('customer-tx-modal').className = 'modal-overlay show';
-    apiFetch('/api/admin/customers/' + userId + '/transactions').then(function(r) { return r.json(); }).then(function(data) {
+    window._txCtx = { type: 'user', userId: userId, name: name };
+    loadCustomerTxPage(1);
+}
+
+function loadCustomerTxPage(page) {
+    var ctx = window._txCtx;
+    var tbody = document.getElementById('customer-tx-list');
+    var pagination = document.getElementById('customer-tx-pagination');
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("loading","加载中...") + '</td></tr>';
+    pagination.innerHTML = '';
+
+    var url;
+    if (ctx.type === 'email') {
+        url = '/api/admin/customers/email-transactions?email=' + encodeURIComponent(ctx.email) + '&page=' + page + '&pageSize=20';
+    } else {
+        url = '/api/admin/customers/' + ctx.userId + '/transactions?page=' + page + '&pageSize=20';
+    }
+
+    apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
         var txns = data.transactions || [];
-        if (txns.length === 0) {
+        if (txns.length === 0 && page === 1) {
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("no_transactions_admin","暂无交易记录") + '</td></tr>';
             return;
         }
@@ -1388,11 +1497,25 @@ function showCustomerTx(userId, name) {
             html += '<td>' + t.id + '</td>';
             html += '<td>' + (typeLabels[t.transaction_type] || t.transaction_type) + '</td>';
             html += '<td style="' + amountStyle + 'font-weight:600;">' + amountText + '</td>';
-            html += '<td>' + escHtml(t.description || '-') + '</td>';
+            html += '<td>' + escHtml(t.description || '-') + (t.account_name ? ' <span style="color:#6b7280;font-size:11px;">(' + escHtml(t.account_name) + ')</span>' : '') + '</td>';
             html += '<td>' + t.created_at + '</td>';
             html += '</tr>';
         }
         tbody.innerHTML = html;
+
+        // Render pagination
+        var total = data.total || 0;
+        var totalPages = data.totalPages || 1;
+        var curPage = data.page || 1;
+        var pgHtml = '<span style="color:#64748b;">' + window._i18n("total_records","共") + ' ' + total + ' ' + window._i18n("records_unit","条") + '</span>';
+        if (totalPages > 1) {
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(1)"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("first_page","首页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + (curPage - 1) + ')"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("prev_page","上一页") + '</button>';
+            pgHtml += '<span>' + curPage + ' / ' + totalPages + '</span>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + (curPage + 1) + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("next_page","下一页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + totalPages + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("last_page","末页") + '</button>';
+        }
+        pagination.innerHTML = pgHtml;
     }).catch(function(err) {
         tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">' + window._i18n("load_tx_failed","加载失败") + '</td></tr>';
     });
@@ -1402,7 +1525,70 @@ function hideCustomerTxModal() {
     document.getElementById('customer-tx-modal').className = 'modal-overlay';
 }
 
-// --- Profile ---
+function showEmailTopupModal(email, name, totalBalance) {
+    document.getElementById('topup-user-id').value = '__email__' + email;
+    document.getElementById('topup-user-info').textContent = window._i18n("customer_label","客户:") + ' ' + name + ' (' + email + ')  |  ' + window._i18n("current_balance_label","当前余额:") + ' ' + totalBalance.toFixed(0) + ' Credits';
+    document.getElementById('topup-amount').value = '';
+    document.getElementById('topup-reason').value = '';
+    document.getElementById('topup-modal').className = 'modal-overlay show';
+}
+
+function submitTopup() {
+    var userIdVal = document.getElementById('topup-user-id').value;
+    var amount = parseFloat(document.getElementById('topup-amount').value);
+    var reason = document.getElementById('topup-reason').value.trim();
+    if (!amount || amount <= 0) { alert(window._i18n("enter_valid_topup","请输入有效的充值数量")); return; }
+
+    var url, body;
+    if (userIdVal.indexOf('__email__') === 0) {
+        var email = userIdVal.substring(9);
+        url = '/api/admin/customers/email-topup';
+        body = JSON.stringify({email: email, amount: amount, reason: reason});
+    } else {
+        url = '/api/admin/customers/' + userIdVal + '/topup';
+        body = JSON.stringify({amount: amount, reason: reason});
+    }
+
+    apiFetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: body
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) {
+            hideTopupModal();
+            showMsg(window._i18n("topup_success","充值成功，新余额:") + ' ' + res.data.new_balance, false);
+            loadCustomers();
+        } else {
+            showMsg(res.data.error || window._i18n("topup_failed","充值失败"), true);
+        }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function showEmailTx(email, name) {
+    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' (' + escHtml(email) + ') ' + window._i18n("transaction_records","的交易记录");
+    document.getElementById('customer-tx-modal').className = 'modal-overlay show';
+    window._txCtx = { type: 'email', email: email, name: name };
+    loadCustomerTxPage(1);
+}
+
+function toggleEmailBlock(email, name, isCurrentlyBlocked) {
+    var action = isCurrentlyBlocked ? window._i18n("unblock","解禁") : window._i18n("block","禁用");
+    if (!confirm(window._i18n("confirm_block","确定要{action}客户 \"{name}\" 吗？").replace("{action}", action).replace("{name}", name + ' (' + email + ')'))) return;
+    apiFetch('/api/admin/customers/email-toggle-block', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: email})
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) {
+            showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false);
+            loadCustomers();
+        } else {
+            showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
+        }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
 function saveProfile() {
     var username = document.getElementById('profile-username').value.trim();
     var oldPassword = document.getElementById('profile-old-password').value;

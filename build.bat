@@ -138,50 +138,54 @@ echo [Tools] Building standalone tools...
 set "TOOLS_OUTPUT_DIR=%DIST_DIR%\tools"
 if not exist "%TOOLS_OUTPUT_DIR%" mkdir "%TOOLS_OUTPUT_DIR%"
 
+REM Save root directory for reliable navigation
+set "ROOT_DIR=%~dp0"
+if "%ROOT_DIR:~-1%"=="\" set "ROOT_DIR=%ROOT_DIR:~0,-1%"
+
 REM Build appdata_manager
 echo   Building appdata_manager...
 set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
-cd /d "%~dp0tools\appdata_manager"
+pushd "%ROOT_DIR%\tools\appdata_manager"
 go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\appdata_manager.exe" .
 if errorlevel 1 (
     echo   Error: appdata_manager build failed!
-    cd /d "%~dp0"
+    popd
     exit /b 1
 )
 echo   [OK] appdata_manager
-cd /d "%~dp0"
+popd
 
-REM Build license_server
+REM Build license_server (uses modernc.org/sqlite, pure Go - no CGO needed)
 echo   Building license_server...
-set CGO_ENABLED=1
+set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
-cd /d "%~dp0tools\license_server"
+pushd "%ROOT_DIR%\tools\license_server"
 go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\license_server.exe" .
 if errorlevel 1 (
     echo   Error: license_server build failed!
-    cd /d "%~dp0"
+    popd
     exit /b 1
 )
 echo   [OK] license_server
-cd /d "%~dp0"
+popd
 
 REM Build reset_password
 echo   Building reset_password...
 set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
-cd /d "%~dp0tools\license_server"
+pushd "%ROOT_DIR%\tools\license_server"
 go build -ldflags="-s -w" -o "..\..\%DIST_DIR%\tools\reset_password.exe" ./cmd/reset_password
 if errorlevel 1 (
     echo   Error: reset_password build failed!
-    cd /d "%~dp0"
+    popd
     exit /b 1
 )
 echo   [OK] reset_password
-cd /d "%~dp0"
+popd
 
 echo.
 echo   All tools built successfully!

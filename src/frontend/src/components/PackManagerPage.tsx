@@ -58,9 +58,12 @@ interface PackManagerPageProps {
     onClose: () => void;
     onSharePack?: (pack: LocalPackInfo) => void;
     shareVersion?: number;
+    isPermanentFree?: boolean;
+    onOpenMarketplace?: () => void;
+    preSelectedDataSourceId?: string | null; // Pre-selected datasource from sidebar triangle button
 }
 
-const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSharePack, shareVersion }) => {
+const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSharePack, shareVersion, isPermanentFree, onOpenMarketplace, preSelectedDataSourceId }) => {
     const { t } = useLanguage();
     const [packs, setPacks] = useState<LocalPackInfo[]>([]);
     const [loading, setLoading] = useState(false);
@@ -318,20 +321,50 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
     const handleInstallClick = async (pack: LocalPackInfo) => {
         setContextMenu(null);
         setInstallTarget(pack);
-        setInstallPhase('select-ds');
-        setLoadingDataSources(true);
-        setSelectedDataSourceId(null);
         setInstallPassword('');
         setInstallLoadResult(null);
         setInstallError(null);
         setInstallExpandedSteps(new Set());
-        try {
-            const ds = await GetDataSources();
-            setDataSources((ds || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type })));
-        } catch {
-            setDataSources([]);
-        } finally {
-            setLoadingDataSources(false);
+
+        // If a datasource is pre-selected (e.g. from sidebar triangle button), skip datasource selection
+        if (preSelectedDataSourceId) {
+            setSelectedDataSourceId(preSelectedDataSourceId);
+            setInstallPhase('loading');
+            try {
+                const result = await LoadQuickAnalysisPackByPath(pack.file_path, preSelectedDataSourceId);
+                if (result.needs_password) {
+                    setInstallLoadResult(result);
+                    setInstallPhase('password');
+                } else {
+                    setInstallLoadResult(result);
+                    setInstallPhase('preview');
+                }
+            } catch (err: any) {
+                setInstallError(err?.message || err?.toString() || 'Failed to load pack');
+                setInstallPhase('select-ds');
+                // Fall back to datasource selection on error
+                setLoadingDataSources(true);
+                try {
+                    const ds = await GetDataSources();
+                    setDataSources((ds || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type })));
+                } catch {
+                    setDataSources([]);
+                } finally {
+                    setLoadingDataSources(false);
+                }
+            }
+        } else {
+            setInstallPhase('select-ds');
+            setLoadingDataSources(true);
+            setSelectedDataSourceId(null);
+            try {
+                const ds = await GetDataSources();
+                setDataSources((ds || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type })));
+            } catch {
+                setDataSources([]);
+            } finally {
+                setLoadingDataSources(false);
+            }
         }
     };
 
@@ -380,6 +413,10 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
         try {
             await ExecuteQuickAnalysisPack(installLoadResult.file_path, selectedDataSourceId, installPassword);
             setInstallTarget(null);
+            // In free mode, auto-close the pack manager dialog after successful execution
+            if (isPermanentFree) {
+                onClose();
+            }
         } catch (err: any) {
             setInstallError(err?.message || err?.toString() || 'Install failed');
             setInstallPhase('preview');
@@ -530,14 +567,15 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                         </div>
                     )}
 
-                    {!loading && !error && packs.filter(p => !p.file_name.startsWith('marketplace_pack_')).length === 0 && (
+                    {/* Local packs section - hidden in permanent free mode */}
+                    {!isPermanentFree && !loading && !error && packs.filter(p => !p.file_name.startsWith('marketplace_pack_')).length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-[#6e6e6e]">
                             <Package className="w-12 h-12 mb-3 opacity-50" />
                             <p className="text-sm">{t('pack_manager_empty')}</p>
                         </div>
                     )}
 
-                    {!loading && !error && packs.filter(p => !p.file_name.startsWith('marketplace_pack_')).length > 0 && (
+                    {!isPermanentFree && !loading && !error && packs.filter(p => !p.file_name.startsWith('marketplace_pack_')).length > 0 && (
                         <div className="space-y-2">
                             {packs.filter(p => !p.file_name.startsWith('marketplace_pack_')).map(pack => (
                                 <div
@@ -628,20 +666,31 @@ const PackManagerPage: React.FC<PackManagerPageProps> = ({ isOpen, onClose, onSh
                     )}
 
                     {/* Purchased Packs Section */}
-                    <div className="mt-4">
+                    <div className={isPermanentFree ? '' : 'mt-4'}>
                         <div className="flex items-center justify-between mb-2">
                             <h4 className="text-xs font-semibold text-slate-500 dark:text-[#8e8e8e] uppercase tracking-wide">
                                 {t('pack_manager_purchased_section')}
                             </h4>
-                            <button
-                                onClick={handleRefreshPurchased}
-                                disabled={purchasedLoading}
-                                title={t('pack_manager_refresh_purchased')}
-                                className="flex items-center gap-1 px-2 py-1 text-xs rounded-md hover:bg-slate-100 dark:hover:bg-[#3e3e42] transition-colors text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {purchasedLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                                {t('pack_manager_refresh_purchased_btn')}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {isPermanentFree && onOpenMarketplace && (
+                                    <button
+                                        onClick={() => { onOpenMarketplace(); onClose(); }}
+                                        className="flex items-center gap-1 px-2.5 py-1 text-xs rounded-md bg-blue-500 hover:bg-blue-600 text-white transition-colors font-medium"
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                        {t('pack_manager_purchase_or_download')}
+                                    </button>
+                                )}
+                                <button
+                                    onClick={handleRefreshPurchased}
+                                    disabled={purchasedLoading}
+                                    title={t('pack_manager_refresh_purchased')}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs rounded-md hover:bg-slate-100 dark:hover:bg-[#3e3e42] transition-colors text-blue-500 dark:text-blue-400 hover:text-blue-600 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {purchasedLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                                    {t('pack_manager_refresh_purchased_btn')}
+                                </button>
+                            </div>
                         </div>
                     {purchasedLoading && (
                         <div className="flex items-center justify-center py-4 gap-2 text-xs text-slate-400 dark:text-[#6e6e6e]">

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { Edit3, Lock, Unlock, Save, X, Download, FileText, Image, Table, FileSpreadsheet, ChevronLeft, ChevronRight, Presentation, FileChartColumn, ClipboardList } from 'lucide-react';
 import MetricCard from './MetricCard';
 import SmartInsight from './SmartInsight';
@@ -16,8 +17,8 @@ import ChartModal from './ChartModal';
 import Toast, { ToastType } from './Toast';
 import { main } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
-import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, GenerateFilePreview, GenerateReport, PrepareReport, ExportReport } from '../../wailsjs/go/main/App';
-import { EventsEmit } from '../../wailsjs/runtime/runtime';
+import { SaveLayout, LoadLayout, SelectSaveFile, GetSessionFileAsBase64, DownloadSessionFile, GenerateCSVThumbnail, GenerateFilePreview, GenerateReport, PrepareReport, ExportReport, GetActivationStatus } from '../../wailsjs/go/main/App';
+import { EventsEmit, BrowserOpenURL } from '../../wailsjs/runtime/runtime';
 import { database } from '../../wailsjs/go/models';
 import { createLogger } from '../utils/systemLog';
 import { useDashboardData } from '../hooks/useDashboardData';
@@ -188,6 +189,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(null);
     const [isGeneratingReport, setIsGeneratingReport] = useState(false);
     const [preparedReportId, setPreparedReportId] = useState<string | null>(null);
+    const [showFreeModReportDialog, setShowFreeModReportDialog] = useState(false);
 
     // 点击外部关闭导出下拉菜单
     useEffect(() => {
@@ -213,6 +215,15 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
     // 生成报告（使用LLM生成正式分析报告，缓存后可多次导出不同格式）
     const prepareReport = async () => {
+        // Check if in permanent free mode - block report generation
+        try {
+            const status = await GetActivationStatus();
+            if (status.is_permanent_free === true) {
+                setShowFreeModReportDialog(true);
+                return;
+            }
+        } catch (_) { /* proceed if check fails */ }
+
         try {
             setExportDropdownOpen(false);
             setIsGeneratingReport(true);
@@ -2126,6 +2137,38 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     type={toast.type}
                     onClose={() => setToast(null)}
                 />
+            )}
+
+            {/* Free mode report dialog */}
+            {showFreeModReportDialog && ReactDOM.createPortal(
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
+                    <div className="bg-white dark:bg-[#252526] rounded-xl shadow-2xl border border-slate-200 dark:border-[#3c3c3c] p-6 max-w-sm w-full mx-4">
+                        <h3 className="text-base font-semibold text-slate-800 dark:text-[#d4d4d4] mb-3">
+                            {t('report_free_mode_title')}
+                        </h3>
+                        <p className="text-sm text-slate-600 dark:text-[#a0a0a0] mb-5">
+                            {t('report_free_mode_message')}
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <button
+                                onClick={() => setShowFreeModReportDialog(false)}
+                                className="px-4 py-2 text-sm rounded-lg border border-slate-200 dark:border-[#3c3c3c] text-slate-600 dark:text-[#a0a0a0] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
+                            >
+                                {t('report_free_mode_cancel')}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowFreeModReportDialog(false);
+                                    BrowserOpenURL('https://vantagics.com/#deployment');
+                                }}
+                                className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                            >
+                                {t('report_free_mode_confirm')}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
         </div>
     );

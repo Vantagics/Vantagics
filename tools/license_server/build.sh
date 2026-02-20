@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# VantageData License Server Build Script
+# Vantagics License Server Build Script
 # Builds for macOS locally and Linux on remote server
 
 set -e
@@ -18,7 +18,7 @@ REMOTE_DIR="/root/license_server"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
 echo "=========================================="
-echo "VantageData License Server Build"
+echo "Vantagics License Server Build"
 echo "=========================================="
 
 # Remove old host key if exists (in case server was reinstalled)

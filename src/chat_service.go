@@ -378,6 +378,26 @@ func (s *ChatService) GetThreadsByDataSource(dataSourceID string) ([]ChatThread,
 	return filtered, nil
 }
 
+// FindReplaySessionByQapFile finds an existing replay session for a given datasource and qap file path.
+// Returns the thread if found, nil otherwise.
+func (s *ChatService) FindReplaySessionByQapFile(dataSourceID, qapFilePath string) (*ChatThread, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	threads, err := s.loadThreadsInternal()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range threads {
+		if t.DataSourceID == dataSourceID && t.IsReplaySession && t.QapFilePath == qapFilePath {
+			return &t, nil
+		}
+	}
+	return nil, nil
+}
+
+
 // CheckSessionNameExists checks if a thread with the same title already exists for a specific data source
 func (s *ChatService) CheckSessionNameExists(dataSourceID string, title string, excludeThreadID string) (bool, error) {
 	s.mu.Lock()

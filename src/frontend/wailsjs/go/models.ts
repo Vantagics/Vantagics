@@ -858,6 +858,33 @@ export namespace agent {
 	    }
 	}
 	
+	
+	export class UvEnvironmentStatus {
+	    available: boolean;
+	    uvVersion: string;
+	    venvPath: string;
+	    pythonPath: string;
+	    ready: boolean;
+	    pythonVersion: string;
+	    missingPackages: string[];
+	    installedOk: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new UvEnvironmentStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.uvVersion = source["uvVersion"];
+	        this.venvPath = source["venvPath"];
+	        this.pythonPath = source["pythonPath"];
+	        this.ready = source["ready"];
+	        this.pythonVersion = source["pythonVersion"];
+	        this.missingPackages = source["missingPackages"];
+	        this.installedOk = source["installedOk"];
+	    }
+	}
 
 }
 

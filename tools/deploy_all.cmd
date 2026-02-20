@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 REM ==========================================
-REM VantageData - 一键部署所有服务
+REM Vantagics - 一键部署所有服务
 REM License Server + Marketplace Server
 REM
 REM 用法:
@@ -22,7 +22,7 @@ set TARGET=%~1
 if "%TARGET%"=="" set TARGET=all
 
 echo ==========================================
-echo VantageData 一键部署
+echo Vantagics 一键部署
 echo Target: %TARGET%
 echo ==========================================
 echo.

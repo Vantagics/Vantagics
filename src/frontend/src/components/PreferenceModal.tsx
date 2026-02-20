@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense } from '../../wailsjs/go/main/App';
+﻿﻿import React, { useState, useEffect } from 'react';
+import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense, SetupUvEnvironment, GetUvEnvironmentStatus } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit, Quit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
@@ -54,6 +54,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
     const [showExitConfirm, setShowExitConfirm] = useState(false);  // 退出确认对话框状态
     const [isCommercialMode, setIsCommercialMode] = useState(false);  // 是否是商业模式（已激活）
     const [isPermanentFreeMode, setIsPermanentFreeMode] = useState(false);  // 是否是永久免费模式
+    const [isOpenSourceMode, setIsOpenSourceMode] = useState(false);  // 是否是开源模式（已激活）
     const [activationInfo, setActivationInfo] = useState<{
         llm_type?: string;
         search_type?: string;
@@ -116,6 +117,13 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                     GetActivationStatus().then(status => {
                         // Check if permanent free mode (Req 4.2)
                         setIsPermanentFreeMode(status.is_permanent_free === true);
+                        // Check if open source mode
+                        const isOSS = status.is_open_source === true;
+                        setIsOpenSourceMode(isOSS);
+                        // If open source mode, it's not really "commercial"
+                        if (isOSS) {
+                            setIsCommercialMode(false);
+                        }
                         setActivationInfo({
                             llm_type: status.llm_type,
                             search_type: status.search_type,
@@ -198,10 +206,11 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
             } else {
                 // Check if switched to open source mode
                 if (result.switched_to_oss) {
-                    setToast({ message: result.message || '授权已失效，已切换到开源模式', type: 'warning' });
+                    setToast({ message: result.message || '授权已失效，已切换到开源软件模式', type: 'warning' });
                     // Update UI to reflect open source mode
                     setIsCommercialMode(false);
                     setIsPermanentFreeMode(false);
+                    setIsOpenSourceMode(false);
                     setActivationInfo(null);
                     // Reload config to get updated settings
                     const newConfig = await GetConfig();
@@ -388,20 +397,22 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                 <div className="flex justify-between text-xs">
                                     <span className="text-slate-500">{t('billing_mode')}</span>
                                     <span className="text-slate-700">
-                                        {activationInfo.credits_mode ? t('billing_mode_credits') : t('billing_mode_daily')}
+                                        {isPermanentFreeMode ? t('unlimited') : activationInfo.credits_mode ? t('billing_mode_credits') : t('billing_mode_daily')}
                                     </span>
                                 </div>
                                 {/* Current usage */}
                                 <div className="flex justify-between text-xs">
                                     <span className="text-slate-500">{t('current_usage')}</span>
                                     <span className="text-slate-700 font-mono">
-                                        {activationInfo.credits_mode
-                                            ? (activationInfo.total_credits === 0
-                                                ? t('unlimited')
-                                                : `${activationInfo.used_credits || 0} / ${activationInfo.total_credits}`)
-                                            : (activationInfo.daily_analysis_limit === 0
-                                                ? t('unlimited')
-                                                : `${activationInfo.daily_analysis_count || 0} / ${activationInfo.daily_analysis_limit}`)
+                                        {isPermanentFreeMode
+                                            ? t('unlimited')
+                                            : activationInfo.credits_mode
+                                                ? (activationInfo.total_credits === 0
+                                                    ? t('unlimited')
+                                                    : `${activationInfo.used_credits || 0} / ${activationInfo.total_credits}`)
+                                                : (activationInfo.daily_analysis_limit === 0
+                                                    ? t('unlimited')
+                                                    : `${activationInfo.daily_analysis_count || 0} / ${activationInfo.daily_analysis_limit}`)
                                         }
                                     </span>
                                 </div>
@@ -414,6 +425,10 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                             .filter(tab => {
                                 // Hide LLM and Search tabs in commercial mode or permanent free mode (Req 4.2)
                                 if ((isCommercialMode || isPermanentFreeMode) && (tab === 'llm' || tab === 'search')) {
+                                    return false;
+                                }
+                                // Hide MCP, Skills, Intent, Other tabs in permanent free mode
+                                if (isPermanentFreeMode && (tab === 'mcp' || tab === 'skills' || tab === 'intent' || tab === 'other' || tab === 'session')) {
                                     return false;
                                 }
                                 return true;
@@ -1482,491 +1497,154 @@ interface RunEnvSettingsProps {
 
 const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, updateConfig }) => {
     const { t } = useLanguage();
-    const [envs, setEnvs] = useState<agent.PythonEnvironment[]>([]);
+    const [uvStatus, setUvStatus] = useState<agent.UvEnvironmentStatus | null>(null);
     const [loading, setLoading] = useState(false);
-    const [validation, setValidation] = useState<agent.PythonValidationResult | null>(null);
-    const [validating, setValidating] = useState(false);
-    const [installing, setInstalling] = useState(false);
-    const [creatingEnv, setCreatingEnv] = useState(false);
-    const [showCreateButton, setShowCreateButton] = useState(false);
-    const [diagnosing, setDiagnosing] = useState(false);
+    const [settingUp, setSettingUp] = useState(false);
     const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
 
-    // Auto-hide notification after 5 seconds for success/info, 10 seconds for error
     useEffect(() => {
         if (notification) {
-            const timeout = setTimeout(() => {
-                setNotification(null);
-            }, notification.type === 'error' ? 10000 : 5000);
-
+            const timeout = setTimeout(() => setNotification(null), notification.type === 'error' ? 10000 : 5000);
             return () => clearTimeout(timeout);
         }
     }, [notification]);
 
-    const loadEnvironments = async () => {
+    const loadUvStatus = async () => {
         setLoading(true);
         try {
-            const environments = await GetPythonEnvironments();
-            setEnvs(environments);
-
-            // Check if we should show the "Create VantageData Environment" button
-            const hasVirtualEnvSupport = environments.some(env =>
-                env.type.toLowerCase().includes('conda') ||
-                env.type.toLowerCase().includes('virtualenv') ||
-                env.type.toLowerCase().includes('venv')
-            );
-
-            const hasVantageDataEnv = await CheckVantageDataEnvironmentExists();
-            setShowCreateButton(hasVirtualEnvSupport && !hasVantageDataEnv);
+            const status = await GetUvEnvironmentStatus();
+            setUvStatus(status);
         } catch (error) {
-            console.error('Failed to load environments:', error);
+            console.error('Failed to load uv status:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => {
-        loadEnvironments();
-    }, []);
+    useEffect(() => { loadUvStatus(); }, []);
 
-    useEffect(() => {
-        if (config.pythonPath) {
-            setValidating(true);
-            ValidatePython(config.pythonPath)
-                .then(setValidation)
-                .catch(console.error)
-                .finally(() => setValidating(false));
-        } else {
-            setValidation(null);
-        }
-    }, [config.pythonPath]);
-
-    const handleInstallPackages = async () => {
-        if (!config.pythonPath || !validation?.missingPackages || validation.missingPackages.length === 0) {
-            return;
-        }
-
-        setInstalling(true);
+    const handleSetupUvEnvironment = async () => {
+        setSettingUp(true);
         try {
-            await InstallPythonPackages(config.pythonPath, validation.missingPackages);
-
-            // Re-validate the environment after installation
-            setValidating(true);
-            const newValidation = await ValidatePython(config.pythonPath);
-            setValidation(newValidation);
-
-            if (newValidation.missingPackages && newValidation.missingPackages.length === 0) {
-                setNotification({ type: 'success', message: t('packages_install_success') });
-            } else {
-                setNotification({ type: 'info', message: t('packages_install_partial', newValidation.missingPackages?.length || 0) });
-            }
+            const pythonPath = await SetupUvEnvironment();
+            updateConfig({ pythonPath });
+            await loadUvStatus();
+            setNotification({ type: 'success', message: t('uv_env_setup_success') });
         } catch (error) {
-            console.error('Package installation failed:', error);
+            setNotification({ type: 'error', message: t('uv_env_setup_failed', String(error)) });
+        } finally {
+            setSettingUp(false);
+        }
+    };
+
+    const handleInstallMissingPackages = async () => {
+        if (!uvStatus?.pythonPath || !uvStatus?.missingPackages?.length) return;
+        setSettingUp(true);
+        try {
+            await InstallPythonPackages(uvStatus.pythonPath, uvStatus.missingPackages);
+            await loadUvStatus();
+            setNotification({ type: 'success', message: t('packages_install_success') });
+        } catch (error) {
             setNotification({ type: 'error', message: t('packages_install_failed', String(error)) });
         } finally {
-            setInstalling(false);
-            setValidating(false);
-        }
-    };
-
-    const handleCreateVantageDataEnvironment = async () => {
-        setCreatingEnv(true);
-        try {
-            const pythonPath = await CreateVantageDataEnvironment();
-
-            // Refresh the environment list
-            await loadEnvironments();
-
-            // Auto-select the new environment
-            updateConfig({ pythonPath });
-
-            setNotification({ type: 'success', message: t('env_create_success') });
-        } catch (error) {
-            console.error('Environment creation failed:', error);
-
-            // Show detailed error message with suggestions
-            const errorMessage = String(error);
-            let userMessage = t('env_create_failed_title') + '\n\n';
-
-            if (errorMessage.includes('No suitable Python interpreter found')) {
-                // Extract the detailed diagnostic information from the error
-                const diagnosticStart = errorMessage.indexOf('Detection attempts:');
-                const diagnosticEnd = errorMessage.indexOf('To resolve this issue');
-
-                if (diagnosticStart !== -1 && diagnosticEnd !== -1) {
-                    const diagnosticInfo = errorMessage.substring(diagnosticStart, diagnosticEnd);
-                    userMessage += t('diagnostic_info') + '\n' + diagnosticInfo + '\n\n';
-                }
-
-                userMessage += t('solution') + '\n\n';
-                userMessage += t('install_anaconda') + '\n';
-                userMessage += t('anaconda_download') + '\n';
-                userMessage += t('anaconda_verify') + '\n\n';
-                userMessage += t('install_python') + '\n';
-                userMessage += t('python_download') + '\n';
-                userMessage += t('python_add_path') + '\n';
-                userMessage += t('python_venv_included') + '\n\n';
-                userMessage += t('verify_installation') + '\n';
-                userMessage += t('verify_terminal') + '\n';
-                userMessage += t('verify_conda') + '\n';
-                userMessage += t('verify_python') + '\n';
-                userMessage += t('verify_venv') + '\n\n';
-                userMessage += t('restart_app_retry') + '\n\n';
-                userMessage += t('contact_support');
-            } else if (errorMessage.includes('conda')) {
-                userMessage += t('conda_env_failed') + '\n\n';
-                userMessage += t('conda_solution') + '\n';
-                userMessage += t('conda_verify_install') + '\n';
-                userMessage += t('conda_check_path') + '\n';
-                userMessage += t('conda_try_version') + '\n';
-                userMessage += t('restart_terminal_app') + '\n\n';
-                userMessage += t('error_details', errorMessage);
-            } else if (errorMessage.includes('venv')) {
-                userMessage += t('venv_failed') + '\n\n';
-                userMessage += t('venv_solution') + '\n';
-                userMessage += t('venv_check_version') + '\n';
-                userMessage += t('venv_check_module') + '\n';
-                userMessage += t('venv_try_help') + '\n';
-                userMessage += t('venv_reinstall') + '\n\n';
-                userMessage += t('error_details', errorMessage);
-            } else {
-                userMessage += t('error_details', errorMessage) + '\n\n';
-                userMessage += t('general_solution') + '\n';
-                userMessage += t('check_network') + '\n';
-                userMessage += t('check_disk_space') + '\n';
-                userMessage += t('run_as_admin') + '\n';
-                userMessage += t('restart_retry');
-            }
-
-            // Show error notification instead of blocking alert
-            setNotification({ type: 'error', message: userMessage });
-        } finally {
-            setCreatingEnv(false);
-        }
-    };
-
-    const handleDiagnosePython = async () => {
-        setDiagnosing(true);
-        try {
-            const diagnostics = await DiagnosePythonInstallation();
-
-            // Format diagnostic information for display
-            let diagnosticText = t('python_diagnostic_report') + '\n\n';
-
-            // System info
-            diagnosticText += t('system_info', diagnostics.os, diagnostics.arch) + '\n\n';
-
-            // Conda info
-            const conda = diagnostics.conda as any;
-            diagnosticText += t('conda_detection') + '\n';
-            if (conda.found) {
-                diagnosticText += t('conda_found', conda.path) + '\n';
-                if (conda.working) {
-                    diagnosticText += t('conda_version', conda.version) + '\n';
-                } else {
-                    diagnosticText += t('conda_failed', conda.error) + '\n';
-                }
-            } else {
-                diagnosticText += t('conda_not_found', conda.error) + '\n';
-            }
-            diagnosticText += '\n';
-
-            // Python commands info
-            const pythonCommands = diagnostics.python_commands as any;
-            diagnosticText += t('python_cmd_detection') + '\n';
-            for (const [cmd, info] of Object.entries(pythonCommands)) {
-                const cmdInfo = info as any;
-                if (cmdInfo.found) {
-                    diagnosticText += t('cmd_found', cmd, cmdInfo.path) + '\n';
-                    if (cmdInfo.working) {
-                        diagnosticText += t('cmd_version', cmdInfo.version) + '\n';
-                        if (cmdInfo.venv_support) {
-                            diagnosticText += t('cmd_venv_support') + '\n';
-                        } else {
-                            diagnosticText += t('cmd_venv_no_support', cmdInfo.venv_error) + '\n';
-                        }
-                    } else {
-                        diagnosticText += t('cmd_failed', cmdInfo.error) + '\n';
-                    }
-                } else {
-                    diagnosticText += t('cmd_not_found', cmd) + '\n';
-                }
-            }
-            diagnosticText += '\n';
-
-            // Existing environments
-            const existingEnvs = diagnostics.existing_environments as any[];
-            diagnosticText += t('existing_envs', existingEnvs.length) + '\n';
-            existingEnvs.forEach((env, index) => {
-                diagnosticText += `  ${index + 1}. ${env.type} - ${env.version}\n`;
-                diagnosticText += t('env_path', env.path) + '\n';
-            });
-
-            // Show diagnostic results
-            const textarea = document.createElement('textarea');
-            textarea.value = diagnosticText;
-            textarea.style.width = '100%';
-            textarea.style.height = '400px';
-            textarea.style.fontFamily = 'monospace';
-            textarea.style.fontSize = '12px';
-            textarea.readOnly = true;
-
-            const modal = document.createElement('div');
-            modal.style.position = 'fixed';
-            modal.style.top = '0';
-            modal.style.left = '0';
-            modal.style.width = '100%';
-            modal.style.height = '100%';
-            modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
-            modal.style.display = 'flex';
-            modal.style.alignItems = 'center';
-            modal.style.justifyContent = 'center';
-            modal.style.zIndex = '10000';
-
-            const content = document.createElement('div');
-            content.style.backgroundColor = 'white';
-            content.style.padding = '20px';
-            content.style.borderRadius = '8px';
-            content.style.maxWidth = '80%';
-            content.style.maxHeight = '80%';
-            content.style.overflow = 'auto';
-
-            const title = document.createElement('h3');
-            title.textContent = t('python_diagnostic_report');
-            title.style.marginTop = '0';
-
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = t('close');
-            closeBtn.style.marginTop = '10px';
-            closeBtn.style.padding = '8px 16px';
-            closeBtn.style.backgroundColor = '#5b7a9d';
-            closeBtn.style.color = 'white';
-            closeBtn.style.border = 'none';
-            closeBtn.style.borderRadius = '4px';
-            closeBtn.style.cursor = 'pointer';
-            closeBtn.onclick = () => document.body.removeChild(modal);
-
-            const copyBtn = document.createElement('button');
-            copyBtn.textContent = t('copy_to_clipboard');
-            copyBtn.style.marginTop = '10px';
-            copyBtn.style.marginLeft = '10px';
-            copyBtn.style.padding = '8px 16px';
-            copyBtn.style.backgroundColor = '#10b981';
-            copyBtn.style.color = 'white';
-            copyBtn.style.border = 'none';
-            copyBtn.style.borderRadius = '4px';
-            copyBtn.style.cursor = 'pointer';
-            copyBtn.onclick = () => {
-                navigator.clipboard.writeText(diagnosticText);
-                copyBtn.textContent = t('copied');
-                setTimeout(() => copyBtn.textContent = t('copy_to_clipboard'), 2000);
-            };
-
-            content.appendChild(title);
-            content.appendChild(textarea);
-            content.appendChild(closeBtn);
-            content.appendChild(copyBtn);
-            modal.appendChild(content);
-            document.body.appendChild(modal);
-
-        } catch (error) {
-            setNotification({ type: 'error', message: t('diagnostic_failed', String(error)) });
-        } finally {
-            setDiagnosing(false);
+            setSettingUp(false);
         }
     };
 
     // Check if current pythonPath is in the list
-    const isKnownEnv = envs.some(e => e.path === config.pythonPath);
+    const isKnownEnv = false;
 
     return (
         <div className="space-y-6">
             <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('python_runtime_env')}</h3>
             <div className="space-y-4">
                 <div>
-                    <label htmlFor="pythonPath" className="block text-sm font-medium text-slate-700 mb-1">{t('select_python_env')}</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{t('uv_env_path')}</label>
                     {loading ? (
-                        <div className="text-sm text-slate-500 animate-pulse">{t('scanning_python_envs')}</div>
+                        <div className="text-sm text-slate-500 animate-pulse">{t('loading_uv_status')}</div>
                     ) : (
-                        <select
-                            id="pythonPath"
-                            value={config.pythonPath}
-                            onChange={(e) => updateConfig({ pythonPath: e.target.value })}
-                            className="w-full border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                        >
-                            <option value="">{t('select_env_placeholder')}</option>
-                            {config.pythonPath && !isKnownEnv && (
-                                <option value={config.pythonPath}>
-                                    {config.pythonPath} ({t('saved_env')})
-                                </option>
-                            )}
-                            {envs.map((env) => (
-                                <option key={env.path} value={env.path}>
-                                    {env.type} - {env.version} ({env.path})
-                                </option>
-                            ))}
-                        </select>
-                    )}
-
-                    {/* Create VantageData Environment Button */}
-                    {showCreateButton && (
-                        <div className="mt-3">
-                            <button
-                                onClick={handleCreateVantageDataEnvironment}
-                                disabled={creatingEnv || loading}
-                                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                                {creatingEnv ? (
-                                    <>
-                                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                        {t('creating_env')}
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                        </svg>
-                                        {t('create_vantagedata_env')}
-                                    </>
-                                )}
-                            </button>
-                            <p className="mt-1 text-xs text-slate-500">
-                                {t('create_env_desc')}
-                            </p>
+                        <div className="w-full border border-slate-300 rounded-md p-2 text-sm bg-slate-50 text-slate-600 font-mono">
+                            {uvStatus?.venvPath || t('uv_env_not_configured')}
                         </div>
                     )}
-
-                    <p className="mt-1 text-[10px] text-slate-400 italic">
-                        {t('select_python_interpreter_desc')}
-                    </p>
-
-                    {/* Python Diagnostic Button */}
-                    <div className="mt-3">
-                        <button
-                            onClick={handleDiagnosePython}
-                            disabled={diagnosing || loading}
-                            className="flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-700 text-xs rounded-md hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        >
-                            {diagnosing ? (
-                                <>
-                                    <div className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-                                    {t('diagnosing')}
-                                </>
-                            ) : (
-                                <>
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    {t('python_diagnostic')}
-                                </>
-                            )}
-                        </button>
-                        <p className="mt-1 text-xs text-slate-500">
-                            {t('python_diagnostic_desc')}
-                        </p>
-                    </div>
+                    <p className="mt-1 text-[10px] text-slate-400 italic">{t('uv_env_path_desc')}</p>
                 </div>
 
-                {creatingEnv && (
+                {uvStatus && !loading && (
+                    <div className={`p-4 rounded-lg border ${uvStatus.ready && uvStatus.installedOk ? 'bg-green-50 border-green-200' : uvStatus.ready ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-sm text-slate-600">uv</span>
+                            <span className={`text-xs ${uvStatus.available ? 'text-green-600' : 'text-red-600'}`}>
+                                {uvStatus.available ? `✓ ${uvStatus.uvVersion}` : `✗ ${t('uv_not_installed')}`}
+                            </span>
+                        </div>
+
+                        {uvStatus.ready ? (
+                            <>
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className={`font-semibold ${uvStatus.installedOk ? 'text-green-800' : 'text-amber-800'}`}>
+                                        {uvStatus.installedOk ? '✓ ' + t('env_valid') : '⚠ ' + t('env_valid')}
+                                    </span>
+                                    <span className="text-xs text-slate-500">{uvStatus.pythonVersion}</span>
+                                </div>
+                                {uvStatus.installedOk && (
+                                    <div className="text-xs text-green-700">{t('all_packages_installed')}</div>
+                                )}
+                                {uvStatus.missingPackages && uvStatus.missingPackages.length > 0 && (
+                                    <div>
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-sm font-medium text-amber-700">{t('missing_packages')}</span>
+                                            <button onClick={handleInstallMissingPackages} disabled={settingUp}
+                                                className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                                                {settingUp ? t('installing_packages') : t('install_packages')}
+                                            </button>
+                                        </div>
+                                        <ul className="list-disc list-inside text-xs text-amber-600">
+                                            {uvStatus.missingPackages.map(pkg => (<li key={pkg}>{pkg}</li>))}
+                                        </ul>
+                                    </div>
+                                )}
+                            </>
+                        ) : (
+                            <div className="space-y-3">
+                                <p className="text-sm text-slate-600">{t('uv_env_not_ready')}</p>
+                                {uvStatus.available ? (
+                                    <button onClick={handleSetupUvEnvironment} disabled={settingUp}
+                                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                                        {settingUp ? (
+                                            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>{t('uv_env_setting_up')}</>
+                                        ) : (
+                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>{t('uv_env_setup_btn')}</>
+                                        )}
+                                    </button>
+                                ) : (
+                                    <div className="text-xs text-red-600">{t('uv_install_hint')}</div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {settingUp && (
                     <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                         <div className="flex items-center gap-3">
                             <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                             <div>
-                                <p className="text-sm font-medium text-blue-800">{t('creating_vantagedata_env')}</p>
+                                <p className="text-sm font-medium text-blue-800">{t('uv_env_setting_up')}</p>
                                 <p className="text-xs text-blue-600">{t('creating_env_wait')}</p>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {validating && (
-                    <div className="text-sm text-blue-600 animate-pulse">{t('validating_env')}</div>
-                )}
-
-                {validation && !validating && (
-                    <div className={`p-4 rounded-lg border ${validation.valid ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                        <div className="flex items-center justify-between mb-2">
-                            <span className={`font-semibold ${validation.valid ? 'text-green-800' : 'text-red-800'}`}>
-                                {validation.valid ? '✓ ' + t('env_valid') : '✗ ' + t('env_invalid')}
-                            </span>
-                            <span className="text-xs text-slate-500">{validation.version}</span>
-                        </div>
-
-                        {!validation.valid && validation.error && (
-                            <div className="text-sm text-red-700 mb-2">{validation.error}</div>
-                        )}
-
-                        {validation.missingPackages && validation.missingPackages.length > 0 && (
-                            <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-amber-700">{t('missing_packages')}</span>
-                                    <button
-                                        onClick={handleInstallPackages}
-                                        disabled={installing || validating}
-                                        className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        {installing ? t('installing_packages') : t('install_packages')}
-                                    </button>
-                                </div>
-                                <ul className="list-disc list-inside text-xs text-amber-600 mb-2">
-                                    {validation.missingPackages.map(pkg => (
-                                        <li key={pkg}>{pkg}</li>
-                                    ))}
-                                </ul>
-                                {installing && (
-                                    <div className="text-xs text-blue-600 animate-pulse">
-                                        {t('installing_packages_wait')}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {validation.valid && (!validation.missingPackages || validation.missingPackages.length === 0) && (
-                            <div className="text-xs text-green-700">{t('all_packages_installed')}</div>
-                        )}
-                    </div>
-                )}
-
-                {/* Notification Component */}
                 {notification && (
-                    <div className={`fixed top-4 right-4 max-w-md p-4 rounded-lg shadow-lg border z-50 animate-in slide-in-from-right-2 ${notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+                    <div className={`fixed top-4 right-4 max-w-md p-4 rounded-lg shadow-lg border z-50 ${
+                        notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
                         notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                            'bg-blue-50 border-blue-200 text-blue-800'
-                        }`}>
+                        'bg-blue-50 border-blue-200 text-blue-800'}`}>
                         <div className="flex items-start justify-between">
-                            <div className="flex items-start gap-3">
-                                <div className="flex-shrink-0 mt-0.5">
-                                    {notification.type === 'success' && (
-                                        <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    )}
-                                    {notification.type === 'error' && (
-                                        <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                        </svg>
-                                    )}
-                                    {notification.type === 'info' && (
-                                        <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                        </svg>
-                                    )}
-                                </div>
-                                <div className="flex-1">
-                                    <div className="text-sm font-medium mb-1">
-                                        {notification.type === 'success' && t('operation_success')}
-                                        {notification.type === 'error' && t('operation_failed')}
-                                        {notification.type === 'info' && t('info_message')}
-                                    </div>
-                                    <div className="text-xs whitespace-pre-line">
-                                        {notification.message}
-                                    </div>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setNotification(null)}
-                                className="flex-shrink-0 ml-2 text-gray-400 hover:text-gray-600 transition-colors"
-                            >
+                            <div className="flex-1 text-xs whitespace-pre-line">{notification.message}</div>
+                            <button onClick={() => setNotification(null)} className="flex-shrink-0 ml-2 text-gray-400 hover:text-gray-600">
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>

@@ -8,7 +8,7 @@ const ProductTypesHTML = `
             <h2 class="card-title">产品类型管理</h2>
             <button onclick="showProductTypeForm()" class="btn btn-success btn-sm">+ 添加产品类型</button>
         </div>
-        <p class="text-xs text-muted mb-4">* 产品类型用于区分不同产品的序列号。ID=0 为默认产品 VantageData（不可删除）。集成时使用产品 ID 进行区分。</p>
+        <p class="text-xs text-muted mb-4">* 产品类型用于区分不同产品的序列号。ID=0 为默认产品 Vantagics（不可删除）。集成时使用产品 ID 进行区分。</p>
         <div id="product-types-list" class="flex flex-wrap gap-3"></div>
     </div>
 </div>
@@ -23,12 +23,12 @@ function loadProductTypes() {
         productTypes = data || [];
         var list = document.getElementById('product-types-list');
         
-        // Always show "VantageData" as the first item (ID=0, default product)
+        // Always show "Vantagics" as the first item (ID=0, default product)
         var html = '<div class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-2 border-blue-200">';
-        html += '<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-blue-700">VantageData</span><span class="px-2 py-0.5 bg-blue-600 text-white text-xs rounded font-mono">ID: 0</span></div>';
+        html += '<div><div class="flex items-center gap-2"><span class="font-bold text-sm text-blue-700">Vantagics</span><span class="px-2 py-0.5 bg-blue-600 text-white text-xs rounded font-mono">ID: 0</span></div>';
         html += '<p class="text-xs text-slate-500 mt-1">默认产品（不可删除）</p></div>';
         html += '<div class="flex gap-1">';
-        html += '<button onclick="showExtraInfoModal(0, \'VantageData\')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">额外信息</button>';
+        html += '<button onclick="showExtraInfoModal(0, \'Vantagics\')" class="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs">额外信息</button>';
         html += '</div></div>';
         
         if (productTypes && productTypes.length > 0) { 
@@ -49,7 +49,7 @@ function loadProductTypes() {
         var filterSelect = document.getElementById('product-filter');
         if (filterSelect) {
             var currentValue = filterSelect.value;
-            var opts = '<option value="">全部产品</option><option value="0">VantageData (ID: 0)</option>';
+            var opts = '<option value="">全部产品</option><option value="0">Vantagics (ID: 0)</option>';
             productTypes.forEach(function(p) { opts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
             filterSelect.innerHTML = opts;
             filterSelect.value = currentValue;
@@ -58,7 +58,7 @@ function loadProductTypes() {
 }
 
 function getProductTypeName(id) {
-    if (!id || id === 0) return 'VantageData';
+    if (!id || id === 0) return 'Vantagics';
     var p = productTypes.find(function(pt) { return pt.id === id; });
     return p ? p.name : '';
 }

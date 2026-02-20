@@ -25,7 +25,7 @@ const EmailNotifyHTML = `
                 <label class="form-label">选择产品类型</label>
                 <select id="notify-product-select" class="form-select" style="width:auto;min-width:240px" onchange="onNotifyProductChange()">
                     <option value="">-- 请选择产品 --</option>
-                    <option value="0">VantageData (ID: 0)</option>
+                    <option value="0">Vantagics (ID: 0)</option>
                 </select>
             </div>
             <div id="product-recipient-info" class="text-sm text-muted"></div>

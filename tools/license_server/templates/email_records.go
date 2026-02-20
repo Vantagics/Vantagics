@@ -9,7 +9,7 @@ const EmailRecordsHTML = `
             <div class="flex items-center gap-2 flex-wrap">
                 <select id="email-product-filter" onchange="filterEmailsByProduct()" class="form-select" style="width:auto">
                     <option value="-1">全部产品</option>
-                    <option value="0">VantageData (ID: 0)</option>
+                    <option value="0">Vantagics (ID: 0)</option>
                 </select>
                 <select id="email-license-group-filter" onchange="filterEmailsByLicenseGroup()" class="form-select" style="width:auto">
                     <option value="">全部序列号组</option>
@@ -128,7 +128,7 @@ function loadEmailRecords(page, search) {
                 html += '<div class="flex items-center gap-3 mb-1">';
                 html += '<span class="text-sm text-slate-600">' + escapeHtml(r.email) + '</span>';
                 html += '<code class="font-mono text-blue-600 font-bold">' + escapeHtml(r.sn) + '</code>';
-                html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + (productName || 'VantageData') + '</span>';
+                html += '<span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded">📦 ' + (productName || 'Vantagics') + '</span>';
                 // Show trust level badge
                 var licenseGroup = licenseGroups.find(function(g) { return g.id === license.license_group_id; });
                 var trustLevel = licenseGroup ? licenseGroup.trust_level : 'low';
@@ -327,7 +327,7 @@ function doEditEmailRecord(id) {
 }
 
 function showManualRequest() {
-    var productOpts = '<option value="0">VantageData (ID: 0)</option>';
+    var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
     productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
     
     var llmGroupOpts = '<option value="">默认</option>';

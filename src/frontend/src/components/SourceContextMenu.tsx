@@ -20,9 +20,10 @@ interface SourceContextMenuProps {
     onSemanticOptimize?: () => void; // New: semantic optimization
     onExploreData?: () => void; // Explore data browser
     onLoadPack?: (dataSourceId: string) => void; // Load quick analysis pack
+    isFreeMode?: boolean; // Whether in permanent free mode
 }
 
-const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onRename, onSemanticOptimize, onExploreData, onLoadPack }) => {
+const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceId, sourceName, sourceType, hasLocalDB, isOptimized = false, onClose, onSelectThread, onExport, onProperties, onStartAnalysis, onRename, onSemanticOptimize, onExploreData, onLoadPack, isFreeMode }) => {
     const { t } = useLanguage();
     const menuRef = useRef<HTMLDivElement>(null);
     const [threads, setThreads] = useState<main.ChatThread[]>([]);
@@ -94,6 +95,8 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
                 e.stopPropagation();
             }}
         >
+            {!isFreeMode && (
+            <>
             <button 
                 onClick={() => {
                     onStartAnalysis();
@@ -106,6 +109,8 @@ const SourceContextMenu: React.FC<SourceContextMenuProps> = ({ position, sourceI
             </button>
 
             <div className="h-px bg-slate-100 dark:bg-[#3c3c3c] my-1" />
+            </>
+            )}
 
             <button 
                 onClick={() => {
