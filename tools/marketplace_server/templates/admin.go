@@ -107,8 +107,7 @@ const AdminHTML = `<!DOCTYPE html>
     <nav class="sidebar-nav">
         <a href="#categories" data-perm="categories" onclick="showSection('categories')" style="display:none;"><span class="nav-icon">📂</span><span data-i18n="category_mgmt">分类管理</span></a>
         <a href="#marketplace" data-perm="marketplace" onclick="showSection('marketplace')" style="display:none;"><span class="nav-icon">🏪</span><span data-i18n="marketplace_mgmt">市场管理</span></a>
-        <a href="#authors" data-perm="authors" onclick="showSection('authors')" style="display:none;"><span class="nav-icon">✍️</span><span data-i18n="author_mgmt">作者管理</span></a>
-        <a href="#customers" data-perm="customers" onclick="showSection('customers')" style="display:none;"><span class="nav-icon">👥</span><span data-i18n="customer_mgmt">客户管理</span></a>
+        <a href="#accounts" data-perm="accounts" onclick="showSection('accounts')" style="display:none;"><span class="nav-icon">👤</span><span data-i18n="account_mgmt">账号管理</span></a>
         <a href="#review" data-perm="review" onclick="showSection('review')" style="display:none;"><span class="nav-icon">📋</span><span data-i18n="review_mgmt">审核管理</span></a>
         <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span><span data-i18n="system_settings">系统设置</span></a>
         <a href="#notifications" data-perm="notifications" onclick="showSection('notifications')" style="display:none;"><span class="nav-icon">📢</span><span data-i18n="notification_mgmt">消息管理</span></a>
@@ -251,99 +250,103 @@ const AdminHTML = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Author Management Section -->
-    <div id="section-authors" style="display:none;">
+    <!-- Unified Account Management Section -->
+    <div id="section-accounts" style="display:none;">
         <div class="card">
             <div class="card-header">
-                <h2 data-i18n="author_mgmt">作者管理</h2>
-                <button class="btn btn-secondary" onclick="loadAuthors()">↻ <span data-i18n="refresh">刷新</span></button>
+                <h2 data-i18n="account_mgmt">账号管理</h2>
+                <button class="btn btn-secondary" onclick="loadAccounts()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="author-email-search" placeholder="按邮箱搜索..." data-i18n-placeholder="search_by_email" style="width:240px;" onkeydown="if(event.key==='Enter')loadAuthors()" />
-                <button class="btn btn-primary btn-sm" onclick="loadAuthors()" data-i18n="search">搜索</button>
-                <select id="author-sort" onchange="loadAuthors()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="total_downloads" data-i18n="sort_by_total_downloads">按总下载量</option>
-                    <option value="total_packs" data-i18n="sort_by_total_packs">按总包数</option>
-                    <option value="year_downloads" data-i18n="sort_by_year_downloads">按年下载量</option>
-                    <option value="year_revenue" data-i18n="sort_by_year_revenue">按年收入</option>
-                    <option value="month_downloads" data-i18n="sort_by_month_downloads">按月下载量</option>
-                    <option value="month_revenue" data-i18n="sort_by_month_revenue">按月收入</option>
+                <input type="text" id="account-search" placeholder="搜索邮箱/名称/SN..." data-i18n-placeholder="search_email_name_sn" style="width:260px;" onkeydown="if(event.key==='Enter')loadAccounts()" />
+                <button class="btn btn-primary btn-sm" onclick="loadAccounts()" data-i18n="search">搜索</button>
+                <select id="account-role-filter" onchange="loadAccounts()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                    <option value="" data-i18n="all_roles">全部</option>
+                    <option value="author" data-i18n="authors_only">仅作者</option>
+                    <option value="customer" data-i18n="customers_only">仅客户</option>
                 </select>
-                <select id="author-order" onchange="loadAuthors()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
-                    <option value="desc" data-i18n="desc">降序</option>
-                    <option value="asc" data-i18n="asc">升序</option>
-                </select>
-            </div>
-            <table>
-                <thead>
-                    <tr><th data-i18n="id_col">ID</th><th data-i18n="name_col">名称</th><th data-i18n="email_col">邮箱</th><th data-i18n="pack_count_col">包数</th><th data-i18n="total_downloads_col">总下载</th><th data-i18n="total_revenue_col">总收入</th><th data-i18n="year_downloads_col">年下载</th><th data-i18n="year_revenue_col">年收入</th><th data-i18n="month_downloads_col">月下载</th><th data-i18n="month_revenue_col">月收入</th><th data-i18n="actions">操作</th></tr>
-                </thead>
-                <tbody id="author-list"></tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Author Detail Modal -->
-    <div id="author-detail-modal" class="modal-overlay">
-        <div class="modal" style="width:640px;">
-            <h3 id="author-detail-title" data-i18n="author_sales_detail">作者销售详情</h3>
-            <div id="author-detail-info" style="margin-bottom:16px;font-size:13px;color:#6b7280;"></div>
-            <table>
-                <thead>
-                    <tr><th data-i18n="pack_name">包名</th><th data-i18n="category">分类</th><th data-i18n="payment_mode_col">付费方式</th><th data-i18n="unit_price">单价</th><th data-i18n="download_count_col">下载量</th><th data-i18n="total_revenue_col">总收入</th><th data-i18n="status">状态</th></tr>
-                </thead>
-                <tbody id="author-detail-packs"></tbody>
-            </table>
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
-                <span id="author-detail-page-info" style="font-size:12px;color:#6b7280;"></span>
-                <div style="display:flex;align-items:center;gap:4px;">
-                    <button id="author-detail-prev-btn" class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(authorDetailCurrentPage-1)" disabled>‹ <span data-i18n="prev_page">上一页</span></button>
-                    <span id="author-detail-page-nums" style="display:inline-flex;gap:4px;"></span>
-                    <button id="author-detail-next-btn" class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(authorDetailCurrentPage+1)" disabled><span data-i18n="next_page">下一页</span> ›</button>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideAuthorDetailModal()" data-i18n="close">关闭</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Customer Management Section -->
-    <div id="section-customers" style="display:none;">
-        <div class="card">
-            <div class="card-header">
-                <h2 data-i18n="customer_mgmt">客户管理</h2>
-                <button class="btn btn-secondary" onclick="loadCustomers()">↻ <span data-i18n="refresh">刷新</span></button>
-            </div>
-            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
-                <input type="text" id="customer-search" placeholder="搜索邮箱/名称/SN..." data-i18n-placeholder="search_email_name_sn" style="width:260px;" onkeydown="if(event.key==='Enter')loadCustomers()" />
-                <button class="btn btn-primary btn-sm" onclick="loadCustomers()" data-i18n="search">搜索</button>
-                <select id="customer-sort" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                <select id="account-sort" onchange="loadAccounts()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                     <option value="created_at" data-i18n="sort_by_register_time">按注册时间</option>
                     <option value="credits" data-i18n="sort_by_balance">按余额</option>
                     <option value="downloads" data-i18n="sort_by_downloads">按下载量</option>
                     <option value="spent" data-i18n="sort_by_spent">按消费额</option>
+                    <option value="packs" data-i18n="sort_by_packs">按发布包数</option>
+                    <option value="revenue" data-i18n="sort_by_revenue">按作者收入</option>
                     <option value="name" data-i18n="sort_by_name">按名称</option>
                 </select>
-                <select id="customer-order" onchange="loadCustomers()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                <select id="account-order" onchange="loadAccounts()" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                     <option value="desc" data-i18n="desc">降序</option>
                     <option value="asc" data-i18n="asc">升序</option>
                 </select>
             </div>
             <table>
                 <thead>
-                    <tr><th data-i18n="email_col">邮箱</th><th data-i18n="name_col">名称</th><th data-i18n="account_count_col">账号数</th><th data-i18n="balance_col">余额</th><th data-i18n="download_count_col">下载数</th><th data-i18n="spent_col">消费额</th><th data-i18n="status">状态</th><th data-i18n="register_time_col">注册时间</th><th data-i18n="actions">操作</th></tr>
+                    <tr>
+                        <th data-i18n="email_col">邮箱</th>
+                        <th data-i18n="name_col">名称</th>
+                        <th data-i18n="role_col">角色</th>
+                        <th data-i18n="balance_col">余额</th>
+                        <th data-i18n="published_packs_col">发布包数</th>
+                        <th data-i18n="author_revenue_col">作者收入</th>
+                        <th data-i18n="download_count_col">下载数</th>
+                        <th data-i18n="spent_col">消费额</th>
+                        <th data-i18n="status">状态</th>
+                        <th data-i18n="actions">操作</th>
+                    </tr>
                 </thead>
-                <tbody id="customer-list"></tbody>
+                <tbody id="account-list"></tbody>
             </table>
         </div>
     </div>
 
-    <!-- Customer Topup Modal -->
+    <!-- Account Detail Modal -->
+    <div id="account-detail-modal" class="modal-overlay">
+        <div class="modal" style="width:720px;">
+            <h3 id="account-detail-title" data-i18n="account_detail">账号详情</h3>
+            <div id="account-detail-info" style="margin-bottom:12px;font-size:13px;color:#6b7280;"></div>
+            <div id="account-detail-sub-accounts" style="margin-bottom:16px;"></div>
+            <div id="account-detail-tabs" style="display:flex;gap:8px;margin-bottom:12px;">
+                <button class="btn btn-primary btn-sm" id="acct-tab-packs-btn" onclick="switchAccountDetailTab('packs')" data-i18n="author_packs">发布的分析包</button>
+                <button class="btn btn-secondary btn-sm" id="acct-tab-tx-btn" onclick="switchAccountDetailTab('tx')" data-i18n="transaction_records">交易记录</button>
+            </div>
+            <div id="acct-tab-packs">
+                <table>
+                    <thead>
+                        <tr><th data-i18n="pack_name">包名</th><th data-i18n="category">分类</th><th data-i18n="payment_mode_col">付费方式</th><th data-i18n="unit_price">单价</th><th data-i18n="download_count_col">下载量</th><th data-i18n="total_revenue_col">总收入</th><th data-i18n="status">状态</th></tr>
+                    </thead>
+                    <tbody id="account-detail-packs"></tbody>
+                </table>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;flex-wrap:wrap;gap:8px;">
+                    <span id="account-detail-page-info" style="font-size:12px;color:#6b7280;"></span>
+                    <div style="display:flex;align-items:center;gap:4px;">
+                        <button id="account-detail-prev-btn" class="btn btn-secondary btn-sm" onclick="accountDetailGoPage(accountDetailCurrentPage-1)" disabled>‹ <span data-i18n="prev_page">上一页</span></button>
+                        <span id="account-detail-page-nums" style="display:inline-flex;gap:4px;"></span>
+                        <button id="account-detail-next-btn" class="btn btn-secondary btn-sm" onclick="accountDetailGoPage(accountDetailCurrentPage+1)" disabled><span data-i18n="next_page">下一页</span> ›</button>
+                    </div>
+                </div>
+            </div>
+            <div id="acct-tab-tx" style="display:none;">
+                <div style="max-height:400px;overflow-y:auto;">
+                    <table>
+                        <thead>
+                            <tr><th data-i18n="id_col">ID</th><th data-i18n="type_col">类型</th><th data-i18n="amount">金额</th><th data-i18n="description">描述</th><th data-i18n="time">时间</th></tr>
+                        </thead>
+                        <tbody id="account-detail-tx-list"></tbody>
+                    </table>
+                </div>
+                <div id="account-detail-tx-pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:13px;"></div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideAccountDetailModal()" data-i18n="close">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Topup Modal (reused) -->
     <div id="topup-modal" class="modal-overlay">
         <div class="modal">
             <h3 data-i18n="topup_credits">充值 Credits</h3>
-            <input type="hidden" id="topup-user-id" value="" />
+            <input type="hidden" id="topup-email" value="" />
             <div id="topup-user-info" style="margin-bottom:16px;font-size:13px;color:#6b7280;"></div>
             <div class="form-group">
                 <label for="topup-amount" data-i18n="topup_amount">充值数量</label>
@@ -356,25 +359,6 @@ const AdminHTML = `<!DOCTYPE html>
             <div class="modal-actions">
                 <button class="btn btn-secondary" onclick="hideTopupModal()" data-i18n="cancel">取消</button>
                 <button class="btn btn-primary" onclick="submitTopup()" data-i18n="confirm_topup">确认充值</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Customer Transactions Modal -->
-    <div id="customer-tx-modal" class="modal-overlay">
-        <div class="modal" style="width:640px;">
-            <h3 id="customer-tx-title" data-i18n="transaction_records">交易记录</h3>
-            <div style="max-height:480px;overflow-y:auto;">
-                <table>
-                    <thead>
-                        <tr><th data-i18n="id_col">ID</th><th data-i18n="type_col">类型</th><th data-i18n="amount">金额</th><th data-i18n="description">描述</th><th data-i18n="time">时间</th></tr>
-                    </thead>
-                    <tbody id="customer-tx-list"></tbody>
-                </table>
-            </div>
-            <div id="customer-tx-pagination" style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px;font-size:13px;"></div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="hideCustomerTxModal()" data-i18n="close">关闭</button>
             </div>
         </div>
     </div>
@@ -758,9 +742,12 @@ var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
 // Lazy _i18n wrapper: safe to call before I18nJS loads
 if (!window._i18n) { window._i18n = function(key, fallback) { return fallback || key; }; }
-var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理") };
+var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理"), sales: window._i18n("sales_mgmt","销售管理") };
 
-function hasPerm(p) { return permissions.indexOf(p) !== -1; }
+function hasPerm(p) {
+    if (p === 'accounts') return permissions.indexOf('accounts') !== -1 || permissions.indexOf('authors') !== -1 || permissions.indexOf('customers') !== -1;
+    return permissions.indexOf(p) !== -1;
+}
 function isSuperAdmin() { return adminID === 1; }
 
 // Initialize sidebar visibility based on permissions
@@ -777,8 +764,10 @@ function isSuperAdmin() { return adminID === 1; }
 })();
 
 function showSection(name) {
-    var sections = ['categories', 'marketplace', 'authors', 'customers', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'sales'];
-    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), sales: window._i18n("sales_mgmt","销售管理") };
+    // Map old section names to new unified accounts section
+    if (name === 'authors' || name === 'customers') name = 'accounts';
+    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'sales'];
+    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), sales: window._i18n("sales_mgmt","销售管理") };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
         if (el) el.style.display = sections[i] === name ? '' : 'none';
@@ -791,8 +780,7 @@ function showSection(name) {
     document.getElementById('topbar-title').textContent = titles[name] || window._i18n("admin_panel_title","管理面板");
     if (name === 'categories') loadCategories();
     if (name === 'marketplace') loadMarketplacePacks();
-    if (name === 'authors') loadAuthors();
-    if (name === 'customers') loadCustomers();
+    if (name === 'accounts') loadAccounts();
     if (name === 'admins') loadAdmins();
     if (name === 'review') loadPendingPacks();
     if (name === 'notifications') loadNotifications();
@@ -1251,62 +1239,100 @@ function relistPack(id, name) {
         }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
-// --- Author Management ---
-function loadAuthors() {
-    var email = document.getElementById('author-email-search').value.trim();
-    var sort = document.getElementById('author-sort').value;
-    var order = document.getElementById('author-order').value;
-    var url = '/api/admin/authors?sort=' + sort + '&order=' + order;
-    if (email) url += '&email=' + encodeURIComponent(email);
+// --- Unified Account Management ---
+function loadAccounts() {
+    var search = document.getElementById('account-search').value.trim();
+    var role = document.getElementById('account-role-filter').value;
+    var sort = document.getElementById('account-sort').value;
+    var order = document.getElementById('account-order').value;
+    var url = '/api/admin/accounts?sort=' + sort + '&order=' + order;
+    if (search) url += '&search=' + encodeURIComponent(search);
+    if (role) url += '&role=' + role;
     apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
-        var authors = data.authors || [];
-        var tbody = document.getElementById('author-list');
-        if (authors.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#999;">' + window._i18n("no_authors","暂无作者数据") + '</td></tr>';
+        var accounts = data.accounts || [];
+        var tbody = document.getElementById('account-list');
+        if (accounts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#999;">' + window._i18n("no_accounts","暂无账号数据") + '</td></tr>';
             return;
         }
         var html = '';
-        for (var i = 0; i < authors.length; i++) {
-            var a = authors[i];
+        for (var i = 0; i < accounts.length; i++) {
+            var a = accounts[i];
+            var roleBadge = a.is_author
+                ? '<span class="badge" style="background:#fef3c7;color:#92400e;">✍️ ' + window._i18n("author","作者") + '</span>'
+                : '<span class="badge" style="background:#e0e7ff;color:#3730a3;">👤 ' + window._i18n("customer","客户") + '</span>';
+            if (a.account_count > 1) {
+                roleBadge += ' <span class="badge" style="background:#eff6ff;color:#1e40af;font-size:11px;">' + a.account_count + ' SN</span>';
+            }
+            var statusBadge = a.is_blocked
+                ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>'
+                : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
             html += '<tr>';
-            html += '<td>' + a.user_id + '</td>';
-            html += '<td>' + escHtml(a.display_name) + '</td>';
             html += '<td>' + escHtml(a.email || '-') + '</td>';
-            html += '<td>' + a.total_packs + '</td>';
+            html += '<td>' + escHtml(a.display_name) + '</td>';
+            html += '<td>' + roleBadge + '</td>';
+            html += '<td>' + a.total_balance.toFixed(0) + '</td>';
+            html += '<td>' + (a.published_packs || 0) + '</td>';
+            html += '<td>' + (a.author_revenue || 0) + '</td>';
             html += '<td>' + a.total_downloads + '</td>';
-            html += '<td>' + a.total_revenue + '</td>';
-            html += '<td>' + a.year_downloads + '</td>';
-            html += '<td>' + a.year_revenue + '</td>';
-            html += '<td>' + a.month_downloads + '</td>';
-            html += '<td>' + a.month_revenue + '</td>';
-            html += '<td><button class="btn btn-primary btn-sm" onclick="showAuthorDetail(' + a.user_id + ')">' + window._i18n("details","详情") + '</button></td>';
-            html += '</tr>';
+            html += '<td>' + a.total_spent.toFixed(0) + '</td>';
+            html += '<td>' + statusBadge + '</td>';
+            html += '<td class="actions" style="white-space:nowrap;">';
+            html += '<button class="btn btn-primary btn-sm" onclick="showAccountDetail(\'' + escAttr(a.email) + '\')">' + window._i18n("details","详情") + '</button> ';
+            html += '<button class="btn btn-secondary btn-sm" onclick="showAccountTopup(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',' + a.total_balance + ')">' + window._i18n("topup","充值") + '</button> ';
+            var blockBtn = a.is_blocked
+                ? '<button class="btn btn-primary btn-sm" onclick="toggleAccountBlock(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
+                : '<button class="btn btn-danger btn-sm" onclick="toggleAccountBlock(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
+            html += blockBtn;
+            html += '</td></tr>';
         }
         tbody.innerHTML = html;
-    }).catch(function(err) { showMsg(window._i18n("load_authors_failed","加载作者列表失败") + ': ' + err, true); });
+    }).catch(function(err) { showMsg(window._i18n("load_accounts_failed","加载账号列表失败") + ': ' + err, true); });
 }
 
-var authorDetailCurrentPage = 1;
-var authorDetailTotalPages = 1;
-var authorDetailCurrentUserId = 0;
+var accountDetailCurrentPage = 1;
+var accountDetailTotalPages = 1;
+var accountDetailCurrentEmail = '';
 
-function showAuthorDetail(userId, page) {
+function showAccountDetail(email, page) {
     if (typeof page !== 'number' || page < 1) page = 1;
-    authorDetailCurrentUserId = userId;
-    authorDetailCurrentPage = page;
-    apiFetch('/api/admin/authors/' + userId + '?page=' + page + '&page_size=10').then(function(r) { return r.json(); }).then(function(data) {
-        document.getElementById('author-detail-title').textContent = escHtml(data.display_name) + ' ' + window._i18n("author_sales_detail","的销售详情");
-        document.getElementById('author-detail-info').textContent = window._i18n("email","邮箱") + ': ' + (data.email || '-');
-        authorDetailCurrentPage = data.page || 1;
-        authorDetailTotalPages = data.total_pages || 1;
+    accountDetailCurrentEmail = email;
+    accountDetailCurrentPage = page;
+    var url = '/api/admin/accounts/detail?email=' + encodeURIComponent(email) + '&page=' + page + '&page_size=10';
+    apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
+        document.getElementById('account-detail-title').textContent = escHtml(data.display_name) + ' (' + escHtml(data.email) + ')';
+        document.getElementById('account-detail-info').innerHTML =
+            window._i18n("wallet_balance","钱包余额") + ': <b>' + (data.wallet_balance || 0).toFixed(0) + ' Credits</b>';
+
+        // Sub-accounts
+        var subHtml = '';
+        var subs = data.sub_accounts || [];
+        if (subs.length > 1) {
+            subHtml += '<div style="font-size:12px;color:#6b7280;margin-bottom:8px;">' + window._i18n("sub_accounts","关联账号") + ' (' + subs.length + '):</div>';
+            subHtml += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+            for (var si = 0; si < subs.length; si++) {
+                var s = subs[si];
+                var sStatus = s.is_blocked ? '🔴' : '🟢';
+                subHtml += '<span class="badge" style="background:#f1f5f9;color:#475569;font-size:11px;">' + sStatus + ' ' + escHtml(s.auth_id) + ' (' + escHtml(s.display_name) + ')</span>';
+            }
+            subHtml += '</div>';
+        }
+        document.getElementById('account-detail-sub-accounts').innerHTML = subHtml;
+
+        // Author packs tab visibility
+        var tabsEl = document.getElementById('account-detail-tabs');
+        tabsEl.style.display = data.is_author ? '' : 'none';
+
+        accountDetailCurrentPage = data.page || 1;
+        accountDetailTotalPages = data.total_pages || 1;
         var packs = data.packs || [];
-        var tbody = document.getElementById('author-detail-packs');
+        var tbody = document.getElementById('account-detail-packs');
         if (packs.length === 0 && data.total_packs === 0) {
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">' + window._i18n("no_packs","暂无分析包") + '</td></tr>';
         } else {
             var html = '';
-            for (var i = 0; i < packs.length; i++) {
-                var p = packs[i];
+            for (var pi = 0; pi < packs.length; pi++) {
+                var p = packs[pi];
                 var statusLabel = p.status === 'published' ? window._i18n("listed_status","在售") : window._i18n("delisted","已下架");
                 html += '<tr>';
                 html += '<td>' + escHtml(p.pack_name) + '</td>';
@@ -1320,307 +1346,133 @@ function showAuthorDetail(userId, page) {
             }
             tbody.innerHTML = html;
         }
-        renderAuthorDetailPagination(data.total_packs || 0);
-        document.getElementById('author-detail-modal').className = 'modal-overlay show';
-    }).catch(function(err) { showMsg(window._i18n("load_author_detail_failed","加载作者详情失败") + ': ' + err, true); });
+        renderAccountDetailPagination(data.total_packs || 0);
+        loadAccountTxPage(1);
+        switchAccountDetailTab(data.is_author ? 'packs' : 'tx');
+        document.getElementById('account-detail-modal').className = 'modal-overlay show';
+    }).catch(function(err) { showMsg(window._i18n("load_account_detail_failed","加载账号详情失败") + ': ' + err, true); });
 }
 
-function renderAuthorDetailPagination(totalPacks) {
-    var pageInfo = document.getElementById('author-detail-page-info');
-    var prevBtn = document.getElementById('author-detail-prev-btn');
-    var nextBtn = document.getElementById('author-detail-next-btn');
-    var pageNums = document.getElementById('author-detail-page-nums');
-    if (totalPacks === 0) {
-        pageInfo.textContent = '';
-        prevBtn.disabled = true;
-        nextBtn.disabled = true;
-        pageNums.innerHTML = '';
-        return;
-    }
-    var start = (authorDetailCurrentPage - 1) * 10 + 1;
-    var end = Math.min(authorDetailCurrentPage * 10, totalPacks);
+function switchAccountDetailTab(tab) {
+    document.getElementById('acct-tab-packs').style.display = tab === 'packs' ? '' : 'none';
+    document.getElementById('acct-tab-tx').style.display = tab === 'tx' ? '' : 'none';
+    document.getElementById('acct-tab-packs-btn').className = tab === 'packs' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+    document.getElementById('acct-tab-tx-btn').className = tab === 'tx' ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm';
+}
+
+function renderAccountDetailPagination(totalPacks) {
+    var pageInfo = document.getElementById('account-detail-page-info');
+    var prevBtn = document.getElementById('account-detail-prev-btn');
+    var nextBtn = document.getElementById('account-detail-next-btn');
+    var pageNums = document.getElementById('account-detail-page-nums');
+    if (totalPacks === 0) { pageInfo.textContent = ''; prevBtn.disabled = true; nextBtn.disabled = true; pageNums.innerHTML = ''; return; }
+    var start = (accountDetailCurrentPage - 1) * 10 + 1;
+    var end = Math.min(accountDetailCurrentPage * 10, totalPacks);
     pageInfo.textContent = window._i18n("showing_range","显示 {start}-{end} 条，共 {total} 条").replace("{start}", start).replace("{end}", end).replace("{total}", totalPacks);
-    prevBtn.disabled = authorDetailCurrentPage <= 1;
-    nextBtn.disabled = authorDetailCurrentPage >= authorDetailTotalPages;
+    prevBtn.disabled = accountDetailCurrentPage <= 1;
+    nextBtn.disabled = accountDetailCurrentPage >= accountDetailTotalPages;
     var html = '';
-    var lo = Math.max(1, authorDetailCurrentPage - 3);
-    var hi = Math.min(authorDetailTotalPages, authorDetailCurrentPage + 3);
-    if (lo > 1) html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(1)" style="min-width:32px;">1</button>';
+    var lo = Math.max(1, accountDetailCurrentPage - 3);
+    var hi = Math.min(accountDetailTotalPages, accountDetailCurrentPage + 3);
+    if (lo > 1) html += '<button class="btn btn-secondary btn-sm" onclick="accountDetailGoPage(1)" style="min-width:32px;">1</button>';
     if (lo > 2) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
-    for (var p = lo; p <= hi; p++) {
-        if (p === authorDetailCurrentPage) {
-            html += '<button class="btn btn-primary btn-sm" style="min-width:32px;" disabled>' + p + '</button>';
-        } else {
-            html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(' + p + ')" style="min-width:32px;">' + p + '</button>';
-        }
+    for (var pg = lo; pg <= hi; pg++) {
+        html += pg === accountDetailCurrentPage
+            ? '<button class="btn btn-primary btn-sm" style="min-width:32px;" disabled>' + pg + '</button>'
+            : '<button class="btn btn-secondary btn-sm" onclick="accountDetailGoPage(' + pg + ')" style="min-width:32px;">' + pg + '</button>';
     }
-    if (hi < authorDetailTotalPages - 1) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
-    if (hi < authorDetailTotalPages) html += '<button class="btn btn-secondary btn-sm" onclick="authorDetailGoPage(' + authorDetailTotalPages + ')" style="min-width:32px;">' + authorDetailTotalPages + '</button>';
+    if (hi < accountDetailTotalPages - 1) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    if (hi < accountDetailTotalPages) html += '<button class="btn btn-secondary btn-sm" onclick="accountDetailGoPage(' + accountDetailTotalPages + ')" style="min-width:32px;">' + accountDetailTotalPages + '</button>';
     pageNums.innerHTML = html;
 }
 
-function authorDetailGoPage(page) {
+function accountDetailGoPage(page) {
     if (page < 1) page = 1;
-    if (page > authorDetailTotalPages) page = authorDetailTotalPages;
-    showAuthorDetail(authorDetailCurrentUserId, page);
+    if (page > accountDetailTotalPages) page = accountDetailTotalPages;
+    showAccountDetail(accountDetailCurrentEmail, page);
 }
 
-function hideAuthorDetailModal() {
-    document.getElementById('author-detail-modal').className = 'modal-overlay';
+function hideAccountDetailModal() {
+    document.getElementById('account-detail-modal').className = 'modal-overlay';
 }
 
-// --- Customer Management ---
-function loadCustomers() {
-    var search = document.getElementById('customer-search').value.trim();
-    var sort = document.getElementById('customer-sort').value;
-    var order = document.getElementById('customer-order').value;
-    var url = '/api/admin/customers?sort=' + sort + '&order=' + order;
-    if (search) url += '&search=' + encodeURIComponent(search);
-    apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
-        var customers = data.customers || [];
-        var tbody = document.getElementById('customer-list');
-        if (customers.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#999;">' + window._i18n("no_customers","暂无客户数据") + '</td></tr>';
-            return;
-        }
-        var html = '';
-        for (var i = 0; i < customers.length; i++) {
-            var c = customers[i];
-            var statusBadge;
-            if (c.is_blocked) {
-                statusBadge = '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>';
-            } else if (c.blocked_count > 0) {
-                statusBadge = '<span class="badge" style="background:#fffbeb;color:#92400e;">' + window._i18n("partial_blocked","部分禁用") + '</span>';
-            } else {
-                statusBadge = '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
-            }
-            var accountCountBadge = c.account_count > 1
-                ? '<span class="badge" style="background:#eff6ff;color:#1e40af;">' + c.account_count + ' ' + window._i18n("accounts","个账号") + '</span>'
-                : '<span style="color:#6b7280;">1</span>';
-            // Primary account (first in accounts array)
-            var primary = c.accounts && c.accounts.length > 0 ? c.accounts[0] : {};
-            var hasMultiple = c.account_count > 1;
-            html += '<tr' + (hasMultiple ? ' style="cursor:pointer;" onclick="toggleCustomerExpand(this,' + i + ')"' : '') + '>';
-            html += '<td>' + escHtml(c.email || '-') + '</td>';
-            html += '<td>' + escHtml(c.display_name) + '</td>';
-            html += '<td>' + accountCountBadge + '</td>';
-            html += '<td>' + c.total_balance.toFixed(0) + '</td>';
-            html += '<td>' + c.total_downloads + '</td>';
-            html += '<td>' + c.total_spent.toFixed(0) + '</td>';
-            html += '<td>' + statusBadge + '</td>';
-            html += '<td>' + c.created_at + '</td>';
-            html += '<td class="actions" style="white-space:nowrap;">';
-            if (!hasMultiple && primary.id) {
-                html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();showTopupModal(' + primary.id + ',\'' + escAttr(c.display_name) + '\',' + primary.credits_balance + ')">' + window._i18n("topup","充值") + '</button> ';
-                html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showCustomerTx(' + primary.id + ',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
-                var blockBtn = primary.is_blocked
-                    ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleBlock(' + primary.id + ',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
-                    : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleBlock(' + primary.id + ',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
-                html += blockBtn;
-            } else if (hasMultiple) {
-                html += '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();showEmailTopupModal(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',' + c.total_balance + ')">' + window._i18n("topup","充值") + '</button> ';
-                html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showEmailTx(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
-                var emailBlockBtn = c.is_blocked
-                    ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleEmailBlock(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
-                    : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleEmailBlock(\'' + escAttr(c.email) + '\',\'' + escAttr(c.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
-                html += emailBlockBtn;
-                html += ' <span style="color:#6b7280;font-size:12px;cursor:pointer;" onclick="event.stopPropagation();toggleCustomerExpand(this,' + i + ')">▼</span>';
-            }
-            html += '</td></tr>';
-            // Hidden expandable sub-account rows (only for multi-account customers)
-            if (hasMultiple && c.accounts) {
-                for (var j = 0; j < c.accounts.length; j++) {
-                    var a = c.accounts[j];
-                    var subStatus = a.is_blocked
-                        ? '<span class="badge" style="background:#fef2f2;color:#991b1b;">' + window._i18n("blocked","已禁用") + '</span>'
-                        : '<span class="badge" style="background:#ecfdf5;color:#065f46;">' + window._i18n("normal","正常") + '</span>';
-                    var subBlockBtn = a.is_blocked
-                        ? '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();toggleBlock(' + a.id + ',\'' + escAttr(a.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
-                        : '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();toggleBlock(' + a.id + ',\'' + escAttr(a.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
-                    html += '<tr class="customer-sub-row customer-sub-' + i + '" style="display:none;background:#f8fafc;">';
-                    html += '<td style="padding-left:28px;color:#6b7280;font-size:12px;">└ ' + escHtml(a.auth_id || '-') + '</td>';
-                    html += '<td>' + escHtml(a.display_name) + '</td>';
-                    html += '<td style="color:#6b7280;font-size:12px;">ID: ' + a.id + '</td>';
-                    html += '<td style="color:#9ca3af;font-size:12px;">' + window._i18n("shared_wallet","共享钱包") + '</td>';
-                    html += '<td>' + a.download_count + '</td>';
-                    html += '<td>' + a.total_spent.toFixed(0) + '</td>';
-                    html += '<td>' + subStatus + '</td>';
-                    html += '<td>' + a.created_at + '</td>';
-                    html += '<td class="actions" style="white-space:nowrap;">';
-                    html += '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();showCustomerTx(' + a.id + ',\'' + escAttr(a.display_name) + '\')">' + window._i18n("records","记录") + '</button> ';
-                    html += subBlockBtn;
-                    html += '</td></tr>';
-                }
-            }
-        }
-        tbody.innerHTML = html;
-    }).catch(function(err) { showMsg(window._i18n("load_customers_failed","加载客户列表失败") + ': ' + err, true); });
-}
-
-function toggleCustomerExpand(row, idx) {
-    var subRows = document.querySelectorAll('.customer-sub-' + idx);
-    var isVisible = subRows.length > 0 && subRows[0].style.display !== 'none';
-    for (var i = 0; i < subRows.length; i++) {
-        subRows[i].style.display = isVisible ? 'none' : '';
-    }
-}
-
-function showTopupModal(userId, name, balance) {
-    document.getElementById('topup-user-id').value = userId;
-    document.getElementById('topup-user-info').textContent = window._i18n("customer_label","客户:") + ' ' + name + '  |  ' + window._i18n("current_balance_label","当前余额:") + ' ' + balance.toFixed(0) + ' Credits';
-    document.getElementById('topup-amount').value = '';
-    document.getElementById('topup-reason').value = '';
-    document.getElementById('topup-modal').className = 'modal-overlay show';
-}
-
-function hideTopupModal() {
-    document.getElementById('topup-modal').className = 'modal-overlay';
-}
-
-function toggleBlock(userId, name, isCurrentlyBlocked) {
-    var action = isCurrentlyBlocked ? window._i18n("unblock","解禁") : window._i18n("block","禁用");
-    if (!confirm(window._i18n("confirm_block","确定要{action}客户 \"{name}\" 吗？").replace("{action}", action).replace("{name}", name))) return;
-    apiFetch('/api/admin/customers/' + userId + '/toggle-block', { method: 'POST' })
-        .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
-        .then(function(res) {
-            if (res.ok) {
-                showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false);
-                loadCustomers();
-            } else {
-                showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
-            }
-        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
-}
-
-function showCustomerTx(userId, name) {
-    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' ' + window._i18n("transaction_records","的交易记录");
-    document.getElementById('customer-tx-modal').className = 'modal-overlay show';
-    window._txCtx = { type: 'user', userId: userId, name: name };
-    loadCustomerTxPage(1);
-}
-
-function loadCustomerTxPage(page) {
-    var ctx = window._txCtx;
-    var tbody = document.getElementById('customer-tx-list');
-    var pagination = document.getElementById('customer-tx-pagination');
+function loadAccountTxPage(page) {
+    var email = accountDetailCurrentEmail;
+    var tbody = document.getElementById('account-detail-tx-list');
+    var pagination = document.getElementById('account-detail-tx-pagination');
     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("loading","加载中...") + '</td></tr>';
     pagination.innerHTML = '';
-
-    var url;
-    if (ctx.type === 'email') {
-        url = '/api/admin/customers/email-transactions?email=' + encodeURIComponent(ctx.email) + '&page=' + page + '&pageSize=20';
-    } else {
-        url = '/api/admin/customers/' + ctx.userId + '/transactions?page=' + page + '&pageSize=20';
-    }
-
+    var url = '/api/admin/accounts/transactions?email=' + encodeURIComponent(email) + '&page=' + page + '&pageSize=20';
     apiFetch(url).then(function(r) { return r.json(); }).then(function(data) {
         var txns = data.transactions || [];
-        if (txns.length === 0 && page === 1) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("no_transactions_admin","暂无交易记录") + '</td></tr>';
-            return;
-        }
-        var typeLabels = { download: window._i18n("tx_download","下载扣费"), admin_topup: window._i18n("tx_admin_topup","管理员充值"), initial: window._i18n("tx_initial","注册赠送"), purchase: window._i18n("tx_purchase","购买") };
+        if (txns.length === 0 && page === 1) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">' + window._i18n("no_transactions_admin","暂无交易记录") + '</td></tr>'; return; }
+        var typeLabels = { download: window._i18n("tx_download","下载扣费"), admin_topup: window._i18n("tx_admin_topup","管理员充值"), initial: window._i18n("tx_initial","注册赠送"), purchase: window._i18n("tx_purchase","购买"), purchase_uses: window._i18n("tx_purchase","购买"), renew: window._i18n("tx_renew","续费") };
         var html = '';
-        for (var i = 0; i < txns.length; i++) {
-            var t = txns[i];
+        for (var ti = 0; ti < txns.length; ti++) {
+            var t = txns[ti];
             var amountStyle = t.amount >= 0 ? 'color:#065f46;' : 'color:#991b1b;';
             var amountText = t.amount >= 0 ? '+' + t.amount : '' + t.amount;
-            html += '<tr>';
-            html += '<td>' + t.id + '</td>';
-            html += '<td>' + (typeLabels[t.transaction_type] || t.transaction_type) + '</td>';
+            html += '<tr><td>' + t.id + '</td><td>' + (typeLabels[t.transaction_type] || t.transaction_type) + '</td>';
             html += '<td style="' + amountStyle + 'font-weight:600;">' + amountText + '</td>';
             html += '<td>' + escHtml(t.description || '-') + (t.account_name ? ' <span style="color:#6b7280;font-size:11px;">(' + escHtml(t.account_name) + ')</span>' : '') + '</td>';
-            html += '<td>' + t.created_at + '</td>';
-            html += '</tr>';
+            html += '<td>' + t.created_at + '</td></tr>';
         }
         tbody.innerHTML = html;
-
-        // Render pagination
-        var total = data.total || 0;
-        var totalPages = data.totalPages || 1;
-        var curPage = data.page || 1;
+        var total = data.total || 0; var totalPages = data.totalPages || 1; var curPage = data.page || 1;
         var pgHtml = '<span style="color:#64748b;">' + window._i18n("total_records","共") + ' ' + total + ' ' + window._i18n("records_unit","条") + '</span>';
         if (totalPages > 1) {
-            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(1)"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("first_page","首页") + '</button>';
-            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + (curPage - 1) + ')"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("prev_page","上一页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadAccountTxPage(1)"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("first_page","首页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadAccountTxPage(' + (curPage - 1) + ')"' + (curPage === 1 ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("prev_page","上一页") + '</button>';
             pgHtml += '<span>' + curPage + ' / ' + totalPages + '</span>';
-            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + (curPage + 1) + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("next_page","下一页") + '</button>';
-            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadCustomerTxPage(' + totalPages + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("last_page","末页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadAccountTxPage(' + (curPage + 1) + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("next_page","下一页") + '</button>';
+            pgHtml += '<button class="btn btn-secondary btn-sm" onclick="loadAccountTxPage(' + totalPages + ')"' + (curPage === totalPages ? ' disabled style="opacity:0.4;"' : '') + '>' + window._i18n("last_page","末页") + '</button>';
         }
         pagination.innerHTML = pgHtml;
-    }).catch(function(err) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">' + window._i18n("load_tx_failed","加载失败") + '</td></tr>';
-    });
+    }).catch(function(err) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#991b1b;">' + window._i18n("load_tx_failed","加载失败") + '</td></tr>'; });
 }
 
-function hideCustomerTxModal() {
-    document.getElementById('customer-tx-modal').className = 'modal-overlay';
-}
-
-function showEmailTopupModal(email, name, totalBalance) {
-    document.getElementById('topup-user-id').value = '__email__' + email;
-    document.getElementById('topup-user-info').textContent = window._i18n("customer_label","客户:") + ' ' + name + ' (' + email + ')  |  ' + window._i18n("current_balance_label","当前余额:") + ' ' + totalBalance.toFixed(0) + ' Credits';
+function showAccountTopup(email, name, balance) {
+    document.getElementById('topup-email').value = email;
+    document.getElementById('topup-user-info').textContent = name + ' (' + email + ')  |  ' + window._i18n("current_balance_label","当前余额:") + ' ' + balance.toFixed(0) + ' Credits';
     document.getElementById('topup-amount').value = '';
     document.getElementById('topup-reason').value = '';
     document.getElementById('topup-modal').className = 'modal-overlay show';
 }
 
+function hideTopupModal() { document.getElementById('topup-modal').className = 'modal-overlay'; }
+
 function submitTopup() {
-    var userIdVal = document.getElementById('topup-user-id').value;
+    var email = document.getElementById('topup-email').value;
     var amount = parseFloat(document.getElementById('topup-amount').value);
     var reason = document.getElementById('topup-reason').value.trim();
     if (!amount || amount <= 0) { alert(window._i18n("enter_valid_topup","请输入有效的充值数量")); return; }
-
-    var url, body;
-    if (userIdVal.indexOf('__email__') === 0) {
-        var email = userIdVal.substring(9);
-        url = '/api/admin/customers/email-topup';
-        body = JSON.stringify({email: email, amount: amount, reason: reason});
-    } else {
-        url = '/api/admin/customers/' + userIdVal + '/topup';
-        body = JSON.stringify({amount: amount, reason: reason});
-    }
-
-    apiFetch(url, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: body
+    apiFetch('/api/admin/accounts/topup', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: email, amount: amount, reason: reason})
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) {
-            hideTopupModal();
-            showMsg(window._i18n("topup_success","充值成功，新余额:") + ' ' + res.data.new_balance, false);
-            loadCustomers();
-        } else {
-            showMsg(res.data.error || window._i18n("topup_failed","充值失败"), true);
-        }
+        if (res.ok) { hideTopupModal(); showMsg(window._i18n("topup_success","充值成功，新余额:") + ' ' + res.data.new_balance, false); loadAccounts(); }
+        else { showMsg(res.data.error || window._i18n("topup_failed","充值失败"), true); }
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
-function showEmailTx(email, name) {
-    document.getElementById('customer-tx-title').textContent = escHtml(name) + ' (' + escHtml(email) + ') ' + window._i18n("transaction_records","的交易记录");
-    document.getElementById('customer-tx-modal').className = 'modal-overlay show';
-    window._txCtx = { type: 'email', email: email, name: name };
-    loadCustomerTxPage(1);
-}
-
-function toggleEmailBlock(email, name, isCurrentlyBlocked) {
+function toggleAccountBlock(email, name, isCurrentlyBlocked) {
     var action = isCurrentlyBlocked ? window._i18n("unblock","解禁") : window._i18n("block","禁用");
     if (!confirm(window._i18n("confirm_block","确定要{action}客户 \"{name}\" 吗？").replace("{action}", action).replace("{name}", name + ' (' + email + ')'))) return;
-    apiFetch('/api/admin/customers/email-toggle-block', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+    apiFetch('/api/admin/accounts/toggle-block', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email: email})
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
-        if (res.ok) {
-            showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false);
-            loadCustomers();
-        } else {
-            showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true);
-        }
+        if (res.ok) { showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false); loadAccounts(); }
+        else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
+
+// Keep old function names as aliases for backward compatibility
+function loadCustomers() { loadAccounts(); }
+function loadAuthors() { loadAccounts(); }
+
 function saveProfile() {
     var username = document.getElementById('profile-username').value.trim();
     var oldPassword = document.getElementById('profile-old-password').value;
@@ -2130,7 +1982,7 @@ function exportSalesExcel() {
 
 // Init: show first available section based on permissions
 (function initDefaultSection() {
-    var order = ['categories', 'marketplace', 'authors', 'customers', 'review', 'settings', 'notifications', 'sales'];
+    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'sales'];
     for (var i = 0; i < order.length; i++) {
         if (hasPerm(order[i])) {
             showSection(order[i]);

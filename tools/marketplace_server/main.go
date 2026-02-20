@@ -1803,7 +1803,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "authors", "review", "settings", "customers", "sales", "notifications"}
+var allPermissions = []string{"categories", "marketplace", "accounts", "authors", "review", "settings", "customers", "sales", "notifications"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.
@@ -1820,6 +1820,7 @@ func getAdminPermissions(adminID int64) []string {
 }
 
 // hasPermission checks if the given admin has a specific permission.
+// "accounts" permission is satisfied by having "accounts", "authors", or "customers".
 func hasPermission(adminID int64, perm string) bool {
 	if adminID == 1 {
 		return true
@@ -1827,6 +1828,10 @@ func hasPermission(adminID int64, perm string) bool {
 	perms := getAdminPermissions(adminID)
 	for _, p := range perms {
 		if p == perm {
+			return true
+		}
+		// Backward compatibility: "accounts" is satisfied by old "authors" or "customers" permissions
+		if perm == "accounts" && (p == "authors" || p == "customers") {
 			return true
 		}
 	}
@@ -8568,10 +8573,376 @@ func handleAdminRelistPack(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// --- Unified Account Management (email-based virtual accounts) ---
+
+// UnifiedAccount represents a single email-based virtual account combining customer and author data.
+type UnifiedAccount struct {
+	Email          string  `json:"email"`
+	DisplayName    string  `json:"display_name"`
+	AccountCount   int     `json:"account_count"`
+	IsAuthor       bool    `json:"is_author"`
+	TotalBalance   float64 `json:"total_balance"`
+	TotalDownloads int     `json:"total_downloads"`
+	TotalSpent     float64 `json:"total_spent"`
+	PublishedPacks int     `json:"published_packs"`
+	AuthorRevenue  float64 `json:"author_revenue"`
+	IsBlocked      bool    `json:"is_blocked"`
+	CreatedAt      string  `json:"created_at"`
+}
+
+// handleAdminAccountList returns unified email-based virtual accounts.
+// GET /api/admin/accounts?search=&sort=created_at&order=desc
+func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Step 1: Query all users grouped by email with customer stats
+	// Use subqueries for downloads and spent to avoid cartesian product from multiple LEFT JOINs
+	custQuery := `
+		SELECT COALESCE(u.email, CAST(u.id AS TEXT)) as email,
+		       MAX(u.display_name) as display_name,
+		       COUNT(DISTINCT u.id) as account_count,
+		       MIN(CASE WHEN COALESCE(u.is_blocked, 0) = 1 THEN 1 ELSE 0 END) as all_blocked,
+		       MIN(u.created_at) as created_at,
+		       GROUP_CONCAT(DISTINCT u.id) as user_ids,
+		       (SELECT COUNT(DISTINCT ud.listing_id) FROM user_downloads ud WHERE ud.user_id IN
+		           (SELECT u2.id FROM users u2 WHERE COALESCE(u2.email, CAST(u2.id AS TEXT)) = COALESCE(u.email, CAST(u.id AS TEXT)))
+		       ) as download_count,
+		       COALESCE((SELECT SUM(ABS(ct.amount)) FROM credits_transactions ct
+		           WHERE ct.user_id IN (SELECT u3.id FROM users u3 WHERE COALESCE(u3.email, CAST(u3.id AS TEXT)) = COALESCE(u.email, CAST(u.id AS TEXT)))
+		           AND ct.transaction_type IN ('download','purchase','purchase_uses','renew') AND ct.amount < 0
+		       ), 0) as total_spent
+		FROM users u
+	`
+	custArgs := []interface{}{}
+	if search := r.URL.Query().Get("search"); search != "" {
+		custQuery += ` WHERE u.email LIKE ? OR u.display_name LIKE ? OR u.auth_id LIKE ?`
+		like := "%" + search + "%"
+		custArgs = append(custArgs, like, like, like)
+	}
+	custQuery += ` GROUP BY COALESCE(u.email, CAST(u.id AS TEXT))`
+
+	custRows, err := db.Query(custQuery, custArgs...)
+	if err != nil {
+		log.Printf("[ACCOUNT-LIST] failed to query customers: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer custRows.Close()
+
+	accountMap := map[string]*UnifiedAccount{}
+	emailOrder := []string{}
+
+	for custRows.Next() {
+		var email, displayName, userIDs, createdAt string
+		var accountCount, allBlocked, downloadCount int
+		var totalSpent float64
+		if err := custRows.Scan(&email, &displayName, &accountCount, &allBlocked, &createdAt, &userIDs, &downloadCount, &totalSpent); err != nil {
+			log.Printf("[ACCOUNT-LIST] scan error: %v", err)
+			continue
+		}
+		acc := &UnifiedAccount{
+			Email:          email,
+			DisplayName:    displayName,
+			AccountCount:   accountCount,
+			IsBlocked:      allBlocked == 1,
+			CreatedAt:      createdAt,
+			TotalDownloads: downloadCount,
+			TotalSpent:     totalSpent,
+		}
+		accountMap[email] = acc
+		emailOrder = append(emailOrder, email)
+	}
+
+	// Step 2: Query author stats (published packs, revenue) grouped by email
+	// Only query for emails we already have in accountMap
+	authorQuery := `
+		SELECT COALESCE(u.email, CAST(u.id AS TEXT)) as email,
+		       COUNT(pl.id) as published_packs,
+		       COALESCE(SUM(pl.download_count * pl.credits_price), 0) as author_revenue
+		FROM users u
+		INNER JOIN pack_listings pl ON pl.user_id = u.id AND pl.status IN ('published', 'delisted')
+	`
+	authorArgs := []interface{}{}
+	if search := r.URL.Query().Get("search"); search != "" {
+		authorQuery += ` WHERE u.email LIKE ? OR u.display_name LIKE ? OR u.auth_id LIKE ?`
+		like := "%" + search + "%"
+		authorArgs = append(authorArgs, like, like, like)
+	}
+	authorQuery += ` GROUP BY COALESCE(u.email, CAST(u.id AS TEXT))`
+
+	authorRows, err := db.Query(authorQuery, authorArgs...)
+	if err != nil {
+		log.Printf("[ACCOUNT-LIST] failed to query author stats: %v", err)
+	} else {
+		defer authorRows.Close()
+		for authorRows.Next() {
+			var email string
+			var publishedPacks int
+			var authorRevenue float64
+			if err := authorRows.Scan(&email, &publishedPacks, &authorRevenue); err != nil {
+				continue
+			}
+			if acc, ok := accountMap[email]; ok {
+				acc.IsAuthor = true
+				acc.PublishedPacks = publishedPacks
+				acc.AuthorRevenue = authorRevenue
+			}
+		}
+	}
+
+	// Step 3: Load wallet balances only for emails in accountMap
+	if len(emailOrder) > 0 {
+		wPlaceholders := make([]string, len(emailOrder))
+		wArgs := make([]interface{}, len(emailOrder))
+		for i, e := range emailOrder {
+			wPlaceholders[i] = "?"
+			wArgs[i] = e
+		}
+		wRows, wErr := db.Query("SELECT email, credits_balance FROM email_wallets WHERE email IN ("+strings.Join(wPlaceholders, ",")+")", wArgs...)
+		if wErr == nil {
+			defer wRows.Close()
+			for wRows.Next() {
+				var e string
+				var b float64
+				if wRows.Scan(&e, &b) == nil {
+					if acc, ok := accountMap[e]; ok {
+						acc.TotalBalance = b
+					}
+				}
+			}
+		}
+	}
+
+	// Step 4: Build result list
+	accounts := make([]UnifiedAccount, 0, len(emailOrder))
+	for _, email := range emailOrder {
+		accounts = append(accounts, *accountMap[email])
+	}
+
+	// Step 5: Sort
+	sortField := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+	if order != "asc" {
+		order = "desc"
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		var less bool
+		switch sortField {
+		case "credits":
+			less = accounts[i].TotalBalance < accounts[j].TotalBalance
+		case "downloads":
+			less = accounts[i].TotalDownloads < accounts[j].TotalDownloads
+		case "spent":
+			less = accounts[i].TotalSpent < accounts[j].TotalSpent
+		case "packs":
+			less = accounts[i].PublishedPacks < accounts[j].PublishedPacks
+		case "revenue":
+			less = accounts[i].AuthorRevenue < accounts[j].AuthorRevenue
+		case "name":
+			less = accounts[i].DisplayName < accounts[j].DisplayName
+		default: // created_at
+			less = accounts[i].CreatedAt < accounts[j].CreatedAt
+		}
+		if order == "desc" {
+			return !less
+		}
+		return less
+	})
+
+	// Step 6: Filter by role if requested
+	roleFilter := r.URL.Query().Get("role")
+	if roleFilter == "author" {
+		filtered := make([]UnifiedAccount, 0)
+		for _, a := range accounts {
+			if a.IsAuthor {
+				filtered = append(filtered, a)
+			}
+		}
+		accounts = filtered
+	} else if roleFilter == "customer" {
+		filtered := make([]UnifiedAccount, 0)
+		for _, a := range accounts {
+			if !a.IsAuthor {
+				filtered = append(filtered, a)
+			}
+		}
+		accounts = filtered
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"accounts": accounts})
+}
+
+// handleAdminAccountDetail returns combined author packs + customer info for an email.
+// GET /api/admin/accounts/detail?email=xxx&page=1&page_size=10
+func handleAdminAccountDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	email := r.URL.Query().Get("email")
+	if email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		return
+	}
+
+	// Get all user IDs for this email
+	var userIDs []int64
+	var displayName string
+	idRows, err := db.Query("SELECT id, display_name FROM users WHERE email = ? ORDER BY id ASC", email)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer idRows.Close()
+	for idRows.Next() {
+		var uid int64
+		var dn string
+		if err := idRows.Scan(&uid, &dn); err == nil {
+			userIDs = append(userIDs, uid)
+			if displayName == "" {
+				displayName = dn
+			}
+		}
+	}
+	if len(userIDs) == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+
+	// Build IN clause
+	placeholders := make([]string, len(userIDs))
+	idArgs := make([]interface{}, len(userIDs))
+	for i, uid := range userIDs {
+		placeholders[i] = "?"
+		idArgs[i] = uid
+	}
+	inClause := strings.Join(placeholders, ",")
+
+	// Get wallet balance
+	walletBalance := getWalletBalanceByEmail(email)
+
+	// Get sub-accounts info
+	type SubAccountInfo struct {
+		ID          int64  `json:"id"`
+		AuthType    string `json:"auth_type"`
+		AuthID      string `json:"auth_id"`
+		DisplayName string `json:"display_name"`
+		IsBlocked   bool   `json:"is_blocked"`
+		CreatedAt   string `json:"created_at"`
+	}
+	subAccounts := []SubAccountInfo{}
+	saRows, err := db.Query("SELECT id, auth_type, auth_id, display_name, COALESCE(is_blocked,0), created_at FROM users WHERE email = ? ORDER BY id ASC", email)
+	if err == nil {
+		defer saRows.Close()
+		for saRows.Next() {
+			var sa SubAccountInfo
+			var blocked int
+			if saRows.Scan(&sa.ID, &sa.AuthType, &sa.AuthID, &sa.DisplayName, &blocked, &sa.CreatedAt) == nil {
+				sa.IsBlocked = blocked == 1
+				subAccounts = append(subAccounts, sa)
+			}
+		}
+	}
+
+	// Get author packs (paginated)
+	page := 1
+	pageSize := 10
+	if p := r.URL.Query().Get("page"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil && v > 0 {
+			page = v
+		}
+	}
+	if ps := r.URL.Query().Get("page_size"); ps != "" {
+		if v, err := strconv.Atoi(ps); err == nil && v > 0 && v <= 100 {
+			pageSize = v
+		}
+	}
+
+	var totalPacks int
+	db.QueryRow(`SELECT COUNT(*) FROM pack_listings WHERE user_id IN (`+inClause+`) AND status IN ('published', 'delisted')`, idArgs...).Scan(&totalPacks)
+	totalPages := (totalPacks + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	offset := (page - 1) * pageSize
+
+	queryArgs := make([]interface{}, 0, len(idArgs)+2)
+	queryArgs = append(queryArgs, idArgs...)
+	queryArgs = append(queryArgs, pageSize, offset)
+	packRows, err := db.Query(`
+		SELECT pl.id, pl.pack_name, c.name, pl.share_mode, pl.credits_price, pl.download_count,
+		       pl.download_count * pl.credits_price as total_revenue, pl.status, pl.created_at
+		FROM pack_listings pl
+		JOIN categories c ON c.id = pl.category_id
+		WHERE pl.user_id IN (`+inClause+`) AND pl.status IN ('published', 'delisted')
+		ORDER BY pl.download_count DESC
+		LIMIT ? OFFSET ?`, queryArgs...)
+
+	packs := []AuthorPackDetail{}
+	if err == nil {
+		defer packRows.Close()
+		for packRows.Next() {
+			var p AuthorPackDetail
+			if packRows.Scan(&p.PackID, &p.PackName, &p.CategoryName, &p.ShareMode,
+				&p.CreditsPrice, &p.DownloadCount, &p.TotalRevenue, &p.Status, &p.CreatedAt) == nil {
+				packs = append(packs, p)
+			}
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"email":          email,
+		"display_name":   displayName,
+		"wallet_balance": walletBalance,
+		"sub_accounts":   subAccounts,
+		"is_author":      totalPacks > 0,
+		"packs":          packs,
+		"page":           page,
+		"page_size":      pageSize,
+		"total_packs":    totalPacks,
+		"total_pages":    totalPages,
+	})
+}
+
+// handleAdminAccountRoutes dispatches unified account management API requests.
+func handleAdminAccountRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/admin/accounts")
+	if path == "" || path == "/" {
+		handleAdminAccountList(w, r)
+		return
+	}
+	if path == "/detail" {
+		handleAdminAccountDetail(w, r)
+		return
+	}
+	// Reuse existing email-level customer operations
+	if path == "/topup" {
+		handleAdminEmailTopup(w, r)
+		return
+	}
+	if path == "/transactions" {
+		handleAdminEmailTransactions(w, r)
+		return
+	}
+	if path == "/toggle-block" {
+		handleAdminEmailToggleBlock(w, r)
+		return
+	}
+	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+}
+
 
 // AuthorInfo represents author statistics for admin management.
+// Authors are grouped by email — same email is treated as the same author.
 type AuthorInfo struct {
-	UserID         int64   `json:"user_id"`
+	UserIDs        string  `json:"user_ids"`
 	DisplayName    string  `json:"display_name"`
 	Email          string  `json:"email"`
 	TotalPacks     int     `json:"total_packs"`
@@ -8596,8 +8967,11 @@ func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
 	yearStart := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 
+	// Group by email so that the same email is treated as the same author
 	query := `
-		SELECT u.id, u.display_name, COALESCE(u.email, ''),
+		SELECT GROUP_CONCAT(DISTINCT u.id) as user_ids,
+		       MAX(u.display_name) as display_name,
+		       COALESCE(u.email, '') as email,
 		       COUNT(pl.id) as total_packs,
 		       COALESCE(SUM(pl.download_count), 0) as total_downloads,
 		       COALESCE(SUM(pl.download_count * pl.credits_price), 0) as total_revenue,
@@ -8605,7 +8979,7 @@ func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count * pl.credits_price ELSE 0 END), 0) as year_revenue,
 		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count ELSE 0 END), 0) as month_downloads,
 		       COALESCE(SUM(CASE WHEN pl.created_at >= ? THEN pl.download_count * pl.credits_price ELSE 0 END), 0) as month_revenue,
-		       u.created_at
+		       MIN(u.created_at) as created_at
 		FROM users u
 		INNER JOIN pack_listings pl ON pl.user_id = u.id AND pl.status IN ('published', 'delisted')
 	`
@@ -8617,7 +8991,7 @@ func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "%"+email+"%")
 	}
 
-	query += " GROUP BY u.id"
+	query += " GROUP BY COALESCE(u.email, CAST(u.id AS TEXT))"
 
 	// Sort
 	sortField := r.URL.Query().Get("sort")
@@ -8651,7 +9025,7 @@ func handleAdminAuthorList(w http.ResponseWriter, r *http.Request) {
 	authors := []AuthorInfo{}
 	for rows.Next() {
 		var a AuthorInfo
-		if err := rows.Scan(&a.UserID, &a.DisplayName, &a.Email,
+		if err := rows.Scan(&a.UserIDs, &a.DisplayName, &a.Email,
 			&a.TotalPacks, &a.TotalDownloads, &a.TotalRevenue,
 			&a.YearDownloads, &a.YearRevenue, &a.MonthDownloads, &a.MonthRevenue,
 			&a.CreatedAt); err != nil {
@@ -8680,32 +9054,90 @@ type AuthorPackDetail struct {
 }
 
 // handleAdminAuthorDetail returns per-pack sales detail for a specific author.
-// GET /api/admin/authors/{id}
+// GET /api/admin/authors/{id} — id can be a user_id or email (for email-grouped authors)
+// Also supports: GET /api/admin/authors/by-email?email=xxx
 func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
-	// Parse user ID from URL: /api/admin/authors/{id}
-	path := strings.TrimPrefix(r.URL.Path, "/api/admin/authors/")
-	userID, err := strconv.ParseInt(path, 10, 64)
-	if err != nil {
-		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
-		return
+	// Determine which user IDs to query — support both single user_id and email-based lookup
+	var userIDs []int64
+	var displayName, email string
+
+	pathParam := strings.TrimPrefix(r.URL.Path, "/api/admin/authors/")
+
+	// Check if email query param is provided (for email-grouped lookup)
+	emailParam := r.URL.Query().Get("email")
+	if pathParam == "by-email" && emailParam != "" {
+		// Lookup all user IDs with this email
+		rows, err := db.Query("SELECT id, display_name, COALESCE(email, '') FROM users WHERE email = ?", emailParam)
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var uid int64
+			var dn, em string
+			if err := rows.Scan(&uid, &dn, &em); err != nil {
+				continue
+			}
+			userIDs = append(userIDs, uid)
+			if displayName == "" {
+				displayName = dn
+			}
+			if email == "" {
+				email = em
+			}
+		}
+		if len(userIDs) == 0 {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+			return
+		}
+	} else {
+		// Legacy: single user_id
+		userID, err := strconv.ParseInt(pathParam, 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_id"})
+			return
+		}
+		err = db.QueryRow("SELECT display_name, COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&displayName, &email)
+		if err == sql.ErrNoRows {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
+			return
+		}
+		if err != nil {
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+			return
+		}
+		// If this user has an email, find all user IDs with the same email
+		if email != "" {
+			idRows, err := db.Query("SELECT id FROM users WHERE email = ?", email)
+			if err == nil {
+				defer idRows.Close()
+				for idRows.Next() {
+					var uid int64
+					if err := idRows.Scan(&uid); err == nil {
+						userIDs = append(userIDs, uid)
+					}
+				}
+			}
+		}
+		if len(userIDs) == 0 {
+			userIDs = []int64{userID}
+		}
 	}
 
-	// Get author info
-	var displayName, email string
-	err = db.QueryRow("SELECT display_name, COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&displayName, &email)
-	if err == sql.ErrNoRows {
-		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
-		return
+	// Build IN clause for user IDs
+	placeholders := make([]string, len(userIDs))
+	idArgs := make([]interface{}, len(userIDs))
+	for i, uid := range userIDs {
+		placeholders[i] = "?"
+		idArgs[i] = uid
 	}
-	if err != nil {
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
-		return
-	}
+	inClause := strings.Join(placeholders, ",")
 
 	// Pagination
 	page := 1
@@ -8721,9 +9153,9 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get total count
+	// Get total count across all user IDs
 	var totalPacks int
-	err = db.QueryRow(`SELECT COUNT(*) FROM pack_listings pl WHERE pl.user_id = ? AND pl.status IN ('published', 'delisted')`, userID).Scan(&totalPacks)
+	err := db.QueryRow(`SELECT COUNT(*) FROM pack_listings pl WHERE pl.user_id IN (`+inClause+`) AND pl.status IN ('published', 'delisted')`, idArgs...).Scan(&totalPacks)
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
@@ -8737,37 +9169,40 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := (page - 1) * pageSize
 
-	// Get per-pack details with pagination
-	rows, err := db.Query(`
+	// Get per-pack details with pagination across all user IDs
+	queryArgs := make([]interface{}, 0, len(idArgs)+2)
+	queryArgs = append(queryArgs, idArgs...)
+	queryArgs = append(queryArgs, pageSize, offset)
+	rows2, err := db.Query(`
 		SELECT pl.id, pl.pack_name, c.name, pl.share_mode, pl.credits_price, pl.download_count,
 		       pl.download_count * pl.credits_price as total_revenue, pl.status, pl.created_at
 		FROM pack_listings pl
 		JOIN categories c ON c.id = pl.category_id
-		WHERE pl.user_id = ? AND pl.status IN ('published', 'delisted')
+		WHERE pl.user_id IN (`+inClause+`) AND pl.status IN ('published', 'delisted')
 		ORDER BY pl.download_count DESC
-		LIMIT ? OFFSET ?`, userID, pageSize, offset)
+		LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
 	}
-	defer rows.Close()
+	defer rows2.Close()
 
 	packs := []AuthorPackDetail{}
-	for rows.Next() {
+	for rows2.Next() {
 		var p AuthorPackDetail
-		if err := rows.Scan(&p.PackID, &p.PackName, &p.CategoryName, &p.ShareMode,
+		if err := rows2.Scan(&p.PackID, &p.PackName, &p.CategoryName, &p.ShareMode,
 			&p.CreditsPrice, &p.DownloadCount, &p.TotalRevenue, &p.Status, &p.CreatedAt); err != nil {
 			log.Printf("Failed to scan author pack detail: %v", err)
 			continue
 		}
 		packs = append(packs, p)
 	}
-	if err := rows.Err(); err != nil {
+	if err := rows2.Err(); err != nil {
 		log.Printf("[handleAdminAuthorDetail] rows iteration error: %v", err)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"user_id":      userID,
+		"user_ids":     userIDs,
 		"display_name": displayName,
 		"email":        email,
 		"packs":        packs,
@@ -8805,7 +9240,7 @@ func handleAdminAuthorRoutes(w http.ResponseWriter, r *http.Request) {
 		handleAdminAuthorList(w, r)
 		return
 	}
-	// /api/admin/authors/{id}
+	// /api/admin/authors/by-email?email=xxx or /api/admin/authors/{id}
 	handleAdminAuthorDetail(w, r)
 }
 
@@ -10011,11 +10446,15 @@ func main() {
 	http.HandleFunc("/api/admin/marketplace", permissionAuth("marketplace")(handleAdminMarketplaceRoutes))
 	http.HandleFunc("/api/admin/marketplace/", permissionAuth("marketplace")(handleAdminMarketplaceRoutes))
 
-	// Author management API routes (permission-based)
+	// Unified account management API routes (permission-based, replaces separate author/customer)
+	http.HandleFunc("/api/admin/accounts", permissionAuth("accounts")(handleAdminAccountRoutes))
+	http.HandleFunc("/api/admin/accounts/", permissionAuth("accounts")(handleAdminAccountRoutes))
+
+	// Author management API routes (permission-based, kept for backward compatibility)
 	http.HandleFunc("/api/admin/authors", permissionAuth("authors")(handleAdminAuthorRoutes))
 	http.HandleFunc("/api/admin/authors/", permissionAuth("authors")(handleAdminAuthorRoutes))
 
-	// Customer management API routes (permission-based)
+	// Customer management API routes (permission-based, kept for backward compatibility)
 	http.HandleFunc("/api/admin/customers", permissionAuth("customers")(handleAdminCustomerRoutes))
 	http.HandleFunc("/api/admin/customers/", permissionAuth("customers")(handleAdminCustomerRoutes))
 
