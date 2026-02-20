@@ -546,6 +546,13 @@ func initDB() {
 		db.Exec("INSERT INTO settings (key, value) VALUES ('manage_port', '8899')")
 		db.Exec("INSERT INTO settings (key, value) VALUES ('auth_port', '6699')")
 	}
+
+	// Ensure default product type (ID 0) exists for Vantagics
+	var defaultProductCount int
+	db.QueryRow("SELECT COUNT(*) FROM product_types WHERE id=0").Scan(&defaultProductCount)
+	if defaultProductCount == 0 {
+		db.Exec("INSERT INTO product_types (id, name, description) VALUES (0, 'Vantagics', 'Intelligent Data Analytics Platform')")
+	}
 	
 	// Set default username if not exists
 	var usernameCount int
@@ -2673,6 +2680,9 @@ func handleProductTypes(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Err(); err != nil {
 			http.Error(w, fmt.Sprintf("database iteration error: %v", err), http.StatusInternalServerError)
 			return
+		}
+		if products == nil {
+			products = []ProductType{}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(products)

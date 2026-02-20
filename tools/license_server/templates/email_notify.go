@@ -292,8 +292,8 @@ function loadNotifyTemplates() {
             select.innerHTML = '<option value="">-- 不使用模板 --</option>';
             for (var i = 0; i < notifyTemplates.length; i++) {
                 var t = notifyTemplates[i];
-                var label = t.IsPreset ? '[预置] ' : '';
-                select.innerHTML += '<option value="' + t.ID + '">' + escapeHtml(label + t.Name) + '</option>';
+                var label = t.is_preset ? '[预置] ' : '';
+                select.innerHTML += '<option value="' + t.id + '">' + escapeHtml(label + t.name) + '</option>';
             }
         })
         .catch(function(err) {
@@ -308,15 +308,15 @@ function onNotifyTemplateChange() {
 
     var tmpl = null;
     for (var i = 0; i < notifyTemplates.length; i++) {
-        if (notifyTemplates[i].ID === templateId) {
+        if (notifyTemplates[i].id === templateId) {
             tmpl = notifyTemplates[i];
             break;
         }
     }
     if (!tmpl) return;
 
-    document.getElementById('notify-subject').value = tmpl.Subject;
-    document.getElementById('notify-editor').innerHTML = tmpl.Body;
+    document.getElementById('notify-subject').value = tmpl.subject;
+    document.getElementById('notify-editor').innerHTML = tmpl.body;
     updateNotifyPreview();
 }
 
