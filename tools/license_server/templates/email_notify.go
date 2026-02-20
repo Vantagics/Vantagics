@@ -34,7 +34,20 @@ const EmailNotifyHTML = `
         <!-- 按邮箱发送模式 -->
         <div id="recipient-mode-email" class="hidden">
             <div class="mb-2">
-                <label class="form-label">搜索并选择邮箱</label>
+                <label class="form-label">关联产品（用于模板变量 {{.ProductName}}）</label>
+                <select id="notify-email-product-select" class="form-select" style="width:auto;min-width:240px">
+                    <option value="0">Vantagics (ID: 0)</option>
+                </select>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">手动添加邮箱</label>
+                <div class="flex gap-2">
+                    <input type="text" id="notify-email-manual" class="form-input" style="flex:1" placeholder="输入邮箱地址，多个用逗号或空格分隔" onkeypress="if(event.key==='Enter')addManualEmails()">
+                    <button onclick="addManualEmails()" class="btn btn-success btn-sm">添加</button>
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label">搜索已有邮箱</label>
                 <div class="flex gap-2">
                     <input type="text" id="notify-email-search" class="form-input" style="flex:1" placeholder="输入邮箱关键词搜索..." onkeypress="if(event.key==='Enter')searchNotifyEmails()">
                     <button onclick="searchNotifyEmails()" class="btn btn-primary btn-sm">搜索</button>
@@ -151,19 +164,25 @@ function switchRecipientMode(mode) {
     var emailBtn = document.getElementById('mode-email-btn');
 
     if (mode === 'product') {
-        productSection.style.display = '';
-        emailSection.style.display = 'none';
+        productSection.classList.remove('hidden');
+        emailSection.classList.add('hidden');
         productBtn.className = 'btn btn-primary btn-sm';
         emailBtn.className = 'btn btn-secondary btn-sm';
     } else {
-        productSection.style.display = 'none';
-        emailSection.style.display = '';
+        productSection.classList.add('hidden');
+        emailSection.classList.remove('hidden');
         productBtn.className = 'btn btn-secondary btn-sm';
         emailBtn.className = 'btn btn-primary btn-sm';
     }
-    // Reset selections when switching mode
+    // Reset selections and clear UI when switching mode
     notifySelectedEmails = [];
     updateRecipientCount();
+    renderSelectedEmails();
+    document.getElementById('email-search-results').innerHTML = '';
+    document.getElementById('product-recipient-info').innerHTML = '';
+    document.getElementById('notify-product-select').value = '';
+    document.getElementById('notify-email-search').value = '';
+    document.getElementById('notify-email-manual').value = '';
 }
 
 // ===== Product Selection -> Load Recipients =====
@@ -197,6 +216,33 @@ function onNotifyProductChange() {
 }
 
 // ===== Email Search and Multi-Select =====
+function addManualEmails() {
+    var input = document.getElementById('notify-email-manual');
+    var raw = input.value.trim();
+    if (!raw) return;
+
+    // Split by comma, semicolon, space, or newline
+    var parts = raw.split(/[,;\\s]+/);
+    var added = 0;
+    for (var i = 0; i < parts.length; i++) {
+        var email = parts[i].trim().toLowerCase();
+        if (!email) continue;
+        // Basic email format check
+        if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) continue;
+        if (notifySelectedEmails.indexOf(email) < 0) {
+            notifySelectedEmails.push(email);
+            added++;
+        }
+    }
+    if (added > 0) {
+        updateRecipientCount();
+        renderSelectedEmails();
+        input.value = '';
+    } else if (raw) {
+        alert('未添加任何有效邮箱，请检查格式');
+    }
+}
+
 function searchNotifyEmails() {
     var keyword = document.getElementById('notify-email-search').value.trim();
     var resultsDiv = document.getElementById('email-search-results');
@@ -376,13 +422,24 @@ function startNotifySend() {
     sendBtn.disabled = true;
     sendBtn.textContent = '提交中...';
 
+    // Determine product_id: from product mode or email mode dropdown
+    var productId = -1;
+    var productMode = !document.getElementById('recipient-mode-product').classList.contains('hidden');
+    if (productMode) {
+        var pv = document.getElementById('notify-product-select').value;
+        if (pv !== '') productId = parseInt(pv);
+    } else {
+        productId = parseInt(document.getElementById('notify-email-product-select').value) || 0;
+    }
+
     fetch('/api/email-notify/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             subject: subject,
             body: body,
-            emails: notifySelectedEmails
+            emails: notifySelectedEmails,
+            product_id: productId
         })
     })
     .then(function(r) { return r.json(); })
@@ -409,11 +466,9 @@ function showNotifyProgress(total) {
     var cancelBtn = document.getElementById('notify-cancel-btn');
     var sendBtn = document.getElementById('notify-send-btn');
 
-    progressArea.style.display = '';
     progressArea.classList.remove('hidden');
-    cancelBtn.style.display = '';
     cancelBtn.classList.remove('hidden');
-    sendBtn.style.display = 'none';
+    sendBtn.classList.add('hidden');
 
     document.getElementById('notify-sent-count').textContent = '0';
     document.getElementById('notify-failed-count').textContent = '0';
@@ -427,8 +482,8 @@ function hideNotifyProgress() {
     var cancelBtn = document.getElementById('notify-cancel-btn');
     var sendBtn = document.getElementById('notify-send-btn');
 
-    cancelBtn.style.display = 'none';
-    sendBtn.style.display = '';
+    cancelBtn.classList.add('hidden');
+    sendBtn.classList.remove('hidden');
     sendBtn.disabled = notifySelectedEmails.length === 0;
     sendBtn.textContent = '发送邮件';
 }
@@ -659,12 +714,16 @@ function loadNotifyProducts() {
         .then(function(data) {
             var products = data || [];
             var select = document.getElementById('notify-product-select');
+            var emailSelect = document.getElementById('notify-email-product-select');
             select.innerHTML = '<option value="">-- 请选择产品 --</option>';
+            emailSelect.innerHTML = '';
             for (var i = 0; i < products.length; i++) {
                 var p = products[i];
                 var pid = p.id !== undefined ? p.id : p.ID;
                 var pname = p.name || p.Name || ('产品 ' + pid);
-                select.innerHTML += '<option value="' + pid + '">' + escapeHtml(pname) + ' (ID: ' + pid + ')</option>';
+                var optHtml = '<option value="' + pid + '">' + escapeHtml(pname) + ' (ID: ' + pid + ')</option>';
+                select.innerHTML += optHtml;
+                emailSelect.innerHTML += optHtml;
             }
         })
         .catch(function(err) {

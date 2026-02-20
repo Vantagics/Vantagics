@@ -177,6 +177,9 @@ type App struct {
 	packPasswords map[string]string
 	// Persistent pack password store (survives app restarts)
 	packPasswordStore *PackPasswordStore
+	// startupDone is closed when startup() finishes, used by background goroutines
+	// to wait for full initialization before calling SaveConfig/reinitializeServices.
+	startupDone chan struct{}
 }
 
 // AgentMemoryView structure for frontend
@@ -196,6 +199,7 @@ func NewApp() *App {
 		pythonFacadeService: NewPythonFacadeService(ps, l.Log),
 		logger:              l,
 		packPasswords:       make(map[string]string),
+		startupDone:         make(chan struct{}),
 	}
 }
 
@@ -348,6 +352,7 @@ func (a *App) shutdown(ctx context.Context) {
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	defer close(a.startupDone) // Signal background goroutines that startup is complete
 
 	// Store App instance in context for system tray access
 	ctx = context.WithValue(ctx, appContextKey, a)
@@ -2959,34 +2964,83 @@ func (a *App) DiagnosePythonInstallation() map[string]interface{} {
 	return a.pythonFacadeService.DiagnosePythonInstallation()
 }
 
-// SetupUvEnvironment creates a uv virtual environment and installs required packages
+// SetupUvEnvironment creates a uv virtual environment and installs required packages.
+// It also persists the pythonPath to config so the agent can find it.
 func (a *App) SetupUvEnvironment() (string, error) {
 	if a.pythonFacadeService == nil {
 		return "", WrapError("App", "SetupUvEnvironment", fmt.Errorf("python facade service not initialized"))
 	}
-	return a.pythonFacadeService.SetupUvEnvironment()
+	pythonPath, err := a.pythonFacadeService.SetupUvEnvironment()
+	if err != nil {
+		return "", err
+	}
+	// Auto-persist pythonPath to config
+	if pythonPath != "" {
+		if cfg, cfgErr := a.GetConfig(); cfgErr == nil && cfg.PythonPath != pythonPath {
+			cfg.PythonPath = pythonPath
+			_ = a.SaveConfig(cfg)
+		}
+	}
+	return pythonPath, nil
 }
 
-// autoSetupUvEnvironment checks if the uv environment is ready and sets it up in background if not
+// autoSetupUvEnvironment checks if the uv environment is ready and sets it up in background if not.
+// It fully manages the Python environment: create venv, install missing packages, and persist config.
 func (a *App) autoSetupUvEnvironment(cfg *config.Config) {
 	if a.pythonService == nil {
 		return
 	}
+
+	var pythonPath string
+
 	if a.pythonService.IsUvEnvironmentReady() {
-		a.Log("[STARTUP] uv environment already ready, skipping auto-setup")
-		return
-	}
-	if !a.pythonService.IsUvAvailable() {
+		a.Log("[STARTUP] uv environment already ready")
+		pythonPath = a.pythonService.GetUvEnvironmentPythonPath()
+
+		// Check and auto-install missing packages for existing environment
+		status := a.pythonService.GetUvEnvironmentStatus()
+		if len(status.MissingPackages) > 0 {
+			a.Log(fmt.Sprintf("[STARTUP] Auto-installing missing packages: %v", status.MissingPackages))
+			if err := a.pythonService.InstallMissingPackages(pythonPath, status.MissingPackages); err != nil {
+				a.Log(fmt.Sprintf("[STARTUP] Auto-install packages failed: %v", err))
+			} else {
+				a.Log("[STARTUP] All missing packages installed successfully")
+			}
+		}
+	} else if !a.pythonService.IsUvAvailable() {
 		a.Log("[STARTUP] uv not available, skipping auto-setup")
 		return
+	} else {
+		a.Log("[STARTUP] Auto-setting up uv environment in background...")
+		var err error
+		pythonPath, err = a.pythonService.SetupUvEnvironment()
+		if err != nil {
+			a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup failed: %v", err))
+			return
+		}
+		a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup complete: %s", pythonPath))
 	}
-	a.Log("[STARTUP] Auto-setting up uv environment in background...")
-	pythonPath, err := a.pythonService.SetupUvEnvironment()
-	if err != nil {
-		a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup failed: %v", err))
+
+	// Ensure PythonPath is persisted in config so agent can find it
+	if pythonPath == "" {
 		return
 	}
-	a.Log(fmt.Sprintf("[STARTUP] Auto uv environment setup complete: %s", pythonPath))
+	// Wait for startup to finish before calling SaveConfig, which rebuilds EinoService
+	<-a.startupDone
+	currentCfg, err := a.GetConfig()
+	if err != nil {
+		a.Log(fmt.Sprintf("[STARTUP] Failed to get config for PythonPath update: %v", err))
+		return
+	}
+	if currentCfg.PythonPath == pythonPath {
+		return
+	}
+	currentCfg.PythonPath = pythonPath
+	if err := a.SaveConfig(currentCfg); err != nil {
+		a.Log(fmt.Sprintf("[STARTUP] Failed to save PythonPath to config: %v", err))
+	} else {
+		a.Log(fmt.Sprintf("[STARTUP] PythonPath auto-configured: %s", pythonPath))
+	}
 }
 
 

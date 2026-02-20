@@ -1,5 +1,5 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
-import { GetConfig, SaveConfig, SelectDirectory, GetPythonEnvironments, ValidatePython, InstallPythonPackages, CreateVantageDataEnvironment, CheckVantageDataEnvironmentExists, DiagnosePythonInstallation, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense, SetupUvEnvironment, GetUvEnvironmentStatus } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveConfig, SelectDirectory, GetSkills, EnableSkill, DisableSkill, ReloadSkills, GetLogStats, CleanupLogs, OpenExternalURL, IsLicenseActivated, GetActivationStatus, RefreshLicense, GetUvEnvironmentStatus } from '../../wailsjs/go/main/App';
 import { EventsOn, EventsEmit, Quit } from '../../wailsjs/runtime/runtime';
 import { main, agent, config as configModel } from '../../wailsjs/go/models';
 import { useLanguage } from '../i18n';
@@ -1186,7 +1186,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                 <NetworkSettings config={config} updateConfig={updateConfig} />
                             </div>
                         )}
-                        {activeTab === 'runenv' && <RunEnvSettings config={config} setConfig={setConfig} updateConfig={updateConfig} />}
+                        {activeTab === 'runenv' && <RunEnvSettings />}
                         {activeTab === 'skills' && <SkillsSettings onOpenSkills={onOpenSkills} />}
                         {activeTab === 'intent' && <IntentEnhancementSettings config={config} updateConfig={updateConfig} />}
                         {activeTab === 'other' && (
@@ -1489,74 +1489,39 @@ const NetworkSettings: React.FC<NetworkSettingsProps> = ({ config, updateConfig 
     );
 };
 
-interface RunEnvSettingsProps {
-    config: configModel.Config;
-    setConfig: (config: configModel.Config) => void;
-    updateConfig: (updates: Partial<configModel.Config>) => void;
-}
-
-const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, updateConfig }) => {
+const RunEnvSettings: React.FC = () => {
     const { t } = useLanguage();
     const [uvStatus, setUvStatus] = useState<agent.UvEnvironmentStatus | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [settingUp, setSettingUp] = useState(false);
-    const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
+    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        if (notification) {
-            const timeout = setTimeout(() => setNotification(null), notification.type === 'error' ? 10000 : 5000);
-            return () => clearTimeout(timeout);
-        }
-    }, [notification]);
-
-    const loadUvStatus = async () => {
-        setLoading(true);
+    const loadUvStatus = async (showLoading = false) => {
+        if (showLoading) setLoading(true);
         try {
             const status = await GetUvEnvironmentStatus();
             setUvStatus(status);
         } catch (error) {
             console.error('Failed to load uv status:', error);
         } finally {
-            setLoading(false);
+            if (showLoading) setLoading(false);
         }
     };
 
-    useEffect(() => { loadUvStatus(); }, []);
+    useEffect(() => {
+        loadUvStatus(true);
+    }, []);
 
-    const handleSetupUvEnvironment = async () => {
-        setSettingUp(true);
-        try {
-            const pythonPath = await SetupUvEnvironment();
-            updateConfig({ pythonPath });
-            await loadUvStatus();
-            setNotification({ type: 'success', message: t('uv_env_setup_success') });
-        } catch (error) {
-            setNotification({ type: 'error', message: t('uv_env_setup_failed', String(error)) });
-        } finally {
-            setSettingUp(false);
+    // Auto-refresh status every 10 seconds while environment is not ready
+    useEffect(() => {
+        if (uvStatus && (!uvStatus.ready || !uvStatus.installedOk)) {
+            const interval = setInterval(() => loadUvStatus(false), 10000);
+            return () => clearInterval(interval);
         }
-    };
-
-    const handleInstallMissingPackages = async () => {
-        if (!uvStatus?.pythonPath || !uvStatus?.missingPackages?.length) return;
-        setSettingUp(true);
-        try {
-            await InstallPythonPackages(uvStatus.pythonPath, uvStatus.missingPackages);
-            await loadUvStatus();
-            setNotification({ type: 'success', message: t('packages_install_success') });
-        } catch (error) {
-            setNotification({ type: 'error', message: t('packages_install_failed', String(error)) });
-        } finally {
-            setSettingUp(false);
-        }
-    };
-
-    // Check if current pythonPath is in the list
-    const isKnownEnv = false;
+    }, [uvStatus]);
 
     return (
         <div className="space-y-6">
             <h3 className="text-lg font-semibold text-slate-800 border-b border-slate-200 pb-2">{t('python_runtime_env')}</h3>
+            <p className="text-xs text-slate-500">{t('python_env_auto_managed')}</p>
             <div className="space-y-4">
                 <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">{t('uv_env_path')}</label>
@@ -1567,7 +1532,6 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                             {uvStatus?.venvPath || t('uv_env_not_configured')}
                         </div>
                     )}
-                    <p className="mt-1 text-[10px] text-slate-400 italic">{t('uv_env_path_desc')}</p>
                 </div>
 
                 {uvStatus && !loading && (
@@ -1594,10 +1558,7 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                                     <div>
                                         <div className="flex items-center justify-between mb-2">
                                             <span className="text-sm font-medium text-amber-700">{t('missing_packages')}</span>
-                                            <button onClick={handleInstallMissingPackages} disabled={settingUp}
-                                                className="px-3 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-                                                {settingUp ? t('installing_packages') : t('install_packages')}
-                                            </button>
+                                            <span className="text-xs text-amber-600 animate-pulse">{t('auto_installing_packages')}</span>
                                         </div>
                                         <ul className="list-disc list-inside text-xs text-amber-600">
                                             {uvStatus.missingPackages.map(pkg => (<li key={pkg}>{pkg}</li>))}
@@ -1606,50 +1567,17 @@ const RunEnvSettings: React.FC<RunEnvSettingsProps> = ({ config, setConfig, upda
                                 )}
                             </>
                         ) : (
-                            <div className="space-y-3">
-                                <p className="text-sm text-slate-600">{t('uv_env_not_ready')}</p>
+                            <div className="space-y-2">
                                 {uvStatus.available ? (
-                                    <button onClick={handleSetupUvEnvironment} disabled={settingUp}
-                                        className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-                                        {settingUp ? (
-                                            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>{t('uv_env_setting_up')}</>
-                                        ) : (
-                                            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>{t('uv_env_setup_btn')}</>
-                                        )}
-                                    </button>
+                                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                                        <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                        {t('auto_setting_up_env')}
+                                    </div>
                                 ) : (
                                     <div className="text-xs text-red-600">{t('uv_install_hint')}</div>
                                 )}
                             </div>
                         )}
-                    </div>
-                )}
-
-                {settingUp && (
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                        <div className="flex items-center gap-3">
-                            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                            <div>
-                                <p className="text-sm font-medium text-blue-800">{t('uv_env_setting_up')}</p>
-                                <p className="text-xs text-blue-600">{t('creating_env_wait')}</p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {notification && (
-                    <div className={`fixed top-4 right-4 max-w-md p-4 rounded-lg shadow-lg border z-50 ${
-                        notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
-                        notification.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
-                        'bg-blue-50 border-blue-200 text-blue-800'}`}>
-                        <div className="flex items-start justify-between">
-                            <div className="flex-1 text-xs whitespace-pre-line">{notification.message}</div>
-                            <button onClick={() => setNotification(null)} className="flex-shrink-0 ml-2 text-gray-400 hover:text-gray-600">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
                     </div>
                 )}
             </div>

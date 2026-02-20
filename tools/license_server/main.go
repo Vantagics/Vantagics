@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	texttemplate "text/template"
 	"image"
 	"image/color"
 	"image/png"
@@ -601,6 +600,13 @@ func initDB() {
 		error TEXT,
 		sent_at DATETIME
 	)`)
+
+	// Migration: Add index on email_send_items.task_id for efficient progress queries
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_send_items_task_id ON email_send_items(task_id)`)
+	db.Exec(`CREATE INDEX IF NOT EXISTS idx_send_items_task_status ON email_send_items(task_id, status)`)
+
+	// Migration: Add product_id to email_send_tasks
+	db.Exec("ALTER TABLE email_send_tasks ADD COLUMN product_id INTEGER DEFAULT -1")
 
 	// Insert preset email templates (5 preset templates with HTML body)
 	db.Exec(`INSERT OR IGNORE INTO email_templates (name, subject, body, is_preset, created_at)
@@ -6351,17 +6357,15 @@ type TemplateVars struct {
 
 // renderEmailTemplate renders an email template string by replacing
 // {{.ProductName}}, {{.Email}}, {{.SN}} with the provided values.
-// It uses Go's text/template engine for rendering.
+// Uses simple string replacement to avoid issues with HTML content
+// that may contain characters conflicting with Go template syntax.
 func renderEmailTemplate(tmplStr string, vars TemplateVars) (string, error) {
-	t, err := texttemplate.New("email").Parse(tmplStr)
-	if err != nil {
-		return "", err
-	}
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, vars); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+	r := strings.NewReplacer(
+		"{{.ProductName}}", vars.ProductName,
+		"{{.Email}}", vars.Email,
+		"{{.SN}}", vars.SN,
+	)
+	return r.Replace(tmplStr), nil
 }
 
 func handleEmailNotifyRecipients(w http.ResponseWriter, r *http.Request) {
@@ -6383,9 +6387,9 @@ func handleEmailNotifyRecipients(w http.ResponseWriter, r *http.Request) {
 		rows, err = db.Query("SELECT DISTINCT email FROM email_records WHERE product_id = ?", pid)
 	} else if search != "" {
 		searchPattern := "%" + strings.ToLower(search) + "%"
-		rows, err = db.Query("SELECT DISTINCT email FROM email_records WHERE LOWER(email) LIKE ?", searchPattern)
+		rows, err = db.Query("SELECT DISTINCT email FROM email_records WHERE LOWER(email) LIKE ? LIMIT 100", searchPattern)
 	} else {
-		rows, err = db.Query("SELECT DISTINCT email FROM email_records")
+		rows, err = db.Query("SELECT DISTINCT email FROM email_records LIMIT 500")
 	}
 
 	if err != nil {
@@ -6432,15 +6436,22 @@ func handleEmailNotifySend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Subject string   `json:"subject"`
-		Body    string   `json:"body"`
-		Emails  []string `json:"emails"`
+		Subject   string   `json:"subject"`
+		Body      string   `json:"body"`
+		Emails    []string `json:"emails"`
+		ProductID *int     `json:"product_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{"error": "无效的请求数据"})
 		return
+	}
+
+	// Resolve product_id: nil means not specified (-1), otherwise use the value
+	taskProductID := -1
+	if req.ProductID != nil {
+		taskProductID = *req.ProductID
 	}
 
 	if req.Subject == "" || req.Body == "" {
@@ -6475,8 +6486,8 @@ func handleEmailNotifySend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := tx.Exec(
-		"INSERT INTO email_send_tasks (subject, body, total_count, sent_count, failed_count, status, created_at) VALUES (?, ?, ?, 0, 0, 'running', datetime('now'))",
-		req.Subject, req.Body, len(req.Emails),
+		"INSERT INTO email_send_tasks (subject, body, total_count, sent_count, failed_count, status, product_id, created_at) VALUES (?, ?, ?, 0, 0, 'running', ?, datetime('now'))",
+		req.Subject, req.Body, len(req.Emails), taskProductID,
 	)
 	if err != nil {
 		tx.Rollback()
@@ -6567,24 +6578,31 @@ func handleEmailNotifyProgress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Count all statuses from send_items for accurate real-time progress
+	// Count all statuses from send_items in a single query for efficiency
 	var sentCount, failedCount, pendingCount, cancelledCount int
-	db.QueryRow(
-		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='sent'",
+	countRows, countErr := db.Query(
+		"SELECT status, COUNT(*) FROM email_send_items WHERE task_id=? GROUP BY status",
 		taskID,
-	).Scan(&sentCount)
-	db.QueryRow(
-		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='failed'",
-		taskID,
-	).Scan(&failedCount)
-	db.QueryRow(
-		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='pending'",
-		taskID,
-	).Scan(&pendingCount)
-	db.QueryRow(
-		"SELECT COUNT(*) FROM email_send_items WHERE task_id=? AND status='cancelled'",
-		taskID,
-	).Scan(&cancelledCount)
+	)
+	if countErr == nil {
+		defer countRows.Close()
+		for countRows.Next() {
+			var st string
+			var cnt int
+			if countRows.Scan(&st, &cnt) == nil {
+				switch st {
+				case "sent":
+					sentCount = cnt
+				case "failed":
+					failedCount = cnt
+				case "pending":
+					pendingCount = cnt
+				case "cancelled":
+					cancelledCount = cnt
+				}
+			}
+		}
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -6718,9 +6736,10 @@ func (q *SendQueue) runLoop(taskID int64) {
 		}
 	}()
 
-	// Fetch the task's subject and body for sending
+	// Fetch the task's subject, body, and product_id for sending
 	var subject, body string
-	err := db.QueryRow("SELECT subject, body FROM email_send_tasks WHERE id=?", taskID).Scan(&subject, &body)
+	var taskProductID int
+	err := db.QueryRow("SELECT subject, body, COALESCE(product_id, -1) FROM email_send_tasks WHERE id=?", taskID).Scan(&subject, &body, &taskProductID)
 	if err != nil {
 		log.Printf("[SendQueue] failed to load task %d: %v", taskID, err)
 		q.markTaskStatus(taskID, "completed")
@@ -6783,10 +6802,17 @@ func (q *SendQueue) runLoop(taskID int64) {
 			// Look up SN and product for this recipient to render template variables
 			var sn string
 			var productID int
-			err := db.QueryRow("SELECT COALESCE(sn,''), COALESCE(product_id,0) FROM email_records WHERE email=? LIMIT 1", item.Email).Scan(&sn, &productID)
-			if err != nil {
-				sn = ""
-				productID = 0
+			if taskProductID >= 0 {
+				// Product explicitly specified by the sender
+				productID = taskProductID
+				db.QueryRow("SELECT COALESCE(sn,'') FROM email_records WHERE email=? AND product_id=? LIMIT 1", item.Email, productID).Scan(&sn)
+			} else {
+				// Fallback: look up from email_records
+				err := db.QueryRow("SELECT COALESCE(sn,''), COALESCE(product_id,0) FROM email_records WHERE email=? LIMIT 1", item.Email).Scan(&sn, &productID)
+				if err != nil {
+					sn = ""
+					productID = 0
+				}
 			}
 			productName := getProductName(productID)
 
@@ -6796,14 +6822,8 @@ func (q *SendQueue) runLoop(taskID int64) {
 				SN:          sn,
 			}
 
-			renderedSubject, renderErr := renderEmailTemplate(subject, vars)
-			if renderErr != nil {
-				renderedSubject = subject
-			}
-			renderedBody, renderErr := renderEmailTemplate(body, vars)
-			if renderErr != nil {
-				renderedBody = body
-			}
+			renderedSubject, _ := renderEmailTemplate(subject, vars)
+			renderedBody, _ := renderEmailTemplate(body, vars)
 
 			err = sendEmail(item.Email, renderedSubject, renderedBody)
 			if err != nil {

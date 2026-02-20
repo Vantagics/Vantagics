@@ -570,7 +570,7 @@ func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
 	}
 
 	// Install required packages
-	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend"}
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
 	err = s.InstallMissingPackages(pythonPath, requiredPackages)
 	if err != nil {
 		// Clean up the created environment on failure

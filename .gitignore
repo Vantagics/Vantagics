@@ -26,7 +26,7 @@ Thumbs.db
 server.md
 
 # Deployment scripts
-deploy/
+
 
 # Marketplace server temporary files
 tools/marketplace_server/build/
