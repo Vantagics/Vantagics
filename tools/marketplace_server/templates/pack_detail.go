@@ -171,14 +171,12 @@ var dlURLWindows="{{.DownloadURLWindows}}",dlURLMacOS="{{.DownloadURLMacOS}}";
     function mkBtn(url,svg,i18nKey,label,primary){return '<a class="dl-btn'+(primary?' dl-btn-primary':'')+'" href="'+esc(url)+'" target="_blank" rel="noopener">'+svg+' <span data-i18n="'+i18nKey+'">'+label+'</span></a>';}
     var html='';
     if(isWin){
-        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',true);
-        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',false);
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_vantagics_windows','下载Vantagics Windows版',true);
     } else if(isMac){
-        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',true);
-        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',false);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_vantagics_macos','下载Vantagics macOS版',true);
     } else {
-        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',false);
-        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',false);
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_vantagics_windows','下载Vantagics Windows版',false);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_vantagics_macos','下载Vantagics macOS版',false);
     }
     c.innerHTML=html;
 })();

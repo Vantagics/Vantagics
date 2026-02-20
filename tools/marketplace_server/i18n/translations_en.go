@@ -762,6 +762,8 @@ var enUS = map[string]string{
 	// Download URLs
 	"download_windows":        "Download for Windows",
 	"download_macos":          "Download for macOS",
+	"download_vantagics_windows": "Download Vantagics for Windows",
+	"download_vantagics_macos":   "Download Vantagics for macOS",
 	"download_urls":           "Download URL Settings",
 	"download_urls_desc":      "Set client download URLs, displayed on the pack share page",
 	"download_url_windows":    "Windows Download URL",
