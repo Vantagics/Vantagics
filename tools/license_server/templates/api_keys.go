@@ -155,7 +155,7 @@ function showAPIKeyForm(key) {
     var isEdit = !!k.id;
     
     var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
-    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '"' + (p.id === k.product_id ? ' selected' : '') + '>' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
+    productTypes.forEach(function(p) { if (p.id === 0) return; productOpts += '<option value="' + p.id + '"' + (p.id === k.product_id ? ' selected' : '') + '>' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
     
     var expiresDate = k.expires_at ? new Date(k.expires_at).toISOString().split('T')[0] : '';
     

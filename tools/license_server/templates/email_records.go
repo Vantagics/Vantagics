@@ -38,6 +38,7 @@ function initEmailProductFilter() {
     if (!select) return;
     // Add product types from global productTypes array
     productTypes.forEach(function(p) {
+        if (p.id === 0) return;
         var opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.name + ' (ID: ' + p.id + ')';
@@ -328,7 +329,7 @@ function doEditEmailRecord(id) {
 
 function showManualRequest() {
     var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
-    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
+    productTypes.forEach(function(p) { if (p.id === 0) return; productOpts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
     
     var llmGroupOpts = '<option value="">默认</option>';
     llmGroups.forEach(function(g) { llmGroupOpts += '<option value="' + g.id + '">' + escapeHtml(g.name) + '</option>'; });

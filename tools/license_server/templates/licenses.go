@@ -138,7 +138,7 @@ function searchLicenses() {
 
 function showBatchCreate() {
     var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
-    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '">' + p.name + ' (ID: ' + p.id + ')</option>'; });
+    productTypes.forEach(function(p) { if (p.id === 0) return; productOpts += '<option value="' + p.id + '">' + p.name + ' (ID: ' + p.id + ')</option>'; });
     var licenseGroupOpts = '<option value="">无分组</option>';
     licenseGroups.forEach(function(g) { licenseGroupOpts += '<option value="' + g.id + '">' + g.name + (g.trust_level === 'high' ? ' (正式)' : ' (试用)') + '</option>'; });
     var llmGroupOpts = '<option value="">无分组</option>';
@@ -242,7 +242,7 @@ function doSetCredits(sn) {
 
 function setLicenseGroups(sn, licenseGroupId, llmGroupId, searchGroupId, productId) {
     var productOpts = '<option value="0">Vantagics (ID: 0)</option>';
-    productTypes.forEach(function(p) { productOpts += '<option value="' + p.id + '"' + (p.id === productId ? ' selected' : '') + '>' + p.name + ' (ID: ' + p.id + ')</option>'; });
+    productTypes.forEach(function(p) { if (p.id === 0) return; productOpts += '<option value="' + p.id + '"' + (p.id === productId ? ' selected' : '') + '>' + p.name + ' (ID: ' + p.id + ')</option>'; });
     var licenseGroupOpts = '<option value="">无分组</option>';
     licenseGroups.forEach(function(g) { licenseGroupOpts += '<option value="' + g.id + '"' + (g.id === licenseGroupId ? ' selected' : '') + '>' + g.name + '</option>'; });
     var llmGroupOpts = '<option value="">无分组</option>';

@@ -50,7 +50,7 @@ function loadProductTypes() {
         if (filterSelect) {
             var currentValue = filterSelect.value;
             var opts = '<option value="">全部产品</option><option value="0">Vantagics (ID: 0)</option>';
-            productTypes.forEach(function(p) { opts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
+            productTypes.forEach(function(p) { if (p.id === 0) return; opts += '<option value="' + p.id + '">' + escapeHtml(p.name) + ' (ID: ' + p.id + ')</option>'; });
             filterSelect.innerHTML = opts;
             filterSelect.value = currentValue;
         }
