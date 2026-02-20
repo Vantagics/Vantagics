@@ -2486,8 +2486,10 @@ func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string
 
 	// Apply search by pack name or description
 	if searchQuery != "" {
-		baseQuery += " AND (pl.pack_name LIKE ? OR pl.pack_description LIKE ?)"
-		likePattern := "%" + searchQuery + "%"
+		baseQuery += " AND (pl.pack_name LIKE ? ESCAPE '\\' OR pl.pack_description LIKE ? ESCAPE '\\')"
+		// Escape SQL LIKE wildcards in user input to prevent wildcard injection
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(searchQuery)
+		likePattern := "%" + escaped + "%"
 		args = append(args, likePattern, likePattern)
 	}
 
@@ -2818,13 +2820,16 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Join with pack_listings to verify the listings belong to this author
 		query := fmt.Sprintf(`
 			SELECT DISTINCT u.id, u.email FROM user_purchased_packs upp
 			JOIN users u ON upp.user_id = u.id
-			WHERE upp.listing_id IN (%s) AND u.email IS NOT NULL AND u.email != ''
+			JOIN pack_listings pl ON upp.listing_id = pl.id
+			WHERE upp.listing_id IN (%s) AND pl.user_id = ? AND u.email IS NOT NULL AND u.email != ''
 		`, strings.Join(placeholders, ", "))
 
-		rows, err := db.Query(query, listingIDs...)
+		queryArgs := append(listingIDs, userID)
+		rows, err := db.Query(query, queryArgs...)
 		if err != nil {
 			log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query partial recipients for user %d: %v", userID, err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
@@ -2890,9 +2895,11 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 
 	for _, rcpt := range recipients {
 		var msg bytes.Buffer
+		// Sanitize subject to prevent email header injection (strip CR/LF)
+		safeSubject := strings.NewReplacer("\r", "", "\n", "").Replace(subject)
 		msg.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
 		msg.WriteString(fmt.Sprintf("To: %s\r\n", rcpt.Email))
-		msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+		msg.WriteString(fmt.Sprintf("Subject: %s\r\n", safeSubject))
 		msg.WriteString("MIME-Version: 1.0\r\n")
 		msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 		msg.WriteString("\r\n")
@@ -3048,10 +3055,12 @@ func handleStorefrontGetRecipients(w http.ResponseWriter, r *http.Request) {
 		query := fmt.Sprintf(`
 			SELECT COUNT(DISTINCT u.id) FROM user_purchased_packs upp
 			JOIN users u ON upp.user_id = u.id
-			WHERE upp.listing_id IN (%s) AND u.email IS NOT NULL AND u.email != ''
+			JOIN pack_listings pl ON upp.listing_id = pl.id
+			WHERE upp.listing_id IN (%s) AND pl.user_id = ? AND u.email IS NOT NULL AND u.email != ''
 		`, strings.Join(placeholders, ", "))
 
-		err = db.QueryRow(query, listingIDs...).Scan(&count)
+		queryArgs := append(listingIDs, userID)
+		err = db.QueryRow(query, queryArgs...).Scan(&count)
 		if err != nil {
 			log.Printf("[STOREFRONT-GET-RECIPIENTS] failed to query partial recipients for user %d: %v", userID, err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
@@ -4585,6 +4594,7 @@ type AuthorDashboardData struct {
 	CreditCashRate     float64
 	WithdrawalEnabled  bool
 	RevenueSplitPct    float64
+	StorefrontSlug     string
 }
 
 // TopPackInfo holds info about a top-ranked analysis pack for the TOP分析包 tab.
@@ -4949,6 +4959,13 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		authorData.CreditCashRate = cashRate
 		authorData.WithdrawalEnabled = cashRate > 0
 		authorData.RevenueSplitPct = splitPct
+
+		// Query storefront slug for share link
+		var storeSlug string
+		err = db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&storeSlug)
+		if err == nil {
+			authorData.StorefrontSlug = storeSlug
+		}
 	}
 
 	// --- Task 9.1: Query visible notifications for this user ---

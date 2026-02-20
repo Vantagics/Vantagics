@@ -363,6 +363,7 @@ var zhCN = map[string]string{
 	"downloads":              "下载",
 	"share":                  "分享",
 	"link_copied":            "链接已复制",
+	"share_storefront":       "🏪 分享小铺",
 	"no_credits_free":        "无需 Credits，直接领取",
 	"per_use_label":          "每次使用",
 	"monthly_sub":            "每月订阅",

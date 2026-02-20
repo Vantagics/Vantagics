@@ -76,16 +76,22 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .nav-link:hover { color: #1e293b; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
 
-        /* Store header */
+        /* Store header — left/right layout */
         .store-header {
             background: #fff; border-radius: 16px; padding: 32px;
-            margin-bottom: 24px; text-align: center;
+            margin-bottom: 24px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
             border: 1px solid #e2e8f0;
+            display: flex; gap: 32px; align-items: stretch;
+        }
+        .store-profile {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; text-align: center;
+            min-width: 220px; flex-shrink: 0;
         }
         .store-avatar {
             width: 80px; height: 80px; border-radius: 20px;
-            margin: 0 auto 16px; overflow: hidden;
+            margin-bottom: 16px; overflow: hidden;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         .store-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -95,46 +101,57 @@ const storefrontHTML = `<!DOCTYPE html>
             display: flex; align-items: center; justify-content: center;
             font-size: 36px; font-weight: 800; color: #fff;
         }
-        .store-name { font-size: 24px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.3px; }
-        .store-desc { font-size: 14px; color: #64748b; max-width: 600px; margin: 0 auto; line-height: 1.7; }
+        .store-name { font-size: 22px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.3px; }
+        .store-desc { font-size: 13px; color: #64748b; line-height: 1.7; }
 
-        /* Featured section */
-        .featured-section { margin-bottom: 28px; }
-        .section-title {
-            font-size: 15px; font-weight: 700; color: #1e293b;
-            margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+        /* Featured section — right side of header */
+        .store-featured {
+            flex: 1; min-width: 0;
+            display: flex; flex-direction: column;
         }
-        .section-title .icon { font-size: 16px; }
+        .store-featured-title {
+            font-size: 13px; font-weight: 700; color: #94a3b8;
+            margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+            letter-spacing: 0.3px; text-transform: uppercase;
+        }
         .featured-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 14px;
+            display: grid; grid-template-columns: repeat(2, 1fr);
+            gap: 10px; flex: 1;
         }
         .featured-card {
-            background: #fff; border-radius: 12px; padding: 18px;
+            background: #f8fafc; border-radius: 10px; padding: 14px;
             border: 1px solid #e2e8f0; text-align: center;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.02);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            cursor: pointer; text-decoration: none; display: block; color: inherit;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s;
+            cursor: pointer; text-decoration: none; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            color: inherit;
         }
         .featured-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-2px); background: #fff;
             box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04);
         }
         .featured-icon {
-            width: 48px; height: 48px; border-radius: 12px;
+            width: 40px; height: 40px; border-radius: 10px;
             background: linear-gradient(135deg, #eef2ff, #faf5ff);
             display: flex; align-items: center; justify-content: center;
-            margin: 0 auto 10px; font-size: 22px;
+            margin-bottom: 8px; font-size: 18px;
             border: 1px solid #e0e7ff;
         }
         .featured-name {
-            font-size: 13px; font-weight: 700; color: #1e293b;
-            margin-bottom: 6px; line-height: 1.4;
+            font-size: 12px; font-weight: 700; color: #1e293b;
+            margin-bottom: 4px; line-height: 1.4;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            max-width: 100%;
         }
-        .featured-price { font-size: 12px; font-weight: 600; }
+        .featured-price { font-size: 11px; font-weight: 600; }
         .featured-price.price-free { color: #16a34a; }
         .featured-price.price-paid { color: #6366f1; }
+        .featured-empty-slot {
+            background: #f8fafc; border-radius: 10px; padding: 14px;
+            border: 1px dashed #e2e8f0; display: flex;
+            align-items: center; justify-content: center;
+            color: #cbd5e1; font-size: 20px;
+        }
 
         /* Filter bar */
         .filter-bar {
@@ -167,12 +184,12 @@ const storefrontHTML = `<!DOCTYPE html>
         .sort-select:focus { outline: none; border-color: #4f46e5; }
 
         /* Pack list */
-        .pack-list { display: flex; flex-direction: column; gap: 12px; }
+        .pack-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
         .pack-item {
-            background: #fff; border-radius: 12px; padding: 20px 24px;
+            background: #fff; border-radius: 12px; padding: 18px 20px;
             border: 1px solid #e2e8f0;
             box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.02);
-            display: flex; align-items: center; gap: 16px;
+            display: flex; flex-direction: column; gap: 10px;
             transition: transform 0.15s, box-shadow 0.15s;
         }
         .pack-item:hover {
@@ -181,7 +198,7 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .pack-item-body { flex: 1; min-width: 0; }
         .pack-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-        .pack-item-name { font-size: 15px; font-weight: 700; color: #1e293b; }
+        .pack-item-name { font-size: 14px; font-weight: 700; color: #1e293b; }
         .tag {
             display: inline-flex; align-items: center;
             padding: 3px 10px; border-radius: 20px;
@@ -203,7 +220,7 @@ const storefrontHTML = `<!DOCTYPE html>
         .pack-item-meta .meta-item { display: flex; align-items: center; gap: 4px; }
         .pack-item-price { font-weight: 700; color: #6366f1; }
         .pack-item-price.price-free { color: #16a34a; }
-        .pack-item-actions { flex-shrink: 0; }
+        .pack-item-actions { flex-shrink: 0; align-self: flex-end; }
 
         /* Buttons */
         .btn {
@@ -311,9 +328,11 @@ const storefrontHTML = `<!DOCTYPE html>
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
         @media (max-width: 640px) {
+            .store-header { flex-direction: column; }
+            .store-profile { min-width: auto; }
             .filter-bar { flex-direction: column; align-items: stretch; }
             .search-input { min-width: auto; }
-            .pack-item { flex-direction: column; align-items: stretch; }
+            .pack-list { grid-template-columns: 1fr; }
             .pack-item-actions { align-self: flex-end; }
             .featured-grid { grid-template-columns: repeat(2, 1fr); }
         }
@@ -327,38 +346,38 @@ const storefrontHTML = `<!DOCTYPE html>
         <div>{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
 
-    <!-- Store Header -->
+    <!-- Store Header: profile left, featured right -->
     <div class="store-header">
-        <div class="store-avatar">
-            {{if .Storefront.HasLogo}}
-            <img src="/store/{{.Storefront.StoreSlug}}/logo" alt="{{.Storefront.StoreName}}">
-            {{else}}
-            <div class="store-avatar-letter">{{firstChar .Storefront.StoreName}}</div>
-            {{end}}
-        </div>
-        <h1 class="store-name">{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}</h1>
-        <p class="store-desc">{{if .Storefront.Description}}{{.Storefront.Description}}{{else}}该作者暂未设置小铺描述{{end}}</p>
-    </div>
-
-    <!-- Featured Packs -->
-    {{if .FeaturedPacks}}
-    <div class="featured-section">
-        <div class="section-title"><span class="icon">⭐</span> <span data-i18n="featured_packs">店主推荐</span></div>
-        <div class="featured-grid">
-            {{range .FeaturedPacks}}
-            <a class="featured-card" href="/pack/{{.ShareToken}}">
-                <div class="featured-icon">📊</div>
-                <div class="featured-name" title="{{.PackName}}">{{.PackName}}</div>
-                {{if eq .ShareMode "free"}}
-                <div class="featured-price price-free" data-i18n="free">免费</div>
+        <div class="store-profile">
+            <div class="store-avatar">
+                {{if .Storefront.HasLogo}}
+                <img src="/store/{{.Storefront.StoreSlug}}/logo" alt="{{.Storefront.StoreName}}">
                 {{else}}
-                <div class="featured-price price-paid">{{.CreditsPrice}} Credits</div>
+                <div class="store-avatar-letter">{{firstChar .Storefront.StoreName}}</div>
                 {{end}}
-            </a>
-            {{end}}
+            </div>
+            <h1 class="store-name">{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}</h1>
+            <p class="store-desc">{{if .Storefront.Description}}{{.Storefront.Description}}{{else}}该作者暂未设置小铺描述{{end}}</p>
         </div>
+        {{if .FeaturedPacks}}
+        <div class="store-featured">
+            <div class="store-featured-title">⭐ <span data-i18n="featured_packs">店主推荐</span></div>
+            <div class="featured-grid">
+                {{range .FeaturedPacks}}
+                <a class="featured-card" href="/pack/{{.ShareToken}}">
+                    <div class="featured-icon">📊</div>
+                    <div class="featured-name" title="{{.PackName}}">{{.PackName}}</div>
+                    {{if eq .ShareMode "free"}}
+                    <div class="featured-price price-free" data-i18n="free">免费</div>
+                    {{else}}
+                    <div class="featured-price price-paid">{{.CreditsPrice}} Credits</div>
+                    {{end}}
+                </a>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
     </div>
-    {{end}}
 
     <!-- Messages -->
     <div class="msg msg-ok" id="successMsg"></div>

@@ -776,6 +776,9 @@ const userDashboardHTML = `<!DOCTYPE html>
                 <span class="label" data-i18n="credits_balance">Credits 余额</span>
                 <span class="balance">{{printf "%.0f" .User.CreditsBalance}}</span>
             </div>
+            {{if .AuthorData.StorefrontSlug}}
+            <button class="btn-share-link" style="padding:7px 14px;font-size:13px;font-weight:600;border-radius:7px;" data-storefront-slug="{{.AuthorData.StorefrontSlug}}" onclick="copyStorefrontLink(this)" data-i18n="share_storefront">🏪 分享小铺</button>
+            {{end}}
         </div>
         <div class="user-actions">
             {{if .HasPassword}}
@@ -1936,6 +1939,13 @@ function submitAuthorDelete(){document.getElementById("authorDeleteForm").submit
 function copyShareLink(btn){
     var token=btn.getAttribute("data-share-token");
     var url=window.location.origin+"/pack/"+token;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url).then(function(){showShareToast(btn)}).catch(function(){fallbackCopy(url,btn)});
+    }else{fallbackCopy(url,btn)}
+}
+function copyStorefrontLink(btn){
+    var slug=btn.getAttribute("data-storefront-slug");
+    var url=window.location.origin+"/store/"+slug;
     if(navigator.clipboard&&navigator.clipboard.writeText){
         navigator.clipboard.writeText(url).then(function(){showShareToast(btn)}).catch(function(){fallbackCopy(url,btn)});
     }else{fallbackCopy(url,btn)}

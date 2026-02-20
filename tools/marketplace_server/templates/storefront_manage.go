@@ -407,7 +407,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
                     {{end}}
                 </div>
                 <div class="logo-upload-info">
-                    <p>支持 PNG 或 JPEG 格式，文件大小不超过 2MB</p>
+                    <p>支持 PNG 或 JPEG 格式，文件大小不超过 2MB，也可直接 Ctrl+V 粘贴图片</p>
                     <input type="file" id="logoFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadLogo()">
                     <button class="btn btn-ghost" onclick="document.getElementById('logoFile').click()">📤 上传 Logo</button>
                 </div>
@@ -734,10 +734,7 @@ function saveSettings() {
 }
 
 /* ===== Settings: Upload Logo ===== */
-function uploadLogo() {
-    var fileInput = document.getElementById('logoFile');
-    if (!fileInput.files.length) return;
-    var file = fileInput.files[0];
+function doUploadLogo(file) {
     if (file.size > 2 * 1024 * 1024) {
         showMsg('err', '图片大小不能超过 2MB');
         return;
@@ -759,8 +756,26 @@ function uploadLogo() {
             showMsg('err', d.error || '上传失败');
         }
     }).catch(function() { showMsg('err', '网络错误'); });
+}
+function uploadLogo() {
+    var fileInput = document.getElementById('logoFile');
+    if (!fileInput.files.length) return;
+    doUploadLogo(fileInput.files[0]);
     fileInput.value = '';
 }
+/* Paste image from clipboard */
+document.addEventListener('paste', function(e) {
+    var activeTab = document.getElementById('tab-settings');
+    if (!activeTab || !activeTab.classList.contains('active')) return;
+    var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].type === 'image/png' || items[i].type === 'image/jpeg') {
+            e.preventDefault();
+            doUploadLogo(items[i].getAsFile());
+            return;
+        }
+    }
+});
 
 /* ===== Settings: Update Slug ===== */
 function updateSlug() {
@@ -837,7 +852,7 @@ function confirmAddPacks() {
     var promises = [];
     cbs.forEach(function(cb) {
         var fd = new FormData();
-        fd.append('listing_id', cb.value);
+        fd.append('pack_listing_id', cb.value);
         promises.push(
             fetch('/user/storefront/packs', { method: 'POST', body: fd })
             .then(function(r) { return r.json(); })
@@ -859,7 +874,7 @@ function confirmAddPacks() {
 function removePack(listingId, packName) {
     if (!confirm('确定从小铺中移除"' + packName + '"？')) return;
     var fd = new FormData();
-    fd.append('listing_id', listingId);
+    fd.append('pack_listing_id', listingId);
     fetch('/user/storefront/packs/remove', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
@@ -901,7 +916,7 @@ function confirmSetFeatured() {
     // First, remove all current featured, then set new ones
     var removePromises = _featuredIds.map(function(id) {
         var fd = new FormData();
-        fd.append('listing_id', id);
+        fd.append('pack_listing_id', id);
         fd.append('featured', '0');
         return fetch('/user/storefront/featured', { method: 'POST', body: fd })
             .then(function(r) { return r.json(); });
@@ -910,7 +925,7 @@ function confirmSetFeatured() {
         var setPromises = [];
         cbs.forEach(function(cb, idx) {
             var fd = new FormData();
-            fd.append('listing_id', cb.value);
+            fd.append('pack_listing_id', cb.value);
             fd.append('featured', '1');
             fd.append('sort_order', idx + 1);
             setPromises.push(
@@ -934,7 +949,7 @@ function confirmSetFeatured() {
 /* ===== Featured: Remove single ===== */
 function removeFeatured(listingId) {
     var fd = new FormData();
-    fd.append('listing_id', listingId);
+    fd.append('pack_listing_id', listingId);
     fd.append('featured', '0');
     fetch('/user/storefront/featured', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })

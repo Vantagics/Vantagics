@@ -358,6 +358,7 @@ var enUS = map[string]string{
 	"downloads":              "Downloads",
 	"share":                  "Share",
 	"link_copied":            "Link copied",
+	"share_storefront":       "🏪 Share Store",
 	"no_credits_free":        "No Credits needed, claim directly",
 	"per_use_label":          "Per Use",
 	"monthly_sub":            "Monthly Subscription",
