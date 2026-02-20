@@ -806,6 +806,7 @@ const userDashboardHTML = `<!DOCTYPE html>
         <button class="tab-btn active" onclick="switchTab('customer')" id="tabBtnCustomer">🛒 <span data-i18n="customer_view">用户面板</span></button>
         {{if .AuthorData.IsAuthor}}
         <button class="tab-btn" onclick="switchTab('author')" id="tabBtnAuthor">✍️ <span data-i18n="author_view">作者面板</span></button>
+        <a class="tab-btn" href="/user/storefront/" id="tabBtnStorefront" style="text-decoration:none;">🏪 <span data-i18n="storefront_manage">小铺管理</span></a>
         {{end}}
         <button class="tab-btn" onclick="switchTab('top')" id="tabBtnTop">🏆 <span data-i18n="top_packs_tab">TOP分析包</span></button>
     </div>

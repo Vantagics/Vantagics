@@ -19,12 +19,17 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"crypto/tls"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 	"sync"
 	"time"
 
@@ -137,6 +142,116 @@ type WithdrawalRequest struct {
 	NetAmount      float64 `json:"net_amount"`
 	Status         string  `json:"status"`
 	CreatedAt      string  `json:"created_at"`
+}
+
+// StorefrontInfo 小铺基本信息
+type StorefrontInfo struct {
+	ID              int64  `json:"id"`
+	UserID          int64  `json:"user_id"`
+	StoreName       string `json:"store_name"`
+	StoreSlug       string `json:"store_slug"`
+	Description     string `json:"description"`
+	HasLogo         bool   `json:"has_logo"`
+	LogoContentType string `json:"logo_content_type"`
+	AutoAddEnabled  bool   `json:"auto_add_enabled"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+// StorefrontPackInfo 小铺中的分析包信息
+type StorefrontPackInfo struct {
+	ListingID     int64   `json:"listing_id"`
+	PackName      string  `json:"pack_name"`
+	PackDesc      string  `json:"pack_description"`
+	ShareMode     string  `json:"share_mode"`
+	CreditsPrice  int     `json:"credits_price"`
+	DownloadCount int     `json:"download_count"`
+	AuthorName    string  `json:"author_name"`
+	ShareToken    string  `json:"share_token"`
+	IsFeatured    bool    `json:"is_featured"`
+	SortOrder     int     `json:"sort_order"`
+	TotalRevenue  float64 `json:"total_revenue"`
+	OrderCount    int     `json:"order_count"`
+}
+
+// StorefrontNotification 邮件通知记录
+type StorefrontNotification struct {
+	ID             int64  `json:"id"`
+	Subject        string `json:"subject"`
+	Body           string `json:"body"`
+	RecipientCount int    `json:"recipient_count"`
+	TemplateType   string `json:"template_type"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+}
+
+// NotificationTemplate 预设邮件模板
+type NotificationTemplate struct {
+	Type    string `json:"type"`
+	Name    string `json:"name"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
+}
+
+// SMTPConfig SMTP 邮件发送配置
+type SMTPConfig struct {
+	Enabled   bool   `json:"enabled"`
+	Host      string `json:"host"`
+	Port      int    `json:"port"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	FromEmail string `json:"from_email"`
+	FromName  string `json:"from_name"`
+	UseTLS    bool   `json:"use_tls"`
+}
+
+// StorefrontPageData 小铺公开页面模板数据
+type StorefrontPageData struct {
+	Storefront    StorefrontInfo
+	FeaturedPacks []StorefrontPackInfo
+	Packs         []StorefrontPackInfo
+	PurchasedIDs  map[int64]bool
+	IsLoggedIn    bool
+	CurrentUserID int64
+	DefaultLang   string
+	Filter        string
+	Sort          string
+	SearchQuery   string
+}
+
+// StorefrontManageData 小铺管理页面模板数据
+type StorefrontManageData struct {
+	Storefront      StorefrontInfo
+	AuthorPacks     []AuthorPackInfo
+	StorefrontPacks []StorefrontPackInfo
+	FeaturedPacks   []StorefrontPackInfo
+	Notifications   []StorefrontNotification
+	Templates       []NotificationTemplate
+	FullURL         string
+	DefaultLang     string
+	ActiveTab       string
+}
+
+// notificationTemplates holds the predefined email notification templates.
+var notificationTemplates = []NotificationTemplate{
+	{
+		Type:    "version_update",
+		Name:    "版本更新促销",
+		Subject: "[{{.StoreName}}] 分析包版本更新通知",
+		Body:    "尊敬的客户：\n\n{{.StoreName}} 的分析包已更新至 {{.Version}} 版本。\n\n更新内容：\n{{.UpdateContent}}\n\n促销信息：\n{{.PromoInfo}}\n\n感谢您的支持！",
+	},
+	{
+		Type:    "holiday_promo",
+		Name:    "节假日促销",
+		Subject: "[{{.StoreName}}] 节假日促销活动",
+		Body:    "尊敬的客户：\n\n值此 {{.HolidayName}} 之际，{{.StoreName}} 推出限时促销活动。\n\n活动时间：{{.PromoTime}}\n优惠内容：{{.PromoContent}}\n\n祝您节日快乐！",
+	},
+	{
+		Type:    "flash_promo",
+		Name:    "临时促销",
+		Subject: "[{{.StoreName}}] 限时促销活动",
+		Body:    "尊敬的客户：\n\n{{.StoreName}} 推出限时促销活动。\n\n促销原因：{{.PromoReason}}\n活动时间：{{.PromoTime}}\n优惠内容：{{.PromoContent}}\n\n机会难得，欢迎选购！",
+	},
 }
 
 // validPaymentTypes is the set of allowed payment type values.
@@ -762,6 +877,63 @@ func initDB(dbPath string) (*sql.DB, error) {
 		WHERE email_wallets.password_hash IS NULL OR email_wallets.password_hash = ''
 	`)
 
+	// Create author_storefronts table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS author_storefronts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL UNIQUE,
+			store_name TEXT DEFAULT '',
+			store_slug TEXT NOT NULL UNIQUE,
+			description TEXT DEFAULT '',
+			logo_data BLOB,
+			logo_content_type TEXT DEFAULT '',
+			auto_add_enabled INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create author_storefronts table: %w", err)
+	}
+	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_storefronts_slug ON author_storefronts(store_slug)")
+
+	// Create storefront_packs table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS storefront_packs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			storefront_id INTEGER NOT NULL,
+			pack_listing_id INTEGER NOT NULL,
+			is_featured INTEGER DEFAULT 0,
+			featured_sort_order INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id),
+			FOREIGN KEY (pack_listing_id) REFERENCES pack_listings(id),
+			UNIQUE(storefront_id, pack_listing_id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create storefront_packs table: %w", err)
+	}
+
+	// Create storefront_notifications table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS storefront_notifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			storefront_id INTEGER NOT NULL,
+			subject TEXT NOT NULL,
+			body TEXT NOT NULL,
+			recipient_count INTEGER DEFAULT 0,
+			template_type TEXT DEFAULT '',
+			status TEXT DEFAULT 'sent',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create storefront_notifications table: %w", err)
+	}
+
 	return database, nil
 }
 
@@ -1347,6 +1519,111 @@ func softDeleteUserPurchasedPack(userID int64, listingID int64) error {
 }
 
 
+// Regex patterns for slug validation
+var (
+	slugAllowedChars = regexp.MustCompile(`[^a-z0-9-]`)
+	slugMultiHyphen  = regexp.MustCompile(`-{2,}`)
+	slugValidPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+)
+
+// generateStoreSlug creates a URL-safe slug from a display name.
+// It converts to lowercase, replaces special chars with hyphens, removes invalid chars,
+// merges consecutive hyphens, truncates to 50 chars, and ensures database uniqueness.
+func generateStoreSlug(displayName string) string {
+	// 1. Convert to lowercase
+	slug := strings.ToLower(strings.TrimSpace(displayName))
+
+	// 2. Replace spaces and common special characters with hyphens
+	slug = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		if unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r) {
+			return '-'
+		}
+		// Non-ASCII letters (e.g. Chinese) become hyphens
+		return '-'
+	}, slug)
+
+	// 3. Remove non [a-z0-9-] characters (safety net)
+	slug = slugAllowedChars.ReplaceAllString(slug, "")
+
+	// 4. Merge consecutive hyphens
+	slug = slugMultiHyphen.ReplaceAllString(slug, "-")
+
+	// 5. Trim leading/trailing hyphens
+	slug = strings.Trim(slug, "-")
+
+	// 6. If result is too short, pad with "store" prefix
+	if len(slug) < 3 {
+		if slug == "" {
+			slug = "store"
+		} else {
+			slug = "store-" + slug
+		}
+	}
+
+	// 7. Truncate to 50 characters
+	if len(slug) > 50 {
+		slug = slug[:50]
+		slug = strings.TrimRight(slug, "-")
+	}
+
+	// 8. Check database uniqueness, append -2, -3, etc. on conflict
+	baseSlug := slug
+	counter := 2
+	for {
+		var exists int
+		err := db.QueryRow("SELECT COUNT(*) FROM author_storefronts WHERE store_slug = ?", slug).Scan(&exists)
+		if err != nil || exists == 0 {
+			break
+		}
+		suffix := fmt.Sprintf("-%d", counter)
+		// Ensure base + suffix doesn't exceed 50 chars
+		maxBase := 50 - len(suffix)
+		if maxBase < 0 {
+			maxBase = 0
+		}
+		truncated := baseSlug
+		if len(truncated) > maxBase {
+			truncated = truncated[:maxBase]
+			truncated = strings.TrimRight(truncated, "-")
+		}
+		slug = truncated + suffix
+		counter++
+	}
+
+	return slug
+}
+
+// validateStoreSlug validates a store slug format.
+// Returns empty string if valid, error message string if invalid.
+func validateStoreSlug(slug string) string {
+	if utf8.RuneCountInString(slug) < 3 {
+		return "小铺标识长度不能少于 3 个字符"
+	}
+	if utf8.RuneCountInString(slug) > 50 {
+		return "小铺标识长度不能超过 50 个字符"
+	}
+	if !slugValidPattern.MatchString(slug) {
+		return "小铺标识仅允许小写字母、数字和连字符"
+	}
+	return ""
+}
+
+// validateStoreName validates a store name length.
+// Returns empty string if valid, error message string if invalid.
+func validateStoreName(name string) string {
+	length := utf8.RuneCountInString(name)
+	if length < 2 {
+		return "小铺名称长度不能少于 2 个字符"
+	}
+	if length > 30 {
+		return "小铺名称长度不能超过 30 个字符"
+	}
+	return ""
+}
+
 // generateShareToken creates a cryptographically random URL-safe token (22 chars, ~131 bits of entropy).
 func generateShareToken() string {
 	b := make([]byte, 16)
@@ -1403,6 +1680,1493 @@ func notImplementedHandler(w http.ResponseWriter, r *http.Request) {
 		"error": "not_implemented",
 	})
 }
+
+// handleStorefrontRoutes dispatches public storefront routes.
+// Path format: /store/{slug} or /store/{slug}/logo
+func handleStorefrontRoutes(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/store/")
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	parts := strings.SplitN(path, "/", 2)
+	slug := parts[0]
+	if slug == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	if len(parts) == 2 && parts[1] == "logo" {
+		handleStorefrontLogo(w, r, slug)
+		return
+	}
+
+	if len(parts) == 1 {
+		handleStorefrontPage(w, r, slug)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+// handleStorefrontManagement dispatches authenticated storefront management routes.
+func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/user/storefront")
+	path = strings.TrimSuffix(path, "/")
+
+	switch {
+	case path == "" || path == "/":
+		if r.Method == http.MethodGet {
+			handleStorefrontSettingsPage(w, r)
+		} else {
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		}
+	case path == "/settings" && r.Method == http.MethodPost:
+		handleStorefrontSaveSettings(w, r)
+	case path == "/logo" && r.Method == http.MethodPost:
+		handleStorefrontUploadLogo(w, r)
+	case path == "/slug" && r.Method == http.MethodPost:
+		handleStorefrontUpdateSlug(w, r)
+	case path == "/packs" && r.Method == http.MethodPost:
+		handleStorefrontAddPack(w, r)
+	case path == "/packs/remove" && r.Method == http.MethodPost:
+		handleStorefrontRemovePack(w, r)
+	case path == "/auto-add" && r.Method == http.MethodPost:
+		handleStorefrontToggleAutoAdd(w, r)
+	case path == "/featured" && r.Method == http.MethodPost:
+		handleStorefrontSetFeatured(w, r)
+	case path == "/featured/reorder" && r.Method == http.MethodPost:
+		handleStorefrontReorderFeatured(w, r)
+	case path == "/notify" && r.Method == http.MethodPost:
+		handleStorefrontSendNotify(w, r)
+	case path == "/notify/recipients" && r.Method == http.MethodGet:
+		handleStorefrontGetRecipients(w, r)
+	case path == "/notify/history" && r.Method == http.MethodGet:
+		handleStorefrontNotifyHistory(w, r)
+	case path == "/notify/detail" && r.Method == http.MethodGet:
+		handleStorefrontNotifyDetail(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// --- Storefront stub handlers (to be implemented in later tasks) ---
+
+func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 1. Query storefront by store_slug
+	var storefront StorefrontInfo
+	var logoContentType sql.NullString
+	err := db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
+		COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+		FROM author_storefronts WHERE store_slug = ?`, slug).Scan(
+		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+		&storefront.Description, &storefront.HasLogo, &logoContentType,
+		&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("[STOREFRONT-PAGE] failed to query storefront by slug %q: %v", slug, err)
+		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+		return
+	}
+	if logoContentType.Valid {
+		storefront.LogoContentType = logoContentType.String
+	}
+
+	// If store_name is empty, fall back to author display_name
+	if storefront.StoreName == "" {
+		var displayName string
+		err = db.QueryRow("SELECT COALESCE(display_name, '') FROM users WHERE id = ?", storefront.UserID).Scan(&displayName)
+		if err == nil && displayName != "" {
+			storefront.StoreName = displayName
+		}
+	}
+
+	// 2. Query featured packs (ordered by featured_sort_order ASC)
+	var featuredPacks []StorefrontPackInfo
+	fpQuery := `SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
+		pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
+		COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
+		sp.is_featured, COALESCE(sp.featured_sort_order, 0)
+		FROM storefront_packs sp
+		JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+		WHERE sp.storefront_id = ? AND sp.is_featured = 1 AND pl.status = 'published'
+		ORDER BY sp.featured_sort_order ASC`
+	fpRows, err := db.Query(fpQuery, storefront.ID)
+	if err != nil {
+		log.Printf("[STOREFRONT-PAGE] failed to query featured packs for storefront %d: %v", storefront.ID, err)
+	} else {
+		defer fpRows.Close()
+		for fpRows.Next() {
+			var fp StorefrontPackInfo
+			if err := fpRows.Scan(&fp.ListingID, &fp.PackName, &fp.PackDesc, &fp.ShareMode,
+				&fp.CreditsPrice, &fp.DownloadCount, &fp.AuthorName, &fp.ShareToken,
+				&fp.IsFeatured, &fp.SortOrder); err != nil {
+				log.Printf("[STOREFRONT-PAGE] failed to scan featured pack row: %v", err)
+				continue
+			}
+			featuredPacks = append(featuredPacks, fp)
+		}
+	}
+
+	// 3. Read query params for filter, sort, search
+	filter := r.URL.Query().Get("filter")
+	sortBy := r.URL.Query().Get("sort")
+	searchQuery := r.URL.Query().Get("q")
+
+	// Validate sort param (default to revenue)
+	switch sortBy {
+	case "downloads", "orders":
+		// valid
+	default:
+		sortBy = "revenue"
+	}
+
+	// 4. Query pack listing using queryStorefrontPacks
+	packs, err := queryStorefrontPacks(storefront.ID, storefront.AutoAddEnabled, sortBy, filter, searchQuery)
+	if err != nil {
+		log.Printf("[STOREFRONT-PAGE] failed to query storefront packs for storefront %d: %v", storefront.ID, err)
+		packs = []StorefrontPackInfo{}
+	}
+
+	// 5. Check if user is logged in (via cookie, same pattern as handlePackDetailPage)
+	isLoggedIn := false
+	var currentUserID int64
+	purchasedIDs := make(map[int64]bool)
+
+	cookie, cookieErr := r.Cookie("user_session")
+	if cookieErr == nil && isValidUserSession(cookie.Value) {
+		uid := getUserSessionUserID(cookie.Value)
+		if uid > 0 {
+			isLoggedIn = true
+			currentUserID = uid
+			// 6. Query purchased pack IDs for logged-in user
+			purchasedIDs = getUserPurchasedListingIDs(uid)
+		}
+	}
+
+	// 7. Get default language
+	defaultLang := getSetting("default_language")
+	if defaultLang == "" {
+		defaultLang = "zh-CN"
+	}
+
+	// 8. Build StorefrontPageData and render template
+	data := StorefrontPageData{
+		Storefront:    storefront,
+		FeaturedPacks: featuredPacks,
+		Packs:         packs,
+		PurchasedIDs:  purchasedIDs,
+		IsLoggedIn:    isLoggedIn,
+		CurrentUserID: currentUserID,
+		DefaultLang:   defaultLang,
+		Filter:        filter,
+		Sort:          sortBy,
+		SearchQuery:   searchQuery,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.StorefrontTmpl.Execute(w, data)
+}
+
+
+func handleStorefrontLogo(w http.ResponseWriter, r *http.Request, slug string) {
+	var logoData []byte
+	var logoContentType string
+	err := db.QueryRow(`SELECT logo_data, COALESCE(logo_content_type, '') FROM author_storefronts WHERE store_slug = ?`, slug).Scan(&logoData, &logoContentType)
+	if err == sql.ErrNoRows {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		log.Printf("[STOREFRONT-LOGO] failed to query logo for slug %q: %v", slug, err)
+		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+		return
+	}
+
+	if len(logoData) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	if logoContentType == "" {
+		logoContentType = "image/png"
+	}
+
+	w.Header().Set("Content-Type", logoContentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Length", strconv.Itoa(len(logoData)))
+	w.Write(logoData)
+}
+
+
+func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] invalid X-User-ID header: %q", userIDStr)
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Query existing storefront record for this user
+	var storefront StorefrontInfo
+	var logoContentType sql.NullString
+	err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
+		COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+		FROM author_storefronts WHERE user_id = ?`, userID).Scan(
+		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+		&storefront.Description, &storefront.HasLogo, &logoContentType,
+		&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		// Auto-create storefront on first visit
+		var displayName string
+		err = db.QueryRow("SELECT COALESCE(display_name, '') FROM users WHERE id = ?", userID).Scan(&displayName)
+		if err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] failed to query display_name for user %d: %v", userID, err)
+			http.Error(w, "加载数据失败", http.StatusInternalServerError)
+			return
+		}
+		if displayName == "" {
+			displayName = fmt.Sprintf("user-%d", userID)
+		}
+		slug := generateStoreSlug(displayName)
+		_, err = db.Exec(`INSERT INTO author_storefronts (user_id, store_name, store_slug, description)
+			VALUES (?, '', ?, '')`, userID, slug)
+		if err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] failed to create storefront for user %d: %v", userID, err)
+			http.Error(w, "创建小铺失败", http.StatusInternalServerError)
+			return
+		}
+		// Re-query the newly created record
+		err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+			CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
+			COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+			FROM author_storefronts WHERE user_id = ?`, userID).Scan(
+			&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+			&storefront.Description, &storefront.HasLogo, &logoContentType,
+			&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+		)
+		if err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] failed to re-query storefront for user %d: %v", userID, err)
+			http.Error(w, "加载数据失败", http.StatusInternalServerError)
+			return
+		}
+	} else if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query storefront for user %d: %v", userID, err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	if logoContentType.Valid {
+		storefront.LogoContentType = logoContentType.String
+	}
+
+	// Query author's all published pack_listings
+	var authorPacks []AuthorPackInfo
+	authorRows, err := db.Query(`SELECT id, pack_name, COALESCE(pack_description, ''), share_mode,
+		credits_price, status, COALESCE(version, 1), COALESCE(share_token, '')
+		FROM pack_listings WHERE user_id = ? AND status = 'published'
+		ORDER BY created_at DESC`, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query author packs for user %d: %v", userID, err)
+	} else {
+		defer authorRows.Close()
+		for authorRows.Next() {
+			var ap AuthorPackInfo
+			if err := authorRows.Scan(&ap.ListingID, &ap.PackName, &ap.PackDesc, &ap.ShareMode,
+				&ap.CreditsPrice, &ap.Status, &ap.Version, &ap.ShareToken); err != nil {
+				log.Printf("[STOREFRONT-SETTINGS] failed to scan author pack row: %v", err)
+				continue
+			}
+			authorPacks = append(authorPacks, ap)
+		}
+	}
+
+	// Query storefront packs (joined with pack_listings)
+	var storefrontPacks []StorefrontPackInfo
+	spRows, err := db.Query(`SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
+		pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
+		COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
+		sp.is_featured, COALESCE(sp.featured_sort_order, 0)
+		FROM storefront_packs sp
+		JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+		WHERE sp.storefront_id = ? AND pl.status = 'published'
+		ORDER BY sp.created_at DESC`, storefront.ID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query storefront packs for storefront %d: %v", storefront.ID, err)
+	} else {
+		defer spRows.Close()
+		for spRows.Next() {
+			var sp StorefrontPackInfo
+			if err := spRows.Scan(&sp.ListingID, &sp.PackName, &sp.PackDesc, &sp.ShareMode,
+				&sp.CreditsPrice, &sp.DownloadCount, &sp.AuthorName, &sp.ShareToken,
+				&sp.IsFeatured, &sp.SortOrder); err != nil {
+				log.Printf("[STOREFRONT-SETTINGS] failed to scan storefront pack row: %v", err)
+				continue
+			}
+			storefrontPacks = append(storefrontPacks, sp)
+		}
+	}
+
+	// Query featured packs ordered by featured_sort_order
+	var featuredPacks []StorefrontPackInfo
+	fpRows, err := db.Query(`SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
+		pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
+		COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
+		sp.is_featured, COALESCE(sp.featured_sort_order, 0)
+		FROM storefront_packs sp
+		JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+		WHERE sp.storefront_id = ? AND sp.is_featured = 1 AND pl.status = 'published'
+		ORDER BY sp.featured_sort_order ASC`, storefront.ID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query featured packs for storefront %d: %v", storefront.ID, err)
+	} else {
+		defer fpRows.Close()
+		for fpRows.Next() {
+			var fp StorefrontPackInfo
+			if err := fpRows.Scan(&fp.ListingID, &fp.PackName, &fp.PackDesc, &fp.ShareMode,
+				&fp.CreditsPrice, &fp.DownloadCount, &fp.AuthorName, &fp.ShareToken,
+				&fp.IsFeatured, &fp.SortOrder); err != nil {
+				log.Printf("[STOREFRONT-SETTINGS] failed to scan featured pack row: %v", err)
+				continue
+			}
+			featuredPacks = append(featuredPacks, fp)
+		}
+	}
+
+	// Query storefront notifications ordered by created_at DESC
+	var notifications []StorefrontNotification
+	nRows, err := db.Query(`SELECT id, subject, COALESCE(body, ''), recipient_count,
+		COALESCE(template_type, ''), status, created_at
+		FROM storefront_notifications WHERE storefront_id = ?
+		ORDER BY created_at DESC`, storefront.ID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query notifications for storefront %d: %v", storefront.ID, err)
+	} else {
+		defer nRows.Close()
+		for nRows.Next() {
+			var n StorefrontNotification
+			if err := nRows.Scan(&n.ID, &n.Subject, &n.Body, &n.RecipientCount,
+				&n.TemplateType, &n.Status, &n.CreatedAt); err != nil {
+				log.Printf("[STOREFRONT-SETTINGS] failed to scan notification row: %v", err)
+				continue
+			}
+			notifications = append(notifications, n)
+		}
+	}
+
+	// Build full storefront URL
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	fullURL := fmt.Sprintf("%s://%s/store/%s", scheme, r.Host, storefront.StoreSlug)
+
+	defaultLang := getSetting("default_language")
+	if defaultLang == "" {
+		defaultLang = "zh-CN"
+	}
+
+	// Load notification templates (placeholder until task 13.1 defines them)
+	var tmplList []NotificationTemplate
+	if notificationTemplates != nil {
+		tmplList = notificationTemplates
+	}
+
+	data := StorefrontManageData{
+		Storefront:      storefront,
+		AuthorPacks:     authorPacks,
+		StorefrontPacks: storefrontPacks,
+		FeaturedPacks:   featuredPacks,
+		Notifications:   notifications,
+		Templates:       tmplList,
+		FullURL:         fullURL,
+		DefaultLang:     defaultLang,
+		ActiveTab:       "settings",
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	templates.StorefrontManageTmpl.Execute(w, data)
+}
+
+
+func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-SAVE-SETTINGS] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Parse form values
+	storeName := r.FormValue("store_name")
+	description := r.FormValue("description")
+
+	// Validate store_name using existing validateStoreName function
+	if errMsg := validateStoreName(storeName); errMsg != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
+	}
+
+	// Update author_storefronts table
+	result, err := db.Exec(`UPDATE author_storefronts SET store_name = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+		storeName, description, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SAVE-SETTINGS] failed to update storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[STOREFRONT-SAVE-SETTINGS] failed to get rows affected for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+func handleStorefrontUploadLogo(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-UPLOAD-LOGO] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Parse multipart form file
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择要上传的图片"})
+		return
+	}
+	defer file.Close()
+
+	// Validate file size (≤2MB)
+	const maxLogoSize = 2 * 1024 * 1024 // 2MB
+	if header.Size > maxLogoSize {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "图片大小不能超过 2MB"})
+		return
+	}
+
+	// Read file data with a limit to prevent abuse
+	fileData, err := io.ReadAll(io.LimitReader(file, maxLogoSize+1))
+	if err != nil {
+		log.Printf("[STOREFRONT-UPLOAD-LOGO] failed to read file for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "读取文件失败"})
+		return
+	}
+	if int64(len(fileData)) > maxLogoSize {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "图片大小不能超过 2MB"})
+		return
+	}
+
+	// Validate file format (PNG/JPEG only)
+	contentType := http.DetectContentType(fileData)
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "仅支持 PNG 或 JPEG 格式"})
+		return
+	}
+
+	// Store logo_data and logo_content_type in author_storefronts table
+	result, err := db.Exec(`UPDATE author_storefronts SET logo_data = ?, logo_content_type = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+		fileData, contentType, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-UPLOAD-LOGO] failed to update logo for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[STOREFRONT-UPLOAD-LOGO] failed to get rows affected for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+
+func handleStorefrontUpdateSlug(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-UPDATE-SLUG] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Parse form values
+	slug := r.FormValue("slug")
+
+	// Validate slug format and length using existing validateStoreSlug function
+	if errMsg := validateStoreSlug(slug); errMsg != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": errMsg})
+		return
+	}
+
+	// Check uniqueness: slug must not be taken by another user
+	var existingUserID int64
+	err = db.QueryRow(`SELECT user_id FROM author_storefronts WHERE store_slug = ? AND user_id != ?`, slug, userID).Scan(&existingUserID)
+	if err == nil {
+		// Found another user with this slug
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "该标识已被占用"})
+		return
+	}
+	if err != sql.ErrNoRows {
+		log.Printf("[STOREFRONT-UPDATE-SLUG] failed to check slug uniqueness for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "检查标识失败"})
+		return
+	}
+
+	// Update store_slug in author_storefronts table
+	result, err := db.Exec(`UPDATE author_storefronts SET store_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+		slug, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-UPDATE-SLUG] failed to update slug for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "更新标识失败"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[STOREFRONT-UPDATE-SLUG] failed to get rows affected for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "更新标识失败"})
+		return
+	}
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+
+func handleStorefrontAddPack(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-ADD-PACK] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Read pack_listing_id from form data
+	packListingIDStr := r.FormValue("pack_listing_id")
+	packListingID, err := strconv.ParseInt(packListingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID"})
+		return
+	}
+
+	// Verify the pack_listing belongs to the current user and status is 'published'
+	var packOwnerID int64
+	var packStatus string
+	err = db.QueryRow(`SELECT user_id, status FROM pack_listings WHERE id = ?`, packListingID).Scan(&packOwnerID, &packStatus)
+	if err != nil {
+		log.Printf("[STOREFRONT-ADD-PACK] pack_listing %d not found: %v", packListingID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "分析包不存在"})
+		return
+	}
+	if packOwnerID != userID {
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+		return
+	}
+	if packStatus != "published" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "只能添加已上架的分析包"})
+		return
+	}
+
+	// Get the storefront_id for the current user
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-ADD-PACK] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	// Check if (storefront_id, pack_listing_id) already exists in storefront_packs
+	var existingID int64
+	err = db.QueryRow(`SELECT id FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`, storefrontID, packListingID).Scan(&existingID)
+	if err == nil {
+		jsonResponse(w, http.StatusConflict, map[string]string{"error": "该分析包已在小铺中"})
+		return
+	}
+
+	// Insert into storefront_packs
+	_, err = db.Exec(`INSERT INTO storefront_packs (storefront_id, pack_listing_id) VALUES (?, ?)`, storefrontID, packListingID)
+	if err != nil {
+		log.Printf("[STOREFRONT-ADD-PACK] failed to insert storefront_pack for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "添加失败"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+func handleStorefrontRemovePack(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-REMOVE-PACK] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Read pack_listing_id from form data
+	packListingIDStr := r.FormValue("pack_listing_id")
+	packListingID, err := strconv.ParseInt(packListingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID"})
+		return
+	}
+
+	// Get the storefront_id for the current user
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-REMOVE-PACK] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	// Delete the record from storefront_packs (this also clears featured status since the entire row is removed)
+	result, err := db.Exec(`DELETE FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`, storefrontID, packListingID)
+	if err != nil {
+		log.Printf("[STOREFRONT-REMOVE-PACK] failed to delete storefront_pack for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "移除失败"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[STOREFRONT-REMOVE-PACK] failed to get rows affected: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "移除失败"})
+		return
+	}
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "该分析包不在小铺中"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+func handleStorefrontToggleAutoAdd(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-TOGGLE-AUTO-ADD] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Read "enabled" from form data: "1" or "true" means enabled, anything else means disabled
+	enabledStr := r.FormValue("enabled")
+	autoAddEnabled := 0
+	if enabledStr == "1" || enabledStr == "true" {
+		autoAddEnabled = 1
+	}
+
+	// Update auto_add_enabled field in author_storefronts table
+	result, err := db.Exec(`UPDATE author_storefronts SET auto_add_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+		autoAddEnabled, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-TOGGLE-AUTO-ADD] failed to update auto_add_enabled for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("[STOREFRONT-TOGGLE-AUTO-ADD] failed to get rows affected for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "auto_add_enabled": autoAddEnabled == 1})
+}
+
+// queryStorefrontPacks queries the pack listings for a storefront, supporting both
+// manual mode (via storefront_packs join) and auto mode (via user_id join).
+// It applies optional filtering by share_mode, search by name/description, and
+// sorting by revenue (default), downloads, or orders — all descending.
+func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string, filterMode string, searchQuery string) ([]StorefrontPackInfo, error) {
+	// Build the base query depending on mode
+	var baseQuery string
+	var args []interface{}
+
+	if autoAddEnabled {
+		// Auto mode: all published packs by the same author
+		baseQuery = `SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
+			pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
+			COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
+			COALESCE(sp.is_featured, 0), COALESCE(sp.featured_sort_order, 0),
+			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0)
+			FROM pack_listings pl
+			JOIN author_storefronts ast ON ast.user_id = pl.user_id
+			LEFT JOIN storefront_packs sp ON sp.storefront_id = ast.id AND sp.pack_listing_id = pl.id
+			LEFT JOIN (
+				SELECT listing_id, SUM(ABS(amount)) as total_revenue, COUNT(*) as order_count
+				FROM credits_transactions
+				WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+				  AND amount < 0
+				GROUP BY listing_id
+			) rev ON rev.listing_id = pl.id
+			WHERE ast.id = ? AND pl.status = 'published'`
+		args = append(args, storefrontID)
+	} else {
+		// Manual mode: only packs explicitly added to storefront_packs
+		baseQuery = `SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
+			pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
+			COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
+			sp.is_featured, COALESCE(sp.featured_sort_order, 0),
+			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0)
+			FROM storefront_packs sp
+			JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+			LEFT JOIN (
+				SELECT listing_id, SUM(ABS(amount)) as total_revenue, COUNT(*) as order_count
+				FROM credits_transactions
+				WHERE transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+				  AND amount < 0
+				GROUP BY listing_id
+			) rev ON rev.listing_id = pl.id
+			WHERE sp.storefront_id = ? AND pl.status = 'published'`
+		args = append(args, storefrontID)
+	}
+
+	// Apply filter by share_mode
+	if filterMode != "" && filterMode != "all" {
+		baseQuery += " AND pl.share_mode = ?"
+		args = append(args, filterMode)
+	}
+
+	// Apply search by pack name or description
+	if searchQuery != "" {
+		baseQuery += " AND (pl.pack_name LIKE ? OR pl.pack_description LIKE ?)"
+		likePattern := "%" + searchQuery + "%"
+		args = append(args, likePattern, likePattern)
+	}
+
+	// Apply sorting (all descending)
+	switch sortBy {
+	case "downloads":
+		baseQuery += " ORDER BY pl.download_count DESC, pl.id DESC"
+	case "orders":
+		baseQuery += " ORDER BY COALESCE(rev.order_count, 0) DESC, pl.id DESC"
+	default:
+		// Default: sort by revenue descending
+		baseQuery += " ORDER BY COALESCE(rev.total_revenue, 0) DESC, pl.id DESC"
+	}
+
+	rows, err := db.Query(baseQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("queryStorefrontPacks: %w", err)
+	}
+	defer rows.Close()
+
+	var packs []StorefrontPackInfo
+	for rows.Next() {
+		var p StorefrontPackInfo
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDesc, &p.ShareMode,
+			&p.CreditsPrice, &p.DownloadCount, &p.AuthorName, &p.ShareToken,
+			&p.IsFeatured, &p.SortOrder, &p.TotalRevenue, &p.OrderCount); err != nil {
+			return nil, fmt.Errorf("queryStorefrontPacks scan: %w", err)
+		}
+		packs = append(packs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryStorefrontPacks rows: %w", err)
+	}
+	return packs, nil
+}
+
+
+
+
+func handleStorefrontSetFeatured(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-SET-FEATURED] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Read pack_listing_id and featured from form data
+	packListingIDStr := r.FormValue("pack_listing_id")
+	packListingID, err := strconv.ParseInt(packListingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID"})
+		return
+	}
+
+	featuredStr := r.FormValue("featured")
+	setFeatured := featuredStr == "1" || featuredStr == "true"
+
+	// Get the storefront_id and auto_add_enabled for the current user
+	var storefrontID int64
+	var autoAddEnabled int
+	err = db.QueryRow(`SELECT id, auto_add_enabled FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID, &autoAddEnabled)
+	if err != nil {
+		log.Printf("[STOREFRONT-SET-FEATURED] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	if setFeatured {
+		// Check current featured count (max 4)
+		var featuredCount int
+		err = db.QueryRow(`SELECT COUNT(*) FROM storefront_packs WHERE storefront_id = ? AND is_featured = 1`, storefrontID).Scan(&featuredCount)
+		if err != nil {
+			log.Printf("[STOREFRONT-SET-FEATURED] failed to count featured packs for storefront %d: %v", storefrontID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+			return
+		}
+		if featuredCount >= 4 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "最多设置 4 个推荐分析包"})
+			return
+		}
+
+		// Check if the pack already exists in storefront_packs
+		var existingID int64
+		err = db.QueryRow(`SELECT id FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`, storefrontID, packListingID).Scan(&existingID)
+		if err != nil {
+			// Pack not in storefront_packs yet — for auto_add_enabled storefronts, we need to insert it
+			// First verify the pack belongs to the author and is published
+			var packOwnerID int64
+			var packStatus string
+			err = db.QueryRow(`SELECT user_id, status FROM pack_listings WHERE id = ?`, packListingID).Scan(&packOwnerID, &packStatus)
+			if err != nil {
+				log.Printf("[STOREFRONT-SET-FEATURED] pack_listing %d not found: %v", packListingID, err)
+				jsonResponse(w, http.StatusNotFound, map[string]string{"error": "分析包不存在"})
+				return
+			}
+			if packOwnerID != userID {
+				jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+				return
+			}
+			if packStatus != "published" {
+				jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "只能推荐已上架的分析包"})
+				return
+			}
+
+			// Get next sort order
+			var nextSortOrder int
+			err = db.QueryRow(`SELECT COALESCE(MAX(featured_sort_order), 0) + 1 FROM storefront_packs WHERE storefront_id = ? AND is_featured = 1`, storefrontID).Scan(&nextSortOrder)
+			if err != nil {
+				log.Printf("[STOREFRONT-SET-FEATURED] failed to get next sort order for storefront %d: %v", storefrontID, err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+				return
+			}
+
+			// Insert into storefront_packs with is_featured = 1
+			_, err = db.Exec(`INSERT INTO storefront_packs (storefront_id, pack_listing_id, is_featured, featured_sort_order) VALUES (?, ?, 1, ?)`,
+				storefrontID, packListingID, nextSortOrder)
+			if err != nil {
+				log.Printf("[STOREFRONT-SET-FEATURED] failed to insert featured pack for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "设置推荐失败"})
+				return
+			}
+		} else {
+			// Pack already exists in storefront_packs, update it
+			// Get next sort order
+			var nextSortOrder int
+			err = db.QueryRow(`SELECT COALESCE(MAX(featured_sort_order), 0) + 1 FROM storefront_packs WHERE storefront_id = ? AND is_featured = 1`, storefrontID).Scan(&nextSortOrder)
+			if err != nil {
+				log.Printf("[STOREFRONT-SET-FEATURED] failed to get next sort order for storefront %d: %v", storefrontID, err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+				return
+			}
+
+			_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 1, featured_sort_order = ? WHERE storefront_id = ? AND pack_listing_id = ?`,
+				nextSortOrder, storefrontID, packListingID)
+			if err != nil {
+				log.Printf("[STOREFRONT-SET-FEATURED] failed to set featured for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "设置推荐失败"})
+				return
+			}
+		}
+	} else {
+		// Unset featured: clear is_featured and featured_sort_order
+		_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE storefront_id = ? AND pack_listing_id = ?`,
+			storefrontID, packListingID)
+		if err != nil {
+			log.Printf("[STOREFRONT-SET-FEATURED] failed to unset featured for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "取消推荐失败"})
+			return
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+
+func handleStorefrontReorderFeatured(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-REORDER-FEATURED] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Read pack_ids from form data (comma-separated list of pack_listing_ids in new order)
+	packIDsStr := r.FormValue("pack_ids")
+	if packIDsStr == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "缺少 pack_ids 参数"})
+		return
+	}
+
+	// Parse comma-separated pack IDs
+	parts := strings.Split(packIDsStr, ",")
+	var packIDs []int64
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		id, err := strconv.ParseInt(p, 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID: " + p})
+			return
+		}
+		packIDs = append(packIDs, id)
+	}
+
+	if len(packIDs) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "缺少有效的 pack_ids"})
+		return
+	}
+
+	// Get the storefront_id for the current user
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-REORDER-FEATURED] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
+		return
+	}
+
+	// Update featured_sort_order for each pack (1-based index), only for packs that are actually featured
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[STOREFRONT-REORDER-FEATURED] failed to begin transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "操作失败"})
+		return
+	}
+	defer tx.Rollback()
+
+	for i, packID := range packIDs {
+		sortOrder := i + 1 // 1-based index
+		result, err := tx.Exec(
+			`UPDATE storefront_packs SET featured_sort_order = ? WHERE storefront_id = ? AND pack_listing_id = ? AND is_featured = 1`,
+			sortOrder, storefrontID, packID)
+		if err != nil {
+			log.Printf("[STOREFRONT-REORDER-FEATURED] failed to update sort order for storefront %d, pack %d: %v", storefrontID, packID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "更新排序失败"})
+			return
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			log.Printf("[STOREFRONT-REORDER-FEATURED] pack %d is not a featured pack in storefront %d, skipping", packID, storefrontID)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[STOREFRONT-REORDER-FEATURED] failed to commit transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "更新排序失败"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Look up the author's storefront
+	var storefrontID int64
+	var storeName string
+	err = db.QueryRow(`SELECT id, store_name FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID, &storeName)
+	if err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在"})
+		return
+	}
+
+	// Parse form data
+	subject := strings.TrimSpace(r.FormValue("subject"))
+	body := strings.TrimSpace(r.FormValue("body"))
+	scope := r.FormValue("scope")
+	listingIDsStr := r.FormValue("listing_ids")
+	templateType := r.FormValue("template_type")
+
+	if scope == "" {
+		scope = "all"
+	}
+
+	// Validate subject and body are not empty
+	if subject == "" || body == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "邮件主题和正文不能为空"})
+		return
+	}
+
+	// Query recipients based on scope
+	type recipient struct {
+		UserID int64
+		Email  string
+	}
+	var recipients []recipient
+
+	if scope == "all" {
+		rows, err := db.Query(`
+			SELECT DISTINCT u.id, u.email FROM user_purchased_packs upp
+			JOIN users u ON upp.user_id = u.id
+			JOIN pack_listings pl ON upp.listing_id = pl.id
+			WHERE pl.user_id = ? AND u.email IS NOT NULL AND u.email != ''
+		`, userID)
+		if err != nil {
+			log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query all recipients for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r recipient
+			if err := rows.Scan(&r.UserID, &r.Email); err != nil {
+				log.Printf("[STOREFRONT-SEND-NOTIFY] failed to scan recipient row: %v", err)
+				continue
+			}
+			recipients = append(recipients, r)
+		}
+	} else if scope == "partial" {
+		if listingIDsStr == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择至少一位收件人"})
+			return
+		}
+		parts := strings.Split(listingIDsStr, ",")
+		var listingIDs []interface{}
+		var placeholders []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(p, 10, 64)
+			if err != nil {
+				continue
+			}
+			listingIDs = append(listingIDs, id)
+			placeholders = append(placeholders, "?")
+		}
+		if len(listingIDs) == 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择至少一位收件人"})
+			return
+		}
+
+		query := fmt.Sprintf(`
+			SELECT DISTINCT u.id, u.email FROM user_purchased_packs upp
+			JOIN users u ON upp.user_id = u.id
+			WHERE upp.listing_id IN (%s) AND u.email IS NOT NULL AND u.email != ''
+		`, strings.Join(placeholders, ", "))
+
+		rows, err := db.Query(query, listingIDs...)
+		if err != nil {
+			log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query partial recipients for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r recipient
+			if err := rows.Scan(&r.UserID, &r.Email); err != nil {
+				log.Printf("[STOREFRONT-SEND-NOTIFY] failed to scan recipient row: %v", err)
+				continue
+			}
+			recipients = append(recipients, r)
+		}
+	} else {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的 scope 参数"})
+		return
+	}
+
+	// Validate at least one recipient
+	if len(recipients) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择至少一位收件人"})
+		return
+	}
+
+	// Read SMTP config from settings table
+	smtpJSON := getSetting("smtp_config")
+	if smtpJSON == "" {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] SMTP config not found in settings table")
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件服务未配置，请联系管理员"})
+		return
+	}
+
+	var smtpConfig SMTPConfig
+	if err := json.Unmarshal([]byte(smtpJSON), &smtpConfig); err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to parse SMTP config: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件服务配置错误，请联系管理员"})
+		return
+	}
+
+	if !smtpConfig.Enabled {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "邮件服务未启用，请联系管理员"})
+		return
+	}
+
+	if smtpConfig.Host == "" || smtpConfig.FromEmail == "" {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件服务配置不完整，请联系管理员"})
+		return
+	}
+
+	// Send emails using net/smtp
+	var sendErrors int
+	fromHeader := smtpConfig.FromEmail
+	if smtpConfig.FromName != "" {
+		fromHeader = fmt.Sprintf("%s <%s>", smtpConfig.FromName, smtpConfig.FromEmail)
+	}
+
+	addr := fmt.Sprintf("%s:%d", smtpConfig.Host, smtpConfig.Port)
+	var auth smtp.Auth
+	if smtpConfig.Username != "" && smtpConfig.Password != "" {
+		auth = smtp.PlainAuth("", smtpConfig.Username, smtpConfig.Password, smtpConfig.Host)
+	}
+
+	for _, rcpt := range recipients {
+		var msg bytes.Buffer
+		msg.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
+		msg.WriteString(fmt.Sprintf("To: %s\r\n", rcpt.Email))
+		msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
+		msg.WriteString("MIME-Version: 1.0\r\n")
+		msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+		msg.WriteString("\r\n")
+		msg.WriteString(body)
+
+		var sendErr error
+		if smtpConfig.UseTLS {
+			sendErr = storefrontSendEmailTLS(smtpConfig, rcpt.Email, msg.Bytes())
+		} else {
+			sendErr = smtp.SendMail(addr, auth, smtpConfig.FromEmail, []string{rcpt.Email}, msg.Bytes())
+		}
+		if sendErr != nil {
+			log.Printf("[STOREFRONT-SEND-NOTIFY] failed to send email to %s: %v", rcpt.Email, sendErr)
+			sendErrors++
+		}
+	}
+
+	// Record to storefront_notifications table
+	status := "sent"
+	if sendErrors > 0 && sendErrors == len(recipients) {
+		status = "failed"
+	} else if sendErrors > 0 {
+		status = "partial"
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO storefront_notifications (storefront_id, subject, body, recipient_count, template_type, status)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, storefrontID, subject, body, len(recipients)-sendErrors, templateType, status)
+	if err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to record notification for storefront %d: %v", storefrontID, err)
+	}
+
+	successCount := len(recipients) - sendErrors
+	log.Printf("[STOREFRONT-SEND-NOTIFY] storefront %d: sent %d/%d emails, status=%s", storefrontID, successCount, len(recipients), status)
+
+	if status == "failed" {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件发送失败，请稍后重试"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("邮件已发送至 %d 位客户", successCount),
+		"count":   successCount,
+	})
+}
+
+// storefrontSendEmailTLS sends an email using direct TLS connection (port 465).
+func storefrontSendEmailTLS(config SMTPConfig, to string, msg []byte) error {
+	addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	tlsConfig := &tls.Config{ServerName: config.Host}
+
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("TLS dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	client, err := smtp.NewClient(conn, config.Host)
+	if err != nil {
+		return fmt.Errorf("SMTP client creation failed: %v", err)
+	}
+	defer client.Close()
+
+	if config.Username != "" && config.Password != "" {
+		auth := smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		if err := client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP auth failed: %v", err)
+		}
+	}
+
+	if err := client.Mail(config.FromEmail); err != nil {
+		return fmt.Errorf("SMTP MAIL command failed: %v", err)
+	}
+	if err := client.Rcpt(to); err != nil {
+		return fmt.Errorf("SMTP RCPT command failed: %v", err)
+	}
+
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("SMTP DATA command failed: %v", err)
+	}
+	if _, err = w.Write(msg); err != nil {
+		return fmt.Errorf("SMTP write failed: %v", err)
+	}
+	if err = w.Close(); err != nil {
+		return fmt.Errorf("SMTP close failed: %v", err)
+	}
+
+	return client.Quit()
+}
+
+func handleStorefrontGetRecipients(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-GET-RECIPIENTS] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	scope := r.URL.Query().Get("scope")
+	if scope == "" {
+		scope = "all"
+	}
+
+	var count int
+
+	if scope == "all" {
+		// Query all distinct users who purchased any pack by this author
+		err = db.QueryRow(`
+			SELECT COUNT(DISTINCT u.id) FROM user_purchased_packs upp
+			JOIN users u ON upp.user_id = u.id
+			JOIN pack_listings pl ON upp.listing_id = pl.id
+			WHERE pl.user_id = ? AND u.email IS NOT NULL AND u.email != ''
+		`, userID).Scan(&count)
+		if err != nil {
+			log.Printf("[STOREFRONT-GET-RECIPIENTS] failed to query all recipients for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
+			return
+		}
+	} else if scope == "partial" {
+		// Query distinct users who purchased the selected listing_ids
+		listingIDsStr := r.URL.Query().Get("listing_ids")
+		if listingIDsStr == "" {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"count": 0})
+			return
+		}
+
+		parts := strings.Split(listingIDsStr, ",")
+		var listingIDs []interface{}
+		var placeholders []string
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(p, 10, 64)
+			if err != nil {
+				continue
+			}
+			listingIDs = append(listingIDs, id)
+			placeholders = append(placeholders, "?")
+		}
+
+		if len(listingIDs) == 0 {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"count": 0})
+			return
+		}
+
+		query := fmt.Sprintf(`
+			SELECT COUNT(DISTINCT u.id) FROM user_purchased_packs upp
+			JOIN users u ON upp.user_id = u.id
+			WHERE upp.listing_id IN (%s) AND u.email IS NOT NULL AND u.email != ''
+		`, strings.Join(placeholders, ", "))
+
+		err = db.QueryRow(query, listingIDs...).Scan(&count)
+		if err != nil {
+			log.Printf("[STOREFRONT-GET-RECIPIENTS] failed to query partial recipients for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询收件人失败"})
+			return
+		}
+	} else {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的 scope 参数，请使用 all 或 partial"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"count": count})
+}
+
+func handleStorefrontNotifyHistory(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-HISTORY] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Look up the author's storefront ID
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-HISTORY] failed to query storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在"})
+		return
+	}
+
+	// Query storefront_notifications ordered by created_at DESC
+	rows, err := db.Query(`
+		SELECT id, subject, recipient_count, status, created_at
+		FROM storefront_notifications
+		WHERE storefront_id = ?
+		ORDER BY created_at DESC
+	`, storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-HISTORY] failed to query notifications for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询通知记录失败"})
+		return
+	}
+	defer rows.Close()
+
+	var notifications []StorefrontNotification
+	for rows.Next() {
+		var n StorefrontNotification
+		if err := rows.Scan(&n.ID, &n.Subject, &n.RecipientCount, &n.Status, &n.CreatedAt); err != nil {
+			log.Printf("[STOREFRONT-NOTIFY-HISTORY] failed to scan notification row: %v", err)
+			continue
+		}
+		notifications = append(notifications, n)
+	}
+
+	if notifications == nil {
+		notifications = []StorefrontNotification{}
+	}
+
+	log.Printf("[STOREFRONT-NOTIFY-HISTORY] storefront %d: returned %d notifications", storefrontID, len(notifications))
+	jsonResponse(w, http.StatusOK, notifications)
+}
+
+
+func handleStorefrontNotifyDetail(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-DETAIL] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Look up the author's storefront ID
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-DETAIL] failed to query storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在"})
+		return
+	}
+
+	// Get notification ID from query parameter
+	idStr := r.URL.Query().Get("id")
+	if idStr == "" {
+		log.Printf("[STOREFRONT-NOTIFY-DETAIL] missing id parameter")
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "缺少通知 ID"})
+		return
+	}
+	notifyID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-DETAIL] invalid id parameter: %q", idStr)
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的通知 ID"})
+		return
+	}
+
+	// Query notification with ownership check
+	var n StorefrontNotification
+	err = db.QueryRow(`
+		SELECT id, subject, body, recipient_count, template_type, status, created_at
+		FROM storefront_notifications
+		WHERE id = ? AND storefront_id = ?
+	`, notifyID, storefrontID).Scan(&n.ID, &n.Subject, &n.Body, &n.RecipientCount, &n.TemplateType, &n.Status, &n.CreatedAt)
+	if err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-DETAIL] notification %d not found for storefront %d: %v", notifyID, storefrontID, err)
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "通知不存在"})
+		return
+	}
+
+	log.Printf("[STOREFRONT-NOTIFY-DETAIL] storefront %d: returned notification %d", storefrontID, n.ID)
+	jsonResponse(w, http.StatusOK, n)
+}
+
 
 // jwtSecret is the HMAC-SHA256 signing key for JWT tokens.
 // MUST be set via MARKETPLACE_JWT_SECRET environment variable in production.
@@ -8285,6 +10049,13 @@ func handleAuthorDelistPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Cascade: clear featured status for this pack in storefront_packs (Requirement 10.9)
+	_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE pack_listing_id = ? AND is_featured = 1`, listingID)
+	if err != nil {
+		log.Printf("[AUTHOR-DELIST-PACK] failed to clear featured status for listing %d: %v", listingID, err)
+		// Non-fatal: delist succeeded, just log the cascade failure
+	}
+
 	log.Printf("[AUTHOR-DELIST-PACK] user %d delisted listing %d", userID, listingID)
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
@@ -8522,6 +10293,14 @@ func handleAdminDelistPack(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
 	}
+
+	// Cascade: clear featured status for this pack in storefront_packs (Requirement 10.9)
+	_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE pack_listing_id = ? AND is_featured = 1`, listingID)
+	if err != nil {
+		log.Printf("[ADMIN-DELIST-PACK] failed to clear featured status for listing %d: %v", listingID, err)
+		// Non-fatal: delist succeeded, just log the cascade failure
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -10515,7 +12294,11 @@ func main() {
 	http.HandleFunc("/user/author/delete-pack", userAuth(handleAuthorDeletePack))
 	http.HandleFunc("/user/author/delist-pack", userAuth(handleAuthorDelistPack))
 	http.HandleFunc("/user/author/pack-purchases", userAuth(handleAuthorPackPurchases))
+	http.HandleFunc("/user/storefront/", userAuth(handleStorefrontManagement))
 	http.HandleFunc("/user/", userAuth(handleUserDashboard))
+
+	// Storefront public routes (no auth required)
+	http.HandleFunc("/store/", handleStorefrontRoutes)
 
 	// Pack detail page route (catches /pack/*)
 	http.HandleFunc("/pack/", func(w http.ResponseWriter, r *http.Request) {
