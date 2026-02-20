@@ -6780,7 +6780,32 @@ func (q *SendQueue) runLoop(taskID int64) {
 			default:
 			}
 
-			err := sendEmail(item.Email, subject, body)
+			// Look up SN and product for this recipient to render template variables
+			var sn string
+			var productID int
+			err := db.QueryRow("SELECT COALESCE(sn,''), COALESCE(product_id,0) FROM email_records WHERE email=? LIMIT 1", item.Email).Scan(&sn, &productID)
+			if err != nil {
+				sn = ""
+				productID = 0
+			}
+			productName := getProductName(productID)
+
+			vars := TemplateVars{
+				ProductName: productName,
+				Email:       item.Email,
+				SN:          sn,
+			}
+
+			renderedSubject, renderErr := renderEmailTemplate(subject, vars)
+			if renderErr != nil {
+				renderedSubject = subject
+			}
+			renderedBody, renderErr := renderEmailTemplate(body, vars)
+			if renderErr != nil {
+				renderedBody = body
+			}
+
+			err = sendEmail(item.Email, renderedSubject, renderedBody)
 			if err != nil {
 				// Mark as failed with error message
 				db.Exec(
