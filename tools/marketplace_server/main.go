@@ -4697,6 +4697,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 			"HasPurchased": false,
 			"Error":        i18n.T(lang, "invalid_pack_link"),
 			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+			"DownloadURLWindows": getSetting("download_url_windows"),
+			"DownloadURLMacOS":   getSetting("download_url_macos"),
 		})
 		return
 	}
@@ -4731,6 +4733,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 			"HasPurchased": false,
 			"Error":        i18n.T(lang, "pack_not_found"),
 			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+			"DownloadURLWindows": getSetting("download_url_windows"),
+			"DownloadURLMacOS":   getSetting("download_url_macos"),
 		})
 		return
 	}
@@ -4778,6 +4782,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 		"HasPurchased":    hasPurchased,
 		"Error":           "",
 		"MonthOptions":    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+		"DownloadURLWindows": getSetting("download_url_windows"),
+		"DownloadURLMacOS":   getSetting("download_url_macos"),
 	})
 }
 
@@ -7303,6 +7309,8 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"AdminID":                    adminID,
 		"PermissionsJSON":            template.JS(string(permsJSON)),
 		"DefaultLang":                getSetting("default_language"),
+		"DownloadURLWindows":         getSetting("download_url_windows"),
+		"DownloadURLMacOS":           getSetting("download_url_macos"),
 	})
 }
 
@@ -7392,6 +7400,62 @@ func handleSetCreditCashRate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleSaveDownloadURLs saves the client download URLs for Windows and macOS.
+// POST /admin/api/settings/download-urls
+func handleSaveDownloadURLs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		WindowsURL string `json:"windows_url"`
+		MacOSURL   string `json:"macos_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	// Validate URLs: must be empty or start with http:// / https://
+	req.WindowsURL = strings.TrimSpace(req.WindowsURL)
+	req.MacOSURL = strings.TrimSpace(req.MacOSURL)
+	if req.WindowsURL != "" && !strings.HasPrefix(req.WindowsURL, "http://") && !strings.HasPrefix(req.WindowsURL, "https://") {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "Windows URL must start with http:// or https://"})
+		return
+	}
+	if req.MacOSURL != "" && !strings.HasPrefix(req.MacOSURL, "http://") && !strings.HasPrefix(req.MacOSURL, "https://") {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "macOS URL must start with http:// or https://"})
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("Failed to begin transaction for download URLs: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if _, err := tx.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('download_url_windows', ?)", req.WindowsURL); err != nil {
+		tx.Rollback()
+		log.Printf("Failed to save download_url_windows: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if _, err := tx.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('download_url_macos', ?)", req.MacOSURL); err != nil {
+		tx.Rollback()
+		log.Printf("Failed to save download_url_macos: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit download URLs: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // handleAdminSaveRevenueSplit saves the publisher revenue split percentage.
@@ -9936,6 +10000,7 @@ func main() {
 	http.HandleFunc("/admin/api/settings/revenue-split", permissionAuth("settings")(handleAdminSaveRevenueSplit))
 	http.HandleFunc("/admin/api/settings/withdrawal-fees", permissionAuth("settings")(handleAdminSaveWithdrawalFees))
 	http.HandleFunc("/admin/api/settings/default-language", permissionAuth("settings")(handleSetDefaultLanguage))
+	http.HandleFunc("/admin/api/settings/download-urls", permissionAuth("settings")(handleSaveDownloadURLs))
 	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals/approve", permissionAuth("settings")(handleAdminApproveWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals", permissionAuth("settings")(handleAdminGetWithdrawals))

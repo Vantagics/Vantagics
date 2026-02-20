@@ -763,4 +763,14 @@ var zhCN = map[string]string{
 	"excel_tx_purchase_uses":  "购买次数",
 	"excel_tx_renew":          "续订",
 	"excel_tx_free_claim":     "免费领取",
+
+	// Download URLs
+	"download_windows":        "下载 Windows 版",
+	"download_macos":          "下载 macOS 版",
+	"download_urls":           "下载地址设置",
+	"download_urls_desc":      "设置客户端软件的下载地址，将显示在分析包分享页面上",
+	"download_url_windows":    "Windows 下载地址",
+	"download_url_macos":      "macOS 下载地址",
+	"download_urls_updated":   "下载地址已更新",
+	"invalid_url":             "请输入有效的 URL（以 http:// 或 https:// 开头）",
 }

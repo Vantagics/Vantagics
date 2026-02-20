@@ -178,6 +178,21 @@ const AdminHTML = `<!DOCTYPE html>
                 <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
             </form>
         </div>
+        <div class="card">
+            <h2 data-i18n="download_urls">下载地址设置</h2>
+            <p class="form-hint" style="margin-bottom:16px;" data-i18n="download_urls_desc">设置客户端软件的下载地址，将显示在分析包分享页面上</p>
+            <form id="download-urls-form" onsubmit="saveDownloadURLs(event)">
+                <div class="form-group">
+                    <label for="download-url-windows" data-i18n="download_url_windows">Windows 下载地址</label>
+                    <input type="url" id="download-url-windows" placeholder="https://example.com/download/windows" value="{{.DownloadURLWindows}}" />
+                </div>
+                <div class="form-group">
+                    <label for="download-url-macos" data-i18n="download_url_macos">macOS 下载地址</label>
+                    <input type="url" id="download-url-macos" placeholder="https://example.com/download/macos" value="{{.DownloadURLMacOS}}" />
+                </div>
+                <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
+            </form>
+        </div>
     </div>
 
     <!-- Review Section (all admins) -->
@@ -920,6 +935,23 @@ function saveInitialCredits(e) {
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) { showMsg(window._i18n("initial_balance_updated","初始余额已更新为") + ' ' + val, false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function saveDownloadURLs(e) {
+    e.preventDefault();
+    var winURL = document.getElementById('download-url-windows').value.trim();
+    var macURL = document.getElementById('download-url-macos').value.trim();
+    if (winURL && !/^https?:\/\//.test(winURL)) { showMsg(window._i18n("invalid_url","请输入有效的 URL（以 http:// 或 https:// 开头）"), true); return; }
+    if (macURL && !/^https?:\/\//.test(macURL)) { showMsg(window._i18n("invalid_url","请输入有效的 URL（以 http:// 或 https:// 开头）"), true); return; }
+    apiFetch('/admin/api/settings/download-urls', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({windows_url: winURL, macos_url: macURL})
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg(window._i18n("download_urls_updated","下载地址已更新"), false); }
         else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }

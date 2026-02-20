@@ -39,6 +39,12 @@ const packDetailHTML = `<!DOCTYPE html>
         .pack-title{font-size:28px;font-weight:800;line-height:1.25;letter-spacing:-0.5px;margin-bottom:10px;color:#0f172a}
         .pack-author{display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;font-weight:500}
         .pack-author svg{opacity:.5}
+        .dl-buttons{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+        .dl-btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;text-decoration:none;transition:all .25s;border:1px solid #e2e8f0;background:#fff;color:#475569}
+        .dl-btn:hover{background:#f8fafc;border-color:#cbd5e1;box-shadow:0 2px 8px rgba(0,0,0,0.06);transform:translateY(-1px)}
+        .dl-btn svg{width:18px;height:18px;flex-shrink:0}
+        .dl-btn-primary{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(99,102,241,0.2)}
+        .dl-btn-primary:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);color:#fff}
         .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px}
         @media(max-width:480px){.stats{grid-template-columns:1fr}}
         .stat{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:16px 18px;transition:all .25s}
@@ -106,6 +112,7 @@ const packDetailHTML = `<!DOCTYPE html>
         </div>
         <h1 class="pack-title">{{.PackName}}</h1>
         <p class="pack-author"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.AuthorName}}</p>
+        <div class="dl-buttons" id="dlButtons"></div>
     </div></div>
     <div class="stats">
         <div class="stat"><div class="stat-label" data-i18n="data_source">数据源</div><div class="stat-val">{{.SourceName}}</div></div>
@@ -151,7 +158,30 @@ const packDetailHTML = `<!DOCTYPE html>
 <div class="copy-toast" id="copyToast" data-i18n="link_copied">链接已复制</div>
 <script>
 var listingID={{.ListingID}},shareToken="{{.ShareToken}}",creditsPrice={{.CreditsPrice}},shareMode="{{.ShareMode}}";
+var dlURLWindows="{{.DownloadURLWindows}}",dlURLMacOS="{{.DownloadURLMacOS}}";
 (function(){var u=encodeURIComponent(location.href),t=encodeURIComponent(document.title),x=document.getElementById("shareX"),l=document.getElementById("shareLI");if(x)x.href="https://twitter.com/intent/tweet?text="+t+"&url="+u;if(l)l.href="https://www.linkedin.com/sharing/share-offsite/?url="+u})();
+(function(){
+    var c=document.getElementById("dlButtons");if(!c)return;
+    if(!dlURLWindows && !dlURLMacOS) return;
+    function esc(s){var d=document.createElement('div');d.appendChild(document.createTextNode(s));return d.innerHTML;}
+    var ua=navigator.userAgent||navigator.platform||"";
+    var isWin=/Win/.test(ua),isMac=/Mac/.test(ua);
+    var winSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>';
+    var macSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>';
+    function mkBtn(url,svg,i18nKey,label,primary){return '<a class="dl-btn'+(primary?' dl-btn-primary':'')+'" href="'+esc(url)+'" target="_blank" rel="noopener">'+svg+' <span data-i18n="'+i18nKey+'">'+label+'</span></a>';}
+    var html='';
+    if(isWin){
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',true);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',false);
+    } else if(isMac){
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',true);
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',false);
+    } else {
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_windows','下载 Windows 版',false);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_macos','下载 macOS 版',false);
+    }
+    c.innerHTML=html;
+})();
 function showMsg(a,b){var s=document.getElementById("successMsg"),e=document.getElementById("errorMsg");if(s)s.style.display="none";if(e)e.style.display="none";if(a==="success"&&s){s.textContent=b;s.style.display="block"}else if(e){e.textContent=b;e.style.display="block"}}
 function copyLink(){navigator.clipboard.writeText(location.href).then(function(){var t=document.getElementById("copyToast");t.classList.add("show");setTimeout(function(){t.classList.remove("show")},2e3)})}
 function claimPack(){if(!confirm(window._i18n("add_to_purchased_confirm","是否将此分析包添加到您的已购快捷分析包中？")))return;var b=document.getElementById("claimBtn");b.disabled=!0;b.innerHTML=window._i18n("claiming","领取中...");fetch("/pack/"+shareToken+"/claim",{method:"POST",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json()}).then(function(d){if(d.success){showMsg("success",window._i18n("claim_success","领取成功！"));b.outerHTML='<div class="badge-owned">'+window._i18n("claimed","已领取")+'</div>'}else{showMsg("error",d.error||window._i18n("claim_failed","领取失败"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")}}).catch(function(){showMsg("error",window._i18n("network_error","网络错误"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")})}

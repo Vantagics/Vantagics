@@ -758,4 +758,14 @@ var enUS = map[string]string{
 	"excel_tx_purchase_uses":  "Purchase Uses",
 	"excel_tx_renew":          "Renew",
 	"excel_tx_free_claim":     "Free Claim",
+
+	// Download URLs
+	"download_windows":        "Download for Windows",
+	"download_macos":          "Download for macOS",
+	"download_urls":           "Download URL Settings",
+	"download_urls_desc":      "Set client download URLs, displayed on the pack share page",
+	"download_url_windows":    "Windows Download URL",
+	"download_url_macos":      "macOS Download URL",
+	"download_urls_updated":   "Download URLs updated",
+	"invalid_url":             "Please enter a valid URL (starting with http:// or https://)",
 }
