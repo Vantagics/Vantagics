@@ -35,7 +35,7 @@ const EmailNotifyHTML = `
         <div id="recipient-mode-email" class="hidden">
             <div class="mb-2">
                 <label class="form-label">关联产品（用于模板变量 {{.ProductName}}）</label>
-                <select id="notify-email-product-select" class="form-select" style="width:auto;min-width:240px">
+                <select id="notify-email-product-select" class="form-select" style="width:auto;min-width:240px" onchange="updateNotifyPreview()">
                     <option value="0">Vantagics (ID: 0)</option>
                 </select>
             </div>
@@ -325,6 +325,7 @@ function updateRecipientCount() {
     var count = notifySelectedEmails.length;
     badge.textContent = '已选 ' + count + ' 人';
     sendBtn.disabled = count === 0;
+    updateNotifyPreview();
 }
 
 // ===== Template Loading and Selection =====
@@ -367,16 +368,56 @@ function onNotifyTemplateChange() {
 }
 
 // ===== Preview =====
+function getPreviewTemplateVars() {
+    // Determine product name from the selected product
+    var productName = 'Vantagics';
+    var productMode = !document.getElementById('recipient-mode-product').classList.contains('hidden');
+    var selectEl = productMode ? document.getElementById('notify-product-select') : document.getElementById('notify-email-product-select');
+    if (selectEl && selectEl.value !== '') {
+        var optText = selectEl.options[selectEl.selectedIndex].text;
+        // Extract name before " (ID:" if present
+        var idx = optText.indexOf(' (ID:');
+        if (idx > 0) productName = optText.substring(0, idx);
+    }
+
+    // Use first selected recipient email, or placeholder
+    var email = notifySelectedEmails.length > 0 ? notifySelectedEmails[0] : 'user@example.com';
+
+    // SN is not available client-side, use placeholder
+    var sn = 'XXXX-XXXX-XXXX-XXXX';
+
+    return { productName: productName, email: email, sn: sn };
+}
+
+function renderPreviewTemplate(str, isHtml) {
+    var vars = getPreviewTemplateVars();
+    // For HTML content, escape values to prevent XSS when injected into innerHTML
+    // For plain text (subject), use raw values since the caller will escapeHtml the whole string
+    var pn = isHtml ? escapeHtml(vars.productName) : vars.productName;
+    var em = isHtml ? escapeHtml(vars.email) : vars.email;
+    var sn = isHtml ? escapeHtml(vars.sn) : vars.sn;
+    return str
+        .replace(/\{\{\.ProductName\}\}/g, pn)
+        .replace(/\{\{\.Email\}\}/g, em)
+        .replace(/\{\{\.SN\}\}/g, sn);
+}
+
 function updateNotifyPreview() {
     var subject = document.getElementById('notify-subject').value;
     var body = document.getElementById('notify-editor').innerHTML;
     var preview = document.getElementById('notify-preview');
 
+    var renderedSubject = renderPreviewTemplate(subject, false);
+    var renderedBody = renderPreviewTemplate(body, true);
+
     var html = '';
-    if (subject) {
-        html += '<div style="font-weight:bold;font-size:16px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">' + escapeHtml(subject) + '</div>';
+    if (renderedSubject) {
+        html += '<div style="font-weight:bold;font-size:16px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #e2e8f0">' + escapeHtml(renderedSubject) + '</div>';
     }
-    html += '<div>' + body + '</div>';
+    html += '<div>' + renderedBody + '</div>';
+    if (notifySelectedEmails.length > 1) {
+        html += '<div style="margin-top:12px;padding-top:8px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8">预览使用第 1 位收件人信息，实际发送时每封邮件将使用对应收件人的数据</div>';
+    }
     preview.innerHTML = html;
 }
 

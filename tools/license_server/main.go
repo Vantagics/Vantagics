@@ -616,6 +616,7 @@ func initDB() {
 <p>我们很高兴地通知您，<strong>{{.ProductName}}</strong> 已发布重大更新。本次更新包含多项功能改进和性能优化，将为您带来更好的使用体验。</p>
 <p><strong>您的序列号：</strong>{{.SN}}</p>
 <p>请及时更新至最新版本，以享受全部新功能。如有任何问题，请随时联系我们的技术支持团队。</p>
+<p>官网地址：<a href="https://vantagics.com" style="color:#1a56db">https://vantagics.com</a></p>
 <p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
 </div>', 1, datetime('now')
 		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='产品重大更新通知' AND is_preset=1)`)
@@ -627,6 +628,7 @@ func initDB() {
 <p>为了提升服务质量，<strong>{{.ProductName}}</strong> 将进行服务器临时维护。维护期间，部分服务可能暂时不可用。</p>
 <p><strong>您的序列号：</strong>{{.SN}}</p>
 <p>我们将尽快完成维护工作，届时服务将自动恢复。感谢您的理解与支持。</p>
+<p>官网地址：<a href="https://vantagics.com" style="color:#d97706">https://vantagics.com</a></p>
 <p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
 </div>', 1, datetime('now')
 		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='服务器临时维护通知' AND is_preset=1)`)
@@ -637,7 +639,7 @@ func initDB() {
 <p>尊敬的用户（{{.Email}}），您好！</p>
 <p><strong>{{.ProductName}}</strong> 新版本已正式发布！新版本带来了诸多改进和新功能，欢迎您下载体验。</p>
 <p><strong>您的序列号：</strong>{{.SN}}</p>
-<p>请前往官方网站下载最新版本。如需帮助，请联系我们的技术支持团队。</p>
+<p>请前往官方网站下载最新版本：<a href="https://vantagics.com" style="color:#059669">https://vantagics.com</a>。如需帮助，请联系我们的技术支持团队。</p>
 <p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
 </div>', 1, datetime('now')
 		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='新版本发布通知' AND is_preset=1)`)
@@ -648,7 +650,7 @@ func initDB() {
 <p>尊敬的用户（{{.Email}}），您好！</p>
 <p>您的 <strong>{{.ProductName}}</strong> 授权即将到期，为避免影响您的正常使用，请及时续费。</p>
 <p><strong>您的序列号：</strong>{{.SN}}</p>
-<p>如您已完成续费，请忽略此邮件。如需帮助，请联系我们的技术支持团队。</p>
+<p>如您已完成续费，请忽略此邮件。如需帮助，请访问 <a href="https://vantagics.com" style="color:#dc2626">https://vantagics.com</a> 或联系我们的技术支持团队。</p>
 <p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
 </div>', 1, datetime('now')
 		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='服务到期提醒' AND is_preset=1)`)
@@ -659,10 +661,38 @@ func initDB() {
 <p>尊敬的用户（{{.Email}}），您好！</p>
 <p>我们发布了一项关于 <strong>{{.ProductName}}</strong> 的重要安全公告。为保障您的数据安全，请务必关注以下信息并采取相应措施。</p>
 <p><strong>您的序列号：</strong>{{.SN}}</p>
-<p>建议您尽快更新至最新版本，以获取最新的安全补丁。如有疑问，请联系我们的技术支持团队。</p>
+<p>建议您尽快更新至最新版本，以获取最新的安全补丁。如有疑问，请访问 <a href="https://vantagics.com" style="color:#7c3aed">https://vantagics.com</a> 或联系我们的技术支持团队。</p>
 <p style="color:#666;font-size:12px;margin-top:30px">此邮件由系统自动发送，请勿直接回复。</p>
 </div>', 1, datetime('now')
 		WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE name='安全公告通知' AND is_preset=1)`)
+
+	// Migration: Update preset templates to include website URL if missing
+	db.Exec(`UPDATE email_templates SET body = REPLACE(body,
+		'<p>请及时更新至最新版本，以享受全部新功能。如有任何问题，请随时联系我们的技术支持团队。</p>',
+		'<p>请及时更新至最新版本，以享受全部新功能。如有任何问题，请随时联系我们的技术支持团队。</p>
+<p>官网地址：<a href="https://vantagics.com" style="color:#1a56db">https://vantagics.com</a></p>')
+		WHERE name='产品重大更新通知' AND is_preset=1 AND body NOT LIKE '%vantagics.com%'`)
+
+	db.Exec(`UPDATE email_templates SET body = REPLACE(body,
+		'<p>我们将尽快完成维护工作，届时服务将自动恢复。感谢您的理解与支持。</p>',
+		'<p>我们将尽快完成维护工作，届时服务将自动恢复。感谢您的理解与支持。</p>
+<p>官网地址：<a href="https://vantagics.com" style="color:#d97706">https://vantagics.com</a></p>')
+		WHERE name='服务器临时维护通知' AND is_preset=1 AND body NOT LIKE '%vantagics.com%'`)
+
+	db.Exec(`UPDATE email_templates SET body = REPLACE(body,
+		'<p>请前往官方网站下载最新版本。如需帮助，请联系我们的技术支持团队。</p>',
+		'<p>请前往官方网站下载最新版本：<a href="https://vantagics.com" style="color:#059669">https://vantagics.com</a>。如需帮助，请联系我们的技术支持团队。</p>')
+		WHERE name='新版本发布通知' AND is_preset=1 AND body NOT LIKE '%vantagics.com%'`)
+
+	db.Exec(`UPDATE email_templates SET body = REPLACE(body,
+		'<p>如您已完成续费，请忽略此邮件。如需帮助，请联系我们的技术支持团队。</p>',
+		'<p>如您已完成续费，请忽略此邮件。如需帮助，请访问 <a href="https://vantagics.com" style="color:#dc2626">https://vantagics.com</a> 或联系我们的技术支持团队。</p>')
+		WHERE name='服务到期提醒' AND is_preset=1 AND body NOT LIKE '%vantagics.com%'`)
+
+	db.Exec(`UPDATE email_templates SET body = REPLACE(body,
+		'<p>建议您尽快更新至最新版本，以获取最新的安全补丁。如有疑问，请联系我们的技术支持团队。</p>',
+		'<p>建议您尽快更新至最新版本，以获取最新的安全补丁。如有疑问，请访问 <a href="https://vantagics.com" style="color:#7c3aed">https://vantagics.com</a> 或联系我们的技术支持团队。</p>')
+		WHERE name='安全公告通知' AND is_preset=1 AND body NOT LIKE '%vantagics.com%'`)
 }
 
 func loadPorts() {
