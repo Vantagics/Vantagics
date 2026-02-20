@@ -744,6 +744,24 @@ func initDB(dbPath string) (*sql.DB, error) {
 		FROM users WHERE email IS NOT NULL AND email != '' GROUP BY email
 	`)
 
+	// Add password_hash and username columns to email_wallets (ignore error if already exists)
+	database.Exec("ALTER TABLE email_wallets ADD COLUMN password_hash TEXT")
+	database.Exec("ALTER TABLE email_wallets ADD COLUMN username TEXT")
+
+	// Migrate existing password_hash from users to email_wallets (one-time, pick the first non-null password per email)
+	database.Exec(`
+		UPDATE email_wallets SET password_hash = (
+			SELECT u.password_hash FROM users u
+			WHERE u.email = email_wallets.email AND u.password_hash IS NOT NULL AND u.password_hash != ''
+			ORDER BY u.id ASC LIMIT 1
+		), username = (
+			SELECT u.username FROM users u
+			WHERE u.email = email_wallets.email AND u.username IS NOT NULL AND u.username != ''
+			ORDER BY u.id ASC LIMIT 1
+		)
+		WHERE email_wallets.password_hash IS NULL OR email_wallets.password_hash = ''
+	`)
+
 	return database, nil
 }
 
@@ -2503,16 +2521,26 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[USER-LOGIN] captcha verification failed for ID=%q", captchaID)
 		errMsg = i18n.T(lang, "captcha_error")
 	} else {
-		var storedHash string
-		err := db.QueryRow("SELECT id, password_hash FROM users WHERE username = ?", username).Scan(&userID, &storedHash)
+		// Authenticate against email_wallets (email-level password)
+		// username can be either the email itself or the username stored in email_wallets
+		var walletEmail string
+		var storedHash sql.NullString
+		err := db.QueryRow("SELECT email, password_hash FROM email_wallets WHERE email = ? OR username = ?", username, username).Scan(&walletEmail, &storedHash)
 		if err != nil {
 			log.Printf("[USER-LOGIN] db query error for username=%q: %v", username, err)
 			errMsg = i18n.T(lang, "login_error")
-		} else if !checkPassword(password, storedHash) {
+		} else if !storedHash.Valid || storedHash.String == "" || !checkPassword(password, storedHash.String) {
 			log.Printf("[USER-LOGIN] password check failed for username=%q", username)
 			errMsg = i18n.T(lang, "login_error")
 		} else {
-			log.Printf("[USER-LOGIN] success for username=%q userID=%d", username, userID)
+			// Find the first non-blocked user record for this email to create session
+			err = db.QueryRow("SELECT id FROM users WHERE email = ? AND COALESCE(is_blocked, 0) = 0 ORDER BY id ASC LIMIT 1", walletEmail).Scan(&userID)
+			if err != nil {
+				log.Printf("[USER-LOGIN] no active user record found for email=%q: %v", walletEmail, err)
+				errMsg = i18n.T(lang, "login_error")
+			} else {
+				log.Printf("[USER-LOGIN] success for username=%q email=%q userID=%d", username, walletEmail, userID)
+			}
 		}
 	}
 
@@ -2687,16 +2715,12 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := db.Exec(
-		"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		"sn", sn, username, email, username, hashPassword(password), initialBalance,
+		"INSERT INTO users (auth_type, auth_id, display_name, email, credits_balance) VALUES (?, ?, ?, ?, ?)",
+		"sn", sn, username, email, initialBalance,
 	)
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to create user: %v", err)
-		if strings.Contains(err.Error(), "UNIQUE") {
-			renderError(i18n.T(lang, "username_already_exists"))
-		} else {
-			renderError(i18n.T(lang, "create_account_failed"))
-		}
+		renderError(i18n.T(lang, "create_account_failed"))
 		return
 	}
 
@@ -2718,9 +2742,12 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Initialize email wallet (balance already in users table, just ensure wallet row exists)
+	// Initialize email wallet and store password (email-level, shared across all SNs)
 	if email != "" {
 		ensureWalletExists(email)
+		hashed := hashPassword(password)
+		db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ? AND (password_hash IS NULL OR password_hash = '')",
+			hashed, username, email)
 	}
 
 	log.Printf("[USER-REGISTER] success: email=%q sn=%q userID=%d username=%q", email, sn, userID, username)
@@ -3064,10 +3091,10 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		packs[i].ExpiresAt = currentExpiry.Format("2006-01-02 15:04:05")
 	}
 
-	// Query password_hash to determine if user has a password set
-	var passwordHash sql.NullString
-	db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
-	hasPassword := passwordHash.Valid && passwordHash.String != ""
+	// Query password status from email_wallets (email-level)
+	var walletPwHash sql.NullString
+	db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", user.Email).Scan(&walletPwHash)
+	hasPassword := walletPwHash.Valid && walletPwHash.String != ""
 
 	// --- Task 3.1: Author role detection + Task 3.3: Author packs ---
 	// Combine into a single flow: query author packs directly, derive isAuthor from result.
@@ -4090,18 +4117,18 @@ func handleTicketLogin(w http.ResponseWriter, r *http.Request) {
 	sid := createUserSession(userID)
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
 
-	// Check if user has a password set
-	var passwordHash sql.NullString
-	err := db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&passwordHash)
-	if err != nil {
-		log.Printf("[TICKET-LOGIN] failed to check password for user %d: %v", userID, err)
-		http.Redirect(w, r, "/user/dashboard", http.StatusFound)
-		return
+	// Check if this email has a password set in email_wallets
+	var userEmail string
+	db.QueryRow("SELECT email FROM users WHERE id = ?", userID).Scan(&userEmail)
+
+	var walletPwHash sql.NullString
+	if userEmail != "" {
+		db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", userEmail).Scan(&walletPwHash)
 	}
 
-	if !passwordHash.Valid || passwordHash.String == "" {
+	if userEmail == "" || !walletPwHash.Valid || walletPwHash.String == "" {
 		// First time: redirect to set-password page
-		log.Printf("[TICKET-LOGIN] user %d has no password, redirecting to set-password", userID)
+		log.Printf("[TICKET-LOGIN] email %s (user %d) has no password, redirecting to set-password", userEmail, userID)
 		http.Redirect(w, r, "/user/set-password", http.StatusFound)
 		return
 	}
@@ -4120,17 +4147,19 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Query user info
-	var passwordHash sql.NullString
+	// Query user email
 	var email string
-	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
+	err = db.QueryRow("SELECT email FROM users WHERE id = ?", userID).Scan(&email)
 	if err != nil {
 		http.Error(w, i18n.T(i18n.DetectLang(r), "load_failed"), http.StatusInternalServerError)
 		return
 	}
 
-	// If user has no password, redirect to set-password page (Requirement 3.7)
-	if !passwordHash.Valid || passwordHash.String == "" {
+	// Check password from email_wallets (email-level)
+	var walletPwHash sql.NullString
+	db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&walletPwHash)
+
+	if !walletPwHash.Valid || walletPwHash.String == "" {
 		http.Redirect(w, r, "/user/set-password", http.StatusFound)
 		return
 	}
@@ -4158,13 +4187,12 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 	newPassword := r.FormValue("new_password")
 	confirmPassword := r.FormValue("confirm_password")
 
-	// Validate current password (Requirement 3.4)
-	if !checkPassword(currentPassword, passwordHash.String) {
+	// Validate current password against email_wallets
+	if !checkPassword(currentPassword, walletPwHash.String) {
 		renderForm(i18n.T(lang, "invalid_old_password"), "")
 		return
 	}
 
-	// Validate new password length (Requirement 3.5)
 	if len(newPassword) < 6 {
 		renderForm(i18n.T(lang, "password_min_6"), "")
 		return
@@ -4174,22 +4202,21 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate password confirmation (Requirement 3.6)
 	if newPassword != confirmPassword {
 		renderForm(i18n.T(lang, "password_mismatch"), "")
 		return
 	}
 
-	// Update password (Requirement 3.3)
+	// Update password in email_wallets (email-level)
 	hashed := hashPassword(newPassword)
-	_, err = db.Exec("UPDATE users SET password_hash = ? WHERE id = ?", hashed, userID)
+	_, err = db.Exec("UPDATE email_wallets SET password_hash = ? WHERE email = ?", hashed, email)
 	if err != nil {
-		log.Printf("[CHANGE-PASSWORD] failed to update password for user %d: %v", userID, err)
+		log.Printf("[CHANGE-PASSWORD] failed to update password in email_wallets for email %s (user %d): %v", email, userID, err)
 		renderForm(i18n.T(lang, "change_password_failed"), "")
 		return
 	}
 
-	log.Printf("[CHANGE-PASSWORD] user %d changed password successfully", userID)
+	log.Printf("[CHANGE-PASSWORD] email %s (user %d) changed password successfully", email, userID)
 	renderForm("", i18n.T(lang, "change_password_success"))
 }
 
@@ -4204,17 +4231,20 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if user already has a password
-	var passwordHash sql.NullString
+	// Get user email
 	var email string
-	err = db.QueryRow("SELECT email, password_hash FROM users WHERE id = ?", userID).Scan(&email, &passwordHash)
+	err = db.QueryRow("SELECT email FROM users WHERE id = ?", userID).Scan(&email)
 	if err != nil {
 		http.Error(w, i18n.T(i18n.DetectLang(r), "load_failed"), http.StatusInternalServerError)
 		return
 	}
 
-	if passwordHash.Valid && passwordHash.String != "" {
-		// Already has password, go to dashboard
+	// Check if this email already has a password in email_wallets
+	var walletPwHash sql.NullString
+	db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&walletPwHash)
+
+	if walletPwHash.Valid && walletPwHash.String != "" {
+		// Already has password at email level, go to dashboard
 		http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 		return
 	}
@@ -4255,17 +4285,18 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set password and username (use email prefix as username)
+	// Set password and username on email_wallets (email-level, shared across all SNs)
 	hashed := hashPassword(password)
 	username := email
 	if idx := strings.Index(email, "@"); idx > 0 {
 		username = email[:idx]
 	}
 
-	_, err = db.Exec("UPDATE users SET password_hash = ?, username = ? WHERE id = ? AND (password_hash IS NULL OR password_hash = '')",
-		hashed, username, userID)
+	ensureWalletExists(email)
+	res, err := db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ? AND (password_hash IS NULL OR password_hash = '')",
+		hashed, username, email)
 	if err != nil {
-		log.Printf("[SET-PASSWORD] failed to update password for user %d: %v", userID, err)
+		log.Printf("[SET-PASSWORD] failed to update password in email_wallets for email %s (user %d): %v", email, userID, err)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		errData := i18n.TemplateData(r)
 		i18n.MergeTemplateData(errData, map[string]interface{}{
@@ -4276,7 +4307,15 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[SET-PASSWORD] user %d set password successfully, username=%q", userID, username)
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		// Password was already set (possibly by concurrent request), just redirect
+		log.Printf("[SET-PASSWORD] email %s (user %d) password already set, redirecting", email, userID)
+		http.Redirect(w, r, "/user/dashboard", http.StatusFound)
+		return
+	}
+
+	log.Printf("[SET-PASSWORD] email %s (user %d) set password successfully, username=%q", email, userID, username)
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
 

@@ -328,6 +328,7 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 
 		// Clean up any existing user with this username
 		db.Exec("DELETE FROM users WHERE username = ?", username)
+		db.Exec("DELETE FROM email_wallets WHERE username = ?", username)
 
 		// Insert user into database
 		hashed := hashPassword(password)
@@ -339,6 +340,11 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 			t.Logf("failed to insert user: %v", insertErr)
 			return false
 		}
+
+		// Also set password in email_wallets (email-level, required for login)
+		testEmail := fmt.Sprintf("%s@test.com", username)
+		ensureWalletExists(testEmail)
+		db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, testEmail)
 
 		// --- Test 1: Correct credentials + correct captcha → 302 redirect ---
 		captchaID1 := createMathCaptcha()
@@ -421,6 +427,7 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 
 		// Clean up user for next iteration
 		db.Exec("DELETE FROM users WHERE username = ?", username)
+		db.Exec("DELETE FROM email_wallets WHERE username = ?", username)
 
 		return true
 	}, cfg)
@@ -493,30 +500,18 @@ func TestPropertyBindingRegistrationCreatesCorrectUserRecord(t *testing.T) {
 		}
 
 		// Verify the created user record in the database
-		var dbUsername, dbPasswordHash, dbAuthType, dbAuthID, dbEmail string
+		var dbAuthType, dbAuthID, dbEmail string
 		err := db.QueryRow(
-			"SELECT username, password_hash, auth_type, auth_id, email FROM users WHERE auth_id = ? AND auth_type = 'sn'",
+			"SELECT auth_type, auth_id, email FROM users WHERE auth_id = ? AND auth_type = 'sn'",
 			sn,
-		).Scan(&dbUsername, &dbPasswordHash, &dbAuthType, &dbAuthID, &dbEmail)
+		).Scan(&dbAuthType, &dbAuthID, &dbEmail)
 		if err != nil {
 			t.Logf("iteration %d: failed to query user record: %v", iteration, err)
 			return false
 		}
 
 		// Property checks:
-		// 1. username == email prefix (before @)
-		if dbUsername != localPart {
-			t.Logf("iteration %d: username=%q, expected=%q", iteration, dbUsername, localPart)
-			return false
-		}
-
-		// 2. password_hash must be non-empty
-		if dbPasswordHash == "" {
-			t.Logf("iteration %d: password_hash is empty", iteration)
-			return false
-		}
-
-		// 3. auth_type must be "sn"
+		// 1. auth_type must be "sn"
 		if dbAuthType != "sn" {
 			t.Logf("iteration %d: auth_type=%q, expected 'sn'", iteration, dbAuthType)
 			return false
@@ -528,9 +523,26 @@ func TestPropertyBindingRegistrationCreatesCorrectUserRecord(t *testing.T) {
 			return false
 		}
 
-		// 5. email must be the full email address
+		// 3. email must be the full email address
 		if dbEmail != email {
 			t.Logf("iteration %d: email=%q, expected=%q", iteration, dbEmail, email)
+			return false
+		}
+
+		// 4. password_hash must be set in email_wallets (email-level)
+		var walletPwHash, walletUsername sql.NullString
+		err = db.QueryRow("SELECT password_hash, username FROM email_wallets WHERE email = ?", email).Scan(&walletPwHash, &walletUsername)
+		if err != nil {
+			t.Logf("iteration %d: failed to query email_wallets: %v", iteration, err)
+			return false
+		}
+		if !walletPwHash.Valid || walletPwHash.String == "" {
+			t.Logf("iteration %d: email_wallets password_hash is empty", iteration)
+			return false
+		}
+		// 5. username in email_wallets == email prefix
+		if !walletUsername.Valid || walletUsername.String != localPart {
+			t.Logf("iteration %d: email_wallets username=%q, expected=%q", iteration, walletUsername.String, localPart)
 			return false
 		}
 
@@ -811,6 +823,10 @@ func TestPropertyDashboardPackDisplay(t *testing.T) {
 			return false
 		}
 		userID, _ := res.LastInsertId()
+
+		// Also set password in email_wallets (email-level)
+		ensureWalletExists(email)
+		db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, email)
 
 		// Determine which share_modes to include based on seed bits
 		// Use at least 1 mode, up to all 4

@@ -56,6 +56,10 @@ func TestProperty4_PasswordChangeRoundTrip(t *testing.T) {
 		}
 		userID, _ := res.LastInsertId()
 
+		// Also set password in email_wallets (email-level)
+		ensureWalletExists(email)
+		db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, email)
+
 		// POST to handleUserChangePassword with correct old password and new password
 		form := url.Values{}
 		form.Set("current_password", oldPassword)
@@ -80,9 +84,9 @@ func TestProperty4_PasswordChangeRoundTrip(t *testing.T) {
 			return false
 		}
 
-		// Query the updated password_hash from the database
+		// Query the updated password_hash from email_wallets
 		var updatedHash string
-		err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&updatedHash)
+		err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&updatedHash)
 		if err != nil {
 			t.Logf("seed=%d: failed to query updated password_hash: %v", seed, err)
 			return false
@@ -162,9 +166,13 @@ func TestProperty5_WrongOldPasswordRejected(t *testing.T) {
 		}
 		userID, _ := res.LastInsertId()
 
-		// Record the original password_hash
+		// Also set password in email_wallets (email-level)
+		ensureWalletExists(email)
+		db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, email)
+
+		// Record the original password_hash from email_wallets
 		var originalHash string
-		err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&originalHash)
+		err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&originalHash)
 		if err != nil {
 			t.Logf("seed=%d: failed to query original password_hash: %v", seed, err)
 			return false
@@ -195,7 +203,7 @@ func TestProperty5_WrongOldPasswordRejected(t *testing.T) {
 
 		// Verify the password_hash in the database has NOT changed
 		var currentHash string
-		err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&currentHash)
+		err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&currentHash)
 		if err != nil {
 			t.Logf("seed=%d: failed to query current password_hash: %v", seed, err)
 			return false
@@ -253,9 +261,13 @@ func TestProperty6_PasswordValidationRules(t *testing.T) {
 			}
 			userID, _ := res.LastInsertId()
 
-			// Record the original password_hash
+			// Also set password in email_wallets (email-level)
+			ensureWalletExists(email)
+			db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, email)
+
+			// Record the original password_hash from email_wallets
 			var originalHash string
-			err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&originalHash)
+			err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&originalHash)
 			if err != nil {
 				t.Logf("seed=%d: failed to query original password_hash: %v", seed, err)
 				return false
@@ -286,7 +298,7 @@ func TestProperty6_PasswordValidationRules(t *testing.T) {
 
 			// Verify the password_hash in the database has NOT changed
 			var currentHash string
-			err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&currentHash)
+			err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&currentHash)
 			if err != nil {
 				t.Logf("seed=%d: failed to query current password_hash: %v", seed, err)
 				return false
@@ -335,9 +347,13 @@ func TestProperty6_PasswordValidationRules(t *testing.T) {
 			}
 			userID, _ := res.LastInsertId()
 
-			// Record the original password_hash
+			// Also set password in email_wallets (email-level)
+			ensureWalletExists(email)
+			db.Exec("UPDATE email_wallets SET password_hash = ?, username = ? WHERE email = ?", hashed, username, email)
+
+			// Record the original password_hash from email_wallets
 			var originalHash string
-			err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&originalHash)
+			err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&originalHash)
 			if err != nil {
 				t.Logf("seed=%d: failed to query original password_hash: %v", seed, err)
 				return false
@@ -374,7 +390,7 @@ func TestProperty6_PasswordValidationRules(t *testing.T) {
 
 			// Verify the password_hash in the database has NOT changed
 			var currentHash string
-			err = db.QueryRow("SELECT password_hash FROM users WHERE id = ?", userID).Scan(&currentHash)
+			err = db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&currentHash)
 			if err != nil {
 				t.Logf("seed=%d: failed to query current password_hash: %v", seed, err)
 				return false
