@@ -29,7 +29,14 @@ const packDetailHTML = `<!DOCTYPE html>
         .nav-link{padding:7px 16px;font-size:13px;font-weight:500;color:#64748b;background:#fff;border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;transition:all .2s}
         .nav-link:hover{color:#1e293b;border-color:#cbd5e1;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .hero{position:relative;overflow:hidden;background:linear-gradient(135deg,#eef2ff 0%,#faf5ff 50%,#f0fdf4 100%);border:1px solid #e0e7ff;border-radius:16px;padding:24px 24px 20px;margin-bottom:12px}
-        .hero-inner{position:relative;z-index:1}
+        .hero-inner{position:relative;z-index:1;display:flex;gap:24px;align-items:flex-start}
+        .hero-left{flex:1;min-width:0}
+        .hero-right{flex-shrink:0;width:180px;display:flex;flex-direction:column;gap:8px;padding-top:4px}
+        .hero-stat{background:rgba(255,255,255,0.7);border:1px solid rgba(226,232,240,0.6);border-radius:8px;padding:8px 12px}
+        .hero-stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;font-weight:600;margin-bottom:2px}
+        .hero-stat-val{font-size:13px;color:#1e293b;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .hero-share{display:flex;align-items:center;gap:6px;margin-top:2px}
+        @media(max-width:560px){.hero-inner{flex-direction:column}.hero-right{width:100%;flex-direction:row;flex-wrap:wrap}.hero-stat{flex:1;min-width:100px}}
         .hero-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
         .tag{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:0.3px}
         .tag-free{background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0}
@@ -45,12 +52,6 @@ const packDetailHTML = `<!DOCTYPE html>
         .dl-btn svg{width:18px;height:18px;flex-shrink:0}
         .dl-btn-primary{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(99,102,241,0.2)}
         .dl-btn-primary:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);color:#fff}
-        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
-        @media(max-width:480px){.stats{grid-template-columns:1fr}}
-        .stat{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;transition:all .25s}
-        .stat:hover{border-color:#cbd5e1;box-shadow:0 2px 8px rgba(0,0,0,0.04);transform:translateY(-1px)}
-        .stat-label{font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;font-weight:600;margin-bottom:6px}
-        .stat-val{font-size:14px;color:#1e293b;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
         .desc{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;margin-bottom:10px}
         .desc-heading{font-size:13px;font-weight:600;color:#6366f1;margin-bottom:8px;letter-spacing:0.2px}
         .desc-text{font-size:14px;color:#475569;line-height:1.7;white-space:pre-wrap}
@@ -66,9 +67,7 @@ const packDetailHTML = `<!DOCTYPE html>
         .btn-indigo:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);transform:translateY(-1px)}
         .btn:disabled{opacity:.6;cursor:not-allowed;transform:none!important}
         .badge-owned{display:inline-flex;align-items:center;gap:7px;padding:10px 22px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:12px;font-size:14px;font-weight:600}
-        .share-bar{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-        .share-label{font-size:12px;color:#94a3b8;font-weight:500}
-        .share-btn{width:34px;height:34px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;color:#94a3b8;text-decoration:none}
+        .share-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(226,232,240,0.6);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;color:#94a3b8;text-decoration:none}
         .share-btn:hover{background:#f8fafc;color:#475569;border-color:#cbd5e1;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .share-btn svg{width:16px;height:16px}
         .copy-toast{position:fixed;bottom:32px;left:50%;transform:translateX(-50%) translateY(20px);background:#6366f1;color:#fff;padding:10px 24px;border-radius:10px;font-size:13px;font-weight:500;opacity:0;transition:all .3s;pointer-events:none;z-index:99;box-shadow:0 4px 12px rgba(99,102,241,0.3)}
@@ -106,6 +105,7 @@ const packDetailHTML = `<!DOCTYPE html>
     <div class="err-card"><div class="err-icon">😔</div><p class="err-text">{{.Error}}</p><a class="nav-link" href="/" style="margin-top:16px;display:inline-block" data-i18n="back_to_home">返回首页</a></div>
     {{else}}
     <div class="hero"><div class="hero-inner">
+        <div class="hero-left">
         <div class="hero-meta">
             {{if eq .ShareMode "free"}}<span class="tag tag-free" data-i18n="free">免费</span>{{else if eq .ShareMode "per_use"}}<span class="tag tag-peruse" data-i18n="per_use">按次付费</span>{{else if eq .ShareMode "subscription"}}<span class="tag tag-sub" data-i18n="subscription_mode">订阅制</span>{{end}}
             <span class="tag tag-cat">{{.CategoryName}}</span>
@@ -113,18 +113,18 @@ const packDetailHTML = `<!DOCTYPE html>
         <h1 class="pack-title">{{.PackName}}</h1>
         <p class="pack-author"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.AuthorName}}</p>
         <div class="dl-buttons" id="dlButtons"></div>
+        </div>
+        <div class="hero-right">
+            <div class="hero-stat"><div class="hero-stat-label" data-i18n="data_source">数据源</div><div class="hero-stat-val">{{.SourceName}}</div></div>
+            <div class="hero-stat"><div class="hero-stat-label" data-i18n="category">分类</div><div class="hero-stat-val">{{.CategoryName}}</div></div>
+            <div class="hero-stat"><div class="hero-stat-label" data-i18n="downloads">下载</div><div class="hero-stat-val">{{.DownloadCount}}</div></div>
+            <div class="hero-share">
+                <button class="share-btn" onclick="copyLink()" title="复制链接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
+                <a class="share-btn" id="shareX" href="#" target="_blank" rel="noopener" title="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+                <a class="share-btn" id="shareLI" href="#" target="_blank" rel="noopener" title="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg></a>
+            </div>
+        </div>
     </div></div>
-    <div class="stats">
-        <div class="stat"><div class="stat-label" data-i18n="data_source">数据源</div><div class="stat-val">{{.SourceName}}</div></div>
-        <div class="stat"><div class="stat-label" data-i18n="category">分类</div><div class="stat-val">{{.CategoryName}}</div></div>
-        <div class="stat"><div class="stat-label" data-i18n="downloads">下载</div><div class="stat-val">{{.DownloadCount}}</div></div>
-    </div>
-    <div class="share-bar">
-        <span class="share-label" data-i18n="share">分享</span>
-        <button class="share-btn" onclick="copyLink()" title="复制链接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></button>
-        <a class="share-btn" id="shareX" href="#" target="_blank" rel="noopener" title="X"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
-        <a class="share-btn" id="shareLI" href="#" target="_blank" rel="noopener" title="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg></a>
-    </div>
     {{if .PackDescription}}<div class="desc"><h3 class="desc-heading" data-i18n="pack_intro">分析包介绍</h3><p class="desc-text">{{.PackDescription}}</p></div>{{end}}
     <div class="action-bar">
         <div>
