@@ -6954,7 +6954,7 @@ func handleEmailHistory(w http.ResponseWriter, r *http.Request) {
 
 	// Get paginated tasks ordered by created_at DESC
 	rows, err := db.Query(
-		"SELECT id, subject, total_count, sent_count, failed_count, status, created_at, completed_at FROM email_send_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
+		"SELECT id, subject, total_count, sent_count, failed_count, status, created_at, completed_at, COALESCE(product_id, -1) FROM email_send_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?",
 		pageSize, (page-1)*pageSize,
 	)
 	if err != nil {
@@ -6972,9 +6972,16 @@ func handleEmailHistory(w http.ResponseWriter, r *http.Request) {
 		var totalCount, sentCount, failedCount int
 		var createdAt string
 		var completedAt sql.NullString
-		if err := rows.Scan(&id, &subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt); err != nil {
+		var productID int
+		if err := rows.Scan(&id, &subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt, &productID); err != nil {
 			continue
 		}
+		// Resolve template variables in subject for display
+		pName := getProductName(productID)
+		if productID < 0 {
+			pName = getProductName(0)
+		}
+		subject = strings.ReplaceAll(subject, "{{.ProductName}}", pName)
 		task := map[string]interface{}{
 			"id":           id,
 			"subject":      subject,
@@ -7040,16 +7047,24 @@ func handleEmailHistoryDetail(w http.ResponseWriter, r *http.Request) {
 	var subject, status, createdAt string
 	var totalCount, sentCount, failedCount int
 	var completedAt sql.NullString
+	var productID int
 	err := db.QueryRow(
-		"SELECT subject, total_count, sent_count, failed_count, status, created_at, completed_at FROM email_send_tasks WHERE id=?",
+		"SELECT subject, total_count, sent_count, failed_count, status, created_at, completed_at, COALESCE(product_id, -1) FROM email_send_tasks WHERE id=?",
 		taskID,
-	).Scan(&subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt)
+	).Scan(&subject, &totalCount, &sentCount, &failedCount, &status, &createdAt, &completedAt, &productID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]interface{}{"error": "任务不存在"})
 		return
 	}
+
+	// Resolve template variables in subject for display
+	pName := getProductName(productID)
+	if productID < 0 {
+		pName = getProductName(0)
+	}
+	subject = strings.ReplaceAll(subject, "{{.ProductName}}", pName)
 
 	// Query all send items for this task
 	rows, err := db.Query(
