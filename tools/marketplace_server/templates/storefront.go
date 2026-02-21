@@ -80,7 +80,10 @@ const storefrontHTML = `<!DOCTYPE html>
         /* ── Nav ── */
         .nav {
             display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 28px; padding: 0 2px;
+            margin-bottom: 28px; padding: 12px 16px;
+            background: #fff; border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
         .logo-link {
             display: flex; align-items: center; gap: 10px; text-decoration: none;
@@ -95,11 +98,13 @@ const storefrontHTML = `<!DOCTYPE html>
         .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; letter-spacing: -0.3px; }
         .nav-actions { display: flex; align-items: center; gap: 8px; }
         .nav-link {
-            padding: 8px 18px; font-size: 13px; font-weight: 600; color: var(--primary-hover);
-            background: #fff; border: 1px solid var(--card-border); border-radius: 10px;
+            padding: 8px 18px; font-size: 13px; font-weight: 600; color: #fff;
+            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+            border: 1px solid transparent; border-radius: 10px;
             text-decoration: none; transition: all .2s;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.2);
         }
-        .nav-link:hover { background: #eef2ff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
+        .nav-link:hover { box-shadow: 0 4px 12px rgba(99,102,241,0.3); transform: translateY(-1px); }
 
         /* ── Hero / Store Header ── */
         .store-hero {
@@ -269,12 +274,12 @@ const storefrontHTML = `<!DOCTYPE html>
             transform: translateY(-1px);
         }
         .sf-dl-btn-primary {
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); color: #fff;
+            background: linear-gradient(135deg, #4338ca, #3730a3); color: #fff;
             border-color: transparent;
-            box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+            box-shadow: 0 2px 8px rgba(67,56,202,0.3);
         }
         .sf-dl-btn-primary:hover {
-            box-shadow: 0 4px 16px rgba(99,102,241,0.3); color: #fff;
+            box-shadow: 0 4px 16px rgba(67,56,202,0.4); color: #fff;
         }
         .sf-dl-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
@@ -286,31 +291,31 @@ const storefrontHTML = `<!DOCTYPE html>
         .filter-group {
             display: flex; gap: 4px; background: #fff;
             border: 1px solid #e2e8f0; border-radius: 10px; padding: 3px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .filter-btn {
             padding: 7px 16px; border: none; border-radius: 8px;
             font-size: 12px; font-weight: 600; cursor: pointer;
-            background: transparent; color: #64748b; transition: all 0.2s;
+            background: transparent; color: #475569; transition: all 0.2s;
             text-decoration: none; display: inline-block;
         }
-        .filter-btn:hover { color: #334155; background: #f8fafc; }
+        .filter-btn:hover { color: #1e293b; background: #f1f5f9; }
         .filter-btn.active {
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); color: #fff;
-            box-shadow: 0 2px 8px rgba(79,70,229,0.25);
+            background: linear-gradient(135deg, #4338ca, #3730a3); color: #fff;
+            box-shadow: 0 2px 8px rgba(67,56,202,0.3);
         }
         .search-input {
-            padding: 8px 16px; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 8px 16px; border: 1px solid #cbd5e1; border-radius: 10px;
             font-size: 13px; background: #fff; min-width: 200px;
             transition: all 0.2s; color: #1e293b;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .search-input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(99,102,241,0.1); }
         .search-input::placeholder { color: #94a3b8; }
         .sort-select {
-            padding: 8px 16px; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 8px 16px; border: 1px solid #cbd5e1; border-radius: 10px;
             font-size: 13px; background: #fff; color: #1e293b; cursor: pointer;
-            transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+            transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
         .sort-select:focus { outline: none; border-color: var(--primary-color); }
 

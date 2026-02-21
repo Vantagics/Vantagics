@@ -49,12 +49,27 @@ const homepageHTML = `<!DOCTYPE html>
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
         }
-        .page { max-width: 1100px; margin: 0 auto; padding: 20px 24px 48px; }
+        .page { max-width: 1100px; margin: 0 auto; padding: 0 24px 48px; }
 
-        /* ── Nav ── */
+        /* ── Hero (nav integrated) ── */
+        .hero {
+            position: relative; overflow: hidden;
+            background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #c7d2fe 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 0 0 20px 20px; padding: 0 36px 28px;
+            margin-bottom: 32px;
+        }
+        .hero::before {
+            content: ''; position: absolute; top: -60px; right: -60px;
+            width: 200px; height: 200px; border-radius: 50%;
+            background: radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        /* ── Nav (inside hero) ── */
         .nav {
             display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 28px; padding: 0 2px;
+            padding: 16px 0 20px;
         }
         .logo-link {
             display: flex; align-items: center; gap: 10px; text-decoration: none;
@@ -70,27 +85,14 @@ const homepageHTML = `<!DOCTYPE html>
         .nav-actions { display: flex; align-items: center; gap: 8px; }
         .nav-link {
             padding: 8px 18px; font-size: 13px; font-weight: 600; color: #4f46e5;
-            background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-            text-decoration: none; transition: all .2s;
+            background: rgba(255,255,255,0.8); border: 1px solid rgba(226,232,240,0.6); border-radius: 10px;
+            text-decoration: none; transition: all .2s; backdrop-filter: blur(4px);
         }
-        .nav-link:hover { background: #eef2ff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
+        .nav-link:hover { background: #fff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
 
-        /* ── Hero ── */
-        .hero {
-            position: relative; overflow: hidden;
-            background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #c7d2fe 100%);
-            border: 1px solid #e2e8f0;
-            border-radius: 20px; padding: 40px 36px;
-            margin-bottom: 32px; text-align: center;
-        }
-        .hero::before {
-            content: ''; position: absolute; top: -60px; right: -60px;
-            width: 200px; height: 200px; border-radius: 50%;
-            background: radial-gradient(circle, rgba(99,102,241,0.1) 0%, transparent 70%);
-            pointer-events: none;
-        }
-        .hero-title { font-size: 28px; font-weight: 800; color: #0f172a; margin-bottom: 10px; letter-spacing: -0.5px; }
-        .hero-desc { font-size: 15px; color: #475569; margin-bottom: 24px; max-width: 600px; margin-left: auto; margin-right: auto; }
+        .hero-body { text-align: center; }
+        .hero-title { font-size: 26px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.5px; }
+        .hero-desc { font-size: 14px; color: #475569; margin-bottom: 20px; max-width: 600px; margin-left: auto; margin-right: auto; }
         .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
         .dl-btn {
             display: inline-flex; align-items: center; gap: 8px;
@@ -220,8 +222,8 @@ const homepageHTML = `<!DOCTYPE html>
             .card-grid { grid-template-columns: repeat(2, 1fr); }
         }
         @media (max-width: 767px) {
-            .page { padding: 16px 16px 36px; }
-            .hero { padding: 28px 20px; border-radius: 16px; }
+            .page { padding: 0 16px 36px; }
+            .hero { padding: 0 20px 20px; border-radius: 0 0 16px 16px; }
             .hero-title { font-size: 22px; }
             .card-grid { grid-template-columns: 1fr; }
             .nav { flex-wrap: wrap; gap: 10px; }
@@ -231,45 +233,45 @@ const homepageHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
 
-    <!-- Navigation (7.2) -->
-    <nav class="nav">
-        <a class="logo-link" href="/">
-            <span class="logo-mark">
-                <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-            </span>
-            <span class="logo-text" data-i18n="site_name">快捷分析包市场</span>
-        </a>
-        <div class="nav-actions">
-            {{if .UserID}}
-            <a class="nav-link" href="/user/" data-i18n="homepage.user_center">用户中心</a>
-            <a class="nav-link" href="/user/storefront" data-i18n="homepage.store_manage">店铺管理</a>
-            {{else}}
-            <a class="nav-link" href="/user/login" data-i18n="login">登录</a>
-            <a class="nav-link" href="/user/register" data-i18n="register">注册</a>
-            {{end}}
-        </div>
-    </nav>
-
-    <!-- Hero Section (7.2) -->
+    <!-- Hero with integrated Nav -->
     <div class="hero">
-        <h1 class="hero-title" data-i18n="homepage.hero_title">快捷分析包市场</h1>
-        <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
-        {{if or .DownloadURLWindows .DownloadURLMacOS}}
-        <div class="hero-buttons">
-            {{if .DownloadURLWindows}}
-            <a class="dl-btn dl-btn-win" href="{{.DownloadURLWindows}}">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-                <span data-i18n="homepage.download_windows">Windows 下载</span>
+        <nav class="nav">
+            <a class="logo-link" href="/">
+                <span class="logo-mark">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                </span>
+                <span class="logo-text" data-i18n="site_name">快捷分析包市场</span>
             </a>
-            {{end}}
-            {{if .DownloadURLMacOS}}
-            <a class="dl-btn dl-btn-mac" href="{{.DownloadURLMacOS}}">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                <span data-i18n="homepage.download_macos">macOS 下载</span>
-            </a>
+            <div class="nav-actions">
+                {{if .UserID}}
+                <a class="nav-link" href="/user/" data-i18n="homepage.user_center">用户中心</a>
+                <a class="nav-link" href="/user/storefront" data-i18n="homepage.store_manage">店铺管理</a>
+                {{else}}
+                <a class="nav-link" href="/user/login" data-i18n="login">登录</a>
+                <a class="nav-link" href="/user/register" data-i18n="register">注册</a>
+                {{end}}
+            </div>
+        </nav>
+        <div class="hero-body">
+            <h1 class="hero-title" data-i18n="homepage.hero_title">快捷分析包市场</h1>
+            <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
+            {{if or .DownloadURLWindows .DownloadURLMacOS}}
+            <div class="hero-buttons">
+                {{if .DownloadURLWindows}}
+                <a class="dl-btn dl-btn-win" href="{{.DownloadURLWindows}}">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+                    <span data-i18n="homepage.download_windows">Windows 下载</span>
+                </a>
+                {{end}}
+                {{if .DownloadURLMacOS}}
+                <a class="dl-btn dl-btn-mac" href="{{.DownloadURLMacOS}}">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                    <span data-i18n="homepage.download_macos">macOS 下载</span>
+                </a>
+                {{end}}
+            </div>
             {{end}}
         </div>
-        {{end}}
     </div>
 
     <!-- Featured Stores Section (7.3) -->
