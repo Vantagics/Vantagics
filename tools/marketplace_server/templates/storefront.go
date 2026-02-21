@@ -331,6 +331,18 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .pack-item-body { flex: 1; min-width: 0; }
         .pack-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+        .pack-item-icon {
+            width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(99,102,241,0.15);
+        }
+        .pack-item-icon svg { width: 16px; height: 16px; color: #fff; }
+        .pack-item-icon-img {
+            width: 32px; height: 32px; border-radius: 8px;
+            object-fit: cover; flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(99,102,241,0.15);
+        }
         .pack-item-name { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }
         .tag {
             display: inline-flex; align-items: center;
@@ -561,7 +573,7 @@ const storefrontHTML = `<!DOCTYPE html>
                             <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
                             {{else}}
                             <div class="featured-icon">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                             </div>
                             {{end}}
                             <div class="featured-card-title">
@@ -644,6 +656,13 @@ const storefrontHTML = `<!DOCTYPE html>
         <div class="pack-item">
             <div class="pack-item-body">
                 <div class="pack-item-header">
+                    {{if .HasLogo}}
+                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
+                    {{else}}
+                    <div class="pack-item-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    </div>
+                    {{end}}
                     <span class="pack-item-name">{{.PackName}}</span>
                     {{if eq .ShareMode "free"}}<span class="tag tag-free" data-i18n="free">免费</span>
                     {{else if eq .ShareMode "per_use"}}<span class="tag tag-per-use" data-i18n="per_use">按次收费</span>

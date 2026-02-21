@@ -177,6 +177,16 @@ const homepageHTML = `<!DOCTYPE html>
             box-shadow: 0 8px 32px rgba(99,102,241,0.1), 0 2px 8px rgba(0,0,0,0.04);
             border-color: #c7d2fe;
         }
+        .product-card-top {
+            display: flex; align-items: center; gap: 10px;
+        }
+        .product-card-icon {
+            width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(99,102,241,0.15);
+        }
+        .product-card-icon svg { width: 16px; height: 16px; color: #fff; }
         .product-card-name {
             font-size: 14px; font-weight: 700; color: #0f172a;
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -347,7 +357,12 @@ const homepageHTML = `<!DOCTYPE html>
         <div class="card-grid">
             {{range .TopSalesProducts}}
             <a class="product-card" href="/store/share/{{.ShareToken}}">
-                <div class="product-card-name" title="{{.PackName}}">{{.PackName}}</div>
+                <div class="product-card-top">
+                    <div class="product-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    </div>
+                    <div class="product-card-name" title="{{.PackName}}">{{.PackName}}</div>
+                </div>
                 <div class="product-card-author">{{.AuthorName}}</div>
                 <div class="product-card-footer">
                     {{if eq .ShareMode "free"}}

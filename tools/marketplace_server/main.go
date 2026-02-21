@@ -4865,8 +4865,7 @@ func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
-// handleStorefrontSaveLayout saves the store layout preference (default, novelty).
-// handleStorefrontSaveLayout saves the storefront layout configuration (layout_config JSON).
+// handleStorefrontSaveLayout saves the store layout preference (default, novelty, custom) or layout configuration (layout_config JSON).
 func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 	userIDStr := r.Header.Get("X-User-ID")
 	userID, err := strconv.ParseInt(userIDStr, 10, 64)
@@ -4875,6 +4874,31 @@ func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if this is a store_layout switch (default/novelty/custom) or a layout_config save
+	layout := r.FormValue("layout")
+	if layout != "" {
+		// Switching store layout type (default / novelty / custom)
+		validLayouts := map[string]bool{"default": true, "novelty": true, "custom": true}
+		if !validLayouts[layout] {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": false, "success": false, "error": "不支持的布局"})
+			return
+		}
+		result, err := db.Exec(`UPDATE author_storefronts SET store_layout = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`, layout, userID)
+		if err != nil {
+			log.Printf("[STOREFRONT-SAVE-LAYOUT] failed to update store_layout for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "success": false, "error": "保存失败"})
+			return
+		}
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "success": false, "error": "小铺不存在"})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "success": true})
+		return
+	}
+
+	// Saving layout_config JSON
 	layoutConfig := r.FormValue("layout_config")
 	if layoutConfig == "" {
 		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "布局配置不能为空"})

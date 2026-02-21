@@ -598,13 +598,14 @@ const storefrontManageHTML = `<!DOCTYPE html>
                         <div class="layout-desc">奢华金色风格</div>
                     </div>
                 </label>
-                <label style="flex:1;min-width:180px;cursor:pointer;opacity:0.5;pointer-events:none;">
-                    <div class="layout-option">
+                <label style="flex:1;min-width:180px;cursor:pointer;">
+                    <input type="radio" name="store_layout" value="custom" {{if eq .Storefront.StoreLayout "custom"}}checked{{end}} style="display:none;" onchange="saveLayout('custom')">
+                    <div class="layout-option{{if eq .Storefront.StoreLayout "custom"}} layout-option-active{{end}}" id="layout-opt-custom">
                         <div class="layout-preview" style="background:#f8fafc;border-color:#e2e8f0;">
-                            <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#94a3b8;font-size:18px;">🔧</div>
+                            <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:18px;">🎨</div>
                         </div>
                         <div class="layout-name">自定义装修</div>
-                        <div class="layout-desc">开发中...</div>
+                        <div class="layout-desc">自由定制风格</div>
                     </div>
                 </label>
             </div>
