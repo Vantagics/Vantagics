@@ -3,9 +3,12 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -19,7 +22,6 @@ import (
 	"io"
 	"log"
 	"math/big"
-	"crypto/tls"
 	"net/http"
 	"net/smtp"
 	"net/url"
@@ -28,10 +30,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 	"marketplace_server/i18n"
@@ -154,6 +156,7 @@ type StorefrontInfo struct {
 	HasLogo         bool   `json:"has_logo"`
 	LogoContentType string `json:"logo_content_type"`
 	AutoAddEnabled  bool   `json:"auto_add_enabled"`
+	StoreLayout     string `json:"store_layout"`
 	CreatedAt       string `json:"created_at"`
 	UpdatedAt       string `json:"updated_at"`
 }
@@ -172,6 +175,455 @@ type StorefrontPackInfo struct {
 	SortOrder     int     `json:"sort_order"`
 	TotalRevenue  float64 `json:"total_revenue"`
 	OrderCount    int     `json:"order_count"`
+	CategoryName  string  `json:"category_name"`
+	HasLogo       bool    `json:"has_logo"`
+}
+
+// HomepageStoreInfo 首页店铺卡片数据
+type HomepageStoreInfo struct {
+	StorefrontID int64
+	StoreName    string
+	StoreSlug    string
+	Description  string
+	HasLogo      bool
+}
+
+// HomepageProductInfo 首页产品卡片数据
+type HomepageProductInfo struct {
+	ListingID     int64
+	PackName      string
+	AuthorName    string
+	ShareMode     string
+	CreditsPrice  int
+	DownloadCount int
+	ShareToken    string
+}
+
+// HomepageData 首页模板数据
+type HomepageData struct {
+	UserID             int64
+	DisplayName        string
+	DefaultLang        string
+	DownloadURLWindows string
+	DownloadURLMacOS   string
+	FeaturedStores     []HomepageStoreInfo
+	TopSalesStores     []HomepageStoreInfo
+	TopDownloadsStores []HomepageStoreInfo
+	TopSalesProducts   []HomepageProductInfo
+}
+
+// queryFeaturedStorefronts 查询管理员设置的明星店铺，按 sort_order 升序排列，最多 16 个。
+func queryFeaturedStorefronts() ([]HomepageStoreInfo, error) {
+	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo
+		FROM featured_storefronts fs
+		JOIN author_storefronts s ON s.id = fs.storefront_id
+		ORDER BY fs.sort_order ASC
+		LIMIT 16`)
+	if err != nil {
+		return nil, fmt.Errorf("queryFeaturedStorefronts: %w", err)
+	}
+	defer rows.Close()
+
+	var stores []HomepageStoreInfo
+	for rows.Next() {
+		var s HomepageStoreInfo
+		var hasLogo int
+		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo); err != nil {
+			return nil, fmt.Errorf("queryFeaturedStorefronts scan: %w", err)
+		}
+		s.HasLogo = hasLogo == 1
+		stores = append(stores, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryFeaturedStorefronts rows: %w", err)
+	}
+	return stores, nil
+}
+
+// queryTopSalesStorefronts 查询销售额最高的店铺，最多返回 limit 个。
+// 通过聚合 credits_transactions 中每个店铺所有已发布产品的购买类交易金额绝对值计算总销售额。
+func queryTopSalesStorefronts(limit int) ([]HomepageStoreInfo, error) {
+	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo,
+		COALESCE(SUM(ABS(ct.amount)), 0) as total_sales
+		FROM author_storefronts s
+		JOIN pack_listings pl ON pl.user_id = s.user_id AND pl.status = 'published'
+		JOIN credits_transactions ct ON ct.listing_id = pl.id
+			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')
+		GROUP BY s.id
+		HAVING total_sales > 0
+		ORDER BY total_sales DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("queryTopSalesStorefronts: %w", err)
+	}
+	defer rows.Close()
+
+	var stores []HomepageStoreInfo
+	for rows.Next() {
+		var s HomepageStoreInfo
+		var hasLogo int
+		var totalSales float64
+		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalSales); err != nil {
+			return nil, fmt.Errorf("queryTopSalesStorefronts scan: %w", err)
+		}
+		s.HasLogo = hasLogo == 1
+		stores = append(stores, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryTopSalesStorefronts rows: %w", err)
+	}
+	return stores, nil
+}
+
+func queryTopDownloadsStorefronts(limit int) ([]HomepageStoreInfo, error) {
+	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo,
+		COALESCE(SUM(pl.download_count), 0) as total_downloads
+		FROM author_storefronts s
+		JOIN pack_listings pl ON pl.user_id = s.user_id AND pl.status = 'published'
+		GROUP BY s.id
+		HAVING total_downloads > 0
+		ORDER BY total_downloads DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("queryTopDownloadsStorefronts: %w", err)
+	}
+	defer rows.Close()
+
+	var stores []HomepageStoreInfo
+	for rows.Next() {
+		var s HomepageStoreInfo
+		var hasLogo int
+		var totalDownloads float64
+		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalDownloads); err != nil {
+			return nil, fmt.Errorf("queryTopDownloadsStorefronts scan: %w", err)
+		}
+		s.HasLogo = hasLogo == 1
+		stores = append(stores, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryTopDownloadsStorefronts rows: %w", err)
+	}
+	return stores, nil
+}
+
+// queryTopSalesProducts 查询销售额最高的已发布产品，最多返回 limit 个。
+// 通过聚合 credits_transactions 中每个产品的购买类交易金额绝对值计算总销售额。
+func queryTopSalesProducts(limit int) ([]HomepageProductInfo, error) {
+	rows, err := db.Query(`SELECT pl.id, pl.pack_name, pl.author_name, pl.share_mode, pl.credits_price,
+		pl.download_count, COALESCE(pl.share_token, ''),
+		COALESCE(SUM(ABS(ct.amount)), 0) as total_sales
+		FROM pack_listings pl
+		JOIN credits_transactions ct ON ct.listing_id = pl.id
+			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')
+		WHERE pl.status = 'published'
+		GROUP BY pl.id
+		HAVING total_sales > 0
+		ORDER BY total_sales DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("queryTopSalesProducts: %w", err)
+	}
+	defer rows.Close()
+
+	var products []HomepageProductInfo
+	for rows.Next() {
+		var p HomepageProductInfo
+		var totalSales float64
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.ShareToken, &totalSales); err != nil {
+			return nil, fmt.Errorf("queryTopSalesProducts scan: %w", err)
+		}
+		products = append(products, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryTopSalesProducts rows: %w", err)
+	}
+	return products, nil
+}
+
+// handleAdminFeaturedStorefronts 处理明星店铺管理的所有 API 请求。
+// 根据 URL 路径和 HTTP 方法分发到各子 handler。
+func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	// GET /api/admin/featured-storefronts/search — 搜索店铺
+	if path == "/api/admin/featured-storefronts/search" {
+		if r.Method != http.MethodGet {
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"ok": false, "error": "method not allowed"})
+			return
+		}
+		q := r.URL.Query().Get("q")
+		if q == "" {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "data": []interface{}{}})
+			return
+		}
+		rows, err := db.Query(`SELECT id, store_name FROM author_storefronts WHERE store_name LIKE ?`, "%"+q+"%")
+		if err != nil {
+			log.Printf("[handleAdminFeaturedStorefronts] search error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		defer rows.Close()
+		type SearchResult struct {
+			ID        int64  `json:"id"`
+			StoreName string `json:"store_name"`
+		}
+		var results []SearchResult
+		for rows.Next() {
+			var sr SearchResult
+			if err := rows.Scan(&sr.ID, &sr.StoreName); err != nil {
+				continue
+			}
+			results = append(results, sr)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[handleAdminFeaturedStorefronts] search rows error: %v", err)
+		}
+		if results == nil {
+			results = []SearchResult{}
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "data": results})
+		return
+	}
+
+	// POST /api/admin/featured-storefronts/remove — 移除明星店铺
+	if path == "/api/admin/featured-storefronts/remove" {
+		if r.Method != http.MethodPost {
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"ok": false, "error": "method not allowed"})
+			return
+		}
+		storefrontIDStr := r.FormValue("storefront_id")
+		storefrontID, err := strconv.ParseInt(storefrontIDStr, 10, 64)
+		if err != nil || storefrontID <= 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "invalid storefront_id"})
+			return
+		}
+		result, err := db.Exec(`DELETE FROM featured_storefronts WHERE storefront_id = ?`, storefrontID)
+		if err != nil {
+			log.Printf("[handleAdminFeaturedStorefronts] remove error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		affected, _ := result.RowsAffected()
+		if affected == 0 {
+			jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "storefront not in featured list"})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		return
+	}
+
+	// POST /api/admin/featured-storefronts/reorder — 调整排序
+	if path == "/api/admin/featured-storefronts/reorder" {
+		if r.Method != http.MethodPost {
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"ok": false, "error": "method not allowed"})
+			return
+		}
+		idsStr := r.FormValue("ids")
+		if idsStr == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "invalid ids format"})
+			return
+		}
+		parts := strings.Split(idsStr, ",")
+		var ids []int64
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(p, 10, 64)
+			if err != nil {
+				jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "invalid ids format"})
+				return
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) == 0 {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "invalid ids format"})
+			return
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			log.Printf("[handleAdminFeaturedStorefronts] reorder begin tx error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		defer tx.Rollback()
+		for i, id := range ids {
+			_, err := tx.Exec(`UPDATE featured_storefronts SET sort_order = ? WHERE id = ?`, i+1, id)
+			if err != nil {
+				log.Printf("[handleAdminFeaturedStorefronts] reorder update error: %v", err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+				return
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			log.Printf("[handleAdminFeaturedStorefronts] reorder commit error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		return
+	}
+
+	// /api/admin/featured-storefronts — GET (list) or POST (add)
+	if path == "/api/admin/featured-storefronts" {
+		switch r.Method {
+		case http.MethodGet:
+			// 获取明星店铺列表
+			rows, err := db.Query(`SELECT fs.id, fs.storefront_id, s.store_name, fs.sort_order
+				FROM featured_storefronts fs
+				JOIN author_storefronts s ON s.id = fs.storefront_id
+				ORDER BY fs.sort_order ASC`)
+			if err != nil {
+				log.Printf("[handleAdminFeaturedStorefronts] list error: %v", err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+				return
+			}
+			defer rows.Close()
+			type FeaturedItem struct {
+				ID           int64  `json:"id"`
+				StorefrontID int64  `json:"storefront_id"`
+				StoreName    string `json:"store_name"`
+				SortOrder    int    `json:"sort_order"`
+			}
+			var items []FeaturedItem
+			for rows.Next() {
+				var item FeaturedItem
+				if err := rows.Scan(&item.ID, &item.StorefrontID, &item.StoreName, &item.SortOrder); err != nil {
+					continue
+				}
+				items = append(items, item)
+			}
+			if err := rows.Err(); err != nil {
+				log.Printf("[handleAdminFeaturedStorefronts] list rows error: %v", err)
+			}
+			if items == nil {
+				items = []FeaturedItem{}
+			}
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "data": items})
+
+		case http.MethodPost:
+			// 添加明星店铺
+			storefrontIDStr := r.FormValue("storefront_id")
+			storefrontID, err := strconv.ParseInt(storefrontIDStr, 10, 64)
+			if err != nil || storefrontID <= 0 {
+				jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "invalid storefront_id"})
+				return
+			}
+			// 验证店铺存在
+			var exists int
+			err = db.QueryRow(`SELECT COUNT(*) FROM author_storefronts WHERE id = ?`, storefrontID).Scan(&exists)
+			if err != nil || exists == 0 {
+				jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "storefront not found"})
+				return
+			}
+			// 检查是否已是明星店铺
+			var alreadyFeatured int
+			db.QueryRow(`SELECT COUNT(*) FROM featured_storefronts WHERE storefront_id = ?`, storefrontID).Scan(&alreadyFeatured)
+			if alreadyFeatured > 0 {
+				jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "storefront already featured"})
+				return
+			}
+			// 检查数量上限 (最多 16 个)
+			var count int
+			db.QueryRow(`SELECT COUNT(*) FROM featured_storefronts`).Scan(&count)
+			if count >= 16 {
+				jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "最多设置 16 个明星店铺"})
+				return
+			}
+			// 计算 sort_order = max(sort_order) + 1
+			var maxOrder sql.NullInt64
+			db.QueryRow(`SELECT MAX(sort_order) FROM featured_storefronts`).Scan(&maxOrder)
+			newOrder := int64(1)
+			if maxOrder.Valid {
+				newOrder = maxOrder.Int64 + 1
+			}
+			_, err = db.Exec(`INSERT INTO featured_storefronts (storefront_id, sort_order) VALUES (?, ?)`, storefrontID, newOrder)
+			if err != nil {
+				log.Printf("[handleAdminFeaturedStorefronts] add error: %v", err)
+				jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+				return
+			}
+			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+
+		default:
+			jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"ok": false, "error": "method not allowed"})
+		}
+		return
+	}
+
+	jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "not_found"})
+}
+
+
+// handleHomepage 处理市场首页请求。
+// 查询所有首页数据并渲染 HTML 模板。
+// 使用 optionalUserID() 检测登录状态。
+func handleHomepage(w http.ResponseWriter, r *http.Request) {
+	// 1. Get optional user ID (0 = not logged in)
+	userID := optionalUserID(r)
+
+	// 2. If logged in, query display_name
+	var displayName string
+	if userID > 0 {
+		if err := db.QueryRow("SELECT COALESCE(display_name, '') FROM users WHERE id = ?", userID).Scan(&displayName); err != nil {
+			log.Printf("handleHomepage: query display_name error: %v", err)
+		}
+	}
+
+	// 3. Query homepage data (each failure = empty section, log error)
+	featuredStores, err := queryFeaturedStorefronts()
+	if err != nil {
+		log.Printf("handleHomepage: queryFeaturedStorefronts error: %v", err)
+	}
+
+	topSalesStores, err := queryTopSalesStorefronts(16)
+	if err != nil {
+		log.Printf("handleHomepage: queryTopSalesStorefronts error: %v", err)
+	}
+
+	topDownloadsStores, err := queryTopDownloadsStorefronts(16)
+	if err != nil {
+		log.Printf("handleHomepage: queryTopDownloadsStorefronts error: %v", err)
+	}
+
+	topSalesProducts, err := queryTopSalesProducts(128)
+	if err != nil {
+		log.Printf("handleHomepage: queryTopSalesProducts error: %v", err)
+	}
+
+	// 4. Read settings
+	var downloadURLWindows, downloadURLMacOS, defaultLang string
+	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'download_url_windows'").Scan(&downloadURLWindows); err != nil && err != sql.ErrNoRows {
+		log.Printf("handleHomepage: read download_url_windows error: %v", err)
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'download_url_macos'").Scan(&downloadURLMacOS); err != nil && err != sql.ErrNoRows {
+		log.Printf("handleHomepage: read download_url_macos error: %v", err)
+	}
+	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'default_language'").Scan(&defaultLang); err != nil && err != sql.ErrNoRows {
+		log.Printf("handleHomepage: read default_language error: %v", err)
+	}
+
+	// 5. Assemble and render
+	data := HomepageData{
+		UserID:             userID,
+		DisplayName:        displayName,
+		DefaultLang:        defaultLang,
+		DownloadURLWindows: downloadURLWindows,
+		DownloadURLMacOS:   downloadURLMacOS,
+		FeaturedStores:     featuredStores,
+		TopSalesStores:     topSalesStores,
+		TopDownloadsStores: topDownloadsStores,
+		TopSalesProducts:   topSalesProducts,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.HomepageTmpl.Execute(w, data); err != nil {
+		log.Printf("handleHomepage: template execute error: %v", err)
+	}
 }
 
 // StorefrontNotification 邮件通知记录
@@ -207,29 +659,1944 @@ type SMTPConfig struct {
 
 // StorefrontPageData 小铺公开页面模板数据
 type StorefrontPageData struct {
-	Storefront    StorefrontInfo
-	FeaturedPacks []StorefrontPackInfo
-	Packs         []StorefrontPackInfo
-	PurchasedIDs  map[int64]bool
-	IsLoggedIn    bool
-	CurrentUserID int64
-	DefaultLang   string
-	Filter        string
-	Sort          string
-	SearchQuery   string
+	Storefront          StorefrontInfo
+	FeaturedPacks       []StorefrontPackInfo
+	Packs               []StorefrontPackInfo
+	PurchasedIDs        map[int64]bool
+	IsLoggedIn          bool
+	CurrentUserID       int64
+	DefaultLang         string
+	Filter              string
+	Sort                string
+	SearchQuery         string
+	Categories          []string
+	CategoryFilter      string
+	DownloadURLWindows  string
+	DownloadURLMacOS    string
+	Sections            []SectionConfig
+	ThemeCSS            string
+	PackGridColumns     int
+	BannerData          map[int]CustomBannerSettings
+	IsPreviewMode       bool
+	CustomProducts      []CustomProduct
 }
 
 // StorefrontManageData 小铺管理页面模板数据
 type StorefrontManageData struct {
-	Storefront      StorefrontInfo
-	AuthorPacks     []AuthorPackInfo
-	StorefrontPacks []StorefrontPackInfo
-	FeaturedPacks   []StorefrontPackInfo
-	Notifications   []StorefrontNotification
-	Templates       []NotificationTemplate
-	FullURL         string
-	DefaultLang     string
-	ActiveTab       string
+	Storefront             StorefrontInfo
+	AuthorPacks            []AuthorPackInfo
+	StorefrontPacks        []StorefrontPackInfo
+	FeaturedPacks          []StorefrontPackInfo
+	Notifications          []StorefrontNotification
+	Templates              []NotificationTemplate
+	FullURL                string
+	DefaultLang            string
+	ActiveTab              string
+	LayoutSectionsJSON     string // JSON string of current LayoutConfig for the page layout editor
+	CurrentTheme           string // Current theme identifier for the theme selector
+	CustomProductsEnabled  bool   // Whether custom products feature is enabled for this storefront
+	CustomProducts         []CustomProduct // Custom products for this storefront (non-deleted)
+}
+
+// CustomProduct 自定义商品
+type CustomProduct struct {
+	ID                 int64   `json:"id"`
+	StorefrontID       int64   `json:"storefront_id"`
+	ProductName        string  `json:"product_name"`
+	Description        string  `json:"description"`
+	ProductType        string  `json:"product_type"`
+	PriceUSD           float64 `json:"price_usd"`
+	CreditsAmount      int     `json:"credits_amount"`
+	LicenseAPIEndpoint string  `json:"license_api_endpoint"`
+	LicenseAPIKey      string  `json:"license_api_key"`
+	LicenseProductID   string  `json:"license_product_id"`
+	Status             string  `json:"status"`
+	RejectReason       string  `json:"reject_reason"`
+	SortOrder          int     `json:"sort_order"`
+	DeletedAt          *string `json:"deleted_at"`
+	CreatedAt          string  `json:"created_at"`
+	UpdatedAt          string  `json:"updated_at"`
+}
+
+// CustomProductOrder 自定义商品订单
+type CustomProductOrder struct {
+	ID                  int64   `json:"id"`
+	CustomProductID     int64   `json:"custom_product_id"`
+	UserID              int64   `json:"user_id"`
+	PayPalOrderID       string  `json:"paypal_order_id"`
+	PayPalPaymentStatus string  `json:"paypal_payment_status"`
+	AmountUSD           float64 `json:"amount_usd"`
+	LicenseSN           string  `json:"license_sn"`
+	LicenseEmail        string  `json:"license_email"`
+	Status              string  `json:"status"`
+	CreatedAt           string  `json:"created_at"`
+	UpdatedAt           string  `json:"updated_at"`
+	// 关联查询字段
+	ProductName   string `json:"product_name"`
+	ProductType   string `json:"product_type"`
+	BuyerEmail    string `json:"buyer_email"`
+	CreditsAmount int    `json:"credits_amount"`
+}
+
+// PayPalConfig PayPal 配置信息
+type PayPalConfig struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	Mode         string `json:"mode"`
+}
+
+// encryptPayPalSecret encrypts plaintext using AES-GCM.
+// Key is derived from PAYPAL_ENCRYPTION_KEY env var via SHA-256.
+// Returns hex-encoded nonce+ciphertext.
+func encryptPayPalSecret(plaintext string) (string, error) {
+	keyStr := os.Getenv("PAYPAL_ENCRYPTION_KEY")
+	if keyStr == "" {
+		return "", fmt.Errorf("PAYPAL_ENCRYPTION_KEY not set")
+	}
+	hash := sha256.Sum256([]byte(keyStr))
+	block, err := aes.NewCipher(hash[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return hex.EncodeToString(ciphertext), nil
+}
+
+// decryptPayPalSecret decrypts hex-encoded AES-GCM ciphertext.
+func decryptPayPalSecret(ciphertextHex string) (string, error) {
+	keyStr := os.Getenv("PAYPAL_ENCRYPTION_KEY")
+	if keyStr == "" {
+		return "", fmt.Errorf("PAYPAL_ENCRYPTION_KEY not set")
+	}
+	hash := sha256.Sum256([]byte(keyStr))
+	block, err := aes.NewCipher(hash[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	data, err := hex.DecodeString(ciphertextHex)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+// maskPayPalSecret masks a secret string showing only first 4 and last 4 chars.
+func maskPayPalSecret(secret string) string {
+	if len(secret) < 8 {
+		return "****"
+	}
+	return secret[:4] + "****" + secret[len(secret)-4:]
+}
+
+// handleAdminPayPalSettings handles GET/POST /admin/settings/paypal.
+// GET: returns PayPal config with masked client_secret.
+// POST: validates and saves PayPal config with encrypted client_secret.
+func handleAdminPayPalSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		clientID := getSetting("paypal_client_id")
+		encryptedSecret := getSetting("paypal_client_secret")
+		mode := getSetting("paypal_mode")
+
+		maskedSecret := ""
+		if encryptedSecret != "" {
+			decrypted, err := decryptPayPalSecret(encryptedSecret)
+			if err != nil {
+				log.Printf("Failed to decrypt paypal_client_secret: %v", err)
+				maskedSecret = "****"
+			} else {
+				maskedSecret = maskPayPalSecret(decrypted)
+			}
+		}
+
+		jsonResponse(w, http.StatusOK, map[string]string{
+			"client_id":     clientID,
+			"client_secret": maskedSecret,
+			"mode":          mode,
+		})
+
+	case http.MethodPost:
+		var req struct {
+			ClientID     string `json:"client_id"`
+			ClientSecret string `json:"client_secret"`
+			Mode         string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+
+		if strings.TrimSpace(req.ClientID) == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请填写 Client ID"})
+			return
+		}
+		if strings.TrimSpace(req.ClientSecret) == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请填写 Client Secret"})
+			return
+		}
+		if req.Mode != "sandbox" && req.Mode != "live" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "运行模式必须为 sandbox 或 live"})
+			return
+		}
+
+		encrypted, err := encryptPayPalSecret(req.ClientSecret)
+		if err != nil {
+			log.Printf("Failed to encrypt paypal_client_secret: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "服务器加密配置错误"})
+			return
+		}
+
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('paypal_client_id', ?)", req.ClientID); err != nil {
+			log.Printf("Failed to save paypal_client_id: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('paypal_client_secret', ?)", encrypted); err != nil {
+			log.Printf("Failed to save paypal_client_secret: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+		if _, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('paypal_mode', ?)", req.Mode); err != nil {
+			log.Printf("Failed to save paypal_mode: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+
+		jsonResponse(w, http.StatusOK, map[string]bool{"ok": true})
+
+	default:
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+// getPayPalBaseURL returns the PayPal API base URL based on mode.
+// sandbox uses https://api-m.sandbox.paypal.com, live uses https://api-m.paypal.com.
+func getPayPalBaseURL(mode string) string {
+	if mode == "live" {
+		return "https://api-m.paypal.com"
+	}
+	return "https://api-m.sandbox.paypal.com"
+}
+
+// getPayPalAccessToken uses client_id and client_secret to obtain a PayPal OAuth2 access token.
+func getPayPalAccessToken(config PayPalConfig) (string, error) {
+	baseURL := getPayPalBaseURL(config.Mode)
+	tokenURL := baseURL + "/v1/oauth2/token"
+
+	body := strings.NewReader("grant_type=client_credentials")
+	req, err := http.NewRequest("POST", tokenURL, body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.SetBasicAuth(config.ClientID, config.ClientSecret)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to request access token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("PayPal token request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("empty access token in PayPal response")
+	}
+
+	return tokenResp.AccessToken, nil
+}
+
+// createPayPalOrder calls the PayPal Create Order API.
+// Returns the PayPal order ID and the approval URL for user redirect.
+func createPayPalOrder(config PayPalConfig, amountUSD string, description string) (orderID string, approveURL string, err error) {
+	accessToken, err := getPayPalAccessToken(config)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	baseURL := getPayPalBaseURL(config.Mode)
+	orderURL := baseURL + "/v2/checkout/orders"
+
+	orderBody := map[string]interface{}{
+		"intent": "CAPTURE",
+		"purchase_units": []map[string]interface{}{
+			{
+				"amount": map[string]string{
+					"currency_code": "USD",
+					"value":         amountUSD,
+				},
+				"description": description,
+			},
+		},
+	}
+
+	bodyBytes, err := json.Marshal(orderBody)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to marshal order body: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", orderURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create order request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create PayPal order: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read order response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("PayPal create order failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var orderResp struct {
+		ID    string `json:"id"`
+		Links []struct {
+			Href string `json:"href"`
+			Rel  string `json:"rel"`
+		} `json:"links"`
+	}
+	if err := json.Unmarshal(respBody, &orderResp); err != nil {
+		return "", "", fmt.Errorf("failed to parse order response: %w", err)
+	}
+
+	if orderResp.ID == "" {
+		return "", "", fmt.Errorf("empty order ID in PayPal response")
+	}
+
+	for _, link := range orderResp.Links {
+		if link.Rel == "approve" {
+			approveURL = link.Href
+			break
+		}
+	}
+	if approveURL == "" {
+		return "", "", fmt.Errorf("no approve URL found in PayPal order response")
+	}
+
+	return orderResp.ID, approveURL, nil
+}
+
+// capturePayPalOrder calls the PayPal Capture Order API to confirm payment.
+// Returns the payment status string.
+func capturePayPalOrder(config PayPalConfig, orderID string) (status string, err error) {
+	accessToken, err := getPayPalAccessToken(config)
+	if err != nil {
+		return "", fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	baseURL := getPayPalBaseURL(config.Mode)
+	captureURL := baseURL + "/v2/checkout/orders/" + orderID + "/capture"
+
+	req, err := http.NewRequest("POST", captureURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create capture request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to capture PayPal order: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read capture response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("PayPal capture failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var captureResp struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(respBody, &captureResp); err != nil {
+		return "", fmt.Errorf("failed to parse capture response: %w", err)
+	}
+
+	return captureResp.Status, nil
+}
+
+// callLicenseAPI calls an external License API to bind a license SN to a user email.
+// Request body: {"api_key": "...", "email": "...", "product_id": "..."}
+// Returns the license SN from the response.
+// Timeout: 10 seconds.
+func callLicenseAPI(endpoint, apiKey, email, productID string) (sn string, err error) {
+	reqBody := map[string]string{
+		"api_key":    apiKey,
+		"email":      email,
+		"product_id": productID,
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal license API request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Post(endpoint, "application/json", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("license API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read license API response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("license API returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		SN string `json:"sn"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse license API response: %w", err)
+	}
+
+	if result.SN == "" {
+		return "", fmt.Errorf("license API returned empty SN")
+	}
+
+	return result.SN, nil
+}
+
+
+// handleCustomProductPurchase handles purchasing a custom product via PayPal.
+// POST /custom-product/{id}/purchase
+// Validates product exists and is published, reads PayPal config, creates PayPal order,
+// inserts order record, and returns the PayPal approve URL.
+func handleCustomProductPurchase(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse product_id from URL path: /custom-product/{id}/purchase
+	path := strings.TrimPrefix(r.URL.Path, "/custom-product/")
+	path = strings.TrimSuffix(path, "/purchase")
+	productID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || productID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid product_id"})
+		return
+	}
+
+	// Get user ID from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil || userID <= 0 {
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	// Query product: must exist, be published, and not soft-deleted
+	var product CustomProduct
+	err = db.QueryRow(`SELECT id, storefront_id, product_name, description, product_type, price_usd, credits_amount,
+		license_api_endpoint, license_api_key, license_product_id, status
+		FROM custom_products WHERE id = ? AND status = 'published' AND deleted_at IS NULL`, productID).Scan(
+		&product.ID, &product.StorefrontID, &product.ProductName, &product.Description,
+		&product.ProductType, &product.PriceUSD, &product.CreditsAmount,
+		&product.LicenseAPIEndpoint, &product.LicenseAPIKey, &product.LicenseProductID, &product.Status,
+	)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "商品不存在或已下架"})
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductPurchase] query product error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Read PayPal config from settings
+	clientID := getSetting("paypal_client_id")
+	encryptedSecret := getSetting("paypal_client_secret")
+	mode := getSetting("paypal_mode")
+
+	if clientID == "" || encryptedSecret == "" {
+		jsonResponse(w, http.StatusServiceUnavailable, map[string]string{"error": "支付功能暂未配置"})
+		return
+	}
+
+	// Decrypt client secret
+	clientSecret, err := decryptPayPalSecret(encryptedSecret)
+	if err != nil {
+		log.Printf("[handleCustomProductPurchase] decrypt PayPal secret error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "支付配置错误"})
+		return
+	}
+
+	config := PayPalConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Mode:         mode,
+	}
+
+	// Create PayPal order
+	amountStr := fmt.Sprintf("%.2f", product.PriceUSD)
+	orderID, approveURL, err := createPayPalOrder(config, amountStr, product.ProductName)
+	if err != nil {
+		log.Printf("[handleCustomProductPurchase] create PayPal order error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "创建支付订单失败，请重试"})
+		return
+	}
+
+	// Insert order record into custom_product_orders
+	_, err = db.Exec(`INSERT INTO custom_product_orders (custom_product_id, user_id, paypal_order_id, amount_usd, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		product.ID, userID, orderID, product.PriceUSD)
+	if err != nil {
+		log.Printf("[handleCustomProductPurchase] insert order error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Return approve URL for frontend redirect
+	jsonResponse(w, http.StatusOK, map[string]string{"approve_url": approveURL})
+}
+
+// handlePayPalReturn handles the PayPal return callback after user completes payment.
+// GET /custom-product/paypal/return?token={paypal_order_id}
+// No userAuth required — the order is identified by the PayPal token parameter.
+func handlePayPalReturn(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse PayPal token (order_id) from URL query params
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "无效的支付回调", http.StatusBadRequest)
+		return
+	}
+
+	// Look up order by paypal_order_id
+	var order CustomProductOrder
+	err := db.QueryRow(`SELECT id, custom_product_id, user_id, paypal_order_id, status
+		FROM custom_product_orders WHERE paypal_order_id = ?`, token).Scan(
+		&order.ID, &order.CustomProductID, &order.UserID, &order.PayPalOrderID, &order.Status,
+	)
+	if err == sql.ErrNoRows {
+		http.Error(w, "无效的支付回调", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		log.Printf("[handlePayPalReturn] query order error: %v", err)
+		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+		return
+	}
+
+	// Read PayPal config
+	clientID := getSetting("paypal_client_id")
+	encryptedSecret := getSetting("paypal_client_secret")
+	mode := getSetting("paypal_mode")
+
+	if clientID == "" || encryptedSecret == "" {
+		log.Printf("[handlePayPalReturn] PayPal config not set")
+		http.Error(w, "支付配置错误", http.StatusInternalServerError)
+		return
+	}
+
+	clientSecret, err := decryptPayPalSecret(encryptedSecret)
+	if err != nil {
+		log.Printf("[handlePayPalReturn] decrypt PayPal secret error: %v", err)
+		http.Error(w, "支付配置错误", http.StatusInternalServerError)
+		return
+	}
+
+	config := PayPalConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Mode:         mode,
+	}
+
+	// Capture the PayPal order
+	captureStatus, err := capturePayPalOrder(config, token)
+
+	// Query the associated product for redirect info
+	var product CustomProduct
+	var storefrontID int64
+	dbErr := db.QueryRow(`SELECT id, storefront_id, product_name, product_type, credits_amount,
+		license_api_endpoint, license_api_key, license_product_id
+		FROM custom_products WHERE id = ?`, order.CustomProductID).Scan(
+		&product.ID, &storefrontID, &product.ProductName, &product.ProductType, &product.CreditsAmount,
+		&product.LicenseAPIEndpoint, &product.LicenseAPIKey, &product.LicenseProductID,
+	)
+	if dbErr != nil {
+		log.Printf("[handlePayPalReturn] query product error: %v", dbErr)
+	}
+
+	// Get storefront slug for redirect
+	var storeSlug string
+	dbErr = db.QueryRow(`SELECT store_slug FROM author_storefronts WHERE id = ?`, storefrontID).Scan(&storeSlug)
+	if dbErr != nil {
+		log.Printf("[handlePayPalReturn] query storefront slug error: %v", dbErr)
+		storeSlug = ""
+	}
+
+	redirectBase := "/store/" + storeSlug
+
+	if err != nil || captureStatus != "COMPLETED" {
+		// Payment failed: update order status to failed
+		log.Printf("[handlePayPalReturn] capture failed for order %d: status=%s, err=%v", order.ID, captureStatus, err)
+		if _, dbErr := db.Exec(`UPDATE custom_product_orders SET status='failed', updated_at=CURRENT_TIMESTAMP WHERE id=?`, order.ID); dbErr != nil {
+			log.Printf("[handlePayPalReturn] failed to update order %d to failed status: %v", order.ID, dbErr)
+		}
+
+		if storeSlug != "" {
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("支付失败，请重试"), http.StatusFound)
+		} else {
+			http.Error(w, "支付失败，请重试", http.StatusBadRequest)
+		}
+		return
+	}
+
+	// Payment succeeded: update order paypal_payment_status and status
+	_, err = db.Exec(`UPDATE custom_product_orders SET paypal_payment_status='COMPLETED', status='paid', updated_at=CURRENT_TIMESTAMP WHERE id=?`, order.ID)
+	if err != nil {
+		log.Printf("[handlePayPalReturn] update order status error: %v", err)
+	}
+
+	// Fulfillment logic
+	var successMsg string
+	if product.ProductType == "credits" {
+		// Credits fulfillment: use a transaction for atomicity
+		tx, txErr := db.Begin()
+		if txErr != nil {
+			log.Printf("[handlePayPalReturn] begin tx for credits fulfillment failed for order %d: %v", order.ID, txErr)
+			successMsg = "购买成功"
+		} else {
+			err := addWalletBalance(tx, order.UserID, float64(product.CreditsAmount))
+			if err != nil {
+				tx.Rollback()
+				log.Printf("[handlePayPalReturn] credits fulfillment failed for order %d: %v", order.ID, err)
+				// Keep status=paid, admin will handle manually
+				successMsg = "购买成功"
+			} else {
+				// Record transaction
+				description := fmt.Sprintf("购买商品「%s」充值 %d 积分", product.ProductName, product.CreditsAmount)
+				_, err = tx.Exec(`INSERT INTO credits_transactions (user_id, transaction_type, amount, description, created_at)
+					VALUES (?, 'purchase', ?, ?, CURRENT_TIMESTAMP)`,
+					order.UserID, product.CreditsAmount, description)
+				if err != nil {
+					tx.Rollback()
+					log.Printf("[handlePayPalReturn] record credits transaction failed for order %d: %v", order.ID, err)
+					successMsg = "购买成功"
+				} else {
+					// Update order to fulfilled
+					_, err = tx.Exec(`UPDATE custom_product_orders SET status='fulfilled', updated_at=CURRENT_TIMESTAMP WHERE id=?`, order.ID)
+					if err != nil {
+						tx.Rollback()
+						log.Printf("[handlePayPalReturn] update order to fulfilled failed for order %d: %v", order.ID, err)
+						successMsg = "购买成功"
+					} else {
+						if commitErr := tx.Commit(); commitErr != nil {
+							log.Printf("[handlePayPalReturn] commit credits fulfillment failed for order %d: %v", order.ID, commitErr)
+							successMsg = "购买成功"
+						} else {
+							successMsg = fmt.Sprintf("购买成功，已充值 %d 积分", product.CreditsAmount)
+						}
+					}
+				}
+			}
+		}
+	} else if product.ProductType == "virtual_goods" {
+		// Virtual goods fulfillment: call License API to bind SN
+		userEmail := getEmailForUser(order.UserID)
+		if userEmail == "" {
+			log.Printf("[handlePayPalReturn] user %d has no email, cannot fulfill virtual goods order %d", order.UserID, order.ID)
+			successMsg = "购买成功，授权绑定处理中，请稍后查看订单状态"
+		} else {
+			sn, licErr := callLicenseAPI(product.LicenseAPIEndpoint, product.LicenseAPIKey, userEmail, product.LicenseProductID)
+			if licErr != nil {
+				log.Printf("[handlePayPalReturn] license API call failed for order %d: %v", order.ID, licErr)
+				// Keep status=paid, user can check later
+				successMsg = "购买成功，授权绑定处理中，请稍后查看订单状态"
+			} else {
+				_, dbErr := db.Exec(`UPDATE custom_product_orders SET license_sn=?, license_email=?, status='fulfilled', updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+					sn, userEmail, order.ID)
+				if dbErr != nil {
+					log.Printf("[handlePayPalReturn] update order license info failed for order %d: %v", order.ID, dbErr)
+					successMsg = "购买成功，授权绑定处理中，请稍后查看订单状态"
+				} else {
+					successMsg = fmt.Sprintf("购买成功，授权 SN: %s 已绑定到 %s", sn, userEmail)
+				}
+			}
+		}
+	} else {
+		successMsg = "购买成功"
+	}
+	if storeSlug != "" {
+		http.Redirect(w, r, redirectBase+"?success="+url.QueryEscape(successMsg), http.StatusFound)
+	} else {
+		http.Error(w, successMsg, http.StatusOK)
+	}
+}
+
+
+
+// validateCustomProduct validates custom product fields.
+// Returns error message string, empty string means validation passed.
+func validateCustomProduct(p CustomProduct) string {
+	nameLen := len([]rune(p.ProductName))
+	if nameLen < 2 || nameLen > 100 {
+		return "商品名称长度必须在 2 到 100 个字符之间"
+	}
+	if p.PriceUSD <= 0 || p.PriceUSD > 9999.99 {
+		return "价格必须为正数且不超过 9999.99 美元"
+	}
+	if p.ProductType == "credits" && p.CreditsAmount <= 0 {
+		return "积分数量必须为正数"
+	}
+	if p.ProductType == "virtual_goods" && p.LicenseAPIEndpoint == "" {
+		return "请填写 License API 地址"
+	}
+	return ""
+}
+
+// handleAdminCustomProductsToggle handles admin toggling custom products permission for a storefront.
+// POST /admin/storefront/{storefront_id}/custom-products-toggle
+// When disabling (enabled=false), all published custom products for that storefront are set to draft.
+func handleAdminCustomProductsToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse storefront_id from URL path: /admin/storefront/{storefront_id}/custom-products-toggle
+	path := strings.TrimPrefix(r.URL.Path, "/admin/storefront/")
+	path = strings.TrimSuffix(path, "/custom-products-toggle")
+	storefrontID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || storefrontID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid storefront_id"})
+		return
+	}
+
+	// Verify storefront exists
+	var exists int
+	err = db.QueryRow("SELECT COUNT(*) FROM author_storefronts WHERE id = ?", storefrontID).Scan(&exists)
+	if err != nil || exists == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "storefront not found"})
+		return
+	}
+
+	// Parse enabled parameter
+	enabledStr := r.FormValue("enabled")
+	enabled := enabledStr == "1" || enabledStr == "true"
+
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[handleAdminCustomProductsToggle] begin tx error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Update custom_products_enabled field
+	_, err = tx.Exec("UPDATE author_storefronts SET custom_products_enabled = ? WHERE id = ?", enabledInt, storefrontID)
+	if err != nil {
+		log.Printf("[handleAdminCustomProductsToggle] update storefront error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// When disabling, cascade all published custom products to draft
+	if !enabled {
+		_, err = tx.Exec("UPDATE custom_products SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE storefront_id = ? AND status = 'published'", storefrontID)
+		if err != nil {
+			log.Printf("[handleAdminCustomProductsToggle] cascade draft error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[handleAdminCustomProductsToggle] commit error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleAdminPendingCustomProducts returns all pending custom products for admin review.
+// GET /api/admin/pending-custom-products
+func handleAdminPendingCustomProducts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	rows, err := db.Query(`
+		SELECT cp.id, cp.product_name, cp.description, cp.product_type, cp.price_usd,
+		       cp.credits_amount, cp.created_at,
+		       COALESCE(s.store_name, '') AS store_name, COALESCE(s.slug, '') AS slug
+		FROM custom_products cp
+		LEFT JOIN author_storefronts s ON s.id = cp.storefront_id
+		WHERE cp.status = 'pending' AND cp.deleted_at IS NULL
+		ORDER BY cp.created_at ASC
+	`)
+	if err != nil {
+		log.Printf("[handleAdminPendingCustomProducts] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+	defer rows.Close()
+
+	type PendingProduct struct {
+		ID            int64   `json:"id"`
+		ProductName   string  `json:"product_name"`
+		Description   string  `json:"description"`
+		ProductType   string  `json:"product_type"`
+		PriceUSD      float64 `json:"price_usd"`
+		CreditsAmount int     `json:"credits_amount"`
+		CreatedAt     string  `json:"created_at"`
+		StoreName     string  `json:"store_name"`
+		StoreSlug     string  `json:"store_slug"`
+	}
+
+	var products []PendingProduct
+	for rows.Next() {
+		var p PendingProduct
+		if err := rows.Scan(&p.ID, &p.ProductName, &p.Description, &p.ProductType, &p.PriceUSD,
+			&p.CreditsAmount, &p.CreatedAt, &p.StoreName, &p.StoreSlug); err != nil {
+			log.Printf("[handleAdminPendingCustomProducts] scan error: %v", err)
+			continue
+		}
+		products = append(products, p)
+	}
+	if products == nil {
+		products = []PendingProduct{}
+	}
+
+	jsonResponse(w, http.StatusOK, products)
+}
+
+// handleAdminCustomProductApprove approves a custom product (pending -> published).
+// POST /admin/custom-product/{product_id}/approve
+func handleAdminCustomProductApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse product_id from URL path: /admin/custom-product/{product_id}/approve
+	path := strings.TrimPrefix(r.URL.Path, "/admin/custom-product/")
+	path = strings.TrimSuffix(path, "/approve")
+	productID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || productID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid product_id"})
+		return
+	}
+
+	// Query product and verify status
+	var status string
+	err = db.QueryRow("SELECT status FROM custom_products WHERE id = ? AND deleted_at IS NULL", productID).Scan(&status)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "product not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[handleAdminCustomProductApprove] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if status != "pending" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "商品当前状态不允许此操作"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE custom_products SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE id = ?", productID)
+	if err != nil {
+		log.Printf("[handleAdminCustomProductApprove] update error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleAdminCustomProductReject rejects a custom product (pending -> rejected) with a reason.
+// POST /admin/custom-product/{product_id}/reject
+func handleAdminCustomProductReject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse product_id from URL path: /admin/custom-product/{product_id}/reject
+	path := strings.TrimPrefix(r.URL.Path, "/admin/custom-product/")
+	path = strings.TrimSuffix(path, "/reject")
+	productID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || productID <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid product_id"})
+		return
+	}
+
+	// Parse reason from form values
+	reason := strings.TrimSpace(r.FormValue("reason"))
+	if reason == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请填写拒绝原因"})
+		return
+	}
+
+	// Query product and verify status
+	var status string
+	err = db.QueryRow("SELECT status FROM custom_products WHERE id = ? AND deleted_at IS NULL", productID).Scan(&status)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "product not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[handleAdminCustomProductReject] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if status != "pending" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "商品当前状态不允许此操作"})
+		return
+	}
+
+	_, err = db.Exec("UPDATE custom_products SET status = 'rejected', reject_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", reason, productID)
+	if err != nil {
+		log.Printf("[handleAdminCustomProductReject] update error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+
+// handleCustomProductCRUD handles custom product CRUD operations.
+// Routes:
+//   GET  /user/storefront/custom-products          — product list & management page
+//   POST /user/storefront/custom-products/create    — create product
+//   POST /user/storefront/custom-products/update    — edit product (task 5.2)
+//   POST /user/storefront/custom-products/delete    — soft delete product (task 5.2)
+//   POST /user/storefront/custom-products/delist    — delist product (task 5.2)
+//   POST /user/storefront/custom-products/submit    — submit for review (task 5.2)
+func handleCustomProductCRUD(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Determine sub-action from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/user/storefront/custom-products")
+	path = strings.TrimSuffix(path, "/")
+
+	switch {
+	case (path == "" || path == "/") && r.Method == http.MethodGet:
+		handleCustomProductList(w, r, userID)
+	case path == "/create" && r.Method == http.MethodPost:
+		handleCustomProductCreate(w, r, userID)
+	case path == "/update" && r.Method == http.MethodPost:
+		handleCustomProductUpdate(w, r, userID)
+	case path == "/delete" && r.Method == http.MethodPost:
+		handleCustomProductDelete(w, r, userID)
+	case path == "/delist" && r.Method == http.MethodPost:
+		handleCustomProductDelist(w, r, userID)
+	case path == "/submit" && r.Method == http.MethodPost:
+		handleCustomProductSubmit(w, r, userID)
+	case path == "/reorder" && r.Method == http.MethodPost:
+		handleCustomProductReorder(w, r, userID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// handleCustomProductList renders the custom product management page with product list.
+func handleCustomProductList(w http.ResponseWriter, r *http.Request, userID int64) {
+	// Query user's storefront
+	var storefrontID int64
+	var storeName string
+	var customProductsEnabled int
+	err := db.QueryRow(
+		"SELECT id, COALESCE(store_name, ''), COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE user_id = ?",
+		userID,
+	).Scan(&storefrontID, &storeName, &customProductsEnabled)
+	if err == sql.ErrNoRows {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductList] query storefront error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if customProductsEnabled != 1 {
+		http.Error(w, "您的小铺尚未开启自定义商品功能", http.StatusForbidden)
+		return
+	}
+
+	// Query custom products for this storefront (non-deleted)
+	rows, err := db.Query(
+		`SELECT id, storefront_id, product_name, COALESCE(description, ''), product_type,
+			price_usd, COALESCE(credits_amount, 0),
+			COALESCE(license_api_endpoint, ''), COALESCE(license_api_key, ''), COALESCE(license_product_id, ''),
+			status, COALESCE(reject_reason, ''), COALESCE(sort_order, 0),
+			created_at, COALESCE(updated_at, '')
+		FROM custom_products
+		WHERE storefront_id = ? AND deleted_at IS NULL
+		ORDER BY sort_order ASC, created_at DESC`,
+		storefrontID,
+	)
+	if err != nil {
+		log.Printf("[handleCustomProductList] query products error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var products []CustomProduct
+	for rows.Next() {
+		var p CustomProduct
+		if err := rows.Scan(
+			&p.ID, &p.StorefrontID, &p.ProductName, &p.Description, &p.ProductType,
+			&p.PriceUSD, &p.CreditsAmount,
+			&p.LicenseAPIEndpoint, &p.LicenseAPIKey, &p.LicenseProductID,
+			&p.Status, &p.RejectReason, &p.SortOrder,
+			&p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			log.Printf("[handleCustomProductList] scan product error: %v", err)
+			continue
+		}
+		products = append(products, p)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleCustomProductList] rows iteration error: %v", err)
+	}
+
+	// Render the custom products management page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.CustomProductManageTmpl.Execute(w, map[string]interface{}{
+		"StorefrontID": storefrontID,
+		"StoreName":    storeName,
+		"Products":     products,
+		"ErrorMsg":     r.URL.Query().Get("error"),
+		"SuccessMsg":   r.URL.Query().Get("success"),
+	}); err != nil {
+		log.Printf("[handleCustomProductList] template execute error: %v", err)
+	}
+}
+
+// handleCustomProductCreate handles POST /user/storefront/custom-products/create.
+func handleCustomProductCreate(w http.ResponseWriter, r *http.Request, userID int64) {
+	// Get user's storefront
+	var storefrontID int64
+	var customProductsEnabled int
+	err := db.QueryRow(
+		"SELECT id, COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE user_id = ?",
+		userID,
+	).Scan(&storefrontID, &customProductsEnabled)
+	if err == sql.ErrNoRows {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductCreate] query storefront error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Verify custom_products_enabled
+	if customProductsEnabled != 1 {
+		http.Error(w, "您的小铺尚未开启自定义商品功能", http.StatusForbidden)
+		return
+	}
+
+	// Count existing products (non-deleted)
+	var productCount int
+	err = db.QueryRow(
+		"SELECT COUNT(*) FROM custom_products WHERE storefront_id = ? AND deleted_at IS NULL",
+		storefrontID,
+	).Scan(&productCount)
+	if err != nil {
+		log.Printf("[handleCustomProductCreate] count products error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	if productCount >= 50 {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("自定义商品数量已达上限（50 个）"), http.StatusFound)
+		return
+	}
+
+	// Parse form values
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("无效的表单数据"), http.StatusFound)
+		return
+	}
+
+	priceStr := r.FormValue("price_usd")
+	priceUSD, _ := strconv.ParseFloat(priceStr, 64)
+
+	creditsStr := r.FormValue("credits_amount")
+	creditsAmount, _ := strconv.Atoi(creditsStr)
+
+	product := CustomProduct{
+		StorefrontID:       storefrontID,
+		ProductName:        strings.TrimSpace(r.FormValue("product_name")),
+		Description:        strings.TrimSpace(r.FormValue("description")),
+		ProductType:        r.FormValue("product_type"),
+		PriceUSD:           priceUSD,
+		CreditsAmount:      creditsAmount,
+		LicenseAPIEndpoint: strings.TrimSpace(r.FormValue("license_api_endpoint")),
+		LicenseAPIKey:      strings.TrimSpace(r.FormValue("license_api_key")),
+		LicenseProductID:   strings.TrimSpace(r.FormValue("license_product_id")),
+	}
+
+	// Validate product
+	if errMsg := validateCustomProduct(product); errMsg != "" {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape(errMsg), http.StatusFound)
+		return
+	}
+
+	// Determine sort_order (max + 1)
+	var maxSortOrder int
+	db.QueryRow(
+		"SELECT COALESCE(MAX(sort_order), 0) FROM custom_products WHERE storefront_id = ? AND deleted_at IS NULL",
+		storefrontID,
+	).Scan(&maxSortOrder)
+
+	// Insert into custom_products with status=draft
+	_, err = db.Exec(
+		`INSERT INTO custom_products (storefront_id, product_name, description, product_type, price_usd,
+			credits_amount, license_api_endpoint, license_api_key, license_product_id,
+			status, sort_order, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		product.StorefrontID, product.ProductName, product.Description, product.ProductType, product.PriceUSD,
+		product.CreditsAmount, product.LicenseAPIEndpoint, product.LicenseAPIKey, product.LicenseProductID,
+		maxSortOrder+1,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("该商品名称已存在"), http.StatusFound)
+			return
+		}
+		log.Printf("[handleCustomProductCreate] insert product error: %v", err)
+		http.Error(w, "创建商品失败", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品创建成功"), http.StatusFound)
+}
+
+// handleCustomProductUpdate handles editing an existing custom product.
+// POST /user/storefront/custom-products/update
+func handleCustomProductUpdate(w http.ResponseWriter, r *http.Request, userID int64) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("无效的表单数据"), http.StatusFound)
+		return
+	}
+
+	productIDStr := r.FormValue("product_id")
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+
+	// Query the product and verify ownership
+	var product CustomProduct
+	err = db.QueryRow(
+		"SELECT id, storefront_id, status FROM custom_products WHERE id = ? AND deleted_at IS NULL",
+		productID,
+	).Scan(&product.ID, &product.StorefrontID, &product.Status)
+	if err == sql.ErrNoRows {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductUpdate] query product error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if product.StorefrontID != storefrontID {
+		http.Error(w, "无权操作此商品", http.StatusForbidden)
+		return
+	}
+
+	// Verify status is draft or rejected
+	if product.Status != "draft" && product.Status != "rejected" {
+		http.Error(w, "当前状态不允许编辑", http.StatusBadRequest)
+		return
+	}
+
+	// Parse form values
+	priceStr := r.FormValue("price_usd")
+	priceUSD, _ := strconv.ParseFloat(priceStr, 64)
+	creditsStr := r.FormValue("credits_amount")
+	creditsAmount, _ := strconv.Atoi(creditsStr)
+
+	updated := CustomProduct{
+		StorefrontID:       storefrontID,
+		ProductName:        strings.TrimSpace(r.FormValue("product_name")),
+		Description:        strings.TrimSpace(r.FormValue("description")),
+		ProductType:        r.FormValue("product_type"),
+		PriceUSD:           priceUSD,
+		CreditsAmount:      creditsAmount,
+		LicenseAPIEndpoint: strings.TrimSpace(r.FormValue("license_api_endpoint")),
+		LicenseAPIKey:      strings.TrimSpace(r.FormValue("license_api_key")),
+		LicenseProductID:   strings.TrimSpace(r.FormValue("license_product_id")),
+	}
+
+	// Validate product
+	if errMsg := validateCustomProduct(updated); errMsg != "" {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape(errMsg), http.StatusFound)
+		return
+	}
+
+	// Update custom_products table
+	_, err = db.Exec(
+		`UPDATE custom_products SET product_name=?, description=?, product_type=?, price_usd=?,
+			credits_amount=?, license_api_endpoint=?, license_api_key=?, license_product_id=?,
+			updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		updated.ProductName, updated.Description, updated.ProductType, updated.PriceUSD,
+		updated.CreditsAmount, updated.LicenseAPIEndpoint, updated.LicenseAPIKey, updated.LicenseProductID,
+		productID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("该商品名称已存在"), http.StatusFound)
+			return
+		}
+		log.Printf("[handleCustomProductUpdate] update product error: %v", err)
+		http.Error(w, "更新商品失败", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品更新成功"), http.StatusFound)
+}
+
+// handleCustomProductDelete handles soft-deleting a custom product.
+// POST /user/storefront/custom-products/delete
+func handleCustomProductDelete(w http.ResponseWriter, r *http.Request, userID int64) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("无效的表单数据"), http.StatusFound)
+		return
+	}
+
+	productIDStr := r.FormValue("product_id")
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+
+	// Query the product and verify ownership
+	var productStorefrontID int64
+	err = db.QueryRow(
+		"SELECT storefront_id FROM custom_products WHERE id = ? AND deleted_at IS NULL",
+		productID,
+	).Scan(&productStorefrontID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductDelete] query product error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if productStorefrontID != storefrontID {
+		http.Error(w, "无权操作此商品", http.StatusForbidden)
+		return
+	}
+
+	// Soft delete: set deleted_at
+	_, err = db.Exec(
+		"UPDATE custom_products SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+		productID,
+	)
+	if err != nil {
+		log.Printf("[handleCustomProductDelete] soft delete error: %v", err)
+		http.Error(w, "删除商品失败", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已删除"), http.StatusFound)
+}
+
+// handleCustomProductDelist handles delisting a published custom product back to draft.
+// POST /user/storefront/custom-products/delist
+func handleCustomProductDelist(w http.ResponseWriter, r *http.Request, userID int64) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("无效的表单数据"), http.StatusFound)
+		return
+	}
+
+	productIDStr := r.FormValue("product_id")
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+
+	// Query the product and verify ownership + status
+	var productStorefrontID int64
+	var status string
+	err = db.QueryRow(
+		"SELECT storefront_id, status FROM custom_products WHERE id = ? AND deleted_at IS NULL",
+		productID,
+	).Scan(&productStorefrontID, &status)
+	if err == sql.ErrNoRows {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductDelist] query product error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if productStorefrontID != storefrontID {
+		http.Error(w, "无权操作此商品", http.StatusForbidden)
+		return
+	}
+
+	if status != "published" {
+		http.Error(w, "当前状态不允许下架", http.StatusBadRequest)
+		return
+	}
+
+	// Delist: change status from published to draft
+	_, err = db.Exec(
+		"UPDATE custom_products SET status = 'draft', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		productID,
+	)
+	if err != nil {
+		log.Printf("[handleCustomProductDelist] delist error: %v", err)
+		http.Error(w, "下架商品失败", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已下架"), http.StatusFound)
+}
+
+// handleCustomProductSubmit handles submitting a draft/rejected custom product for review.
+// POST /user/storefront/custom-products/submit
+func handleCustomProductSubmit(w http.ResponseWriter, r *http.Request, userID int64) {
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, "/user/storefront/custom-products?error="+url.QueryEscape("无效的表单数据"), http.StatusFound)
+		return
+	}
+
+	productIDStr := r.FormValue("product_id")
+	productID, err := strconv.ParseInt(productIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+
+	// Query the product and verify ownership + status
+	var productStorefrontID int64
+	var status string
+	err = db.QueryRow(
+		"SELECT storefront_id, status FROM custom_products WHERE id = ? AND deleted_at IS NULL",
+		productID,
+	).Scan(&productStorefrontID, &status)
+	if err == sql.ErrNoRows {
+		http.Error(w, "商品不存在", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleCustomProductSubmit] query product error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	if productStorefrontID != storefrontID {
+		http.Error(w, "无权操作此商品", http.StatusForbidden)
+		return
+	}
+
+	// Allow submission from draft or rejected status
+	if status != "draft" && status != "rejected" {
+		http.Error(w, "当前状态不允许提交审核", http.StatusBadRequest)
+		return
+	}
+
+	// Submit: change status to pending
+	_, err = db.Exec(
+		"UPDATE custom_products SET status = 'pending', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		productID,
+	)
+	if err != nil {
+		log.Printf("[handleCustomProductSubmit] submit error: %v", err)
+		http.Error(w, "提交审核失败", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已提交审核"), http.StatusFound)
+}
+
+// handleCustomProductReorder handles reordering custom products.
+// POST /user/storefront/custom-products/reorder
+// Accepts "ids" form value as comma-separated product IDs (e.g., "3,1,5,2").
+// Updates sort_order for each product based on array position (0, 1, 2, ...).
+// All products must belong to the current user's storefront.
+func handleCustomProductReorder(w http.ResponseWriter, r *http.Request, userID int64) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "无效的表单数据", http.StatusBadRequest)
+		return
+	}
+
+	idsStr := r.FormValue("ids")
+	if idsStr == "" {
+		http.Error(w, "缺少商品 ID 列表", http.StatusBadRequest)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err := db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+
+	// Parse comma-separated IDs
+	idParts := strings.Split(idsStr, ",")
+	productIDs := make([]int64, 0, len(idParts))
+	for _, part := range idParts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		pid, err := strconv.ParseInt(part, 10, 64)
+		if err != nil {
+			http.Error(w, "无效的商品 ID: "+part, http.StatusBadRequest)
+			return
+		}
+		productIDs = append(productIDs, pid)
+	}
+
+	if len(productIDs) == 0 {
+		http.Error(w, "缺少商品 ID 列表", http.StatusBadRequest)
+		return
+	}
+
+	// Verify all products belong to the user's storefront
+	for _, pid := range productIDs {
+		var productStorefrontID int64
+		err := db.QueryRow(
+			"SELECT storefront_id FROM custom_products WHERE id = ? AND deleted_at IS NULL",
+			pid,
+		).Scan(&productStorefrontID)
+		if err == sql.ErrNoRows {
+			http.Error(w, "商品不存在: "+strconv.FormatInt(pid, 10), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			log.Printf("[handleCustomProductReorder] query product error: %v", err)
+			http.Error(w, "加载数据失败", http.StatusInternalServerError)
+			return
+		}
+		if productStorefrontID != storefrontID {
+			http.Error(w, "无权操作此商品", http.StatusForbidden)
+			return
+		}
+	}
+
+	// Update sort_order in a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[handleCustomProductReorder] begin tx error: %v", err)
+		http.Error(w, "更新排序失败", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	for i, pid := range productIDs {
+		_, err := tx.Exec(
+			"UPDATE custom_products SET sort_order = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+			i, pid,
+		)
+		if err != nil {
+			log.Printf("[handleCustomProductReorder] update sort_order error for product %d: %v", pid, err)
+			http.Error(w, "更新排序失败", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("[handleCustomProductReorder] commit error: %v", err)
+		http.Error(w, "更新排序失败", http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleStorefrontCustomProductOrders handles GET /user/storefront/custom-product-orders.
+// Shows all custom product orders for the current user's storefront with optional filtering.
+func handleStorefrontCustomProductOrders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	// Get user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "您尚未创建小铺", http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		log.Printf("[handleStorefrontCustomProductOrders] query storefront error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+
+	// Read optional filter params
+	filterProductName := strings.TrimSpace(r.URL.Query().Get("product_name"))
+	filterStatus := strings.TrimSpace(r.URL.Query().Get("status"))
+
+	// Build query with optional filters
+	query := `SELECT o.id, o.custom_product_id, o.user_id, COALESCE(o.paypal_order_id, ''),
+		COALESCE(o.paypal_payment_status, ''), o.amount_usd,
+		COALESCE(o.license_sn, ''), COALESCE(o.license_email, ''),
+		o.status, o.created_at, COALESCE(o.updated_at, ''),
+		p.product_name, p.product_type, COALESCE(p.credits_amount, 0),
+		COALESCE(u.email, '') as buyer_email
+		FROM custom_product_orders o
+		JOIN custom_products p ON o.custom_product_id = p.id
+		JOIN users u ON o.user_id = u.id
+		WHERE p.storefront_id = ?`
+	args := []interface{}{storefrontID}
+
+	if filterProductName != "" {
+		query += " AND p.product_name LIKE ? ESCAPE '\\'"
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(filterProductName)
+		args = append(args, "%"+escaped+"%")
+	}
+	if filterStatus != "" {
+		query += " AND o.status = ?"
+		args = append(args, filterStatus)
+	}
+
+	query += " ORDER BY o.created_at DESC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		log.Printf("[handleStorefrontCustomProductOrders] query orders error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var orders []CustomProductOrder
+	for rows.Next() {
+		var o CustomProductOrder
+		if err := rows.Scan(
+			&o.ID, &o.CustomProductID, &o.UserID, &o.PayPalOrderID,
+			&o.PayPalPaymentStatus, &o.AmountUSD,
+			&o.LicenseSN, &o.LicenseEmail,
+			&o.Status, &o.CreatedAt, &o.UpdatedAt,
+			&o.ProductName, &o.ProductType, &o.CreditsAmount,
+			&o.BuyerEmail,
+		); err != nil {
+			log.Printf("[handleStorefrontCustomProductOrders] scan order error: %v", err)
+			continue
+		}
+		orders = append(orders, o)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleStorefrontCustomProductOrders] rows iteration error: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.StorefrontCustomProductOrdersTmpl.Execute(w, map[string]interface{}{
+		"Orders":            orders,
+		"FilterProductName": filterProductName,
+		"FilterStatus":      filterStatus,
+	}); err != nil {
+		log.Printf("[handleStorefrontCustomProductOrders] template execute error: %v", err)
+	}
+}
+
+// handleUserCustomProductOrders handles GET /user/custom-product-orders.
+// Shows the current user's custom product purchase records.
+func handleUserCustomProductOrders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		http.Redirect(w, r, "/user/login", http.StatusFound)
+		return
+	}
+
+	query := `SELECT o.id, o.custom_product_id, o.user_id, COALESCE(o.paypal_order_id, ''),
+		COALESCE(o.paypal_payment_status, ''), o.amount_usd,
+		COALESCE(o.license_sn, ''), COALESCE(o.license_email, ''),
+		o.status, o.created_at, COALESCE(o.updated_at, ''),
+		p.product_name, p.product_type, COALESCE(p.credits_amount, 0)
+		FROM custom_product_orders o
+		JOIN custom_products p ON o.custom_product_id = p.id
+		WHERE o.user_id = ?
+		ORDER BY o.created_at DESC`
+
+	rows, err := db.Query(query, userID)
+	if err != nil {
+		log.Printf("[handleUserCustomProductOrders] query orders error: %v", err)
+		http.Error(w, "加载数据失败", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var orders []CustomProductOrder
+	for rows.Next() {
+		var o CustomProductOrder
+		if err := rows.Scan(
+			&o.ID, &o.CustomProductID, &o.UserID, &o.PayPalOrderID,
+			&o.PayPalPaymentStatus, &o.AmountUSD,
+			&o.LicenseSN, &o.LicenseEmail,
+			&o.Status, &o.CreatedAt, &o.UpdatedAt,
+			&o.ProductName, &o.ProductType, &o.CreditsAmount,
+		); err != nil {
+			log.Printf("[handleUserCustomProductOrders] scan order error: %v", err)
+			continue
+		}
+		orders = append(orders, o)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleUserCustomProductOrders] rows iteration error: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := templates.UserCustomProductOrdersTmpl.Execute(w, map[string]interface{}{
+		"Orders": orders,
+	}); err != nil {
+		log.Printf("[handleUserCustomProductOrders] template execute error: %v", err)
+	}
+}
+
+
+
+// LayoutConfig 小铺布局配置
+type LayoutConfig struct {
+	Sections []SectionConfig `json:"sections"`
+}
+
+// SectionConfig 区块配置
+type SectionConfig struct {
+	Type     string          `json:"type"`
+	Visible  bool            `json:"visible"`
+	Settings json.RawMessage `json:"settings"`
+}
+
+// PackGridSettings 分析包网格区块设置
+type PackGridSettings struct {
+	Columns int `json:"columns"`
+}
+
+// CustomBannerSettings 自定义横幅区块设置
+type CustomBannerSettings struct {
+	Text  string `json:"text"`
+	Style string `json:"style"`
+}
+
+// ValidThemes 支持的主题集合
+var ValidThemes = map[string]bool{
+	"default": true,
+	"ocean":   true,
+	"sunset":  true,
+	"forest":  true,
+	"minimal": true,
+}
+
+// ValidSectionTypes 支持的区块类型集合
+var ValidSectionTypes = map[string]bool{
+	"hero":          true,
+	"featured":      true,
+	"filter_bar":    true,
+	"pack_grid":     true,
+	"custom_banner": true,
+}
+// DefaultLayoutConfig 返回默认布局配置：hero → featured → filter_bar → pack_grid（columns=2）
+func DefaultLayoutConfig() LayoutConfig {
+	return LayoutConfig{
+		Sections: []SectionConfig{
+			{Type: "hero", Visible: true, Settings: json.RawMessage("{}")},
+			{Type: "featured", Visible: true, Settings: json.RawMessage("{}")},
+			{Type: "filter_bar", Visible: true, Settings: json.RawMessage("{}")},
+			{Type: "pack_grid", Visible: true, Settings: json.RawMessage(`{"columns":2}`)},
+		},
+	}
+}
+
+func ParseLayoutConfig(jsonStr string) (LayoutConfig, error) {
+	var config LayoutConfig
+	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
+		return LayoutConfig{}, err
+	}
+	return config, nil
+}
+
+func SerializeLayoutConfig(config LayoutConfig) (string, error) {
+	data, err := json.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// ValidateLayoutConfig 验证布局配置 JSON 字符串的合法性。
+// 返回空字符串表示验证通过，否则返回具体错误信息。
+func ValidateLayoutConfig(jsonStr string) string {
+	config, err := ParseLayoutConfig(jsonStr)
+	if err != nil {
+		return "布局配置 JSON 格式无效"
+	}
+
+	if len(config.Sections) == 0 {
+		return "布局配置必须包含至少一个区块"
+	}
+
+	heroCount := 0
+	packGridCount := 0
+	customBannerCount := 0
+
+	for _, section := range config.Sections {
+		if !ValidSectionTypes[section.Type] {
+			return fmt.Sprintf("不支持的区块类型: %s", section.Type)
+		}
+
+		switch section.Type {
+		case "hero":
+			heroCount++
+		case "pack_grid":
+			packGridCount++
+		case "custom_banner":
+			customBannerCount++
+		}
+	}
+
+	if heroCount == 0 {
+		return "布局配置必须包含 hero 区块"
+	}
+	if packGridCount == 0 {
+		return "布局配置必须包含 pack_grid 区块"
+	}
+	if heroCount > 1 {
+		return "hero 区块只能有一个"
+	}
+	if packGridCount > 1 {
+		return "pack_grid 区块只能有一个"
+	}
+
+	// Validate hero and pack_grid visibility
+	for _, section := range config.Sections {
+		if section.Type == "hero" && !section.Visible {
+			return "hero 区块不允许隐藏"
+		}
+		if section.Type == "pack_grid" && !section.Visible {
+			return "pack_grid 区块不允许隐藏"
+		}
+	}
+
+	if customBannerCount > 3 {
+		return "最多添加 3 个自定义横幅"
+	}
+
+	// Validate custom_banner settings
+	for _, section := range config.Sections {
+		if section.Type == "custom_banner" {
+			var bannerSettings CustomBannerSettings
+			if len(section.Settings) > 0 {
+				if err := json.Unmarshal(section.Settings, &bannerSettings); err == nil {
+					if len([]rune(bannerSettings.Text)) > 200 {
+						return "横幅文本不能超过 200 字符"
+					}
+					validStyles := map[string]bool{"info": true, "success": true, "warning": true}
+					if bannerSettings.Style != "" && !validStyles[bannerSettings.Style] {
+						return fmt.Sprintf("不支持的横幅样式: %s", bannerSettings.Style)
+					}
+				}
+			}
+		}
+	}
+
+	// Validate pack_grid settings
+	for _, section := range config.Sections {
+		if section.Type == "pack_grid" {
+			var gridSettings PackGridSettings
+			if len(section.Settings) > 0 {
+				if err := json.Unmarshal(section.Settings, &gridSettings); err == nil {
+					if gridSettings.Columns != 0 && gridSettings.Columns != 1 && gridSettings.Columns != 2 && gridSettings.Columns != 3 {
+						return "列数必须为 1、2 或 3"
+					}
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+// GetThemeCSS 根据主题标识返回对应的 CSS 自定义属性字符串。
+// 如果主题标识无效，回退到 default 主题。
+func GetThemeCSS(theme string) string {
+	type themeColors struct {
+		primaryColor string
+		primaryHover string
+		heroGradient string
+		accentColor  string
+		cardBorder   string
+	}
+
+	themes := map[string]themeColors{
+		"default": {
+			primaryColor: "#6366f1",
+			primaryHover: "#4f46e5",
+			heroGradient: "linear-gradient(135deg, #eef2ff 0%, #faf5ff 40%, #f0fdf4 100%)",
+			accentColor:  "#8b5cf6",
+			cardBorder:   "#e0e7ff",
+		},
+		"ocean": {
+			primaryColor: "#0891b2",
+			primaryHover: "#0e7490",
+			heroGradient: "linear-gradient(135deg, #ecfeff 0%, #e0f2fe 40%, #f0f9ff 100%)",
+			accentColor:  "#06b6d4",
+			cardBorder:   "#a5f3fc",
+		},
+		"sunset": {
+			primaryColor: "#ea580c",
+			primaryHover: "#c2410c",
+			heroGradient: "linear-gradient(135deg, #fff7ed 0%, #fef3c7 40%, #fef2f2 100%)",
+			accentColor:  "#f59e0b",
+			cardBorder:   "#fed7aa",
+		},
+		"forest": {
+			primaryColor: "#16a34a",
+			primaryHover: "#15803d",
+			heroGradient: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 40%, #f7fee7 100%)",
+			accentColor:  "#22c55e",
+			cardBorder:   "#bbf7d0",
+		},
+		"minimal": {
+			primaryColor: "#475569",
+			primaryHover: "#334155",
+			heroGradient: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 40%, #e2e8f0 100%)",
+			accentColor:  "#64748b",
+			cardBorder:   "#e2e8f0",
+		},
+	}
+
+	colors, ok := themes[theme]
+	if !ok {
+		colors = themes["default"]
+	}
+
+	return fmt.Sprintf("--primary-color: %s; --primary-hover: %s; --hero-gradient: %s; --accent-color: %s; --card-border: %s",
+		colors.primaryColor, colors.primaryHover, colors.heroGradient, colors.accentColor, colors.cardBorder)
 }
 
 // notificationTemplates holds the predefined email notification templates.
@@ -568,6 +2935,9 @@ func initDB(dbPath string) (*sql.DB, error) {
 
 	// Add is_blocked column to users table (ignore error if already exists)
 	database.Exec("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0")
+
+	// Add email_allowed column to users table (default 1 = allowed)
+	database.Exec("ALTER TABLE users ADD COLUMN email_allowed INTEGER DEFAULT 1")
 	// Create unique index on username (ALTER TABLE ADD COLUMN does not support UNIQUE in SQLite)
 	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL")
 
@@ -916,6 +3286,31 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create storefront_packs table: %w", err)
 	}
 
+	// Add logo columns to storefront_packs (ignore error if already exists)
+	database.Exec("ALTER TABLE storefront_packs ADD COLUMN logo_data BLOB")
+	database.Exec("ALTER TABLE storefront_packs ADD COLUMN logo_content_type TEXT")
+
+	// Add store_layout column to author_storefronts (ignore error if already exists)
+	database.Exec("ALTER TABLE author_storefronts ADD COLUMN store_layout TEXT DEFAULT 'default'")
+
+	// Add layout_config and theme columns to author_storefronts for storefront customization (ignore error if already exists)
+	database.Exec("ALTER TABLE author_storefronts ADD COLUMN layout_config TEXT")
+	database.Exec("ALTER TABLE author_storefronts ADD COLUMN theme TEXT DEFAULT 'default'")
+
+	// Create featured_storefronts table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS featured_storefronts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			storefront_id INTEGER NOT NULL UNIQUE,
+			sort_order INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create featured_storefronts table: %w", err)
+	}
+
 	// Create storefront_notifications table
 	if _, err := database.Exec(`
 		CREATE TABLE IF NOT EXISTS storefront_notifications (
@@ -932,6 +3327,78 @@ func initDB(dbPath string) (*sql.DB, error) {
 	`); err != nil {
 		database.Close()
 		return nil, fmt.Errorf("failed to create storefront_notifications table: %w", err)
+	}
+
+	// Create email_credits_usage table for tracking email sending credits billing
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS email_credits_usage (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			storefront_id INTEGER NOT NULL,
+			store_name TEXT DEFAULT '',
+			recipient_count INTEGER DEFAULT 0,
+			credits_used REAL DEFAULT 0,
+			notification_id INTEGER DEFAULT 0,
+			description TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create email_credits_usage table: %w", err)
+	}
+
+	// Add custom_products_enabled column to author_storefronts (ignore error if already exists)
+	database.Exec("ALTER TABLE author_storefronts ADD COLUMN custom_products_enabled INTEGER DEFAULT 0")
+
+	// Create custom_products table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS custom_products (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			storefront_id INTEGER NOT NULL,
+			product_name TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			product_type TEXT NOT NULL CHECK(product_type IN ('credits', 'virtual_goods')),
+			price_usd REAL NOT NULL,
+			credits_amount INTEGER DEFAULT 0,
+			license_api_endpoint TEXT DEFAULT '',
+			license_api_key TEXT DEFAULT '',
+			license_product_id TEXT DEFAULT '',
+			status TEXT DEFAULT 'draft' CHECK(status IN ('draft', 'pending', 'published', 'rejected')),
+			reject_reason TEXT DEFAULT '',
+			sort_order INTEGER DEFAULT 0,
+			deleted_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id),
+			UNIQUE(storefront_id, product_name)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create custom_products table: %w", err)
+	}
+
+	// Create custom_product_orders table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS custom_product_orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			custom_product_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			paypal_order_id TEXT DEFAULT '',
+			paypal_payment_status TEXT DEFAULT '',
+			amount_usd REAL NOT NULL,
+			license_sn TEXT DEFAULT '',
+			license_email TEXT DEFAULT '',
+			status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'paid', 'fulfilled', 'failed')),
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (custom_product_id) REFERENCES custom_products(id),
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create custom_product_orders table: %w", err)
 	}
 
 	return database, nil
@@ -1703,6 +4170,16 @@ func handleStorefrontRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(parts) == 2 && strings.HasPrefix(parts[1], "featured/") && strings.HasSuffix(parts[1], "/logo") {
+		// Extract listing_id from "featured/{listing_id}/logo"
+		middle := strings.TrimPrefix(parts[1], "featured/")
+		listingID := strings.TrimSuffix(middle, "/logo")
+		if listingID != "" {
+			handleStorefrontFeaturedLogo(w, r, slug, listingID)
+			return
+		}
+	}
+
 	if len(parts) == 1 {
 		handleStorefrontPage(w, r, slug)
 		return
@@ -1739,6 +4216,14 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 		handleStorefrontSetFeatured(w, r)
 	case path == "/featured/reorder" && r.Method == http.MethodPost:
 		handleStorefrontReorderFeatured(w, r)
+	case path == "/featured/logo" && r.Method == http.MethodPost:
+		handleStorefrontFeaturedLogoUpload(w, r)
+	case path == "/featured/logo/delete" && r.Method == http.MethodPost:
+		handleStorefrontFeaturedLogoDelete(w, r)
+	case path == "/layout" && r.Method == http.MethodPost:
+		handleStorefrontSaveLayout(w, r)
+	case path == "/theme" && r.Method == http.MethodPost:
+		handleStorefrontSaveTheme(w, r)
 	case path == "/notify" && r.Method == http.MethodPost:
 		handleStorefrontSendNotify(w, r)
 	case path == "/notify/recipients" && r.Method == http.MethodGet:
@@ -1763,13 +4248,18 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	// 1. Query storefront by store_slug
 	var storefront StorefrontInfo
 	var logoContentType sql.NullString
+	var storeLayout sql.NullString
+	var layoutConfigRaw sql.NullString
+	var themeRaw sql.NullString
 	err := db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
 		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
-		COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+		COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
+		layout_config, theme
 		FROM author_storefronts WHERE store_slug = ?`, slug).Scan(
 		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
 		&storefront.Description, &storefront.HasLogo, &logoContentType,
-		&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+		&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
+		&layoutConfigRaw, &themeRaw,
 	)
 	if err == sql.ErrNoRows {
 		http.NotFound(w, r)
@@ -1783,6 +4273,58 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	if logoContentType.Valid {
 		storefront.LogoContentType = logoContentType.String
 	}
+	if storeLayout.Valid && storeLayout.String != "" {
+		storefront.StoreLayout = storeLayout.String
+	} else {
+		storefront.StoreLayout = "default"
+	}
+
+	// Parse layout_config: use default if NULL/empty or parse error
+	var layoutConfig LayoutConfig
+	if layoutConfigRaw.Valid && layoutConfigRaw.String != "" {
+		var parseErr error
+		layoutConfig, parseErr = ParseLayoutConfig(layoutConfigRaw.String)
+		if parseErr != nil {
+			log.Printf("[STOREFRONT-PAGE] failed to parse layout_config for slug %q, falling back to default: %v", slug, parseErr)
+			layoutConfig = DefaultLayoutConfig()
+		}
+	} else {
+		layoutConfig = DefaultLayoutConfig()
+	}
+
+	// Extract pack_grid columns from layout config, default to 2
+	packGridColumns := 2
+	for _, section := range layoutConfig.Sections {
+		if section.Type == "pack_grid" {
+			var gridSettings PackGridSettings
+			if len(section.Settings) > 0 {
+				if err := json.Unmarshal(section.Settings, &gridSettings); err == nil && gridSettings.Columns >= 1 && gridSettings.Columns <= 3 {
+					packGridColumns = gridSettings.Columns
+				}
+			}
+			break
+		}
+	}
+
+	// Extract custom_banner settings for each banner section
+	bannerData := make(map[int]CustomBannerSettings)
+	for i, section := range layoutConfig.Sections {
+		if section.Type == "custom_banner" && len(section.Settings) > 0 {
+			var bs CustomBannerSettings
+			if err := json.Unmarshal(section.Settings, &bs); err == nil {
+				bannerData[i] = bs
+			}
+		}
+	}
+
+	// Resolve theme: fall back to default if invalid
+	theme := "default"
+	if themeRaw.Valid && themeRaw.String != "" {
+		if ValidThemes[themeRaw.String] {
+			theme = themeRaw.String
+		}
+	}
+	themeCSS := GetThemeCSS(theme)
 
 	// If store_name is empty, fall back to author display_name
 	if storefront.StoreName == "" {
@@ -1820,10 +4362,11 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 	}
 
-	// 3. Read query params for filter, sort, search
+	// 3. Read query params for filter, sort, search, category
 	filter := r.URL.Query().Get("filter")
 	sortBy := r.URL.Query().Get("sort")
 	searchQuery := r.URL.Query().Get("q")
+	categoryFilter := r.URL.Query().Get("cat")
 
 	// Validate sort param (default to revenue)
 	switch sortBy {
@@ -1834,10 +4377,53 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	}
 
 	// 4. Query pack listing using queryStorefrontPacks
-	packs, err := queryStorefrontPacks(storefront.ID, storefront.AutoAddEnabled, sortBy, filter, searchQuery)
+	packs, err := queryStorefrontPacks(storefront.ID, storefront.AutoAddEnabled, sortBy, filter, searchQuery, categoryFilter)
 	if err != nil {
 		log.Printf("[STOREFRONT-PAGE] failed to query storefront packs for storefront %d: %v", storefront.ID, err)
 		packs = []StorefrontPackInfo{}
+	}
+
+	// 4.1 Collect distinct category names for the category filter UI (lightweight query)
+	var categories []string
+	catRows, catErr := db.Query(`SELECT DISTINCT COALESCE(c.name, '')
+		FROM storefront_packs sp
+		JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+		LEFT JOIN categories c ON c.id = pl.category_id
+		WHERE sp.storefront_id = ? AND pl.status = 'published' AND c.name IS NOT NULL AND c.name != ''
+		ORDER BY c.name ASC`, storefront.ID)
+	if catErr != nil {
+		log.Printf("[STOREFRONT-PAGE] failed to query categories: %v", catErr)
+	} else {
+		defer catRows.Close()
+		for catRows.Next() {
+			var cat string
+			if catRows.Scan(&cat) == nil && cat != "" {
+				categories = append(categories, cat)
+			}
+		}
+	}
+	// For auto-add mode, also include categories from all author's published packs
+	if storefront.AutoAddEnabled {
+		catRows2, catErr2 := db.Query(`SELECT DISTINCT COALESCE(c.name, '')
+			FROM pack_listings pl
+			JOIN author_storefronts ast ON ast.user_id = pl.user_id
+			LEFT JOIN categories c ON c.id = pl.category_id
+			WHERE ast.id = ? AND pl.status = 'published' AND c.name IS NOT NULL AND c.name != ''
+			ORDER BY c.name ASC`, storefront.ID)
+		if catErr2 == nil {
+			defer catRows2.Close()
+			catSet := make(map[string]bool)
+			for _, c := range categories {
+				catSet[c] = true
+			}
+			for catRows2.Next() {
+				var cat string
+				if catRows2.Scan(&cat) == nil && cat != "" && !catSet[cat] {
+					categories = append(categories, cat)
+				}
+			}
+			sort.Strings(categories)
+		}
 	}
 
 	// 5. Check if user is logged in (via cookie, same pattern as handlePackDetailPage)
@@ -1862,22 +4448,77 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		defaultLang = "zh-CN"
 	}
 
+	// 7.5 Detect preview mode: preview=1 AND current user is the storefront author
+	isPreviewMode := false
+	if r.URL.Query().Get("preview") == "1" && isLoggedIn && currentUserID == storefront.UserID {
+		isPreviewMode = true
+	}
+
+	// 7.6 Query custom products if enabled
+	var customProducts []CustomProduct
+	var cpEnabled int
+	_ = db.QueryRow("SELECT COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE id = ?", storefront.ID).Scan(&cpEnabled)
+	if cpEnabled == 1 {
+		cpRows, cpErr := db.Query(`SELECT id, storefront_id, product_name, COALESCE(description, ''),
+			product_type, price_usd, COALESCE(credits_amount, 0),
+			COALESCE(license_api_endpoint, ''), COALESCE(license_api_key, ''), COALESCE(license_product_id, ''),
+			status, COALESCE(reject_reason, ''), COALESCE(sort_order, 0),
+			created_at, COALESCE(updated_at, '')
+			FROM custom_products
+			WHERE storefront_id = ? AND status = 'published' AND deleted_at IS NULL
+			ORDER BY sort_order ASC`, storefront.ID)
+		if cpErr != nil {
+			log.Printf("[STOREFRONT-PAGE] failed to query custom products for storefront %d: %v", storefront.ID, cpErr)
+		} else {
+			defer cpRows.Close()
+			for cpRows.Next() {
+				var cp CustomProduct
+				if err := cpRows.Scan(&cp.ID, &cp.StorefrontID, &cp.ProductName, &cp.Description,
+					&cp.ProductType, &cp.PriceUSD, &cp.CreditsAmount,
+					&cp.LicenseAPIEndpoint, &cp.LicenseAPIKey, &cp.LicenseProductID,
+					&cp.Status, &cp.RejectReason, &cp.SortOrder,
+					&cp.CreatedAt, &cp.UpdatedAt); err != nil {
+					log.Printf("[STOREFRONT-PAGE] failed to scan custom product row: %v", err)
+					continue
+				}
+				customProducts = append(customProducts, cp)
+			}
+		}
+	}
+
 	// 8. Build StorefrontPageData and render template
 	data := StorefrontPageData{
-		Storefront:    storefront,
-		FeaturedPacks: featuredPacks,
-		Packs:         packs,
-		PurchasedIDs:  purchasedIDs,
-		IsLoggedIn:    isLoggedIn,
-		CurrentUserID: currentUserID,
-		DefaultLang:   defaultLang,
-		Filter:        filter,
-		Sort:          sortBy,
-		SearchQuery:   searchQuery,
+		Storefront:         storefront,
+		FeaturedPacks:      featuredPacks,
+		Packs:              packs,
+		PurchasedIDs:       purchasedIDs,
+		IsLoggedIn:         isLoggedIn,
+		CurrentUserID:      currentUserID,
+		DefaultLang:        defaultLang,
+		Filter:             filter,
+		Sort:               sortBy,
+		SearchQuery:        searchQuery,
+		Categories:         categories,
+		CategoryFilter:     categoryFilter,
+		DownloadURLWindows: getSetting("download_url_windows"),
+		DownloadURLMacOS:   getSetting("download_url_macos"),
+		Sections:           layoutConfig.Sections,
+		ThemeCSS:           themeCSS,
+		PackGridColumns:    packGridColumns,
+		BannerData:         bannerData,
+		IsPreviewMode:      isPreviewMode,
+		CustomProducts:     customProducts,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.StorefrontTmpl.Execute(w, data)
+	// Select template based on store layout
+	tmpl := templates.StorefrontTmpl
+	if storefront.StoreLayout == "novelty" {
+		tmpl = templates.StorefrontNoveltyTmpl
+	}
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("[STOREFRONT-PAGE] template execute error: %v", err)
+	}
 }
 
 
@@ -1924,13 +4565,18 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 	// Query existing storefront record for this user
 	var storefront StorefrontInfo
 	var logoContentType sql.NullString
+	var storeLayout sql.NullString
+	var layoutConfigRaw sql.NullString
+	var themeRaw sql.NullString
 	err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
 		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
-		COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+		COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
+		layout_config, COALESCE(theme, 'default')
 		FROM author_storefronts WHERE user_id = ?`, userID).Scan(
 		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
 		&storefront.Description, &storefront.HasLogo, &logoContentType,
-		&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+		&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
+		&layoutConfigRaw, &themeRaw,
 	)
 	if err == sql.ErrNoRows {
 		// Auto-create storefront on first visit
@@ -1955,11 +4601,13 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		// Re-query the newly created record
 		err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
 			CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
-			COALESCE(logo_content_type, ''), auto_add_enabled, created_at, updated_at
+			COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
+			layout_config, COALESCE(theme, 'default')
 			FROM author_storefronts WHERE user_id = ?`, userID).Scan(
 			&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
 			&storefront.Description, &storefront.HasLogo, &logoContentType,
-			&storefront.AutoAddEnabled, &storefront.CreatedAt, &storefront.UpdatedAt,
+			&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
+			&layoutConfigRaw, &themeRaw,
 		)
 		if err != nil {
 			log.Printf("[STOREFRONT-SETTINGS] failed to re-query storefront for user %d: %v", userID, err)
@@ -1973,6 +4621,35 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 	}
 	if logoContentType.Valid {
 		storefront.LogoContentType = logoContentType.String
+	}
+	if storeLayout.Valid && storeLayout.String != "" {
+		storefront.StoreLayout = storeLayout.String
+	} else {
+		storefront.StoreLayout = "default"
+	}
+
+	// Prepare layout sections JSON for the page layout editor
+	var layoutSectionsJSON string
+	if layoutConfigRaw.Valid && layoutConfigRaw.String != "" {
+		layoutSectionsJSON = layoutConfigRaw.String
+	} else {
+		// Use default layout config when layout_config is NULL/empty
+		defaultConfig := DefaultLayoutConfig()
+		if serialized, err := SerializeLayoutConfig(defaultConfig); err == nil {
+			layoutSectionsJSON = serialized
+		} else {
+			log.Printf("[STOREFRONT-SETTINGS] failed to serialize default layout config: %v", err)
+			layoutSectionsJSON = `{"sections":[{"type":"hero","visible":true,"settings":{}},{"type":"featured","visible":true,"settings":{}},{"type":"filter_bar","visible":true,"settings":{}},{"type":"pack_grid","visible":true,"settings":{"columns":2}}]}`
+		}
+	}
+
+	// Determine current theme
+	currentTheme := "default"
+	if themeRaw.Valid && themeRaw.String != "" {
+		currentTheme = themeRaw.String
+	}
+	if !ValidThemes[currentTheme] {
+		currentTheme = "default"
 	}
 
 	// Query author's all published pack_listings
@@ -2087,20 +4764,61 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		tmplList = notificationTemplates
 	}
 
+	// Query custom_products_enabled for this storefront
+	var cpEnabled int
+	_ = db.QueryRow("SELECT COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE id = ?", storefront.ID).Scan(&cpEnabled)
+	customProductsEnabled := cpEnabled == 1
+
+	// Query custom products (non-deleted) for this storefront if enabled
+	var customProducts []CustomProduct
+	if customProductsEnabled {
+		cpRows, cpErr := db.Query(`SELECT id, storefront_id, product_name, COALESCE(description, ''),
+			product_type, price_usd, COALESCE(credits_amount, 0),
+			COALESCE(license_api_endpoint, ''), COALESCE(license_api_key, ''), COALESCE(license_product_id, ''),
+			status, COALESCE(reject_reason, ''), COALESCE(sort_order, 0),
+			created_at, COALESCE(updated_at, '')
+			FROM custom_products
+			WHERE storefront_id = ? AND deleted_at IS NULL
+			ORDER BY sort_order ASC`, storefront.ID)
+		if cpErr != nil {
+			log.Printf("[STOREFRONT-SETTINGS] failed to query custom products for storefront %d: %v", storefront.ID, cpErr)
+		} else {
+			defer cpRows.Close()
+			for cpRows.Next() {
+				var cp CustomProduct
+				if err := cpRows.Scan(&cp.ID, &cp.StorefrontID, &cp.ProductName, &cp.Description,
+					&cp.ProductType, &cp.PriceUSD, &cp.CreditsAmount,
+					&cp.LicenseAPIEndpoint, &cp.LicenseAPIKey, &cp.LicenseProductID,
+					&cp.Status, &cp.RejectReason, &cp.SortOrder,
+					&cp.CreatedAt, &cp.UpdatedAt); err != nil {
+					log.Printf("[STOREFRONT-SETTINGS] failed to scan custom product row: %v", err)
+					continue
+				}
+				customProducts = append(customProducts, cp)
+			}
+		}
+	}
+
 	data := StorefrontManageData{
-		Storefront:      storefront,
-		AuthorPacks:     authorPacks,
-		StorefrontPacks: storefrontPacks,
-		FeaturedPacks:   featuredPacks,
-		Notifications:   notifications,
-		Templates:       tmplList,
-		FullURL:         fullURL,
-		DefaultLang:     defaultLang,
-		ActiveTab:       "settings",
+		Storefront:            storefront,
+		AuthorPacks:           authorPacks,
+		StorefrontPacks:       storefrontPacks,
+		FeaturedPacks:         featuredPacks,
+		Notifications:         notifications,
+		Templates:             tmplList,
+		FullURL:               fullURL,
+		DefaultLang:           defaultLang,
+		ActiveTab:             "settings",
+		LayoutSectionsJSON:    layoutSectionsJSON,
+		CurrentTheme:          currentTheme,
+		CustomProductsEnabled: customProductsEnabled,
+		CustomProducts:        customProducts,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.StorefrontManageTmpl.Execute(w, data)
+	if err := templates.StorefrontManageTmpl.Execute(w, data); err != nil {
+		log.Printf("[STOREFRONT-MANAGE] template execute error: %v", err)
+	}
 }
 
 
@@ -2146,6 +4864,77 @@ func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
+
+// handleStorefrontSaveLayout saves the store layout preference (default, novelty).
+// handleStorefrontSaveLayout saves the storefront layout configuration (layout_config JSON).
+func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"ok": false, "error": "未登录"})
+		return
+	}
+
+	layoutConfig := r.FormValue("layout_config")
+	if layoutConfig == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": "布局配置不能为空"})
+		return
+	}
+
+	// Validate layout config
+	if errMsg := ValidateLayoutConfig(layoutConfig); errMsg != "" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": false, "error": errMsg})
+		return
+	}
+
+	// Update layout_config in author_storefronts
+	result, err := db.Exec(`UPDATE author_storefronts SET layout_config = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`, layoutConfig, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SAVE-LAYOUT] failed to update layout_config for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "保存失败"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "小铺不存在"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+// handleStorefrontSaveTheme saves the storefront theme selection.
+func handleStorefrontSaveTheme(w http.ResponseWriter, r *http.Request) {
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"ok": false, "error": "未登录"})
+		return
+	}
+
+	theme := r.FormValue("theme")
+	if !ValidThemes[theme] {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": false, "error": "不支持的主题"})
+		return
+	}
+
+	result, err := db.Exec(`UPDATE author_storefronts SET theme = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`, theme, userID)
+	if err != nil {
+		log.Printf("[STOREFRONT-SAVE-THEME] failed to update theme for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "保存失败"})
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "小铺不存在"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
 
 
 func handleStorefrontUploadLogo(w http.ResponseWriter, r *http.Request) {
@@ -2215,7 +5004,187 @@ func handleStorefrontUploadLogo(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
+func handleStorefrontFeaturedLogoUpload(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-UPLOAD] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
 
+	// Parse multipart form with 2MB limit (must be called before FormValue/FormFile)
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "图片大小不能超过 2MB"})
+		return
+	}
+
+	// Parse pack_listing_id parameter
+	packListingIDStr := r.FormValue("pack_listing_id")
+	packListingID, err := strconv.ParseInt(packListingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID"})
+		return
+	}
+
+	// Read the logo file
+	file, header, err := r.FormFile("logo")
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择要上传的图片"})
+		return
+	}
+	defer file.Close()
+
+	// Validate file size (≤2MB)
+	const maxLogoSize = 2 * 1024 * 1024 // 2MB
+	if header.Size > maxLogoSize {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "图片大小不能超过 2MB"})
+		return
+	}
+
+	// Read file data
+	fileData, err := io.ReadAll(io.LimitReader(file, maxLogoSize+1))
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-UPLOAD] failed to read file for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "读取文件失败"})
+		return
+	}
+	if int64(len(fileData)) > maxLogoSize {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "图片大小不能超过 2MB"})
+		return
+	}
+
+	// Validate file format using content detection (PNG/JPEG only)
+	contentType := http.DetectContentType(fileData)
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "仅支持 PNG 或 JPEG 格式"})
+		return
+	}
+
+	// Verify the pack belongs to the current user's storefront and is featured
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-UPLOAD] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+		return
+	}
+
+	var isFeatured int
+	err = db.QueryRow(`SELECT is_featured FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`, storefrontID, packListingID).Scan(&isFeatured)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-UPLOAD] pack %d not found in storefront %d: %v", packListingID, storefrontID, err)
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+		return
+	}
+
+	if isFeatured != 1 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "该分析包未设置为推荐"})
+		return
+	}
+
+	// Update logo_data and logo_content_type in storefront_packs
+	_, err = db.Exec(`UPDATE storefront_packs SET logo_data = ?, logo_content_type = ? WHERE storefront_id = ? AND pack_listing_id = ?`,
+		fileData, contentType, storefrontID, packListingID)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-UPLOAD] failed to update logo for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "保存失败"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func handleStorefrontFeaturedLogoDelete(w http.ResponseWriter, r *http.Request) {
+	// Get user_id from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-DELETE] invalid X-User-ID header: %q", userIDStr)
+		jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+		return
+	}
+
+	// Parse pack_listing_id parameter
+	packListingIDStr := r.FormValue("pack_listing_id")
+	packListingID, err := strconv.ParseInt(packListingIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID"})
+		return
+	}
+
+	// Get storefront ID for the current user
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-DELETE] storefront not found for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+		return
+	}
+
+	// Verify the pack exists in storefront_packs for this storefront
+	var exists int
+	err = db.QueryRow(`SELECT 1 FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`, storefrontID, packListingID).Scan(&exists)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-DELETE] pack %d not found in storefront %d: %v", packListingID, storefrontID, err)
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "该分析包不属于当前作者"})
+		return
+	}
+
+	// Set logo_data and logo_content_type to NULL
+	_, err = db.Exec(`UPDATE storefront_packs SET logo_data = NULL, logo_content_type = NULL WHERE storefront_id = ? AND pack_listing_id = ?`,
+		storefrontID, packListingID)
+	if err != nil {
+		log.Printf("[STOREFRONT-FEATURED-LOGO-DELETE] failed to delete logo for storefront %d, pack %d: %v", storefrontID, packListingID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+
+func handleStorefrontFeaturedLogo(w http.ResponseWriter, r *http.Request, slug string, listingID string) {
+	// Parse listing ID
+	packListingID, err := strconv.ParseInt(listingID, 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Look up storefront ID by slug
+	var storefrontID int64
+	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE store_slug = ?`, slug).Scan(&storefrontID)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Query logo data and content type from storefront_packs
+	var logoData []byte
+	var logoContentType string
+	err = db.QueryRow(`SELECT logo_data, COALESCE(logo_content_type, '') FROM storefront_packs WHERE storefront_id = ? AND pack_listing_id = ?`,
+		storefrontID, packListingID).Scan(&logoData, &logoContentType)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if len(logoData) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	if logoContentType == "" {
+		logoContentType = "image/png"
+	}
+
+	w.Header().Set("Content-Type", logoContentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Content-Length", strconv.Itoa(len(logoData)))
+	w.Write(logoData)
+}
 
 func handleStorefrontUpdateSlug(w http.ResponseWriter, r *http.Request) {
 	// Get user_id from X-User-ID header (set by userAuth middleware)
@@ -2434,7 +5403,7 @@ func handleStorefrontToggleAutoAdd(w http.ResponseWriter, r *http.Request) {
 // manual mode (via storefront_packs join) and auto mode (via user_id join).
 // It applies optional filtering by share_mode, search by name/description, and
 // sorting by revenue (default), downloads, or orders — all descending.
-func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string, filterMode string, searchQuery string) ([]StorefrontPackInfo, error) {
+func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string, filterMode string, searchQuery string, categoryFilter string) ([]StorefrontPackInfo, error) {
 	// Build the base query depending on mode
 	var baseQuery string
 	var args []interface{}
@@ -2445,10 +5414,13 @@ func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string
 			pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
 			COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
 			COALESCE(sp.is_featured, 0), COALESCE(sp.featured_sort_order, 0),
-			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0)
+			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0),
+			COALESCE(c.name, ''),
+			CASE WHEN sp.logo_data IS NOT NULL AND LENGTH(sp.logo_data) > 0 THEN 1 ELSE 0 END
 			FROM pack_listings pl
 			JOIN author_storefronts ast ON ast.user_id = pl.user_id
 			LEFT JOIN storefront_packs sp ON sp.storefront_id = ast.id AND sp.pack_listing_id = pl.id
+			LEFT JOIN categories c ON c.id = pl.category_id
 			LEFT JOIN (
 				SELECT listing_id, SUM(ABS(amount)) as total_revenue, COUNT(*) as order_count
 				FROM credits_transactions
@@ -2464,9 +5436,12 @@ func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string
 			pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
 			COALESCE(pl.author_name, ''), COALESCE(pl.share_token, ''),
 			sp.is_featured, COALESCE(sp.featured_sort_order, 0),
-			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0)
+			COALESCE(rev.total_revenue, 0), COALESCE(rev.order_count, 0),
+			COALESCE(c.name, ''),
+			CASE WHEN sp.logo_data IS NOT NULL AND LENGTH(sp.logo_data) > 0 THEN 1 ELSE 0 END
 			FROM storefront_packs sp
 			JOIN pack_listings pl ON sp.pack_listing_id = pl.id
+			LEFT JOIN categories c ON c.id = pl.category_id
 			LEFT JOIN (
 				SELECT listing_id, SUM(ABS(amount)) as total_revenue, COUNT(*) as order_count
 				FROM credits_transactions
@@ -2482,6 +5457,12 @@ func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string
 	if filterMode != "" && filterMode != "all" {
 		baseQuery += " AND pl.share_mode = ?"
 		args = append(args, filterMode)
+	}
+
+	// Apply filter by category name
+	if categoryFilter != "" {
+		baseQuery += " AND c.name = ?"
+		args = append(args, categoryFilter)
 	}
 
 	// Apply search by pack name or description
@@ -2515,7 +5496,7 @@ func queryStorefrontPacks(storefrontID int64, autoAddEnabled bool, sortBy string
 		var p StorefrontPackInfo
 		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDesc, &p.ShareMode,
 			&p.CreditsPrice, &p.DownloadCount, &p.AuthorName, &p.ShareToken,
-			&p.IsFeatured, &p.SortOrder, &p.TotalRevenue, &p.OrderCount); err != nil {
+			&p.IsFeatured, &p.SortOrder, &p.TotalRevenue, &p.OrderCount, &p.CategoryName, &p.HasLogo); err != nil {
 			return nil, fmt.Errorf("queryStorefrontPacks scan: %w", err)
 		}
 		packs = append(packs, p)
@@ -2634,8 +5615,8 @@ func handleStorefrontSetFeatured(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// Unset featured: clear is_featured and featured_sort_order
-		_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE storefront_id = ? AND pack_listing_id = ?`,
+		// Unset featured: clear is_featured, featured_sort_order, and cascade clear logo data
+		_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0, logo_data = NULL, logo_content_type = NULL WHERE storefront_id = ? AND pack_listing_id = ?`,
 			storefrontID, packListingID)
 		if err != nil {
 			log.Printf("[STOREFRONT-SET-FEATURED] failed to unset featured for storefront %d, pack %d: %v", storefrontID, packListingID, err)
@@ -2659,28 +5640,16 @@ func handleStorefrontReorderFeatured(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read pack_ids from form data (comma-separated list of pack_listing_ids in new order)
-	packIDsStr := r.FormValue("pack_ids")
-	if packIDsStr == "" {
+	// Read pack_ids from JSON body (frontend sends { ids: [1,2,3] })
+	var reqBody struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		log.Printf("[STOREFRONT-REORDER-FEATURED] failed to decode JSON body: %v", err)
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "缺少 pack_ids 参数"})
 		return
 	}
-
-	// Parse comma-separated pack IDs
-	parts := strings.Split(packIDsStr, ",")
-	var packIDs []int64
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		id, err := strconv.ParseInt(p, 10, 64)
-		if err != nil {
-			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的分析包ID: " + p})
-			return
-		}
-		packIDs = append(packIDs, id)
-	}
+	packIDs := reqBody.IDs
 
 	if len(packIDs) == 0 {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "缺少有效的 pack_ids"})
@@ -2747,6 +5716,14 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query storefront for user %d: %v", userID, err)
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在"})
+		return
+	}
+
+	// Check if user has email sending permission
+	var emailAllowed int
+	if err := db.QueryRow("SELECT COALESCE(email_allowed, 1) FROM users WHERE id = ?", userID).Scan(&emailAllowed); err == nil && emailAllowed == 0 {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] user %d email permission denied", userID)
+		jsonResponse(w, http.StatusForbidden, map[string]string{"error": "您的邮件发送权限已被禁用，请联系管理员"})
 		return
 	}
 
@@ -2855,7 +5832,7 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read SMTP config from settings table
+	// Validate SMTP config before charging credits
 	smtpJSON := getSetting("smtp_config")
 	if smtpJSON == "" {
 		log.Printf("[STOREFRONT-SEND-NOTIFY] SMTP config not found in settings table")
@@ -2880,11 +5857,56 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// --- Credits billing: 1 credit per recipient ---
+	creditsNeeded := float64(len(recipients))
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to begin tx: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "系统错误"})
+		return
+	}
+	deducted, err := deductWalletBalance(tx, userID, creditsNeeded)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[STOREFRONT-SEND-NOTIFY] deductWalletBalance error for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "扣费失败"})
+		return
+	}
+	if deducted == 0 {
+		tx.Rollback()
+		jsonResponse(w, http.StatusPaymentRequired, map[string]interface{}{
+			"error":          fmt.Sprintf("Credits 不足，需要 %.0f credits（每位收件人 1 credit），请先充值", creditsNeeded),
+			"credits_needed": creditsNeeded,
+		})
+		return
+	}
+	// Record credits transaction
+	_, err = tx.Exec(
+		`INSERT INTO credits_transactions (user_id, transaction_type, amount, description)
+		 VALUES (?, 'email_send', ?, ?)`,
+		userID, -creditsNeeded, fmt.Sprintf("发送邮件通知给 %d 位客户", len(recipients)))
+	if err != nil {
+		tx.Rollback()
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to record credits transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "记录交易失败"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to commit credits deduction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "扣费提交失败"})
+		return
+	}
+
 	// Send emails using net/smtp
 	var sendErrors int
 	fromHeader := smtpConfig.FromEmail
-	if smtpConfig.FromName != "" {
-		fromHeader = fmt.Sprintf("%s <%s>", smtpConfig.FromName, smtpConfig.FromEmail)
+	// Use store name as sender name so recipients see the actual shop name
+	senderName := storeName
+	if senderName == "" {
+		senderName = smtpConfig.FromName
+	}
+	if senderName != "" {
+		fromHeader = fmt.Sprintf("%s <%s>", senderName, smtpConfig.FromEmail)
 	}
 
 	addr := fmt.Sprintf("%s:%d", smtpConfig.Host, smtpConfig.Port)
@@ -2925,7 +5947,7 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 		status = "partial"
 	}
 
-	_, err = db.Exec(`
+	notifyResult, err := db.Exec(`
 		INSERT INTO storefront_notifications (storefront_id, subject, body, recipient_count, template_type, status)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, storefrontID, subject, body, len(recipients)-sendErrors, templateType, status)
@@ -2933,11 +5955,51 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to record notification for storefront %d: %v", storefrontID, err)
 	}
 
+	// Record email credits usage for billing (actual credits consumed after potential refund)
+	actualCreditsUsed := float64(len(recipients) - sendErrors)
+	var notifyID int64
+	if notifyResult != nil {
+		notifyID, _ = notifyResult.LastInsertId()
+	}
+	_, err = db.Exec(`
+		INSERT INTO email_credits_usage (user_id, storefront_id, store_name, recipient_count, credits_used, notification_id, description)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, userID, storefrontID, storeName, len(recipients)-sendErrors, actualCreditsUsed, notifyID,
+		fmt.Sprintf("邮件通知: %s", subject))
+
+	if err != nil {
+		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to record billing for storefront %d: %v", storefrontID, err)
+	}
+
 	successCount := len(recipients) - sendErrors
 	log.Printf("[STOREFRONT-SEND-NOTIFY] storefront %d: sent %d/%d emails, status=%s", storefrontID, successCount, len(recipients), status)
 
+	// Refund credits for failed sends
+	if sendErrors > 0 {
+		refundAmount := float64(sendErrors)
+		refundTx, txErr := db.Begin()
+		if txErr == nil {
+			if addErr := addWalletBalance(refundTx, userID, refundAmount); addErr == nil {
+				_, recErr := refundTx.Exec(`INSERT INTO credits_transactions (user_id, transaction_type, amount, description)
+					VALUES (?, 'email_refund', ?, ?)`,
+					userID, refundAmount, fmt.Sprintf("邮件发送失败退款 %d 封", sendErrors))
+				if recErr != nil {
+					refundTx.Rollback()
+					log.Printf("[STOREFRONT-SEND-NOTIFY] failed to record refund transaction: %v", recErr)
+				} else if commitErr := refundTx.Commit(); commitErr != nil {
+					log.Printf("[STOREFRONT-SEND-NOTIFY] failed to commit refund: %v", commitErr)
+				} else {
+					log.Printf("[STOREFRONT-SEND-NOTIFY] refunded %.0f credits for %d failed emails", refundAmount, sendErrors)
+				}
+			} else {
+				refundTx.Rollback()
+				log.Printf("[STOREFRONT-SEND-NOTIFY] failed to refund credits: %v", addErr)
+			}
+		}
+	}
+
 	if status == "failed" {
-		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件发送失败，请稍后重试"})
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "邮件发送失败，credits 已退回，请稍后重试"})
 		return
 	}
 
@@ -3576,7 +6638,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "accounts", "authors", "review", "settings", "customers", "sales", "notifications"}
+var allPermissions = []string{"categories", "marketplace", "accounts", "authors", "review", "settings", "customers", "sales", "notifications", "billing"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.
@@ -3726,7 +6788,7 @@ func generateCaptchaCode() string {
 func createCaptcha() string {
 	id := generateSessionID()[:16]
 	code := generateCaptchaCode()
-	log.Printf("[CAPTCHA] created id=%s code=%s", id, code)
+	log.Printf("[CAPTCHA] created id=%s", id)
 	captchasMu.Lock()
 	captchas[id] = captchaEntry{Code: code, Expiry: time.Now().Add(5 * time.Minute)}
 	captchasMu.Unlock()
@@ -3793,7 +6855,7 @@ func generateMathCaptcha() (string, string) {
 func createMathCaptcha() string {
 	id := generateSessionID()[:16]
 	expression, answer := generateMathCaptcha()
-	log.Printf("[MATH_CAPTCHA] created id=%s expr=%s answer=%s", id, expression, answer)
+	log.Printf("[MATH_CAPTCHA] created id=%s", id)
 	captchasMu.Lock()
 	captchas[id] = captchaEntry{Code: answer, Expiry: time.Now().Add(5 * time.Minute)}
 	captchasMu.Unlock()
@@ -9136,6 +12198,7 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"DefaultLang":                getSetting("default_language"),
 		"DownloadURLWindows":         getSetting("download_url_windows"),
 		"DownloadURLMacOS":           getSetting("download_url_macos"),
+		"SMTPConfigJSON":             template.JS(getSetting("smtp_config")),
 	})
 }
 
@@ -9281,6 +12344,175 @@ func handleSaveDownloadURLs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminSaveSMTPConfig saves the SMTP email server configuration.
+// POST /admin/api/settings/smtp
+func handleAdminSaveSMTPConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var config SMTPConfig
+	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	config.Host = strings.TrimSpace(config.Host)
+	config.Username = strings.TrimSpace(config.Username)
+	config.FromEmail = strings.TrimSpace(config.FromEmail)
+	config.FromName = strings.TrimSpace(config.FromName)
+
+	if config.Enabled {
+		if config.Host == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "SMTP 服务器地址不能为空"})
+			return
+		}
+		if config.Port <= 0 || config.Port > 65535 {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "端口号必须在 1-65535 之间"})
+			return
+		}
+		if config.FromEmail == "" {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "发件人邮箱不能为空"})
+			return
+		}
+	}
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('smtp_config', ?)", string(configJSON))
+	if err != nil {
+		log.Printf("Failed to save smtp_config: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminTestSMTPConfig sends a test email using the current SMTP configuration.
+// POST /admin/api/settings/smtp-test
+func handleAdminTestSMTPConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		TestEmail string `json:"test_email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	req.TestEmail = strings.TrimSpace(req.TestEmail)
+	if req.TestEmail == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请输入测试收件邮箱"})
+		return
+	}
+
+	smtpJSON := getSetting("smtp_config")
+	if smtpJSON == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请先保存 SMTP 配置"})
+		return
+	}
+
+	var config SMTPConfig
+	if err := json.Unmarshal([]byte(smtpJSON), &config); err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "SMTP 配置解析失败"})
+		return
+	}
+
+	if !config.Enabled || config.Host == "" || config.FromEmail == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "SMTP 配置不完整或未启用"})
+		return
+	}
+
+	// Build test email
+	fromHeader := config.FromEmail
+	if config.FromName != "" {
+		fromHeader = fmt.Sprintf("%s <%s>", config.FromName, config.FromEmail)
+	}
+
+	var msg bytes.Buffer
+	msg.WriteString(fmt.Sprintf("From: %s\r\n", fromHeader))
+	msg.WriteString(fmt.Sprintf("To: %s\r\n", req.TestEmail))
+	msg.WriteString("Subject: SMTP Test - Marketplace Email Configuration\r\n")
+	msg.WriteString("MIME-Version: 1.0\r\n")
+	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	msg.WriteString("\r\n")
+	msg.WriteString("This is a test email from the Marketplace system.\r\n")
+	msg.WriteString("If you received this email, the SMTP configuration is working correctly.\r\n")
+	msg.WriteString(fmt.Sprintf("\r\nSent at: %s\r\n", time.Now().Format(time.RFC3339)))
+
+	var sendErr error
+	if config.UseTLS {
+		sendErr = storefrontSendEmailTLS(config, req.TestEmail, msg.Bytes())
+	} else {
+		addr := fmt.Sprintf("%s:%d", config.Host, config.Port)
+		var auth smtp.Auth
+		if config.Username != "" && config.Password != "" {
+			auth = smtp.PlainAuth("", config.Username, config.Password, config.Host)
+		}
+		sendErr = smtp.SendMail(addr, auth, config.FromEmail, []string{req.TestEmail}, msg.Bytes())
+	}
+
+	if sendErr != nil {
+		log.Printf("[SMTP-TEST] failed to send test email to %s: %v", req.TestEmail, sendErr)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("发送失败: %v", sendErr)})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminToggleEmailPermission toggles email sending permission for a user (by email).
+// POST /api/admin/accounts/toggle-email
+func handleAdminToggleEmailPermission(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "email required"})
+		return
+	}
+
+	// Check current email_allowed status
+	var totalCount, allowedCount int
+	db.QueryRow("SELECT COUNT(*), COALESCE(SUM(CASE WHEN COALESCE(email_allowed,1)=1 THEN 1 ELSE 0 END),0) FROM users WHERE email=?", req.Email).Scan(&totalCount, &allowedCount)
+	if totalCount == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "no_accounts_for_email"})
+		return
+	}
+
+	// If all allowed → disallow all; otherwise → allow all
+	newAllowed := 0
+	if allowedCount == 0 {
+		newAllowed = 1
+	}
+
+	_, err := db.Exec("UPDATE users SET email_allowed = ? WHERE email = ?", newAllowed, req.Email)
+	if err != nil {
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	status := "allowed"
+	if newAllowed == 0 {
+		status = "denied"
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
 }
 
 // handleAdminSaveRevenueSplit saves the publisher revenue split percentage.
@@ -9549,6 +12781,8 @@ func handleAdminExportWithdrawals(w http.ResponseWriter, r *http.Request) {
 	// Payment type labels
 	typeLabels := map[string]string{
 		"paypal": "PayPal", "wechat": i18n.T(lang, "excel_wechat"), "alipay": "AliPay", "check": i18n.T(lang, "excel_check"),
+		"bank_card": i18n.T(lang, "excel_bank_card"), "wire_transfer": i18n.T(lang, "excel_wire_transfer"),
+		"bank_card_us": i18n.T(lang, "excel_bank_card_us"), "bank_card_eu": i18n.T(lang, "excel_bank_card_eu"), "bank_card_cn": i18n.T(lang, "excel_bank_card_cn"),
 	}
 
 	// Write data rows
@@ -9577,6 +12811,161 @@ func handleAdminExportWithdrawals(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", `attachment; filename="withdrawals_export.xlsx"`)
+	w.Write(buf.Bytes())
+}
+
+// handleAdminBillingList returns paginated email credits usage records.
+// GET /admin/api/billing?page=1&page_size=20&store_name=xxx
+func handleAdminBillingList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	storeFilter := strings.TrimSpace(r.URL.Query().Get("store_name"))
+
+	// Count total and sum credits
+	var total int
+	var totalCredits float64
+	countQuery := "SELECT COUNT(*), COALESCE(SUM(credits_used), 0) FROM email_credits_usage"
+	var countArgs []interface{}
+	if storeFilter != "" {
+		countQuery += " WHERE store_name LIKE ?"
+		countArgs = append(countArgs, "%"+storeFilter+"%")
+	}
+	db.QueryRow(countQuery, countArgs...).Scan(&total, &totalCredits)
+
+	// Query page
+	offset := (page - 1) * pageSize
+	dataQuery := `SELECT id, user_id, storefront_id, store_name, recipient_count, credits_used, notification_id, description, created_at
+		FROM email_credits_usage`
+	var dataArgs []interface{}
+	if storeFilter != "" {
+		dataQuery += " WHERE store_name LIKE ?"
+		dataArgs = append(dataArgs, "%"+storeFilter+"%")
+	}
+	dataQuery += " ORDER BY id DESC LIMIT ? OFFSET ?"
+	dataArgs = append(dataArgs, pageSize, offset)
+
+	rows, err := db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		log.Printf("[ADMIN-BILLING] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+
+	type BillingRecord struct {
+		ID             int64   `json:"id"`
+		UserID         int64   `json:"user_id"`
+		StorefrontID   int64   `json:"storefront_id"`
+		StoreName      string  `json:"store_name"`
+		RecipientCount int     `json:"recipient_count"`
+		CreditsUsed    float64 `json:"credits_used"`
+		NotificationID int64   `json:"notification_id"`
+		Description    string  `json:"description"`
+		CreatedAt      string  `json:"created_at"`
+	}
+	var records []BillingRecord
+	for rows.Next() {
+		var rec BillingRecord
+		if err := rows.Scan(&rec.ID, &rec.UserID, &rec.StorefrontID, &rec.StoreName,
+			&rec.RecipientCount, &rec.CreditsUsed, &rec.NotificationID, &rec.Description, &rec.CreatedAt); err != nil {
+			log.Printf("[ADMIN-BILLING] scan error: %v", err)
+			continue
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ADMIN-BILLING] rows iteration error: %v", err)
+	}
+	if records == nil {
+		records = []BillingRecord{}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"records":       records,
+		"total":         total,
+		"total_credits": totalCredits,
+		"page":          page,
+		"page_size":     pageSize,
+	})
+}
+
+// handleAdminBillingExport exports email credits usage records as Excel.
+// GET /admin/api/billing/export?store_name=xxx
+func handleAdminBillingExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	storeFilter := strings.TrimSpace(r.URL.Query().Get("store_name"))
+	dataQuery := `SELECT id, store_name, recipient_count, credits_used, description, created_at FROM email_credits_usage`
+	var dataArgs []interface{}
+	if storeFilter != "" {
+		dataQuery += " WHERE store_name LIKE ?"
+		dataArgs = append(dataArgs, "%"+storeFilter+"%")
+	}
+	dataQuery += " ORDER BY id DESC"
+
+	rows, err := db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		log.Printf("[ADMIN-BILLING-EXPORT] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheetName := "邮件收费明细"
+	f.SetSheetName("Sheet1", sheetName)
+
+	headers := []string{"ID", "店铺名称", "收件人数", "消耗 Credits", "描述", "时间"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheetName, cell, h)
+	}
+
+	rowIdx := 2
+	for rows.Next() {
+		var id int64
+		var sName string
+		var rcptCount int
+		var creditsUsed float64
+		var desc, createdAt string
+		if err := rows.Scan(&id, &sName, &rcptCount, &creditsUsed, &desc, &createdAt); err != nil {
+			continue
+		}
+		vals := []interface{}{id, sName, rcptCount, creditsUsed, desc, createdAt}
+		for i, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, rowIdx)
+			f.SetCellValue(sheetName, cell, val)
+		}
+		rowIdx++
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ADMIN-BILLING-EXPORT] rows iteration error: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		log.Printf("[ADMIN-BILLING-EXPORT] excel write error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "生成 Excel 失败"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="email_billing_export.xlsx"`)
 	w.Write(buf.Bytes())
 }
 
@@ -9936,6 +13325,10 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	// Validate share_mode and pricing using existing validatePricingParams
 	if errMsg := validatePricingParams(shareMode, creditsPrice); errMsg != "" {
 		log.Printf("[AUTHOR-EDIT-PACK] pricing validation failed for listing %d: %s", listingID, errMsg)
+		if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"ok": false, "error": errMsg})
+			return
+		}
 		http.Redirect(w, r, "/user/?error=invalid_pricing", http.StatusFound)
 		return
 	}
@@ -9954,11 +13347,21 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	`, packName, packDescription, shareMode, creditsPrice, listingID, userID)
 	if err != nil {
 		log.Printf("[AUTHOR-EDIT-PACK] failed to update listing %d: %v", listingID, err)
+		if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal error"})
+			return
+		}
 		http.Redirect(w, r, "/user/?error=internal", http.StatusFound)
 		return
 	}
 
 	log.Printf("[AUTHOR-EDIT-PACK] user %d updated listing %d: name=%s mode=%s price=%d", userID, listingID, packName, shareMode, creditsPrice)
+
+	// If AJAX request, return JSON instead of redirect
+	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		return
+	}
 	http.Redirect(w, r, "/user/", http.StatusFound)
 }
 
@@ -10013,6 +13416,11 @@ func handleAuthorDeletePack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[AUTHOR-DELETE-PACK] user %d deleted rejected listing %d", userID, listingID)
+
+	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		return
+	}
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
 
@@ -10074,6 +13482,11 @@ func handleAuthorDelistPack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[AUTHOR-DELIST-PACK] user %d delisted listing %d", userID, listingID)
+
+	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+		return
+	}
 	http.Redirect(w, r, "/user/dashboard", http.StatusFound)
 }
 
@@ -10373,17 +13786,20 @@ func handleAdminRelistPack(w http.ResponseWriter, r *http.Request) {
 
 // UnifiedAccount represents a single email-based virtual account combining customer and author data.
 type UnifiedAccount struct {
-	Email          string  `json:"email"`
-	DisplayName    string  `json:"display_name"`
-	AccountCount   int     `json:"account_count"`
-	IsAuthor       bool    `json:"is_author"`
-	TotalBalance   float64 `json:"total_balance"`
-	TotalDownloads int     `json:"total_downloads"`
-	TotalSpent     float64 `json:"total_spent"`
-	PublishedPacks int     `json:"published_packs"`
-	AuthorRevenue  float64 `json:"author_revenue"`
-	IsBlocked      bool    `json:"is_blocked"`
-	CreatedAt      string  `json:"created_at"`
+	Email                 string  `json:"email"`
+	DisplayName           string  `json:"display_name"`
+	AccountCount          int     `json:"account_count"`
+	IsAuthor              bool    `json:"is_author"`
+	TotalBalance          float64 `json:"total_balance"`
+	TotalDownloads        int     `json:"total_downloads"`
+	TotalSpent            float64 `json:"total_spent"`
+	PublishedPacks        int     `json:"published_packs"`
+	AuthorRevenue         float64 `json:"author_revenue"`
+	IsBlocked             bool    `json:"is_blocked"`
+	EmailAllowed          bool    `json:"email_allowed"`
+	CreatedAt             string  `json:"created_at"`
+	StorefrontID          int64   `json:"storefront_id,omitempty"`
+	CustomProductsEnabled bool    `json:"custom_products_enabled,omitempty"`
 }
 
 // handleAdminAccountList returns unified email-based virtual accounts.
@@ -10401,6 +13817,7 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 		       MAX(u.display_name) as display_name,
 		       COUNT(DISTINCT u.id) as account_count,
 		       MIN(CASE WHEN COALESCE(u.is_blocked, 0) = 1 THEN 1 ELSE 0 END) as all_blocked,
+		       MAX(CASE WHEN COALESCE(u.email_allowed, 1) = 1 THEN 1 ELSE 0 END) as email_allowed,
 		       MIN(u.created_at) as created_at,
 		       GROUP_CONCAT(DISTINCT u.id) as user_ids,
 		       (SELECT COUNT(DISTINCT ud.listing_id) FROM user_downloads ud WHERE ud.user_id IN
@@ -10433,9 +13850,9 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 
 	for custRows.Next() {
 		var email, displayName, userIDs, createdAt string
-		var accountCount, allBlocked, downloadCount int
+		var accountCount, allBlocked, emailAllowed, downloadCount int
 		var totalSpent float64
-		if err := custRows.Scan(&email, &displayName, &accountCount, &allBlocked, &createdAt, &userIDs, &downloadCount, &totalSpent); err != nil {
+		if err := custRows.Scan(&email, &displayName, &accountCount, &allBlocked, &emailAllowed, &createdAt, &userIDs, &downloadCount, &totalSpent); err != nil {
 			log.Printf("[ACCOUNT-LIST] scan error: %v", err)
 			continue
 		}
@@ -10444,6 +13861,7 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 			DisplayName:    displayName,
 			AccountCount:   accountCount,
 			IsBlocked:      allBlocked == 1,
+			EmailAllowed:   emailAllowed == 1,
 			CreatedAt:      createdAt,
 			TotalDownloads: downloadCount,
 			TotalSpent:     totalSpent,
@@ -10507,6 +13925,27 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 					if acc, ok := accountMap[e]; ok {
 						acc.TotalBalance = b
 					}
+				}
+			}
+		}
+	}
+
+	// Step 3.5: Load storefront data (storefront_id, custom_products_enabled) for authors
+	sfRows, sfErr := db.Query(`
+		SELECT u.email, ast.id, COALESCE(ast.custom_products_enabled, 0)
+		FROM author_storefronts ast
+		JOIN users u ON u.id = ast.user_id
+	`)
+	if sfErr == nil {
+		defer sfRows.Close()
+		for sfRows.Next() {
+			var email string
+			var sfID int64
+			var cpEnabled int
+			if sfRows.Scan(&email, &sfID, &cpEnabled) == nil {
+				if acc, ok := accountMap[email]; ok {
+					acc.StorefrontID = sfID
+					acc.CustomProductsEnabled = cpEnabled == 1
 				}
 			}
 		}
@@ -10729,6 +14168,10 @@ func handleAdminAccountRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "/toggle-block" {
 		handleAdminEmailToggleBlock(w, r)
+		return
+	}
+	if path == "/toggle-email" {
+		handleAdminToggleEmailPermission(w, r)
 		return
 	}
 	jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
@@ -11253,30 +14696,56 @@ func handleAdminCustomerTopup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update balance (email wallet)
+	// Atomic topup: update balance + record transaction in a single transaction
+	desc := "Admin topup"
+	if req.Reason != "" {
+		desc = "Admin topup: " + req.Reason
+	}
+
 	email := getEmailForUser(userID)
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		log.Printf("Failed to begin topup transaction: %v", txErr)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer tx.Rollback()
+
 	if email != "" {
-		if err := addWalletBalanceByEmail(email, req.Amount); err != nil {
+		// Ensure wallet row exists
+		tx.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance)
+			SELECT ?, COALESCE(SUM(credits_balance), 0) FROM users WHERE email = ?`, email, email)
+		_, err = tx.Exec(
+			"UPDATE email_wallets SET credits_balance = credits_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?",
+			req.Amount, email)
+		if err != nil {
+			log.Printf("Failed to update email wallet for topup: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 			return
 		}
+		// Sync to users.credits_balance for backward compatibility
+		tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, userID)
 	} else {
-		_, err = db.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, userID)
+		_, err = tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, userID)
 		if err != nil {
+			log.Printf("Failed to update user balance for topup: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 			return
 		}
 	}
 
-	// Record transaction
-	desc := "Admin topup"
-	if req.Reason != "" {
-		desc = "Admin topup: " + req.Reason
-	}
-	_, err = db.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
+	_, err = tx.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
 		userID, req.Amount, desc)
 	if err != nil {
 		log.Printf("Failed to record topup transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit topup transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
 	}
 
 	newBalance := getWalletBalance(userID)
@@ -11451,21 +14920,52 @@ func handleAdminEmailTopup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Add to email wallet
-	if err := addWalletBalanceByEmail(req.Email, req.Amount); err != nil {
+	// Atomic: add to email wallet + record transaction in a single transaction
+	tx, txErr := db.Begin()
+	if txErr != nil {
+		log.Printf("Failed to begin email topup transaction: %v", txErr)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+	defer tx.Rollback()
+
+	// Ensure wallet row exists
+	tx.Exec(`INSERT OR IGNORE INTO email_wallets (email, credits_balance, updated_at)
+		SELECT ?, COALESCE(SUM(credits_balance), 0), CURRENT_TIMESTAMP
+		FROM users WHERE email = ?`, req.Email, req.Email)
+	_, err := tx.Exec(
+		"UPDATE email_wallets SET credits_balance = credits_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?",
+		req.Amount, req.Email)
+	if err != nil {
+		log.Printf("Failed to update email wallet for topup: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
 	}
 
-	// Record transaction against the first user under this email
+	// Sync to primary user's credits_balance for backward compatibility
 	var primaryUserID int64
-	db.QueryRow("SELECT id FROM users WHERE email = ? ORDER BY id ASC LIMIT 1", req.Email).Scan(&primaryUserID)
+	if tx.QueryRow("SELECT id FROM users WHERE email = ? ORDER BY id ASC LIMIT 1", req.Email).Scan(&primaryUserID) == nil {
+		tx.Exec("UPDATE users SET credits_balance = credits_balance + ? WHERE id = ?", req.Amount, primaryUserID)
+	}
+
+	// Record transaction
 	desc := "Admin topup (email)"
 	if req.Reason != "" {
 		desc = "Admin topup (email): " + req.Reason
 	}
-	_, _ = db.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
+	_, err = tx.Exec("INSERT INTO credits_transactions (user_id, transaction_type, amount, description) VALUES (?, 'admin_topup', ?, ?)",
 		primaryUserID, req.Amount, desc)
+	if err != nil {
+		log.Printf("Failed to record email topup transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit email topup transaction: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
+		return
+	}
 
 	newBalance := getWalletBalanceByEmail(req.Email)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
@@ -12268,16 +15768,42 @@ func main() {
 	http.HandleFunc("/api/admin/sales", permissionAuth("sales")(handleAdminSalesRoutes))
 	http.HandleFunc("/api/admin/sales/", permissionAuth("sales")(handleAdminSalesRoutes))
 
+	// Featured storefronts management API routes (permission-based)
+	http.HandleFunc("/api/admin/featured-storefronts", permissionAuth("settings")(handleAdminFeaturedStorefronts))
+	http.HandleFunc("/api/admin/featured-storefronts/", permissionAuth("settings")(handleAdminFeaturedStorefronts))
+
 	// Admin routes (protected by session auth)
 	http.HandleFunc("/admin/settings/initial-credits", permissionAuth("settings")(handleSetInitialCredits))
 	http.HandleFunc("/admin/settings/credit-cash-rate", permissionAuth("settings")(handleSetCreditCashRate))
+	http.HandleFunc("/admin/settings/paypal", permissionAuth("settings")(handleAdminPayPalSettings))
 	http.HandleFunc("/admin/api/settings/revenue-split", permissionAuth("settings")(handleAdminSaveRevenueSplit))
 	http.HandleFunc("/admin/api/settings/withdrawal-fees", permissionAuth("settings")(handleAdminSaveWithdrawalFees))
 	http.HandleFunc("/admin/api/settings/default-language", permissionAuth("settings")(handleSetDefaultLanguage))
 	http.HandleFunc("/admin/api/settings/download-urls", permissionAuth("settings")(handleSaveDownloadURLs))
+	http.HandleFunc("/admin/api/settings/smtp", permissionAuth("settings")(handleAdminSaveSMTPConfig))
+	http.HandleFunc("/admin/api/settings/smtp-test", permissionAuth("settings")(handleAdminTestSMTPConfig))
 	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals/approve", permissionAuth("settings")(handleAdminApproveWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals", permissionAuth("settings")(handleAdminGetWithdrawals))
+
+	// Billing management API routes (permission-based)
+	http.HandleFunc("/admin/api/billing", permissionAuth("billing")(handleAdminBillingList))
+	http.HandleFunc("/admin/api/billing/export", permissionAuth("billing")(handleAdminBillingExport))
+
+	// Custom products admin routes (permission-based)
+	http.HandleFunc("/api/admin/pending-custom-products", permissionAuth("review")(handleAdminPendingCustomProducts))
+	http.HandleFunc("/admin/storefront/", permissionAuth("settings")(handleAdminCustomProductsToggle))
+	http.HandleFunc("/admin/custom-product/", permissionAuth("review")(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/approve"):
+			handleAdminCustomProductApprove(w, r)
+		case strings.HasSuffix(r.URL.Path, "/reject"):
+			handleAdminCustomProductReject(w, r)
+		default:
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		}
+	}))
+
 	http.HandleFunc("/admin/", adminAuth(handleAdminDashboard))
 
 	// User portal routes
@@ -12311,8 +15837,37 @@ func main() {
 	http.HandleFunc("/user/author/delete-pack", userAuth(handleAuthorDeletePack))
 	http.HandleFunc("/user/author/delist-pack", userAuth(handleAuthorDelistPack))
 	http.HandleFunc("/user/author/pack-purchases", userAuth(handleAuthorPackPurchases))
+	http.HandleFunc("/user/custom-product-orders", userAuth(handleUserCustomProductOrders))
+	http.HandleFunc("/user/storefront/custom-product-orders", userAuth(handleStorefrontCustomProductOrders))
+	http.HandleFunc("/user/storefront/custom-products", userAuth(handleCustomProductCRUD))
+	http.HandleFunc("/user/storefront/custom-products/", userAuth(handleCustomProductCRUD))
 	http.HandleFunc("/user/storefront/", userAuth(handleStorefrontManagement))
 	http.HandleFunc("/user/", userAuth(handleUserDashboard))
+
+	// PayPal return callback (no auth required — PayPal redirects back without auth)
+	http.HandleFunc("/custom-product/paypal/return", handlePayPalReturn)
+
+	// Custom product purchase route (user session auth required, returns JSON)
+	http.HandleFunc("/custom-product/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/purchase") {
+			// Inline session auth that returns JSON instead of redirect
+			cookie, err := r.Cookie("user_session")
+			if err != nil || !isValidUserSession(cookie.Value) {
+				jsonResponse(w, http.StatusUnauthorized, map[string]string{"error": "请先登录"})
+				return
+			}
+			userID := getUserSessionUserID(cookie.Value)
+			var isBlocked int
+			if err := db.QueryRow("SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?", userID).Scan(&isBlocked); err == nil && isBlocked == 1 {
+				jsonResponse(w, http.StatusForbidden, map[string]string{"error": "账号已被封禁"})
+				return
+			}
+			r.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+			handleCustomProductPurchase(w, r)
+		} else {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		}
+	})
 
 	// Storefront public routes (no auth required)
 	http.HandleFunc("/store/", handleStorefrontRoutes)
@@ -12329,13 +15884,13 @@ func main() {
 		}
 	})
 
-	// Root redirect to user portal
+	// Root path serves homepage
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/user/", http.StatusFound)
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
 			return
 		}
-		http.NotFound(w, r)
+		handleHomepage(w, r)
 	})
 
 	addr := fmt.Sprintf(":%d", *port)

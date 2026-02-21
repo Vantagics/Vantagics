@@ -517,7 +517,7 @@ func TestProperty5_AutoManualModeQueryConsistency(t *testing.T) {
 
 		// --- AUTO MODE TEST ---
 		// Query with auto mode enabled
-		autoPacks, err := queryStorefrontPacks(storefrontID, true, "revenue", "", "")
+		autoPacks, err := queryStorefrontPacks(storefrontID, true, "revenue", "", "", "")
 		if err != nil {
 			t.Logf("FAIL: queryStorefrontPacks auto mode failed: %v", err)
 			return false
@@ -559,7 +559,7 @@ func TestProperty5_AutoManualModeQueryConsistency(t *testing.T) {
 		}
 
 		// Query with manual mode
-		manualPacks, err := queryStorefrontPacks(storefrontID, false, "revenue", "", "")
+		manualPacks, err := queryStorefrontPacks(storefrontID, false, "revenue", "", "", "")
 		if err != nil {
 			t.Logf("FAIL: queryStorefrontPacks manual mode failed: %v", err)
 			return false
@@ -762,14 +762,13 @@ func TestProperty7_FeaturedPackSortOrderInvariance(t *testing.T) {
 				shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 			})
 
-			// Build comma-separated pack_ids string
-			idsStr := fmt.Sprintf("%d,%d,%d,%d", shuffled[0], shuffled[1], shuffled[2], shuffled[3])
+			// Build JSON body with pack IDs
+			idsJSON, _ := json.Marshal(map[string][]int64{"ids": shuffled})
 
 			// Call handleStorefrontReorderFeatured
-			body := fmt.Sprintf("pack_ids=%s", idsStr)
 			req := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/reorder",
-				bytes.NewBufferString(body))
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				bytes.NewBuffer(idsJSON))
+			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
 			rr := httptest.NewRecorder()
 			handleStorefrontReorderFeatured(rr, req)
@@ -898,7 +897,7 @@ func TestProperty9_PackListSortingCorrectness(t *testing.T) {
 		// Test all three sort fields
 		sortFields := []string{"revenue", "downloads", "orders"}
 		for _, sortField := range sortFields {
-			results, err := queryStorefrontPacks(storefrontID, true, sortField, "", "")
+			results, err := queryStorefrontPacks(storefrontID, true, sortField, "", "", "")
 			if err != nil {
 				t.Logf("FAIL: queryStorefrontPacks(%s) failed: %v", sortField, err)
 				return false
@@ -978,7 +977,7 @@ func TestProperty10_FilterResultSubsetProperty(t *testing.T) {
 		}
 
 		// Query all packs (no filter)
-		allPacks, err := queryStorefrontPacks(storefrontID, true, "revenue", "", "")
+		allPacks, err := queryStorefrontPacks(storefrontID, true, "revenue", "", "", "")
 		if err != nil {
 			t.Logf("FAIL: queryStorefrontPacks(all) failed: %v", err)
 			return false
@@ -986,7 +985,7 @@ func TestProperty10_FilterResultSubsetProperty(t *testing.T) {
 
 		// For each filter value, verify subset property
 		for _, filterMode := range modes {
-			filtered, err := queryStorefrontPacks(storefrontID, true, "revenue", filterMode, "")
+			filtered, err := queryStorefrontPacks(storefrontID, true, "revenue", filterMode, "", "")
 			if err != nil {
 				t.Logf("FAIL: queryStorefrontPacks(filter=%s) failed: %v", filterMode, err)
 				return false
@@ -1563,3 +1562,844 @@ func TestProperty2_StoreSlugUniquenessInvariance(t *testing.T) {
 		t.Errorf("Property 2 violated: %v", err)
 	}
 }
+
+// Feature: pack-logo-upload, Property 1: 推荐分析包 Logo 上传往返一致性
+// **Validates: Requirements 2.6, 3.2, 3.4**
+//
+// For any valid PNG or JPEG image data, when uploaded as a featured pack's logo,
+// reading it back via GET /store/{slug}/featured/{listing_id}/logo should return
+// identical data with matching Content-Type and Cache-Control: public, max-age=3600.
+func TestPackLogoProperty1_FeaturedPackLogoUploadRoundTrip(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Randomly choose PNG or JPEG
+		isPNG := rng.Intn(2) == 0
+
+		var imageData []byte
+		var expectedContentType string
+		if isPNG {
+			imageData = generateValidPNG(rng)
+			expectedContentType = "image/png"
+		} else {
+			imageData = generateValidJPEG(rng)
+			expectedContentType = "image/jpeg"
+		}
+
+		// Create a test user, storefront, and a featured pack
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-rt-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Set the pack as featured via the handler
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Upload the logo via handleStorefrontFeaturedLogoUpload
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+		if uploadRR.Code != http.StatusOK {
+			t.Logf("FAIL: upload returned status %d, body: %s", uploadRR.Code, uploadRR.Body.String())
+			return false
+		}
+
+		// Read the logo back via GET /store/{slug}/featured/{listing_id}/logo
+		getURL := fmt.Sprintf("/store/%s/featured/%d/logo", slug, packID)
+		getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
+		getRR := httptest.NewRecorder()
+		handleStorefrontRoutes(getRR, getReq)
+
+		if getRR.Code != http.StatusOK {
+			t.Logf("FAIL: GET logo returned status %d, body: %s", getRR.Code, getRR.Body.String())
+			return false
+		}
+
+		// Verify data consistency: response body must match uploaded image data
+		if !bytes.Equal(getRR.Body.Bytes(), imageData) {
+			t.Logf("FAIL: GET response body (%d bytes) does not match uploaded data (%d bytes)",
+				getRR.Body.Len(), len(imageData))
+			return false
+		}
+
+		// Verify Content-Type matches the uploaded image's MIME type
+		gotContentType := getRR.Header().Get("Content-Type")
+		if gotContentType != expectedContentType {
+			t.Logf("FAIL: Content-Type %q does not match expected %q", gotContentType, expectedContentType)
+			return false
+		}
+
+		// Verify Cache-Control header
+		gotCacheControl := getRR.Header().Get("Cache-Control")
+		if gotCacheControl != "public, max-age=3600" {
+			t.Logf("FAIL: Cache-Control %q does not match expected %q", gotCacheControl, "public, max-age=3600")
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 1: 推荐分析包 Logo 上传往返一致性 violated: %v", err)
+	}
+}
+
+func TestPackLogoProperty2_InvalidUploadRejected(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Create a test user, storefront, and a featured pack
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-inv-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Set the pack as featured
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Capture logo_data before the invalid upload attempt
+		var logoBefore []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoBefore)
+
+		// Randomly choose between oversized file or non-image format
+		testOversized := rng.Intn(2) == 0
+
+		var invalidData []byte
+		if testOversized {
+			// Generate an oversized file (>2MB) with valid PNG header
+			overSize := 2*1024*1024 + 1 + rng.Intn(1024) // 2MB + 1 to 2MB + 1024
+			invalidData = make([]byte, overSize)
+			// Start with PNG signature so it's detected as image/png
+			copy(invalidData, []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+			for i := 8; i < len(invalidData); i++ {
+				invalidData[i] = byte(rng.Intn(256))
+			}
+		} else {
+			// Generate a non-image format file (random bytes that won't be detected as PNG/JPEG)
+			// Use a text/plain prefix or application/octet-stream content
+			dataLen := rng.Intn(1024) + 64
+			invalidData = make([]byte, dataLen)
+			// Fill with ASCII text to ensure http.DetectContentType returns text/plain
+			for i := range invalidData {
+				invalidData[i] = byte('A' + rng.Intn(26))
+			}
+		}
+
+		// Attempt to upload the invalid file
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.bin")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(invalidData); err != nil {
+			t.Logf("FAIL: failed to write invalid data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+
+		// Verify the upload was rejected (non-200 status code)
+		if uploadRR.Code == http.StatusOK {
+			if testOversized {
+				t.Logf("FAIL: oversized file (%d bytes) was accepted with status 200", len(invalidData))
+			} else {
+				t.Logf("FAIL: non-image file was accepted with status 200")
+			}
+			return false
+		}
+
+		// Verify logo_data remains unchanged
+		var logoAfter []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoAfter)
+
+		if !bytes.Equal(logoBefore, logoAfter) {
+			t.Logf("FAIL: logo_data changed after rejected upload (before=%d bytes, after=%d bytes)",
+				len(logoBefore), len(logoAfter))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 2: 无效上传被拒绝 violated: %v", err)
+	}
+}
+
+// TestPackLogoProperty3_NonOwnerUploadRejected tests that a user cannot upload a logo
+// for another user's featured pack.
+// **Validates: Requirements 2.4**
+func TestPackLogoProperty3_NonOwnerUploadRejected(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Create User A (the attacker) and User B (the owner)
+		userA := createTestUserWithBalance(t, 100)
+		userB := createTestUserWithBalance(t, 100)
+
+		// Create a storefront for User B
+		slugB := fmt.Sprintf("plogo-noown-%d-%d", userB, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userB, slugB,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront for User B: %v", err)
+			return false
+		}
+
+		// Create a pack listing owned by User B and set it as featured
+		packID := createTestPackListing(t, userB, 1, "free", 0, []byte("data"))
+
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userB))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Capture logo_data before the unauthorized upload attempt
+		var logoBefore []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoBefore)
+
+		// Generate a valid image for the upload attempt
+		imageData := generateValidPNG(rng)
+
+		// User A attempts to upload a logo for User B's featured pack
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userA)) // User A, NOT the owner
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+
+		// Verify the upload was rejected with 403
+		if uploadRR.Code != http.StatusForbidden {
+			t.Logf("FAIL: non-owner upload returned status %d (expected 403), body: %s",
+				uploadRR.Code, uploadRR.Body.String())
+			return false
+		}
+
+		// Verify logo_data remains unchanged
+		var logoAfter []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoAfter)
+
+		if !bytes.Equal(logoBefore, logoAfter) {
+			t.Logf("FAIL: logo_data changed after rejected non-owner upload (before=%d bytes, after=%d bytes)",
+				len(logoBefore), len(logoAfter))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 3: 非所有者上传被拒绝 violated: %v", err)
+	}
+}
+
+// TestPackLogoProperty4_NonFeaturedUploadRejected tests that uploading a logo
+// for a pack that is NOT set as featured is rejected.
+// **Validates: Requirements 2.5**
+func TestPackLogoProperty4_NonFeaturedUploadRejected(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Create a test user and storefront
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-nofeat-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		// Create a pack listing but do NOT set it as featured
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Capture logo_data before the upload attempt
+		var logoBefore []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoBefore)
+
+		// Generate a valid image for the upload attempt
+		imageData := generateValidPNG(rng)
+
+		// Attempt to upload a logo for the non-featured pack
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+
+		// Verify the upload was rejected (non-200 status code)
+		if uploadRR.Code == http.StatusOK {
+			t.Logf("FAIL: non-featured pack logo upload was accepted with status 200")
+			return false
+		}
+
+		// Verify logo_data remains unchanged
+		var logoAfter []byte
+		db.QueryRow("SELECT logo_data FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoAfter)
+
+		if !bytes.Equal(logoBefore, logoAfter) {
+			t.Logf("FAIL: logo_data changed after rejected non-featured upload (before=%d bytes, after=%d bytes)",
+				len(logoBefore), len(logoAfter))
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 4: 非推荐分析包上传被拒绝 violated: %v", err)
+	}
+}
+
+func TestPackLogoProperty5_NoLogoReturns404(t *testing.T) {
+	// Feature: pack-logo-upload, Property 5: 无 Logo 时返回 404
+	// Validates: Requirements 3.3
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Create a test user, storefront, and a featured pack (no logo uploaded)
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-no404-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Set the pack as featured via the handler
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Do NOT upload any logo — logo_data should be NULL
+
+		// GET the logo via the public route
+		getURL := fmt.Sprintf("/store/%s/featured/%d/logo", slug, packID)
+		getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
+		getRR := httptest.NewRecorder()
+		handleStorefrontRoutes(getRR, getReq)
+
+		// Verify 404 status code
+		if getRR.Code != http.StatusNotFound {
+			t.Logf("FAIL: expected 404 for featured pack with no logo, got %d, body: %s",
+				getRR.Code, getRR.Body.String())
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 5: 无 Logo 时返回 404 violated: %v", err)
+	}
+}
+
+// TestPackLogoProperty7_DeleteLogoClearsData tests that deleting a logo clears
+// logo_data to NULL and subsequent GET returns 404.
+// **Validates: Requirements 7.2**
+func TestPackLogoProperty7_DeleteLogoClearsData(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Randomly choose PNG or JPEG
+		isPNG := rng.Intn(2) == 0
+
+		var imageData []byte
+		if isPNG {
+			imageData = generateValidPNG(rng)
+		} else {
+			imageData = generateValidJPEG(rng)
+		}
+
+		// Create a test user, storefront, and a featured pack
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-del-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Set the pack as featured via the handler
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Upload a logo via handleStorefrontFeaturedLogoUpload
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+		if uploadRR.Code != http.StatusOK {
+			t.Logf("FAIL: upload returned status %d, body: %s", uploadRR.Code, uploadRR.Body.String())
+			return false
+		}
+
+		// Delete the logo via handleStorefrontFeaturedLogoDelete
+		delBody := fmt.Sprintf("pack_listing_id=%d", packID)
+		delReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo/delete",
+			bytes.NewBufferString(delBody))
+		delReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		delReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		delRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoDelete(delRR, delReq)
+		if delRR.Code != http.StatusOK {
+			t.Logf("FAIL: delete returned status %d, body: %s", delRR.Code, delRR.Body.String())
+			return false
+		}
+
+		// Verify logo_data is NULL in the database
+		var logoData []byte
+		var logoContentType *string
+		err = db.QueryRow("SELECT logo_data, logo_content_type FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoData, &logoContentType)
+		if err != nil {
+			t.Logf("FAIL: failed to query logo_data after delete: %v", err)
+			return false
+		}
+		if logoData != nil {
+			t.Logf("FAIL: logo_data is not NULL after delete (%d bytes)", len(logoData))
+			return false
+		}
+		if logoContentType != nil {
+			t.Logf("FAIL: logo_content_type is not NULL after delete (got %q)", *logoContentType)
+			return false
+		}
+
+		// Verify GET returns 404
+		getURL := fmt.Sprintf("/store/%s/featured/%d/logo", slug, packID)
+		getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
+		getRR := httptest.NewRecorder()
+		handleStorefrontRoutes(getRR, getReq)
+
+		if getRR.Code != http.StatusNotFound {
+			t.Logf("FAIL: expected 404 after logo delete, got %d, body: %s",
+				getRR.Code, getRR.Body.String())
+			return false
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 7: 删除 Logo 清除数据 violated: %v", err)
+	}
+}
+
+func TestPackLogoProperty8_UnfeatureCascadeClearsLogo(t *testing.T) {
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Randomly choose PNG or JPEG
+		isPNG := rng.Intn(2) == 0
+
+		var imageData []byte
+		if isPNG {
+			imageData = generateValidPNG(rng)
+		} else {
+			imageData = generateValidJPEG(rng)
+		}
+
+		// Create a test user, storefront, and a featured pack
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-unf-%d-%d", userID, rng.Int63n(1000000))
+		_, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+
+		packID := createTestPackListing(t, userID, 1, "free", 0, []byte("data"))
+
+		// Set the pack as featured via the handler
+		featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", packID)
+		featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(featBody))
+		featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		featRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(featRR, featReq)
+		if featRR.Code != http.StatusOK {
+			t.Logf("FAIL: set featured returned status %d, body: %s", featRR.Code, featRR.Body.String())
+			return false
+		}
+
+		// Upload a logo via handleStorefrontFeaturedLogoUpload
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packID))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+		if uploadRR.Code != http.StatusOK {
+			t.Logf("FAIL: upload returned status %d, body: %s", uploadRR.Code, uploadRR.Body.String())
+			return false
+		}
+
+		// Unfeature the pack (featured=0) via handleStorefrontSetFeatured
+		unfeatBody := fmt.Sprintf("pack_listing_id=%d&featured=0", packID)
+		unfeatReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+			bytes.NewBufferString(unfeatBody))
+		unfeatReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		unfeatReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		unfeatRR := httptest.NewRecorder()
+		handleStorefrontSetFeatured(unfeatRR, unfeatReq)
+		if unfeatRR.Code != http.StatusOK {
+			t.Logf("FAIL: unfeature returned status %d, body: %s", unfeatRR.Code, unfeatRR.Body.String())
+			return false
+		}
+
+		// Verify logo_data and logo_content_type are NULL in the database
+		var logoData []byte
+		var logoContentType *string
+		err = db.QueryRow("SELECT logo_data, logo_content_type FROM storefront_packs WHERE pack_listing_id = ?", packID).Scan(&logoData, &logoContentType)
+		if err != nil {
+			t.Logf("FAIL: failed to query logo_data after unfeature: %v", err)
+			return false
+		}
+		if logoData != nil {
+			t.Logf("FAIL: logo_data is not NULL after unfeature (%d bytes)", len(logoData))
+			return false
+		}
+		if logoContentType != nil {
+			t.Logf("FAIL: logo_content_type is not NULL after unfeature (got %q)", *logoContentType)
+			return false
+		}
+
+		return true
+	}
+
+	// **Validates: Requirements 7.3**
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 8: 取消推荐级联清除 Logo violated: %v", err)
+	}
+}
+// TestPackLogoProperty6_HasLogoReflectsLogoDataPresence tests that the HasLogo field
+// correctly reflects whether logo_data is present for featured packs.
+// **Validates: Requirements 1.2, 1.3, 6.1, 6.2**
+func TestPackLogoProperty6_HasLogoReflectsLogoDataPresence(t *testing.T) {
+	// Feature: pack-logo-upload, Property 6: HasLogo 正确反映 logo_data 存在性
+	cfg := &quick.Config{
+		MaxCount: 100,
+		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+
+	f := func(seed int64) bool {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
+		rng := rand.New(rand.NewSource(seed))
+
+		// Create a test user and storefront
+		userID := createTestUserWithBalance(t, 100)
+		slug := fmt.Sprintf("plogo-has-%d-%d", userID, rng.Int63n(1000000))
+		res, err := db.Exec(
+			"INSERT INTO author_storefronts (user_id, store_slug) VALUES (?, ?)",
+			userID, slug,
+		)
+		if err != nil {
+			t.Logf("FAIL: failed to create storefront: %v", err)
+			return false
+		}
+		storefrontID, _ := res.LastInsertId()
+
+		// Create two packs and set both as featured
+		packWithLogo := createTestPackListing(t, userID, 1, "free", 0, []byte("data1"))
+		packWithoutLogo := createTestPackListing(t, userID, 1, "free", 0, []byte("data2"))
+
+		for _, pid := range []int64{packWithLogo, packWithoutLogo} {
+			featBody := fmt.Sprintf("pack_listing_id=%d&featured=1", pid)
+			featReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured",
+				bytes.NewBufferString(featBody))
+			featReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			featReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+			featRR := httptest.NewRecorder()
+			handleStorefrontSetFeatured(featRR, featReq)
+			if featRR.Code != http.StatusOK {
+				t.Logf("FAIL: set featured for pack %d returned status %d, body: %s", pid, featRR.Code, featRR.Body.String())
+				return false
+			}
+		}
+
+		// Upload a logo to only the first pack
+		var imageData []byte
+		if rng.Intn(2) == 0 {
+			imageData = generateValidPNG(rng)
+		} else {
+			imageData = generateValidJPEG(rng)
+		}
+
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		_ = writer.WriteField("pack_listing_id", fmt.Sprintf("%d", packWithLogo))
+		part, err := writer.CreateFormFile("logo", "test-logo.png")
+		if err != nil {
+			t.Logf("FAIL: failed to create form file: %v", err)
+			return false
+		}
+		if _, err := part.Write(imageData); err != nil {
+			t.Logf("FAIL: failed to write image data: %v", err)
+			return false
+		}
+		writer.Close()
+
+		uploadReq := httptest.NewRequest(http.MethodPost, "/user/storefront/featured/logo", body)
+		uploadReq.Header.Set("Content-Type", writer.FormDataContentType())
+		uploadReq.Header.Set("X-User-ID", fmt.Sprintf("%d", userID))
+		uploadRR := httptest.NewRecorder()
+		handleStorefrontFeaturedLogoUpload(uploadRR, uploadReq)
+		if uploadRR.Code != http.StatusOK {
+			t.Logf("FAIL: upload returned status %d, body: %s", uploadRR.Code, uploadRR.Body.String())
+			return false
+		}
+
+		// Query storefront packs and verify HasLogo
+		packs, err := queryStorefrontPacks(storefrontID, false, "revenue", "", "", "")
+		if err != nil {
+			t.Logf("FAIL: queryStorefrontPacks failed: %v", err)
+			return false
+		}
+
+		if len(packs) < 2 {
+			t.Logf("FAIL: expected at least 2 packs, got %d", len(packs))
+			return false
+		}
+
+		for _, p := range packs {
+			if p.ListingID == packWithLogo {
+				if !p.HasLogo {
+					t.Logf("FAIL: pack %d has logo_data but HasLogo is false", packWithLogo)
+					return false
+				}
+			} else if p.ListingID == packWithoutLogo {
+				if p.HasLogo {
+					t.Logf("FAIL: pack %d has no logo_data but HasLogo is true", packWithoutLogo)
+					return false
+				}
+			}
+		}
+
+		return true
+	}
+
+	if err := quick.Check(f, cfg); err != nil {
+		t.Errorf("Feature: pack-logo-upload, Property 6: HasLogo 正确反映 logo_data 存在性 violated: %v", err)
+	}
+}
+
+
+
+
+
+

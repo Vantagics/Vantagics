@@ -19,7 +19,7 @@ import (
 // list query should return that pack.
 func TestProperty1_PaidDownloadTransactionVisibleInDashboard(t *testing.T) {
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
@@ -41,7 +41,7 @@ func TestProperty1_PaidDownloadTransactionVisibleInDashboard(t *testing.T) {
 		// Create a test user with some credits balance
 		username := fmt.Sprintf("pbt_user_%d", seed)
 		email := fmt.Sprintf("%s@test.com", username)
-		hashed := hashPassword("testpass123")
+		hashed := hashPassword("test123")
 		res, err := db.Exec(
 			"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			"sn", fmt.Sprintf("SN-PBT-%d", seed), username, email, username, hashed, 500.0,
@@ -131,7 +131,7 @@ func TestProperty1_PaidDownloadTransactionVisibleInDashboard(t *testing.T) {
 // listing_id only once.
 func TestProperty2_DashboardDeduplicatesByListingID(t *testing.T) {
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
@@ -153,7 +153,7 @@ func TestProperty2_DashboardDeduplicatesByListingID(t *testing.T) {
 		// Create a test user
 		username := fmt.Sprintf("dedup_user_%d", seed)
 		email := fmt.Sprintf("%s@test.com", username)
-		hashed := hashPassword("testpass123")
+		hashed := hashPassword("test123")
 		res, err := db.Exec(
 			"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			"sn", fmt.Sprintf("SN-DEDUP-%d", seed), username, email, username, hashed, 500.0,

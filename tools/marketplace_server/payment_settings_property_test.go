@@ -589,8 +589,8 @@ func TestProperty6_FeeCalculationInvariants(t *testing.T) {
 		// Generate positive cash_rate (0, 100]
 		cashRate := r.Float64()*99.0 + 1.0
 
-		// Generate fee_rate in [0, 1)
-		feeRate := r.Float64() * 0.99
+		// Generate fee_rate as percentage in [0, 99) — e.g. 5.0 means 5%
+		feeRate := r.Float64() * 99.0
 
 		cashAmount, feeAmount, netAmount := calculateWithdrawalFee(creditsAmount, cashRate, feeRate)
 
@@ -601,8 +601,8 @@ func TestProperty6_FeeCalculationInvariants(t *testing.T) {
 			return false
 		}
 
-		// Invariant 2: fee_amount = cash_amount × fee_rate
-		expectedFee := cashAmount * feeRate
+		// Invariant 2: fee_amount = cash_amount × fee_rate / 100
+		expectedFee := cashAmount * feeRate / 100
 		if diff := feeAmount - expectedFee; diff > epsilon || diff < -epsilon {
 			t.Logf("seed=%d: fee_amount mismatch: got %f, want %f (diff=%e)", seed, feeAmount, expectedFee, diff)
 			return false
@@ -1041,9 +1041,9 @@ func TestProperty7_NewWithdrawalRequestInitialStatus(t *testing.T) {
 			return false
 		}
 
-		// Add credits revenue so the user has unwithdrawn credits
+		// Add credits revenue so the user has unwithdrawn credits (large enough for withdrawal)
 		_, err = tmpDB.Exec(
-			"INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id) VALUES (?, 'purchase', -500.0, (SELECT id FROM pack_listings WHERE user_id = ? LIMIT 1))",
+			"INSERT INTO credits_transactions (user_id, transaction_type, amount, listing_id) VALUES (?, 'purchase', -50000.0, (SELECT id FROM pack_listings WHERE user_id = ? LIMIT 1))",
 			userID, userID,
 		)
 		if err != nil {
@@ -1068,8 +1068,10 @@ func TestProperty7_NewWithdrawalRequestInitialStatus(t *testing.T) {
 			return false
 		}
 
-		// Generate a random withdrawal amount (between 1 and 100)
-		creditsAmount := float64(r.Intn(100) + 1)
+		// Generate a withdrawal amount large enough to pass minimum net_amount threshold (100)
+		// With cash_rate=0.1 and max fee_rate ~5%, need at least ~1100 credits
+		// Use range 1100-5000 to ensure we always pass the minimum
+		creditsAmount := float64(r.Intn(3900) + 1100)
 
 		// Submit withdrawal request via handleAuthorWithdraw
 		form := "credits_amount=" + strconv.FormatFloat(creditsAmount, 'f', 2, 64)
@@ -1149,7 +1151,6 @@ func TestProperty8_FeeRateSettingsRoundTrip(t *testing.T) {
 
 	feeKeys := []string{
 		"fee_rate_paypal",
-		"fee_rate_bank_card",
 		"fee_rate_wechat",
 		"fee_rate_alipay",
 		"fee_rate_check",
@@ -1165,9 +1166,7 @@ func TestProperty8_FeeRateSettingsRoundTrip(t *testing.T) {
 		r := rand.New(rand.NewSource(seed))
 
 		// Generate random non-negative fee rates for all payment types
-		// Use a range of [0, 1) which is realistic for fee rates (percentages as decimals)
 		paypalRate := r.Float64()
-		bankCardRate := r.Float64()
 		wechatRate := r.Float64()
 		alipayRate := r.Float64()
 		checkRate := r.Float64()
@@ -1179,7 +1178,6 @@ func TestProperty8_FeeRateSettingsRoundTrip(t *testing.T) {
 		// Build the request body matching handleAdminSaveWithdrawalFees expected format
 		reqBody := map[string]float64{
 			"paypal_fee_rate":        paypalRate,
-			"bank_card_fee_rate":     bankCardRate,
 			"wechat_fee_rate":        wechatRate,
 			"alipay_fee_rate":        alipayRate,
 			"check_fee_rate":         checkRate,
@@ -1208,7 +1206,6 @@ func TestProperty8_FeeRateSettingsRoundTrip(t *testing.T) {
 		// Read back from settings table via getSetting and verify
 		expectedRates := map[string]float64{
 			"fee_rate_paypal":        paypalRate,
-			"fee_rate_bank_card":     bankCardRate,
 			"fee_rate_wechat":        wechatRate,
 			"fee_rate_alipay":        alipayRate,
 			"fee_rate_check":         checkRate,
@@ -1648,9 +1645,10 @@ func TestProperty11_ExcelExportCompleteness(t *testing.T) {
 	db = tmpDB
 	defer func() { db = origDB }()
 
-	paymentTypes := []string{"paypal", "bank_card", "wechat", "alipay", "check"}
+	paymentTypes := []string{"paypal", "bank_card", "wechat", "alipay", "check", "wire_transfer", "bank_card_us", "bank_card_eu", "bank_card_cn"}
 	typeLabels := map[string]string{
 		"paypal": "PayPal", "bank_card": "银行卡", "wechat": "微信", "alipay": "AliPay", "check": "支票",
+		"wire_transfer": "电汇", "bank_card_us": "美国银行卡", "bank_card_eu": "欧洲银行卡", "bank_card_cn": "中国银行卡",
 	}
 
 	cfg := &quick.Config{

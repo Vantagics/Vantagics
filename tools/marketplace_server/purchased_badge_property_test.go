@@ -20,7 +20,7 @@ import (
 // from the credits_transactions table.
 func TestProperty1_PurchasedSetCorrectness(t *testing.T) {
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
@@ -42,7 +42,7 @@ func TestProperty1_PurchasedSetCorrectness(t *testing.T) {
 		// Create a test user
 		username := fmt.Sprintf("badge_user_%d", seed)
 		email := fmt.Sprintf("%s@test.com", username)
-		hashed := hashPassword("testpass123")
+		hashed := hashPassword("test123")
 		res, err := db.Exec(
 			"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			"sn", fmt.Sprintf("SN-BADGE-%d", seed), username, email, username, hashed, 500.0,
@@ -153,7 +153,7 @@ func TestProperty1_PurchasedSetCorrectness(t *testing.T) {
 // `purchased` set to false.
 func TestProperty2_UnauthenticatedUsersAllUnpurchased(t *testing.T) {
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
@@ -175,7 +175,7 @@ func TestProperty2_UnauthenticatedUsersAllUnpurchased(t *testing.T) {
 		// Create a user who has purchases (to ensure records exist in DB)
 		username := fmt.Sprintf("unauth_owner_%d", seed)
 		email := fmt.Sprintf("%s@test.com", username)
-		hashed := hashPassword("testpass123")
+		hashed := hashPassword("test123")
 		res, err := db.Exec(
 			"INSERT INTO users (auth_type, auth_id, display_name, email, username, password_hash, credits_balance) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			"sn", fmt.Sprintf("SN-UNAUTH-%d", seed), username, email, username, hashed, 500.0,

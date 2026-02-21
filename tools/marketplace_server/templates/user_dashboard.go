@@ -5,6 +5,9 @@ import "html/template"
 // UserDashboardTmpl is the parsed user dashboard page template.
 var UserDashboardTmpl = template.Must(template.New("user_dashboard").Parse(userDashboardHTML))
 
+// UserCustomProductOrdersTmpl is the parsed user custom product orders page template.
+var UserCustomProductOrdersTmpl = template.Must(template.New("user_custom_product_orders").Parse(userCustomProductOrdersHTML))
+
 const userDashboardHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -496,6 +499,21 @@ const userDashboardHTML = `<!DOCTYPE html>
             line-height: 1;
         }
         .btn-share-link:hover { background: #ecfdf5; border-color: #059669; }
+        .storefront-share-btn {
+            width: 32px; height: 32px;
+            border-radius: 7px;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #94a3b8;
+            text-decoration: none;
+        }
+        .storefront-share-btn:hover { background: #f8fafc; color: #475569; border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+        .storefront-share-btn svg { width: 16px; height: 16px; }
         .btn-share-link.copied { background: #ecfdf5; border-color: #059669; }
         .share-toast {
             position: fixed;
@@ -778,6 +796,8 @@ const userDashboardHTML = `<!DOCTYPE html>
             </div>
             {{if .AuthorData.StorefrontSlug}}
             <button class="btn-share-link" style="padding:7px 14px;font-size:13px;font-weight:600;border-radius:7px;" data-storefront-slug="{{.AuthorData.StorefrontSlug}}" onclick="copyStorefrontLink(this)" data-i18n="share_storefront">🏪 分享小铺</button>
+            <a class="storefront-share-btn" id="storefrontShareX" href="#" target="_blank" rel="noopener" title="X (Twitter)"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>
+            <a class="storefront-share-btn" id="storefrontShareLI" href="#" target="_blank" rel="noopener" title="LinkedIn"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg></a>
             {{end}}
         </div>
         <div class="user-actions">
@@ -787,6 +807,7 @@ const userDashboardHTML = `<!DOCTYPE html>
             <a class="btn btn-accent" href="/user/set-password" data-i18n="set_password">设置密码</a>
             {{end}}
             <a class="btn btn-primary" href="/user/billing" data-i18n="billing_records">帐单记录</a>
+            <a class="btn btn-ghost" href="/user/custom-product-orders" data-i18n="custom_product_orders">🛒 自定义商品购买记录</a>
             <button class="btn btn-warm" onclick="openPaymentSettingsModal()" data-i18n="payment_settings">收款设置</button>
             <button class="btn btn-secondary" onclick="alert(window._i18n('topup_coming_soon','功能开发中'))" data-i18n="topup">充值</button>
             <a class="btn btn-danger-outline" href="/user/logout" data-i18n="logout">退出登录</a>
@@ -1858,6 +1879,20 @@ function submitWithdraw() {
     });
 }
 
+/* Helper: find author pack table row by listing ID */
+function findAuthorPackRow(listingId) {
+    var rows=document.querySelectorAll(".author-table tbody tr");
+    for(var i=0;i<rows.length;i++){
+        var btn=rows[i].querySelector("[data-listing-id='"+listingId+"']");
+        if(btn) return rows[i];
+    }
+    return null;
+}
+function showAuthorToast(msg) {
+    var t=document.querySelector(".share-toast");
+    if(t){t.innerText=msg;t.classList.add("show");setTimeout(function(){t.classList.remove("show");},2500);}
+}
+
 /* Edit Pack Modal */
 function openEditPackModal(btn) {
     document.getElementById("editListingId").value=btn.getAttribute("data-listing-id");
@@ -1871,7 +1906,30 @@ function openEditPackModal(btn) {
 function closeEditPackModal(){document.getElementById("editPackModal").style.display="none";}
 function confirmEditPack(){
     if(confirm(window._i18n("confirm_edit_warning","修改已上架的分析包信息后，该分析包将被下架并需要重新提交审核后才能再次上架。\n\n确定要继续修改吗？"))){
-        document.getElementById("editPackForm").submit();
+        var form=document.getElementById("editPackForm");
+        var formData=new FormData(form);
+        fetch(form.action,{method:"POST",credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"},body:formData})
+        .then(function(r){return r.json();})
+        .then(function(data){
+            if(data.ok){
+                var lid=document.getElementById("editListingId").value;
+                var row=findAuthorPackRow(lid);
+                if(row){
+                    row.querySelector("td:first-child").innerText=document.getElementById("editPackName").value;
+                    var modeSelect=document.getElementById("editShareMode");
+                    var modeText=modeSelect.options[modeSelect.selectedIndex].textContent;
+                    row.querySelectorAll("td")[2].innerText=modeText;
+                    var price=document.getElementById("editCreditsPrice").value;
+                    row.querySelectorAll("td")[3].innerText=(modeSelect.value==="free")?"-":price+" Credits";
+                    var statusCell=row.querySelectorAll("td")[4];
+                    statusCell.innerHTML='<span class="status-badge status-pending" data-i18n="pending_review">'+window._i18n("pending_review","待审核")+'</span>';
+                }
+                closeEditPackModal();
+                showAuthorToast(window._i18n("edit_success","分析包信息已更新，等待重新审核"));
+            } else {
+                alert(data.error||window._i18n("save_failed","保存失败，请重试"));
+            }
+        }).catch(function(){alert(window._i18n("network_error","网络错误，请重试"));});
     }
 }
 function onEditShareModeChange() {
@@ -1933,7 +1991,20 @@ function openAuthorDeleteModal(btn){
     document.getElementById("authorDeleteModal").style.display="flex";
 }
 function closeAuthorDeleteModal(){document.getElementById("authorDeleteModal").style.display="none";}
-function submitAuthorDelete(){document.getElementById("authorDeleteForm").submit();}
+function submitAuthorDelete(){
+    var lid=document.getElementById("authorDeleteListingId").value;
+    var formData=new FormData(document.getElementById("authorDeleteForm"));
+    fetch("/user/author/delete-pack",{method:"POST",credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"},body:formData})
+    .then(function(r){return r.json();})
+    .then(function(data){
+        if(data.ok){
+            var row=findAuthorPackRow(lid);
+            if(row) row.remove();
+            closeAuthorDeleteModal();
+            showAuthorToast(window._i18n("delete_success","分析包已删除"));
+        } else { alert(data.error||window._i18n("delete_failed","删除失败")); }
+    }).catch(function(){alert(window._i18n("network_error","网络错误，请重试"));});
+}
 
 /* Copy Share Link */
 function copyShareLink(btn){
@@ -1950,6 +2021,16 @@ function copyStorefrontLink(btn){
         navigator.clipboard.writeText(url).then(function(){showShareToast(btn)}).catch(function(){fallbackCopy(url,btn)});
     }else{fallbackCopy(url,btn)}
 }
+(function(){
+    var shareBtn=document.querySelector("[data-storefront-slug]");
+    if(!shareBtn)return;
+    var slug=shareBtn.getAttribute("data-storefront-slug");
+    var url=encodeURIComponent(window.location.origin+"/store/"+slug);
+    var title=encodeURIComponent(document.title);
+    var x=document.getElementById("storefrontShareX"),l=document.getElementById("storefrontShareLI");
+    if(x)x.href="https://twitter.com/intent/tweet?text="+title+"&url="+url;
+    if(l)l.href="https://www.linkedin.com/sharing/share-offsite/?url="+url;
+})();
 function fallbackCopy(text,btn){
     var ta=document.createElement("textarea");ta.value=text;ta.style.cssText="position:fixed;left:-9999px;";
     document.body.appendChild(ta);ta.select();
@@ -1970,7 +2051,30 @@ function openAuthorDelistModal(btn){
     document.getElementById("authorDelistModal").style.display="flex";
 }
 function closeAuthorDelistModal(){document.getElementById("authorDelistModal").style.display="none";}
-function submitAuthorDelist(){document.getElementById("authorDelistForm").submit();}
+function submitAuthorDelist(){
+    var lid=document.getElementById("delistListingId").value;
+    var formData=new FormData(document.getElementById("authorDelistForm"));
+    fetch("/user/author/delist-pack",{method:"POST",credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest"},body:formData})
+    .then(function(r){return r.json();})
+    .then(function(data){
+        if(data.ok){
+            var row=findAuthorPackRow(lid);
+            if(row){
+                var statusCell=row.querySelectorAll("td")[4];
+                statusCell.innerHTML='<span class="status-badge status-delisted" data-i18n="delisted">'+window._i18n("delisted","已下架")+'</span>';
+                var actionsCell=row.querySelectorAll("td")[7];
+                if(actionsCell){
+                    var delistBtn=actionsCell.querySelector("[onclick*='openAuthorDelistModal']");
+                    if(delistBtn) delistBtn.remove();
+                    var shareBtn=actionsCell.querySelector(".btn-share-link");
+                    if(shareBtn) shareBtn.remove();
+                }
+            }
+            closeAuthorDelistModal();
+            showAuthorToast(window._i18n("delist_success","分析包已下架"));
+        } else { alert(data.error||window._i18n("delist_failed","下架失败")); }
+    }).catch(function(){alert(window._i18n("network_error","网络错误，请重试"));});
+}
 
 /* Header Language Switcher */
 (function(){
@@ -1999,5 +2103,157 @@ function submitAuthorDelist(){document.getElementById("authorDelistForm").submit
 </script>
 <div id="shareToast" class="share-toast" data-i18n="link_copied">✅ 分享链接已复制</div>
 ` + I18nJS + `
+</body>
+</html>`
+
+const userCustomProductOrdersHTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自定义商品购买记录 - 快捷分析包市场</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: #f0f2f5; min-height: 100vh; color: #1e293b; line-height: 1.6;
+        }
+        .page { max-width: 960px; margin: 0 auto; padding: 24px 20px 36px; }
+        .nav {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;
+        }
+        .logo-link { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+        .logo-mark {
+            width: 36px; height: 36px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            font-size: 18px; box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+        }
+        .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; }
+        .nav-link {
+            padding: 7px 16px; font-size: 13px; font-weight: 500; color: #64748b;
+            background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+            text-decoration: none; transition: all .2s;
+        }
+        .nav-link:hover { color: #1e293b; border-color: #cbd5e1; }
+        .page-title { font-size: 22px; font-weight: 800; color: #0f172a; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .card {
+            background: #fff; border-radius: 12px; padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
+            margin-bottom: 20px; border: 1px solid #e2e8f0;
+        }
+        .card-title { font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .order-table { width: 100%; border-collapse: collapse; }
+        .order-table th {
+            text-align: left; padding: 10px 12px; font-size: 12px; font-weight: 700;
+            color: #64748b; border-bottom: 2px solid #e2e8f0; white-space: nowrap;
+        }
+        .order-table td {
+            padding: 12px; font-size: 13px; color: #1e293b;
+            border-bottom: 1px solid #f1f5f9; vertical-align: top;
+        }
+        .order-table tr:hover td { background: #f8fafc; }
+        .status-badge {
+            display: inline-block; padding: 2px 10px; border-radius: 20px;
+            font-size: 11px; font-weight: 700;
+        }
+        .status-pending { background: #fef3c7; color: #d97706; border: 1px solid #fde68a; }
+        .status-paid { background: #dbeafe; color: #2563eb; border: 1px solid #bfdbfe; }
+        .status-fulfilled { background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; }
+        .status-failed { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .sn-info { font-size: 12px; color: #6366f1; margin-top: 4px; word-break: break-all; }
+        .credits-info { font-size: 12px; color: #059669; margin-top: 4px; font-weight: 600; }
+        .type-tag {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; font-weight: 700;
+        }
+        .type-credits { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+        .type-virtual { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #94a3b8; font-size: 13px; }
+        .empty-state .icon { font-size: 28px; margin-bottom: 8px; opacity: 0.7; }
+        .foot { text-align: center; margin-top: 28px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+        .foot-text { font-size: 11px; color: #94a3b8; }
+        .foot-text a { color: #6366f1; text-decoration: none; }
+        @media (max-width: 640px) {
+            .order-table { font-size: 12px; }
+            .order-table th, .order-table td { padding: 8px 6px; }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <nav class="nav">
+        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">快捷分析包市场</span></a>
+        <a class="nav-link" href="/user/">← 返回个人中心</a>
+    </nav>
+
+    <h1 class="page-title">🛒 自定义商品购买记录</h1>
+
+    <div class="card">
+        <div class="card-title"><span>📋</span> 我的购买记录</div>
+        {{if .Orders}}
+        <div style="overflow-x:auto;">
+            <table class="order-table">
+                <thead>
+                    <tr>
+                        <th>商品名称</th>
+                        <th>商品类型</th>
+                        <th>购买时间</th>
+                        <th>支付金额</th>
+                        <th>订单状态</th>
+                        <th>详情</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Orders}}
+                    <tr>
+                        <td style="font-weight:600;">{{.ProductName}}</td>
+                        <td>
+                            {{if eq .ProductType "credits"}}<span class="type-tag type-credits">积分充值</span>
+                            {{else if eq .ProductType "virtual_goods"}}<span class="type-tag type-virtual">虚拟商品</span>
+                            {{else}}{{.ProductType}}{{end}}
+                        </td>
+                        <td>{{.CreatedAt}}</td>
+                        <td>$ {{printf "%.2f" .AmountUSD}}</td>
+                        <td>
+                            <span class="status-badge status-{{.Status}}">
+                                {{if eq .Status "pending"}}待支付{{end}}
+                                {{if eq .Status "paid"}}已支付{{end}}
+                                {{if eq .Status "fulfilled"}}已完成{{end}}
+                                {{if eq .Status "failed"}}失败{{end}}
+                            </span>
+                        </td>
+                        <td>
+                            {{if and (eq .ProductType "virtual_goods") (eq .Status "fulfilled") (ne .LicenseSN "")}}
+                            <div class="sn-info">🔑 授权 SN: {{.LicenseSN}}</div>
+                            <div class="sn-info">📧 邮箱: {{.LicenseEmail}}</div>
+                            {{end}}
+                            {{if and (eq .ProductType "credits") (eq .Status "fulfilled") (gt .CreditsAmount 0)}}
+                            <div class="credits-info">💰 充值积分: {{.CreditsAmount}}</div>
+                            {{end}}
+                            {{if and (ne .Status "fulfilled") (ne .Status "failed")}}
+                            <span style="font-size:12px;color:#94a3b8;">—</span>
+                            {{end}}
+                            {{if eq .Status "failed"}}
+                            <span style="font-size:12px;color:#94a3b8;">—</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <div class="icon">📭</div>
+            <p>暂无购买记录</p>
+        </div>
+        {{end}}
+    </div>
+
+    <div class="foot">
+        <p class="foot-text">Vantagics 快捷分析包市场 · <a href="/">浏览更多</a></p>
+    </div>
+</div>
 </body>
 </html>`

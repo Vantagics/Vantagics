@@ -112,7 +112,9 @@ const AdminHTML = `<!DOCTYPE html>
         <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span><span data-i18n="system_settings">系统设置</span></a>
         <a href="#notifications" data-perm="notifications" onclick="showSection('notifications')" style="display:none;"><span class="nav-icon">📢</span><span data-i18n="notification_mgmt">消息管理</span></a>
         <a href="#withdrawals" data-perm="settings" onclick="showSection('withdrawals')" style="display:none;"><span class="nav-icon">💰</span><span data-i18n="withdraw_mgmt">提现管理</span></a>
+        <a href="#featured" data-perm="settings" onclick="showSection('featured')" style="display:none;"><span class="nav-icon">⭐</span><span data-i18n="featured_stores_mgmt">明星店铺</span></a>
         <a href="#sales" data-perm="sales" onclick="showSection('sales')" style="display:none;"><span class="nav-icon">📊</span><span data-i18n="sales_mgmt">销售管理</span></a>
+        <a href="#billing" data-perm="billing" onclick="showSection('billing')" style="display:none;"><span class="nav-icon">💳</span><span data-i18n="billing_mgmt">收费管理</span></a>
         <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span><span data-i18n="admin_mgmt">管理员管理</span></a>
         <div class="nav-divider"></div>
         <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span><span data-i18n="edit_profile">修改资料</span></a>
@@ -192,13 +194,106 @@ const AdminHTML = `<!DOCTYPE html>
                 <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
             </form>
         </div>
+        <div class="card">
+            <h2 data-i18n="smtp_settings">邮件服务器设置 (SMTP)</h2>
+            <p class="form-hint" style="margin-bottom:16px;" data-i18n="smtp_settings_desc">配置 SMTP 邮件服务器，用于小铺店主向客户发送邮件通知</p>
+            <form id="smtp-form" onsubmit="saveSMTPConfig(event)">
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="smtp-enabled" style="width:auto;" />
+                        <span data-i18n="smtp_enabled">启用邮件服务</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="smtp-host" data-i18n="smtp_host">SMTP 服务器地址</label>
+                    <input type="text" id="smtp-host" placeholder="smtp.example.com" />
+                </div>
+                <div class="form-group">
+                    <label for="smtp-port" data-i18n="smtp_port">端口</label>
+                    <input type="number" id="smtp-port" min="1" max="65535" value="587" placeholder="587" />
+                </div>
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="smtp-use-tls" style="width:auto;" />
+                        <span data-i18n="smtp_use_tls">使用 TLS 加密</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="smtp-username" data-i18n="smtp_username">用户名</label>
+                    <input type="text" id="smtp-username" placeholder="user@example.com" />
+                </div>
+                <div class="form-group">
+                    <label for="smtp-password" data-i18n="smtp_password">密码</label>
+                    <input type="password" id="smtp-password" placeholder="••••••••" />
+                </div>
+                <div class="form-group">
+                    <label for="smtp-from-email" data-i18n="smtp_from_email">发件人邮箱</label>
+                    <input type="text" id="smtp-from-email" placeholder="noreply@example.com" />
+                </div>
+                <div class="form-group">
+                    <label for="smtp-from-name" data-i18n="smtp_from_name">发件人名称</label>
+                    <input type="text" id="smtp-from-name" placeholder="默认名称（店主发信时自动使用店铺名称）" />
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button type="submit" class="btn btn-primary" data-i18n="save_settings">保存设置</button>
+                    <button type="button" class="btn btn-secondary" onclick="showSMTPTestModal()" data-i18n="smtp_test_btn">发送测试邮件</button>
+                </div>
+            </form>
+        </div>
+        <div class="card">
+            <h2>PayPal 支付配置</h2>
+            <p class="form-hint" style="margin-bottom:16px;">配置 PayPal 支付参数，用于自定义商品的在线支付功能</p>
+            <form id="paypal-config-form" onsubmit="savePayPalConfig(event)">
+                <div class="form-group">
+                    <label for="paypal-client-id">Client ID</label>
+                    <input type="text" id="paypal-client-id" placeholder="PayPal Client ID" />
+                </div>
+                <div class="form-group">
+                    <label for="paypal-client-secret">Client Secret</label>
+                    <input type="password" id="paypal-client-secret" placeholder="••••••••" />
+                </div>
+                <div class="form-group">
+                    <label for="paypal-mode">运行模式</label>
+                    <select id="paypal-mode" style="padding:9px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;">
+                        <option value="sandbox">Sandbox</option>
+                        <option value="live">Live</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">保存设置</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- SMTP Test Modal -->
+    <div id="smtp-test-modal" class="modal-overlay">
+        <div class="modal">
+            <h3 data-i18n="smtp_test_title">发送测试邮件</h3>
+            <p class="form-hint" style="margin-bottom:16px;" data-i18n="smtp_test_desc">输入收件邮箱地址，系统将发送一封测试邮件以验证 SMTP 配置是否正确</p>
+            <div class="form-group">
+                <label for="smtp-test-email" data-i18n="smtp_test_email">测试收件邮箱</label>
+                <input type="email" id="smtp-test-email" placeholder="test@example.com" />
+            </div>
+            <div id="smtp-test-result" style="display:none;margin-bottom:12px;"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideSMTPTestModal()" data-i18n="cancel">取消</button>
+                <button class="btn btn-primary" id="smtp-test-send-btn" onclick="sendSMTPTest()" data-i18n="smtp_send_test">发送测试</button>
+            </div>
+        </div>
     </div>
 
     <!-- Review Section (all admins) -->
     <div id="section-review" style="display:none;">
+        <!-- Tab Navigation -->
+        <div class="wd-tabs">
+            <button class="wd-tab active" onclick="switchReviewTab('review-tab-packs', this)">📋 <span data-i18n="review_packs">待审核分析包</span></button>
+            <button class="wd-tab" onclick="switchReviewTab('review-tab-custom-products', this)">🛍️ <span data-i18n="review_custom_products">待审核商品</span></button>
+        </div>
+
+        <!-- Tab: 待审核分析包 -->
+        <div id="review-tab-packs" class="wd-tab-content">
         <div class="card">
             <div class="card-header">
-                <h2 data-i18n="review_mgmt">审核管理</h2>
+                <h2 data-i18n="review_packs">待审核分析包</h2>
                 <button class="btn btn-secondary" onclick="loadPendingPacks()">↻ <span data-i18n="refresh">刷新</span></button>
             </div>
             <table>
@@ -207,6 +302,32 @@ const AdminHTML = `<!DOCTYPE html>
                 </thead>
                 <tbody id="pending-list"></tbody>
             </table>
+        </div>
+        </div>
+
+        <!-- Tab: 待审核商品 -->
+        <div id="review-tab-custom-products" class="wd-tab-content" style="display:none;">
+        <div class="card">
+            <div class="card-header">
+                <h2 data-i18n="review_custom_products">待审核商品</h2>
+                <button class="btn btn-secondary" onclick="loadPendingCustomProducts()">↻ <span data-i18n="refresh">刷新</span></button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th data-i18n="id_col">ID</th>
+                        <th data-i18n="product_name_col">商品名称</th>
+                        <th data-i18n="store_name_col">店铺</th>
+                        <th data-i18n="type_col">类型</th>
+                        <th data-i18n="price_col">价格</th>
+                        <th data-i18n="desc_col">描述</th>
+                        <th data-i18n="upload_time_col">提交时间</th>
+                        <th data-i18n="actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="pending-custom-products-list"></tbody>
+            </table>
+        </div>
         </div>
     </div>
 
@@ -572,6 +693,94 @@ const AdminHTML = `<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- Billing Management Section -->
+    <div id="section-billing" style="display:none;">
+        <!-- Tab Navigation -->
+        <div class="wd-tabs">
+            <button class="wd-tab active" onclick="switchBillingTab('billing-tab-email', this)">📧 邮件发送</button>
+            <button class="wd-tab" onclick="switchBillingTab('billing-tab-storefront', this)">🎨 店铺装修</button>
+        </div>
+
+        <!-- Tab: 邮件发送 -->
+        <div id="billing-tab-email" class="wd-tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>📧 邮件发送收费明细</h2>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-secondary" onclick="loadBillingData(1)">↻ 刷新</button>
+                        <button class="btn btn-primary" onclick="exportBillingExcel()">📥 导出 Excel</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="billing-store-filter" placeholder="按店铺名称搜索..." style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:200px;" onkeyup="if(event.key==='Enter')loadBillingData(1)" />
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('billing-store-filter').value='';loadBillingData(1)">清除</button>
+                </div>
+                <div id="billing-summary" style="display:flex;gap:24px;margin-bottom:16px;font-size:14px;color:#374151;"></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>店铺名称</th>
+                            <th>收件人数</th>
+                            <th>消耗 Credits</th>
+                            <th>描述</th>
+                            <th>时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="billing-list"></tbody>
+                </table>
+                <div id="billing-pagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                    <div id="billing-page-info" style="font-size:13px;color:#6b7280;"></div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <button class="btn btn-secondary btn-sm" id="billing-prev-btn" onclick="billingGoPage(billingCurrentPage-1)" disabled>‹ 上一页</button>
+                        <span id="billing-page-nums" style="display:flex;gap:4px;"></span>
+                        <button class="btn btn-secondary btn-sm" id="billing-next-btn" onclick="billingGoPage(billingCurrentPage+1)" disabled>下一页 ›</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: 店铺装修 -->
+        <div id="billing-tab-storefront" class="wd-tab-content" style="display:none;">
+            <div class="card">
+                <div style="text-align:center;padding:48px 24px;color:#9ca3af;">
+                    <div style="font-size:48px;margin-bottom:16px;">🎨</div>
+                    <h2 style="color:#6b7280;margin-bottom:8px;">店铺装修收费</h2>
+                    <p style="font-size:14px;">此功能正在开发中，敬请期待...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Featured Storefronts Management Section -->
+    <div id="section-featured" style="display:none;">
+        <div class="card">
+            <div class="card-header">
+                <h2 data-i18n="featured_stores_mgmt">明星店铺管理</h2>
+                <span id="featured-count" style="font-size:13px;color:#6b7280;"></span>
+            </div>
+            <p style="font-size:13px;color:#9ca3af;margin-bottom:16px;" data-i18n="featured_stores_hint">管理首页展示的明星店铺，最多可设置 16 个。拖拽排序可调整展示顺序。</p>
+            <!-- Search to add -->
+            <div style="position:relative;margin-bottom:20px;">
+                <div style="display:flex;gap:8px;">
+                    <input type="text" id="featured-search-input" placeholder="搜索店铺名称..." data-i18n-placeholder="search_store_placeholder" oninput="searchFeaturedStores()" style="flex:1;" />
+                </div>
+                <div id="featured-search-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:240px;overflow-y:auto;z-index:10;margin-top:4px;"></div>
+            </div>
+            <!-- Featured list table -->
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:60px;" data-i18n="sort_order_col">排序</th>
+                        <th data-i18n="store_name_col">店铺名称</th>
+                        <th style="width:160px;" data-i18n="actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="featured-list"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Profile Section (all admins) -->
     <div id="section-profile" style="display:none;">
         <div class="profile-grid">
@@ -620,6 +829,22 @@ const AdminHTML = `<!DOCTYPE html>
     </div>
 </div>
 
+<!-- Reject Custom Product Modal -->
+<div id="reject-custom-product-modal" class="modal-overlay">
+    <div class="modal">
+        <h3 data-i18n="reject_custom_product">拒绝商品</h3>
+        <input type="hidden" id="reject-custom-product-id" value="" />
+        <div class="form-group">
+            <label for="reject-custom-product-reason" data-i18n="reject_reason_required">拒绝原因（必填）</label>
+            <textarea id="reject-custom-product-reason" placeholder="请输入拒绝原因" data-i18n-placeholder="enter_reject_reason_ph"></textarea>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="hideRejectCustomProductModal()" data-i18n="cancel">取消</button>
+            <button class="btn btn-danger" onclick="submitRejectCustomProduct()" data-i18n="confirm_reject">确认拒绝</button>
+        </div>
+    </div>
+</div>
+
 <!-- Add Admin Modal -->
 <div id="add-admin-modal" class="modal-overlay">
     <div class="modal">
@@ -655,6 +880,12 @@ const AdminHTML = `<!DOCTYPE html>
                 </label>
                 <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
                     <input type="checkbox" value="notifications" class="new-admin-perm" /> <span data-i18n="notification_mgmt">消息管理</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
+                    <input type="checkbox" value="sales" class="new-admin-perm" /> <span data-i18n="sales_mgmt">销售管理</span>
+                </label>
+                <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:400;cursor:pointer;">
+                    <input type="checkbox" value="billing" class="new-admin-perm" /> 收费管理
                 </label>
             </div>
         </div>
@@ -742,7 +973,7 @@ var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
 // Lazy _i18n wrapper: safe to call before I18nJS loads
 if (!window._i18n) { window._i18n = function(key, fallback) { return fallback || key; }; }
-var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理"), sales: window._i18n("sales_mgmt","销售管理") };
+var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理") };
 
 function hasPerm(p) {
     if (p === 'accounts') return permissions.indexOf('accounts') !== -1 || permissions.indexOf('authors') !== -1 || permissions.indexOf('customers') !== -1;
@@ -766,8 +997,8 @@ function isSuperAdmin() { return adminID === 1; }
 function showSection(name) {
     // Map old section names to new unified accounts section
     if (name === 'authors' || name === 'customers') name = 'accounts';
-    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'sales'];
-    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), sales: window._i18n("sales_mgmt","销售管理") };
+    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'featured', 'sales', 'billing'];
+    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), featured: window._i18n("featured_stores_mgmt","明星店铺"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理") };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
         if (el) el.style.display = sections[i] === name ? '' : 'none';
@@ -782,10 +1013,13 @@ function showSection(name) {
     if (name === 'marketplace') loadMarketplacePacks();
     if (name === 'accounts') loadAccounts();
     if (name === 'admins') loadAdmins();
-    if (name === 'review') loadPendingPacks();
+    if (name === 'review') { loadPendingPacks(); loadPendingCustomProducts(); }
     if (name === 'notifications') loadNotifications();
     if (name === 'withdrawals') loadWithdrawals();
     if (name === 'sales') loadSalesData(1);
+    if (name === 'billing') loadBillingData(1);
+    if (name === 'featured') loadFeaturedStorefronts();
+    if (name === 'settings') { loadSMTPConfig(); loadPayPalConfig(); }
 }
 
 function showMsg(text, isError) {
@@ -944,6 +1178,117 @@ function saveDownloadURLs(e) {
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
+// --- SMTP Config ---
+function loadSMTPConfig() {
+    var raw = '{{.SMTPConfigJSON}}';
+    if (!raw) return;
+    try {
+        var cfg = JSON.parse(raw);
+        document.getElementById('smtp-enabled').checked = cfg.enabled || false;
+        document.getElementById('smtp-host').value = cfg.host || '';
+        document.getElementById('smtp-port').value = cfg.port || 587;
+        document.getElementById('smtp-use-tls').checked = cfg.use_tls || false;
+        document.getElementById('smtp-username').value = cfg.username || '';
+        document.getElementById('smtp-password').value = cfg.password || '';
+        document.getElementById('smtp-from-email').value = cfg.from_email || '';
+        document.getElementById('smtp-from-name').value = cfg.from_name || '';
+    } catch(e) {}
+}
+
+function saveSMTPConfig(e) {
+    e.preventDefault();
+    var config = {
+        enabled: document.getElementById('smtp-enabled').checked,
+        host: document.getElementById('smtp-host').value.trim(),
+        port: parseInt(document.getElementById('smtp-port').value) || 587,
+        use_tls: document.getElementById('smtp-use-tls').checked,
+        username: document.getElementById('smtp-username').value.trim(),
+        password: document.getElementById('smtp-password').value,
+        from_email: document.getElementById('smtp-from-email').value.trim(),
+        from_name: document.getElementById('smtp-from-name').value.trim()
+    };
+    apiFetch('/admin/api/settings/smtp', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(config)
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg(window._i18n("smtp_saved","SMTP 配置已保存"), false); }
+        else { showMsg(res.data.error || window._i18n("save_failed","保存失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function showSMTPTestModal() {
+    document.getElementById('smtp-test-result').style.display = 'none';
+    document.getElementById('smtp-test-email').value = '';
+    document.getElementById('smtp-test-modal').className = 'modal-overlay show';
+}
+
+function hideSMTPTestModal() {
+    document.getElementById('smtp-test-modal').className = 'modal-overlay';
+}
+
+function sendSMTPTest() {
+    var email = document.getElementById('smtp-test-email').value.trim();
+    if (!email) { alert(window._i18n("enter_test_email","请输入测试收件邮箱")); return; }
+    var btn = document.getElementById('smtp-test-send-btn');
+    btn.disabled = true;
+    btn.textContent = window._i18n("sending","发送中...");
+    var resultEl = document.getElementById('smtp-test-result');
+    resultEl.style.display = 'none';
+    apiFetch('/admin/api/settings/smtp-test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({test_email: email})
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        btn.disabled = false;
+        btn.textContent = window._i18n("smtp_send_test","发送测试");
+        resultEl.style.display = '';
+        if (res.ok) {
+            resultEl.className = 'msg msg-success';
+            resultEl.textContent = window._i18n("smtp_test_success","测试邮件发送成功，请检查收件箱");
+        } else {
+            resultEl.className = 'msg msg-error';
+            resultEl.textContent = res.data.error || window._i18n("smtp_test_failed","测试邮件发送失败");
+        }
+    }).catch(function(err) {
+        btn.disabled = false;
+        btn.textContent = window._i18n("smtp_send_test","发送测试");
+        resultEl.style.display = '';
+        resultEl.className = 'msg msg-error';
+        resultEl.textContent = window._i18n("request_failed","请求失败") + ': ' + err;
+    });
+}
+
+// --- PayPal Config ---
+function loadPayPalConfig() {
+    apiFetch('/admin/settings/paypal').then(function(r) { return r.json(); })
+    .then(function(cfg) {
+        document.getElementById('paypal-client-id').value = cfg.client_id || '';
+        document.getElementById('paypal-client-secret').value = '';
+        document.getElementById('paypal-client-secret').placeholder = cfg.client_secret || '••••••••';
+        if (cfg.mode) document.getElementById('paypal-mode').value = cfg.mode;
+    }).catch(function(err) {});
+}
+
+function savePayPalConfig(e) {
+    e.preventDefault();
+    var data = new URLSearchParams();
+    data.append('client_id', document.getElementById('paypal-client-id').value.trim());
+    data.append('client_secret', document.getElementById('paypal-client-secret').value);
+    data.append('mode', document.getElementById('paypal-mode').value);
+    apiFetch('/admin/settings/paypal', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: data.toString()
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg('PayPal 配置已保存', false); loadPayPalConfig(); }
+        else { showMsg(res.data.error || '保存失败', true); }
+    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+}
+
 function saveCreditCashRate(e) {
     e.preventDefault();
     var val = document.getElementById('credit-cash-rate').value;
@@ -1091,6 +1436,17 @@ function submitAddAdmin() {
 }
 
 // --- Review Management ---
+function switchReviewTab(tabId, btn) {
+    var contents = document.querySelectorAll('#section-review .wd-tab-content');
+    for (var i = 0; i < contents.length; i++) { contents[i].style.display = 'none'; }
+    document.getElementById(tabId).style.display = '';
+    var tabs = document.querySelectorAll('#section-review .wd-tab');
+    for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
+    btn.classList.add('active');
+    if (tabId === 'review-tab-packs') { loadPendingPacks(); }
+    if (tabId === 'review-tab-custom-products') { loadPendingCustomProducts(); }
+}
+
 function loadPendingPacks() {
     apiFetch('/api/admin/review/pending').then(function(r) { return r.json(); }).then(function(data) {
         var packs = data || [];
@@ -1150,6 +1506,70 @@ function submitReject() {
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) { hideRejectModal(); showMsg(window._i18n("rejected_done","已拒绝"), false); loadPendingPacks(); }
+        else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+// --- Pending Custom Products Review ---
+function loadPendingCustomProducts() {
+    apiFetch('/api/admin/pending-custom-products').then(function(r) { return r.json(); }).then(function(data) {
+        var products = data || [];
+        var tbody = document.getElementById('pending-custom-products-list');
+        if (products.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999;">' + window._i18n("no_pending_custom_products","暂无待审核商品") + '</td></tr>';
+            return;
+        }
+        var typeLabels = { credits: window._i18n("credits_recharge","积分充值"), virtual_goods: window._i18n("virtual_goods","虚拟商品") };
+        var html = '';
+        for (var i = 0; i < products.length; i++) {
+            var p = products[i];
+            html += '<tr>';
+            html += '<td>' + p.id + '</td>';
+            html += '<td>' + escHtml(p.product_name) + '</td>';
+            html += '<td>' + escHtml(p.store_name || '-') + '</td>';
+            html += '<td>' + (typeLabels[p.product_type] || p.product_type) + '</td>';
+            html += '<td>$' + p.price_usd.toFixed(2) + '</td>';
+            html += '<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escAttr(p.description || '') + '">' + escHtml(p.description || '-') + '</td>';
+            html += '<td>' + p.created_at + '</td>';
+            html += '<td class="actions">';
+            html += '<button class="btn btn-primary btn-sm" onclick="approveCustomProduct(' + p.id + ')">' + window._i18n("approved","通过") + '</button> ';
+            html += '<button class="btn btn-danger btn-sm" onclick="showRejectCustomProductModal(' + p.id + ')">' + window._i18n("rejected","拒绝") + '</button>';
+            html += '</td></tr>';
+        }
+        tbody.innerHTML = html;
+    }).catch(function(err) { showMsg(window._i18n("load_pending_custom_products_failed","加载待审核商品列表失败") + ': ' + err, true); });
+}
+
+function approveCustomProduct(id) {
+    if (!confirm(window._i18n("confirm_approve_custom_product","确定通过该商品审核？"))) return;
+    apiFetch('/admin/custom-product/' + id + '/approve', { method: 'POST' })
+        .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+        .then(function(res) {
+            if (res.ok) { showMsg(window._i18n("custom_product_approved","商品审核已通过"), false); loadPendingCustomProducts(); }
+            else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+        }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function showRejectCustomProductModal(id) {
+    document.getElementById('reject-custom-product-id').value = id;
+    document.getElementById('reject-custom-product-reason').value = '';
+    document.getElementById('reject-custom-product-modal').className = 'modal-overlay show';
+}
+
+function hideRejectCustomProductModal() {
+    document.getElementById('reject-custom-product-modal').className = 'modal-overlay';
+}
+
+function submitRejectCustomProduct() {
+    var id = document.getElementById('reject-custom-product-id').value;
+    var reason = document.getElementById('reject-custom-product-reason').value.trim();
+    if (!reason) { alert(window._i18n("enter_reject_reason","请输入拒绝原因")); return; }
+    var fd = new FormData();
+    fd.append('reason', reason);
+    apiFetch('/admin/custom-product/' + id + '/reject', { method: 'POST', body: fd })
+    .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { hideRejectCustomProductModal(); showMsg(window._i18n("custom_product_rejected","商品已拒绝"), false); loadPendingCustomProducts(); }
         else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
@@ -1284,6 +1704,16 @@ function loadAccounts() {
                 ? '<button class="btn btn-primary btn-sm" onclick="toggleAccountBlock(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',true)">' + window._i18n("unblock","解禁") + '</button>'
                 : '<button class="btn btn-danger btn-sm" onclick="toggleAccountBlock(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',false)">' + window._i18n("block","禁用") + '</button>';
             html += blockBtn;
+            var emailBtn = a.email_allowed
+                ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;" onclick="toggleEmailPermission(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',true)" title="' + window._i18n("disable_email","禁用邮件") + '">📧✓</button>'
+                : '<button class="btn btn-danger btn-sm" style="font-size:11px;" onclick="toggleEmailPermission(\'' + escAttr(a.email) + '\',\'' + escAttr(a.display_name) + '\',false)" title="' + window._i18n("enable_email","启用邮件") + '">📧✗</button>';
+            html += ' ' + emailBtn;
+            if (a.storefront_id) {
+                var cpBtn = a.custom_products_enabled
+                    ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;" onclick="toggleCustomProducts(' + a.storefront_id + ',true)" title="' + window._i18n("disable_custom_products","关闭自定义商品") + '">🛍️✓</button>'
+                    : '<button class="btn btn-danger btn-sm" style="font-size:11px;" onclick="toggleCustomProducts(' + a.storefront_id + ',false)" title="' + window._i18n("enable_custom_products","允许自定义商品") + '">🛍️✗</button>';
+                html += ' ' + cpBtn;
+            }
             html += '</td></tr>';
         }
         tbody.innerHTML = html;
@@ -1466,6 +1896,34 @@ function toggleAccountBlock(email, name, isCurrentlyBlocked) {
     .then(function(res) {
         if (res.ok) { showMsg(res.data.status === 'blocked' ? window._i18n("blocked_done","已禁用") : window._i18n("unblocked_done","已解禁"), false); loadAccounts(); }
         else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function toggleEmailPermission(email, name, isCurrentlyAllowed) {
+    var action = isCurrentlyAllowed ? window._i18n("disable_email","禁用邮件") : window._i18n("enable_email","启用邮件");
+    if (!confirm(window._i18n("confirm_email_toggle","确定要{action} \"{name}\" 的邮件发送权限吗？").replace("{action}", action).replace("{name}", name + ' (' + email + ')'))) return;
+    apiFetch('/api/admin/accounts/toggle-email', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({email: email})
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg(res.data.status === 'allowed' ? window._i18n("email_enabled","邮件权限已启用") : window._i18n("email_disabled","邮件权限已禁用"), false); loadAccounts(); }
+        else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
+    }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
+}
+
+function toggleCustomProducts(storefrontId, isCurrentlyEnabled) {
+    var action = isCurrentlyEnabled ? window._i18n("disable_custom_products","关闭自定义商品") : window._i18n("enable_custom_products","允许自定义商品");
+    if (!confirm(window._i18n("confirm_custom_products_toggle","确定要{action}吗？").replace("{action}", action))) return;
+    var fd = new FormData();
+    fd.append('enabled', isCurrentlyEnabled ? 'false' : 'true');
+    apiFetch('/admin/storefront/' + storefrontId + '/custom-products-toggle', { method: 'POST', body: fd })
+    .then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok && res.data.ok) {
+            showMsg(isCurrentlyEnabled ? window._i18n("custom_products_disabled","已关闭自定义商品") : window._i18n("custom_products_enabled","已允许自定义商品"), false);
+            loadAccounts();
+        } else { showMsg(res.data.error || window._i18n("operation_failed","操作失败"), true); }
     }).catch(function(err) { showMsg(window._i18n("request_failed","请求失败") + ': ' + err, true); });
 }
 
@@ -1980,9 +2438,216 @@ function exportSalesExcel() {
     window.open('/api/admin/sales/export' + qs, '_blank');
 }
 
+/* ===== Billing Management ===== */
+var billingCurrentPage = 1;
+var billingTotalPages = 1;
+
+function switchBillingTab(tabId, btn) {
+    var contents = document.querySelectorAll('#section-billing .wd-tab-content');
+    for (var i = 0; i < contents.length; i++) { contents[i].style.display = 'none'; }
+    document.getElementById(tabId).style.display = '';
+    var tabs = document.querySelectorAll('#section-billing .wd-tab');
+    for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
+    btn.classList.add('active');
+    if (tabId === 'billing-tab-email') { loadBillingData(1); }
+}
+
+function loadBillingData(page) {
+    if (typeof page !== 'number' || page < 1) page = 1;
+    billingCurrentPage = page;
+    var storeFilter = document.getElementById('billing-store-filter').value.trim();
+    var params = ['page=' + page, 'page_size=20'];
+    if (storeFilter) params.push('store_name=' + encodeURIComponent(storeFilter));
+    apiFetch('/admin/api/billing?' + params.join('&'))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var records = data.records || [];
+        var total = data.total || 0;
+        var pageSize = data.page_size || 20;
+        billingCurrentPage = data.page || 1;
+        billingTotalPages = Math.ceil(total / pageSize) || 1;
+        var tbody = document.getElementById('billing-list');
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px;">暂无收费记录</td></tr>';
+        } else {
+            tbody.innerHTML = records.map(function(r) {
+                return '<tr>' +
+                    '<td>' + r.id + '</td>' +
+                    '<td>' + (r.store_name || '-') + '</td>' +
+                    '<td>' + r.recipient_count + '</td>' +
+                    '<td style="font-weight:600;color:#dc2626;">' + r.credits_used + '</td>' +
+                    '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (r.description||'').replace(/"/g,'&quot;') + '">' + (r.description || '-') + '</td>' +
+                    '<td>' + r.created_at + '</td>' +
+                    '</tr>';
+            }).join('');
+        }
+        // Summary
+        var summaryEl = document.getElementById('billing-summary');
+        summaryEl.innerHTML = '<span>共 <b>' + total + '</b> 条记录</span><span>总消耗 <b style="color:#dc2626;">' + (data.total_credits || 0) + '</b> Credits</span>';
+        // Pagination
+        renderBillingPagination(total, pageSize);
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
+function renderBillingPagination(total, pageSize) {
+    var pageInfo = document.getElementById('billing-page-info');
+    var prevBtn = document.getElementById('billing-prev-btn');
+    var nextBtn = document.getElementById('billing-next-btn');
+    var pageNums = document.getElementById('billing-page-nums');
+    if (total === 0) {
+        pageInfo.textContent = '';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        pageNums.innerHTML = '';
+        return;
+    }
+    var start = (billingCurrentPage - 1) * pageSize + 1;
+    var end = Math.min(billingCurrentPage * pageSize, total);
+    pageInfo.textContent = '显示 ' + start + '-' + end + ' 条，共 ' + total + ' 条';
+    prevBtn.disabled = billingCurrentPage <= 1;
+    nextBtn.disabled = billingCurrentPage >= billingTotalPages;
+    var html = '';
+    var lo = Math.max(1, billingCurrentPage - 3);
+    var hi = Math.min(billingTotalPages, billingCurrentPage + 3);
+    if (lo > 1) html += '<button class="btn btn-secondary btn-sm" onclick="billingGoPage(1)" style="min-width:32px;">1</button>';
+    if (lo > 2) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    for (var p = lo; p <= hi; p++) {
+        if (p === billingCurrentPage) {
+            html += '<button class="btn btn-primary btn-sm" style="min-width:32px;" disabled>' + p + '</button>';
+        } else {
+            html += '<button class="btn btn-secondary btn-sm" onclick="billingGoPage(' + p + ')" style="min-width:32px;">' + p + '</button>';
+        }
+    }
+    if (hi < billingTotalPages - 1) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    if (hi < billingTotalPages) html += '<button class="btn btn-secondary btn-sm" onclick="billingGoPage(' + billingTotalPages + ')" style="min-width:32px;">' + billingTotalPages + '</button>';
+    pageNums.innerHTML = html;
+}
+
+function billingGoPage(page) {
+    if (page < 1 || page > billingTotalPages) return;
+    loadBillingData(page);
+}
+
+function exportBillingExcel() {
+    var storeFilter = document.getElementById('billing-store-filter').value.trim();
+    var qs = storeFilter ? '?store_name=' + encodeURIComponent(storeFilter) : '';
+    window.open('/admin/api/billing/export' + qs, '_blank');
+}
+
+// ===== Featured Storefronts Management =====
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str || ''));
+    return div.innerHTML;
+}
+var featuredSearchTimer = null;
+
+function loadFeaturedStorefronts() {
+    apiFetch('/api/admin/featured-storefronts').then(function(data) {
+        if (!data.ok) { showMsg(data.error || 'Failed to load', true); return; }
+        var list = data.data || [];
+        var countEl = document.getElementById('featured-count');
+        countEl.textContent = window._i18n('featured_count_label', '已选') + ' ' + list.length + '/16 ' + window._i18n('featured_count_unit', '个明星店铺');
+        countEl.style.color = list.length >= 16 ? '#ef4444' : '#6b7280';
+        var tbody = document.getElementById('featured-list');
+        if (list.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#9ca3af;padding:32px;">' + window._i18n('no_featured_stores', '暂无明星店铺，请通过上方搜索添加') + '</td></tr>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < list.length; i++) {
+            var s = list[i];
+            html += '<tr data-id="' + s.storefront_id + '">';
+            html += '<td style="text-align:center;">';
+            if (i > 0) html += '<button class="btn btn-secondary btn-sm" onclick="moveFeatured(' + i + ',-1)" title="上移" style="padding:2px 6px;margin-right:4px;">↑</button>';
+            if (i < list.length - 1) html += '<button class="btn btn-secondary btn-sm" onclick="moveFeatured(' + i + ',1)" title="下移" style="padding:2px 6px;">↓</button>';
+            html += '</td>';
+            html += '<td>' + escapeHtml(s.store_name) + '</td>';
+            html += '<td><button class="btn btn-danger btn-sm" onclick="removeFeatured(' + s.storefront_id + ')">' + window._i18n('remove', '移除') + '</button></td>';
+            html += '</tr>';
+        }
+        tbody.innerHTML = html;
+    });
+}
+
+function searchFeaturedStores() {
+    clearTimeout(featuredSearchTimer);
+    var q = document.getElementById('featured-search-input').value.trim();
+    var resultsDiv = document.getElementById('featured-search-results');
+    if (q.length < 1) { resultsDiv.style.display = 'none'; return; }
+    featuredSearchTimer = setTimeout(function() {
+        apiFetch('/api/admin/featured-storefronts/search?q=' + encodeURIComponent(q)).then(function(data) {
+            if (!data.ok || !data.data || data.data.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;">' + window._i18n('no_results', '无匹配结果') + '</div>';
+                resultsDiv.style.display = '';
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < data.data.length; i++) {
+                var s = data.data[i];
+                html += '<div onclick="addFeatured(' + s.id + ')" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;transition:background 0.1s;"';
+                html += ' onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'#fff\'">';
+                html += escapeHtml(s.store_name);
+                html += '</div>';
+            }
+            resultsDiv.innerHTML = html;
+            resultsDiv.style.display = '';
+        });
+    }, 300);
+}
+
+function addFeatured(storefrontId) {
+    var fd = new FormData();
+    fd.append('storefront_id', storefrontId);
+    apiFetch('/api/admin/featured-storefronts', { method: 'POST', body: fd }).then(function(data) {
+        if (!data.ok) { showMsg(data.error || 'Failed to add', true); return; }
+        document.getElementById('featured-search-input').value = '';
+        document.getElementById('featured-search-results').style.display = 'none';
+        showMsg(window._i18n('featured_added', '已添加为明星店铺'));
+        loadFeaturedStorefronts();
+    });
+}
+
+function removeFeatured(storefrontId) {
+    if (!confirm(window._i18n('confirm_remove_featured', '确定移除该明星店铺？'))) return;
+    var fd = new FormData();
+    fd.append('storefront_id', storefrontId);
+    apiFetch('/api/admin/featured-storefronts/remove', { method: 'POST', body: fd }).then(function(data) {
+        if (!data.ok) { showMsg(data.error || 'Failed to remove', true); return; }
+        showMsg(window._i18n('featured_removed', '已移除明星店铺'));
+        loadFeaturedStorefronts();
+    });
+}
+
+function moveFeatured(index, direction) {
+    var rows = document.querySelectorAll('#featured-list tr[data-id]');
+    var ids = [];
+    for (var i = 0; i < rows.length; i++) ids.push(rows[i].getAttribute('data-id'));
+    var newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= ids.length) return;
+    var tmp = ids[index];
+    ids[index] = ids[newIndex];
+    ids[newIndex] = tmp;
+    var fd = new FormData();
+    fd.append('ids', ids.join(','));
+    apiFetch('/api/admin/featured-storefronts/reorder', { method: 'POST', body: fd }).then(function(data) {
+        if (!data.ok) { showMsg(data.error || 'Failed to reorder', true); return; }
+        loadFeaturedStorefronts();
+    });
+}
+
+// Hide search results when clicking outside
+document.addEventListener('click', function(e) {
+    var searchArea = document.getElementById('featured-search-input');
+    var resultsDiv = document.getElementById('featured-search-results');
+    if (searchArea && resultsDiv && !searchArea.contains(e.target) && !resultsDiv.contains(e.target)) {
+        resultsDiv.style.display = 'none';
+    }
+});
+
 // Init: show first available section based on permissions
 (function initDefaultSection() {
-    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'sales'];
+    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'featured', 'sales', 'billing'];
     for (var i = 0; i < order.length; i++) {
         if (hasPerm(order[i])) {
             showSection(order[i]);

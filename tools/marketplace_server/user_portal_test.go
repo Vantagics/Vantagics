@@ -176,8 +176,11 @@ func TestPropertyCaptchaOneTimeUse(t *testing.T) {
 func TestPropertyPasswordHashRoundTrip(t *testing.T) {
 	cfg := &quick.Config{MaxCount: 100}
 	err := quick.Check(func(password string, other string) bool {
-		if len(password) == 0 {
-			return true // skip empty passwords
+		if len(password) == 0 || len(password) > 72 {
+			return true // skip empty or too-long passwords (bcrypt limit is 72 bytes)
+		}
+		if len(other) > 72 {
+			return true
 		}
 
 		hashed := hashPassword(password)

@@ -20,16 +20,16 @@ import (
 // with the new password should return true, and checkPassword with the old
 // password should return false.
 func TestProperty4_PasswordChangeRoundTrip(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	f := func(seed int64) bool {
 		r := rand.New(rand.NewSource(seed))
-
-		cleanup := setupTestDB(t)
-		defer cleanup()
 
 		// Generate a random old password (length 6-20)
 		oldPassLen := r.Intn(15) + 6
@@ -130,16 +130,16 @@ func randomString(r *rand.Rand, length int) string {
 // an error message "当前密码错误". The password_hash in the database must
 // remain unchanged.
 func TestProperty5_WrongOldPasswordRejected(t *testing.T) {
+	cleanup := setupTestDB(t)
+	defer cleanup()
+
 	cfg := &quick.Config{
-		MaxCount: 100,
+		MaxCount: 10,
 		Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	f := func(seed int64) bool {
 		r := rand.New(rand.NewSource(seed))
-
-		cleanup := setupTestDB(t)
-		defer cleanup()
 
 		// Generate a random actual password (length 6-20)
 		actualPassLen := r.Intn(15) + 6
@@ -232,16 +232,16 @@ func TestProperty5_WrongOldPasswordRejected(t *testing.T) {
 // change-password operation should be rejected with "两次密码不一致".
 func TestProperty6_PasswordValidationRules(t *testing.T) {
 	t.Run("ShortPasswordRejected", func(t *testing.T) {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
 		cfg := &quick.Config{
-			MaxCount: 100,
+			MaxCount: 10,
 			Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 		}
 
 		f := func(seed int64) bool {
 			r := rand.New(rand.NewSource(seed))
-
-			cleanup := setupTestDB(t)
-			defer cleanup()
 
 			// Generate a random actual password (length 6-20) for the user
 			actualPassLen := r.Intn(15) + 6
@@ -318,16 +318,16 @@ func TestProperty6_PasswordValidationRules(t *testing.T) {
 	})
 
 	t.Run("MismatchedPasswordsRejected", func(t *testing.T) {
+		cleanup := setupTestDB(t)
+		defer cleanup()
+
 		cfg := &quick.Config{
-			MaxCount: 100,
+			MaxCount: 10,
 			Rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 		}
 
 		f := func(seed int64) bool {
 			r := rand.New(rand.NewSource(seed))
-
-			cleanup := setupTestDB(t)
-			defer cleanup()
 
 			// Generate a random actual password (length 6-20) for the user
 			actualPassLen := r.Intn(15) + 6

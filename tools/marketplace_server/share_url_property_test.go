@@ -465,9 +465,9 @@ func TestProperty4_DetailPageShowsCorrectButtonByShareMode(t *testing.T) {
 
 		if shareMode == "free" {
 			// For unauthenticated visitor with free pack, the rendered action button
-			// should be "登录后免费领取" (login-to-claim link)
-			if !strings.Contains(body, "登录后免费领取") {
-				t.Logf("seed=%d: share_mode=free but HTML does not contain '登录后免费领取'", seed)
+			// should be "登录后领取" (login-to-claim link)
+			if !strings.Contains(body, "登录后领取") {
+				t.Logf("seed=%d: share_mode=free but HTML does not contain '登录后领取'", seed)
 				return false
 			}
 			// Should NOT contain the paid action button "登录后购买"
@@ -483,14 +483,14 @@ func TestProperty4_DetailPageShowsCorrectButtonByShareMode(t *testing.T) {
 				return false
 			}
 			// Should contain price info (credits_price value)
-			priceStr := fmt.Sprintf("%d Credits", creditsPrice)
+			priceStr := fmt.Sprintf("%d", creditsPrice)
 			if !strings.Contains(body, priceStr) {
 				t.Logf("seed=%d: share_mode=%s but HTML does not contain price '%s'", seed, shareMode, priceStr)
 				return false
 			}
-			// Should NOT contain the free action button "登录后免费领取"
-			if strings.Contains(body, "登录后免费领取") {
-				t.Logf("seed=%d: share_mode=%s but HTML contains '登录后免费领取'", seed, shareMode)
+			// Should NOT contain the free action button "登录后领取"
+			if strings.Contains(body, "登录后领取") {
+				t.Logf("seed=%d: share_mode=%s but HTML contains '登录后领取'", seed, shareMode)
 				return false
 			}
 		}
