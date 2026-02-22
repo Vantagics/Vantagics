@@ -2578,7 +2578,7 @@ function searchFeaturedStores() {
     featuredSearchTimer = setTimeout(function() {
         apiFetch('/api/admin/featured-storefronts/search?q=' + encodeURIComponent(q)).then(function(data) {
             if (!data.ok || !data.data || data.data.length === 0) {
-                resultsDiv.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;">' + window._i18n('no_results', '无匹配结果') + '</div>';
+                resultsDiv.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;">' + window._i18n('no_matching_stores', '没有找到匹配的店铺') + '</div>';
                 resultsDiv.style.display = '';
                 return;
             }

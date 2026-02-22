@@ -364,12 +364,12 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "data": []interface{}{}})
 			return
 		}
-		rows, err := db.Query(`SELECT s.id, s.store_name, u.display_name
+		rows, err := db.Query(`SELECT s.id, COALESCE(NULLIF(s.store_name,''), u.display_name) as store_name, u.display_name
 			FROM author_storefronts s
 			JOIN users u ON u.id = s.user_id
 			WHERE s.id NOT IN (SELECT storefront_id FROM featured_storefronts)
-			  AND (s.store_name LIKE ? OR u.display_name LIKE ?)
-			LIMIT 20`, "%"+q+"%", "%"+q+"%")
+			  AND (s.store_name LIKE ? OR u.display_name LIKE ? OR s.store_slug LIKE ?)
+			LIMIT 20`, "%"+q+"%", "%"+q+"%", "%"+q+"%")
 		if err != nil {
 			log.Printf("[handleAdminFeaturedStorefronts] search error: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})

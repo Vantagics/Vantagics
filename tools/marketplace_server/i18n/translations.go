@@ -841,6 +841,7 @@ var zhCN = map[string]string{
 	"featured_stores_mgmt":    "明星店铺管理",
 	"featured_stores_hint":    "设置在首页展示的明星店铺",
 	"no_featured_stores":      "暂无明星店铺",
+	"no_matching_stores":      "没有找到匹配的店铺",
 	"confirm_remove_featured": "确定要移除该明星店铺吗？",
 	"featured_added":          "已添加为明星店铺",
 	"featured_removed":        "已移除明星店铺",

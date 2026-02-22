@@ -836,6 +836,7 @@ var enUS = map[string]string{
 	"featured_stores_mgmt":    "Featured Stores Management",
 	"featured_stores_hint":    "Set featured stores displayed on the homepage",
 	"no_featured_stores":      "No featured stores",
+	"no_matching_stores":      "No matching stores found",
 	"confirm_remove_featured": "Are you sure you want to remove this featured store?",
 	"featured_added":          "Added as featured store",
 	"featured_removed":        "Removed from featured stores",
