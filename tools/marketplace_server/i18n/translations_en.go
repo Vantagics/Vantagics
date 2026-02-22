@@ -830,7 +830,7 @@ var enUS = map[string]string{
 	"sub_duration":            "Subscription Duration",
 	"no_results":              "No matching packs found",
 	"go_topup":                "Top Up",
-	"search_store_placeholder": "Search stores...",
+	"search_store_placeholder": "Search by username or store name...",
 
 	// Storefront Manage
 	"featured_stores_mgmt":    "Featured Stores Management",

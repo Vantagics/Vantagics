@@ -763,7 +763,7 @@ const AdminHTML = `<!DOCTYPE html>
             <!-- Search to add -->
             <div style="position:relative;margin-bottom:20px;">
                 <div style="display:flex;gap:8px;">
-                    <input type="text" id="featured-search-input" placeholder="搜索店铺名称..." data-i18n-placeholder="search_store_placeholder" oninput="searchFeaturedStores()" style="flex:1;" />
+                    <input type="text" id="featured-search-input" placeholder="搜索用户名或店铺名称..." data-i18n-placeholder="search_store_placeholder" oninput="searchFeaturedStores()" style="flex:1;" />
                 </div>
                 <div id="featured-search-results" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d1d5db;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:240px;overflow-y:auto;z-index:10;margin-top:4px;"></div>
             </div>
@@ -2588,6 +2588,7 @@ function searchFeaturedStores() {
                 html += '<div onclick="addFeatured(' + s.id + ')" style="padding:10px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #f3f4f6;transition:background 0.1s;"';
                 html += ' onmouseover="this.style.background=\'#f9fafb\'" onmouseout="this.style.background=\'#fff\'">';
                 html += escapeHtml(s.store_name);
+                if (s.display_name && s.display_name !== s.store_name) html += ' <span style="color:#9ca3af;font-size:12px;">(@' + escapeHtml(s.display_name) + ')</span>';
                 html += '</div>';
             }
             resultsDiv.innerHTML = html;

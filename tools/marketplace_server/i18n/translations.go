@@ -835,7 +835,7 @@ var zhCN = map[string]string{
 	"sub_duration":            "订阅时长",
 	"no_results":              "没有找到匹配的分析包",
 	"go_topup":                "前往充值",
-	"search_store_placeholder": "搜索店铺...",
+	"search_store_placeholder": "搜索用户名或店铺名称...",
 
 	// Storefront Manage
 	"featured_stores_mgmt":    "明星店铺管理",

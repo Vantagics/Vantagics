@@ -364,7 +364,12 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "data": []interface{}{}})
 			return
 		}
-		rows, err := db.Query(`SELECT id, store_name FROM author_storefronts WHERE store_name LIKE ?`, "%"+q+"%")
+		rows, err := db.Query(`SELECT s.id, s.store_name, u.display_name
+			FROM author_storefronts s
+			JOIN users u ON u.id = s.user_id
+			WHERE s.id NOT IN (SELECT storefront_id FROM featured_storefronts)
+			  AND (s.store_name LIKE ? OR u.display_name LIKE ?)
+			LIMIT 20`, "%"+q+"%", "%"+q+"%")
 		if err != nil {
 			log.Printf("[handleAdminFeaturedStorefronts] search error: %v", err)
 			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
@@ -372,13 +377,14 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 		}
 		defer rows.Close()
 		type SearchResult struct {
-			ID        int64  `json:"id"`
-			StoreName string `json:"store_name"`
+			ID          int64  `json:"id"`
+			StoreName   string `json:"store_name"`
+			DisplayName string `json:"display_name"`
 		}
 		var results []SearchResult
 		for rows.Next() {
 			var sr SearchResult
-			if err := rows.Scan(&sr.ID, &sr.StoreName); err != nil {
+			if err := rows.Scan(&sr.ID, &sr.StoreName, &sr.DisplayName); err != nil {
 				continue
 			}
 			results = append(results, sr)
