@@ -415,7 +415,7 @@ const homepageHTML = `<!DOCTYPE html>
 
     <!-- Footer (7.7) -->
     <footer class="footer">
-        <p class="footer-text" data-i18n="homepage.copyright">&copy; 2025 分析技能包市场</p>
+        <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> 分析技能包市场</p>
     </footer>
 
 </div>
