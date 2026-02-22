@@ -196,6 +196,7 @@ type HomepageStoreInfo struct {
 type HomepageProductInfo struct {
 	ListingID     int64
 	PackName      string
+	PackDesc      string
 	AuthorName    string
 	ShareMode     string
 	CreditsPrice  int
@@ -316,7 +317,7 @@ func queryTopDownloadsStorefronts(limit int) ([]HomepageStoreInfo, error) {
 // queryTopSalesProducts 查询销售额最高的已发布产品，最多返回 limit 个。
 // 通过聚合 credits_transactions 中每个产品的购买类交易金额绝对值计算总销售额。
 func queryTopSalesProducts(limit int) ([]HomepageProductInfo, error) {
-	rows, err := db.Query(`SELECT pl.id, pl.pack_name, pl.author_name, pl.share_mode, pl.credits_price,
+	rows, err := db.Query(`SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''), pl.author_name, pl.share_mode, pl.credits_price,
 		pl.download_count, COALESCE(pl.share_token, ''),
 		COALESCE(SUM(ABS(ct.amount)), 0) as total_sales
 		FROM pack_listings pl
@@ -336,7 +337,7 @@ func queryTopSalesProducts(limit int) ([]HomepageProductInfo, error) {
 	for rows.Next() {
 		var p HomepageProductInfo
 		var totalSales float64
-		if err := rows.Scan(&p.ListingID, &p.PackName, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.ShareToken, &totalSales); err != nil {
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDesc, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.ShareToken, &totalSales); err != nil {
 			return nil, fmt.Errorf("queryTopSalesProducts scan: %w", err)
 		}
 		products = append(products, p)

@@ -357,7 +357,11 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .pack-item-icon-img[src=""], .pack-item-icon-img:not([src]) { display: none !important; }
         .pack-item-icon-wrap, .featured-icon-wrap {
-            position: relative; flex-shrink: 0;
+            position: relative; display: inline-flex; flex-shrink: 0;
+        }
+        .pack-item-icon-wrap .pack-item-icon-img,
+        .featured-icon-wrap .featured-icon-img {
+            position: absolute; top: 0; left: 0; z-index: 1;
         }
         .pack-item-name { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }
         .tag {
