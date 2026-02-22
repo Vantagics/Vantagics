@@ -90,10 +90,14 @@ const homepageHTML = `<!DOCTYPE html>
         }
         .nav-link:hover { background: #fff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
 
-        .hero-body { text-align: center; }
-        .hero-title { font-size: 22px; font-weight: 800; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.5px; }
-        .hero-desc { font-size: 13px; color: #475569; margin-bottom: 14px; max-width: 600px; margin-left: auto; margin-right: auto; }
-        .hero-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+        .hero-body {
+            display: flex; align-items: center; justify-content: center; gap: 16px;
+            flex-wrap: wrap;
+        }
+        .hero-title { font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; white-space: nowrap; }
+        .hero-desc { font-size: 13px; color: #475569; white-space: nowrap; }
+        .hero-sep { width: 1px; height: 20px; background: #cbd5e1; flex-shrink: 0; }
+        .hero-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
         .dl-btn {
             display: inline-flex; align-items: center; gap: 8px;
             padding: 8px 20px; border-radius: 10px;
@@ -224,7 +228,10 @@ const homepageHTML = `<!DOCTYPE html>
         @media (max-width: 767px) {
             .page { padding: 0 16px 36px; }
             .hero { padding: 0 20px 16px; border-radius: 0 0 16px 16px; }
+            .hero-body { flex-direction: column; text-align: center; }
+            .hero-sep { display: none; }
             .hero-title { font-size: 20px; }
+            .hero-buttons { justify-content: center; }
             .card-grid { grid-template-columns: 1fr; }
             .nav { flex-wrap: wrap; gap: 10px; }
         }
@@ -253,9 +260,11 @@ const homepageHTML = `<!DOCTYPE html>
             </div>
         </nav>
         <div class="hero-body">
-            <h1 class="hero-title" data-i18n="homepage.hero_title">分析技能包市场</h1>
+            <h1 class="hero-title" data-i18n="homepage.hero_title">快捷分析包市场</h1>
+            <span class="hero-sep"></span>
             <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
             {{if or .DownloadURLWindows .DownloadURLMacOS}}
+            <span class="hero-sep"></span>
             <div class="hero-buttons">
                 {{if .DownloadURLWindows}}
                 <a class="dl-btn dl-btn-win" href="{{.DownloadURLWindows}}">

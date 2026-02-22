@@ -5943,7 +5943,8 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 	// Look up the author's storefront
 	var storefrontID int64
 	var storeName string
-	err = db.QueryRow(`SELECT id, store_name FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID, &storeName)
+	var storeSlug string
+	err = db.QueryRow(`SELECT id, store_name, store_slug FROM author_storefronts WHERE user_id = ?`, userID).Scan(&storefrontID, &storeName, &storeSlug)
 	if err != nil {
 		log.Printf("[STOREFRONT-SEND-NOTIFY] failed to query storefront for user %d: %v", userID, err)
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在"})
@@ -6163,6 +6164,13 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 		msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 		msg.WriteString("\r\n")
 		msg.WriteString(body)
+		// Append store URL
+		scheme := "https"
+		if r.TLS == nil && !strings.Contains(r.Host, "vantagics") {
+			scheme = "http"
+		}
+		storeURL := fmt.Sprintf("%s://%s/store/%s", scheme, r.Host, storeSlug)
+		msg.WriteString(fmt.Sprintf("\r\n\r\n---\r\n访问小铺: %s\r\n", storeURL))
 
 		var sendErr error
 		if smtpConfig.UseTLS {

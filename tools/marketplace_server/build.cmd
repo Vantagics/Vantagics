@@ -39,22 +39,28 @@ REM Step 2: Create remote directory and upload source
 echo.
 echo [2/4] Uploading source to %SERVER%...
 
-sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "mkdir -p %REMOTE_DIR%/templates" 2>NUL
+sshpass -p "%PASS%" ssh %SSH_OPTS% %USER%@%SERVER% "mkdir -p %REMOTE_DIR%/templates %REMOTE_DIR%/i18n" 2>NUL
 if errorlevel 1 (
     echo      [WARN] sshpass not found, trying ssh directly...
-    ssh %SSH_OPTS% %USER%@%SERVER% "mkdir -p %REMOTE_DIR%/templates"
+    ssh %SSH_OPTS% %USER%@%SERVER% "mkdir -p %REMOTE_DIR%/templates %REMOTE_DIR%/i18n"
 )
 
 echo      Uploading Go source files...
-sshpass -p "%PASS%" scp %SSH_OPTS% main.go go.mod go.sum %USER%@%SERVER%:%REMOTE_DIR%/ 2>NUL
+sshpass -p "%PASS%" scp %SSH_OPTS% *.go go.mod go.sum %USER%@%SERVER%:%REMOTE_DIR%/ 2>NUL
 if errorlevel 1 (
-    scp %SSH_OPTS% main.go go.mod go.sum %USER%@%SERVER%:%REMOTE_DIR%/
+    scp %SSH_OPTS% *.go go.mod go.sum %USER%@%SERVER%:%REMOTE_DIR%/
 )
 
 echo      Uploading templates...
 sshpass -p "%PASS%" scp %SSH_OPTS% templates\*.go %USER%@%SERVER%:%REMOTE_DIR%/templates/ 2>NUL
 if errorlevel 1 (
     scp %SSH_OPTS% templates\*.go %USER%@%SERVER%:%REMOTE_DIR%/templates/
+)
+
+echo      Uploading i18n...
+sshpass -p "%PASS%" scp %SSH_OPTS% i18n\*.go %USER%@%SERVER%:%REMOTE_DIR%/i18n/ 2>NUL
+if errorlevel 1 (
+    scp %SSH_OPTS% i18n\*.go %USER%@%SERVER%:%REMOTE_DIR%/i18n/
 )
 
 REM Step 3: Build on remote server
