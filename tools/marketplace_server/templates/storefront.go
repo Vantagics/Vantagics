@@ -202,7 +202,7 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .featured-icon {
             width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
             display: flex; align-items: center; justify-content: center;
             box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
@@ -211,7 +211,7 @@ const storefrontHTML = `<!DOCTYPE html>
             width: 36px; height: 36px; border-radius: 10px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 8px rgba(99,102,241,0.2);
-            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
         }
         .featured-card-title {
             flex: 1; min-width: 0;
@@ -270,9 +270,10 @@ const storefrontHTML = `<!DOCTYPE html>
             backdrop-filter: blur(8px);
         }
         .sf-dl-btn:hover {
-            background: #fff; border-color: #c7d2fe;
+            background: rgba(255,255,255,0.85); border-color: #c7d2fe;
             box-shadow: 0 4px 16px rgba(99,102,241,0.15);
             transform: translateY(-1px);
+            color: var(--primary-hover);
         }
         .sf-dl-btn-primary {
             background: linear-gradient(135deg, #312e81, #1e1b4b); color: #fff;
@@ -281,6 +282,7 @@ const storefrontHTML = `<!DOCTYPE html>
             text-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
         .sf-dl-btn-primary:hover {
+            background: linear-gradient(135deg, #3730a3, #312e81);
             box-shadow: 0 4px 16px rgba(49,46,129,0.5); color: #fff;
         }
         .sf-dl-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
@@ -338,7 +340,8 @@ const storefrontHTML = `<!DOCTYPE html>
             border-color: #c7d2fe;
         }
         .pack-item-body { flex: 1; min-width: 0; }
-        .pack-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+        .pack-item-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .pack-item-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
         .pack-item-icon {
             width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
             background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
@@ -350,8 +353,9 @@ const storefrontHTML = `<!DOCTYPE html>
             width: 32px; height: 32px; border-radius: 8px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 6px rgba(99,102,241,0.15);
-            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
         }
+        .pack-item-icon-img[src=""], .pack-item-icon-img:not([src]) { display: none; }
         .pack-item-name { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }
         .tag {
             display: inline-flex; align-items: center;
@@ -400,6 +404,8 @@ const storefrontHTML = `<!DOCTYPE html>
             box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
         .btn-indigo:hover { box-shadow: 0 4px 16px rgba(99,102,241,0.3); transform: translateY(-1px); }
+        a.btn-indigo, a.btn-indigo:visited, a.btn-indigo:link { color: #fff; }
+        a.btn-green, a.btn-green:visited, a.btn-green:link { color: #fff; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
         .badge-owned {
             display: inline-flex; align-items: center; gap: 6px;
@@ -579,7 +585,7 @@ const storefrontHTML = `<!DOCTYPE html>
                     <a class="featured-card" href="/pack/{{.ShareToken}}" target="_blank" rel="noopener">
                         <div class="featured-card-top">
                             {{if .HasLogo}}
-                            <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" onload="if(this.naturalWidth===0){this.onerror();}">
                             <div class="featured-icon" style="display:none;">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                             </div>
@@ -669,7 +675,7 @@ const storefrontHTML = `<!DOCTYPE html>
             <div class="pack-item-body">
                 <div class="pack-item-header">
                     {{if .HasLogo}}
-                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" onload="if(this.naturalWidth===0){this.onerror();}">
                     <div class="pack-item-icon" style="display:none;">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                     </div>
@@ -679,6 +685,8 @@ const storefrontHTML = `<!DOCTYPE html>
                     </div>
                     {{end}}
                     <span class="pack-item-name">{{.PackName}}</span>
+                </div>
+                <div class="pack-item-tags">
                     {{if eq .ShareMode "free"}}<span class="tag tag-free" data-i18n="free">免费</span>
                     {{else if eq .ShareMode "per_use"}}<span class="tag tag-per-use" data-i18n="per_use">按次收费</span>
                     {{else if eq .ShareMode "subscription"}}<span class="tag tag-subscription" data-i18n="subscription">订阅制</span>
@@ -870,6 +878,20 @@ var _currentCreditsPrice = 0;
 var _storeSlug = '{{.Storefront.StoreSlug}}';
 var _dlURLWindows = "{{.DownloadURLWindows}}";
 var _dlURLMacOS = "{{.DownloadURLMacOS}}";
+
+// Fix broken logo images: show fallback icon when image fails to load
+(function(){
+    var imgs = document.querySelectorAll('.pack-item-icon-img, .featured-icon-img');
+    for (var i = 0; i < imgs.length; i++) {
+        (function(img) {
+            if (img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)) {
+                img.style.display = 'none';
+                var fallback = img.nextElementSibling;
+                if (fallback) fallback.style.display = 'flex';
+            }
+        })(imgs[i]);
+    }
+})();
 
 (function(){
     var c = document.getElementById('sfDlBtn');

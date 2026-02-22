@@ -867,6 +867,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         });
 
         // QAP session created by backend — add to thread list and switch to it
+        // Listen for data source analysis completion to refresh datasource info (summary + table count)
+        const unsubscribeDataSourceAnalysisComplete = EventsOn('data-source-analysis-complete', async () => {
+            loadDataSources();
+        });
+
         const unsubscribeQapSessionCreated = EventsOn('qap-session-created', (data: any) => {
             if (data && data.threadId) {
                 systemLog.info(`qap-session-created: threadId=${data.threadId}, title=${data.title}`);
@@ -902,6 +907,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             if (unsubscribeQapProgress) unsubscribeQapProgress();
             if (unsubscribeQapComplete) unsubscribeQapComplete();
             if (unsubscribeQapSessionCreated) unsubscribeQapSessionCreated();
+            if (unsubscribeDataSourceAnalysisComplete) unsubscribeDataSourceAnalysisComplete();
         };
     }, [threads]);
 
@@ -2456,6 +2462,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
             // Auto-update dashboard after analysis completes
             // Find the user message that was just sent and trigger dashboard update
+            // Also refresh data sources to show updated analysis info (summary + table count)
+            loadDataSources();
             try {
                 const updatedThread = threadsRef.current.find(t => t.id === currentThreadId);
                 if (updatedThread && updatedThread.messages) {

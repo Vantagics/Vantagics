@@ -525,6 +525,13 @@ func (d *DataSourceFacadeService) analyzeDataSource(dataSourceID string) {
 		return
 	}
 
+	// Skip analysis in free mode (no LLM available)
+	cfg, _ := d.configProvider.GetEffectiveConfig()
+	if cfg.APIKey == "" {
+		d.log("Skipping data source analysis: no LLM API key configured (free mode)")
+		return
+	}
+
 	d.log(fmt.Sprintf("Starting analysis for source %s", dataSourceID))
 
 	// 1. Get Tables
@@ -538,7 +545,6 @@ func (d *DataSourceFacadeService) analyzeDataSource(dataSourceID string) {
 
 	// 2. Sample Data & Construct Prompt
 	startSample := time.Now()
-	cfg, _ := d.configProvider.GetEffectiveConfig()
 	langPrompt := getLangPrompt(cfg)
 
 	var sb strings.Builder
@@ -624,6 +630,11 @@ func (d *DataSourceFacadeService) analyzeDataSource(dataSourceID string) {
 	d.log(fmt.Sprintf("[TIMING] Total Background Analysis took: %v", time.Since(startTotal)))
 
 	d.log("Data Source Analysis complete and saved.")
+
+	// Notify frontend to refresh data source list so the analysis summary is visible
+	if d.ctx != nil {
+		runtime.EventsEmit(d.ctx, "data-source-analysis-complete", dataSourceID)
+	}
 }
 
 // --- Shopify OAuth ---

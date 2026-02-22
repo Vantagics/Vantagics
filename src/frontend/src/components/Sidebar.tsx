@@ -155,9 +155,23 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
                 }
             }
         });
+        const unsubscribeAnalysisComplete = EventsOn('data-source-analysis-complete', async (dataSourceId: string) => {
+            // Refresh sources list when background analysis completes
+            const updatedSources = await GetDataSources();
+            setSources(updatedSources || []);
+
+            // If properties modal is open for this data source, update it with the new analysis
+            if (propertiesTarget && propertiesTarget.id === dataSourceId) {
+                const updatedSource = updatedSources?.find((s: any) => s.id === dataSourceId);
+                if (updatedSource) {
+                    setPropertiesTarget(updatedSource);
+                }
+            }
+        });
         return () => {
             if (unsubscribeDeleted) unsubscribeDeleted();
             if (unsubscribeColumnRenamed) unsubscribeColumnRenamed();
+            if (unsubscribeAnalysisComplete) unsubscribeAnalysisComplete();
         };
     }, [selectedId, propertiesTarget]);
 
