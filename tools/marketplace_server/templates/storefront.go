@@ -211,7 +211,7 @@ const storefrontHTML = `<!DOCTYPE html>
             width: 36px; height: 36px; border-radius: 10px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 8px rgba(99,102,241,0.2);
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            display: none;
         }
         .featured-card-title {
             flex: 1; min-width: 0;
@@ -353,9 +353,12 @@ const storefrontHTML = `<!DOCTYPE html>
             width: 32px; height: 32px; border-radius: 8px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 6px rgba(99,102,241,0.15);
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            display: none;
         }
-        .pack-item-icon-img[src=""], .pack-item-icon-img:not([src]) { display: none; }
+        .pack-item-icon-img[src=""], .pack-item-icon-img:not([src]) { display: none !important; }
+        .pack-item-icon-wrap, .featured-icon-wrap {
+            position: relative; flex-shrink: 0;
+        }
         .pack-item-name { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }
         .tag {
             display: inline-flex; align-items: center;
@@ -400,12 +403,12 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .btn-green:hover { box-shadow: 0 4px 16px rgba(34,197,94,0.3); transform: translateY(-1px); }
         .btn-indigo {
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); color: #fff;
+            background-color: #6366f1; background-image: linear-gradient(135deg, var(--primary-color), var(--primary-hover)); color: #fff;
             box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
         .btn-indigo:hover { box-shadow: 0 4px 16px rgba(99,102,241,0.3); transform: translateY(-1px); }
-        a.btn-indigo, a.btn-indigo:visited, a.btn-indigo:link { color: #fff; }
-        a.btn-green, a.btn-green:visited, a.btn-green:link { color: #fff; }
+        a.btn-indigo, a.btn-indigo:visited, a.btn-indigo:link, a.btn-indigo:active { color: #fff !important; }
+        a.btn-green, a.btn-green:visited, a.btn-green:link, a.btn-green:active { color: #fff !important; }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
         .badge-owned {
             display: inline-flex; align-items: center; gap: 6px;
@@ -585,10 +588,12 @@ const storefrontHTML = `<!DOCTYPE html>
                     <a class="featured-card" href="/pack/{{.ShareToken}}" target="_blank" rel="noopener">
                         <div class="featured-card-top">
                             {{if .HasLogo}}
-                            <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" onload="if(this.naturalWidth===0){this.onerror();}">
-                            <div class="featured-icon" style="display:none;">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                            </div>
+                            <span class="featured-icon-wrap">
+                                <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.featured-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
+                                <div class="featured-icon">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                                </div>
+                            </span>
                             {{else}}
                             <div class="featured-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -675,10 +680,12 @@ const storefrontHTML = `<!DOCTYPE html>
             <div class="pack-item-body">
                 <div class="pack-item-header">
                     {{if .HasLogo}}
-                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" onload="if(this.naturalWidth===0){this.onerror();}">
-                    <div class="pack-item-icon" style="display:none;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                    </div>
+                    <span class="pack-item-icon-wrap">
+                        <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.pack-item-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
+                        <div class="pack-item-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                        </div>
+                    </span>
                     {{else}}
                     <div class="pack-item-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -884,10 +891,14 @@ var _dlURLMacOS = "{{.DownloadURLMacOS}}";
     var imgs = document.querySelectorAll('.pack-item-icon-img, .featured-icon-img');
     for (var i = 0; i < imgs.length; i++) {
         (function(img) {
-            if (img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)) {
-                img.style.display = 'none';
-                var fallback = img.nextElementSibling;
-                if (fallback) fallback.style.display = 'flex';
+            if (img.complete) {
+                if (img.naturalWidth > 0) {
+                    img.style.display = 'block';
+                    var fallback = img.parentNode.querySelector('.pack-item-icon, .featured-icon');
+                    if (fallback) fallback.style.display = 'none';
+                } else {
+                    img.style.display = 'none';
+                }
             }
         })(imgs[i]);
     }
