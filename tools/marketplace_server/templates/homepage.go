@@ -386,9 +386,9 @@ const homepageHTML = `<!DOCTYPE html>
                     </div>
                     <div class="product-card-title">
                         <span class="product-card-name" title="{{.PackName}}">{{.PackName}}</span>
-                        {{if eq .ShareMode "free"}}<span class="product-tag tag-free">免费</span>
-                        {{else if eq .ShareMode "per_use"}}<span class="product-tag tag-per-use">按次</span>
-                        {{else if eq .ShareMode "subscription"}}<span class="product-tag tag-subscription">订阅</span>
+                        {{if eq .ShareMode "free"}}<span class="product-tag tag-free" data-i18n="free">免费</span>
+                        {{else if eq .ShareMode "per_use"}}<span class="product-tag tag-per-use" data-i18n="per_use">按次</span>
+                        {{else if eq .ShareMode "subscription"}}<span class="product-tag tag-subscription" data-i18n="subscription">订阅</span>
                         {{end}}
                     </div>
                 </div>
@@ -396,11 +396,11 @@ const homepageHTML = `<!DOCTYPE html>
                 {{if .PackDesc}}<div class="product-card-desc">{{.PackDesc}}</div>{{end}}
                 <div class="product-card-footer">
                     {{if eq .ShareMode "free"}}
-                    <span class="product-card-price price-free">免费</span>
+                    <span class="product-card-price price-free" data-i18n="free">免费</span>
                     {{else if eq .ShareMode "per_use"}}
-                    <span class="product-card-price">{{.CreditsPrice}} Credits/次</span>
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.per_use_unit">次</span></span>
                     {{else if eq .ShareMode "subscription"}}
-                    <span class="product-card-price">{{.CreditsPrice}} Credits/月</span>
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.monthly_unit">月</span></span>
                     {{end}}
                     <span class="product-card-downloads">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -415,7 +415,7 @@ const homepageHTML = `<!DOCTYPE html>
 
     <!-- Footer (7.7) -->
     <footer class="footer">
-        <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> 分析技能包市场</p>
+        <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> <span data-i18n="site_name">分析技能包市场</span></p>
     </footer>
 
 </div>

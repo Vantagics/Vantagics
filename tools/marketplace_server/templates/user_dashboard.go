@@ -2104,7 +2104,7 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自定义商品购买记录 - 分析技能包市场</title>
+    <title data-i18n="custom_product_orders">自定义商品购买记录</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -2176,25 +2176,25 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">分析技能包市场</span></a>
-        <a class="nav-link" href="/user/">← 返回个人中心</a>
+        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="nav-link" href="/user/" data-i18n="back_to_center_link">← 返回个人中心</a>
     </nav>
 
-    <h1 class="page-title">🛒 自定义商品购买记录</h1>
+    <h1 class="page-title">🛒 <span data-i18n="custom_product_orders">自定义商品购买记录</span></h1>
 
     <div class="card">
-        <div class="card-title"><span>📋</span> 我的购买记录</div>
+        <div class="card-title"><span>📋</span> <span data-i18n="cp_my_orders">我的购买记录</span></div>
         {{if .Orders}}
         <div style="overflow-x:auto;">
             <table class="order-table">
                 <thead>
                     <tr>
-                        <th>商品名称</th>
-                        <th>商品类型</th>
-                        <th>购买时间</th>
-                        <th>支付金额</th>
-                        <th>订单状态</th>
-                        <th>详情</th>
+                        <th data-i18n="product_name_col">商品名称</th>
+                        <th data-i18n="cp_product_type">商品类型</th>
+                        <th data-i18n="cp_purchase_time">购买时间</th>
+                        <th data-i18n="cp_payment_amount">支付金额</th>
+                        <th data-i18n="cp_order_status">订单状态</th>
+                        <th data-i18n="details">详情</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2202,18 +2202,18 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
                     <tr>
                         <td style="font-weight:600;">{{.ProductName}}</td>
                         <td>
-                            {{if eq .ProductType "credits"}}<span class="type-tag type-credits">积分充值</span>
-                            {{else if eq .ProductType "virtual_goods"}}<span class="type-tag type-virtual">虚拟商品</span>
+                            {{if eq .ProductType "credits"}}<span class="type-tag type-credits" data-i18n="product_type_credits">积分充值</span>
+                            {{else if eq .ProductType "virtual_goods"}}<span class="type-tag type-virtual" data-i18n="product_type_virtual">虚拟商品</span>
                             {{else}}{{.ProductType}}{{end}}
                         </td>
                         <td>{{.CreatedAt}}</td>
                         <td>$ {{printf "%.2f" .AmountUSD}}</td>
                         <td>
                             <span class="status-badge status-{{.Status}}">
-                                {{if eq .Status "pending"}}待支付{{end}}
-                                {{if eq .Status "paid"}}已支付{{end}}
-                                {{if eq .Status "fulfilled"}}已完成{{end}}
-                                {{if eq .Status "failed"}}失败{{end}}
+                                {{if eq .Status "pending"}}<span data-i18n="cp_status_pending">待支付</span>{{end}}
+                                {{if eq .Status "paid"}}<span data-i18n="cp_status_paid">已支付</span>{{end}}
+                                {{if eq .Status "fulfilled"}}<span data-i18n="cp_status_fulfilled">已完成</span>{{end}}
+                                {{if eq .Status "failed"}}<span data-i18n="cp_status_failed">失败</span>{{end}}
                             </span>
                         </td>
                         <td>
@@ -2239,13 +2239,13 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
         {{else}}
         <div class="empty-state">
             <div class="icon">📭</div>
-            <p>暂无购买记录</p>
+            <p data-i18n="cp_no_orders">暂无购买记录</p>
         </div>
         {{end}}
     </div>
 
     <div class="foot">
-        <p class="foot-text">Vantagics 分析技能包市场 · <a href="/">浏览更多</a></p>
+        <p class="foot-text">Vantagics <span data-i18n="site_name">分析技能包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p>
     </div>
 </div>
 </body>

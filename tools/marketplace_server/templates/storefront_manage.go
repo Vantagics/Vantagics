@@ -11,7 +11,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title>小铺管理 - 分析技能包市场</title>
+    <title data-i18n="storefront_manage">小铺管理 - 分析技能包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -486,12 +486,12 @@ const storefrontManageHTML = `<!DOCTYPE html>
     <nav class="nav">
         <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div style="display:flex;gap:8px;">
-            <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank">🔗 查看小铺</a>
+            <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank" data-i18n="sm_view_store">🔗 查看小铺</a>
             <a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>
         </div>
     </nav>
 
-    <h1 class="page-title">🏪 小铺管理</h1>
+    <h1 class="page-title">🏪 <span data-i18n="storefront_manage">小铺管理</span></h1>
 
     <!-- Messages -->
     <div class="msg msg-ok" id="successMsg"></div>
@@ -499,32 +499,32 @@ const storefrontManageHTML = `<!DOCTYPE html>
 
     <!-- Tabs -->
     <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('settings', this)">⚙️ 小铺设置</button>
-        <button class="tab-btn" onclick="switchTab('packs', this)">📦 分析包管理</button>
-        <button class="tab-btn" onclick="switchTab('notify', this)">📧 客户通知</button>
-        {{if .CustomProductsEnabled}}<button class="tab-btn" onclick="switchTab('custom-products', this)">🛍️ 自定义商品</button>{{end}}
+        <button class="tab-btn active" onclick="switchTab('settings', this)" data-i18n="sm_tab_settings">⚙️ 小铺设置</button>
+        <button class="tab-btn" onclick="switchTab('packs', this)" data-i18n="sm_tab_packs">📦 分析包管理</button>
+        <button class="tab-btn" onclick="switchTab('notify', this)" data-i18n="sm_tab_notify">📧 客户通知</button>
+        {{if .CustomProductsEnabled}}<button class="tab-btn" onclick="switchTab('custom-products', this)" data-i18n="sm_tab_custom_products">🛍️ 自定义商品</button>{{end}}
     </div>
 
     <!-- ==================== Tab 1: 小铺设置 ==================== -->
     <div class="tab-content active" id="tab-settings">
         <!-- Store Name & Description -->
         <div class="card">
-            <div class="card-title"><span class="icon">📝</span> 基本信息</div>
+            <div class="card-title"><span class="icon">📝</span> <span data-i18n="sm_basic_info">基本信息</span></div>
             <div class="field-group">
-                <label for="storeName">小铺名称</label>
-                <input type="text" id="storeName" value="{{.Storefront.StoreName}}" maxlength="30" placeholder="输入小铺名称（2-30 字符）">
-                <div class="field-hint">名称长度 2-30 字符</div>
+                <label for="storeName" data-i18n="sm_store_name">小铺名称</label>
+                <input type="text" id="storeName" value="{{.Storefront.StoreName}}" maxlength="30" data-i18n-placeholder="sm_store_name_ph" placeholder="输入小铺名称（2-30 字符）">
+                <div class="field-hint" data-i18n="sm_store_name_hint">名称长度 2-30 字符</div>
             </div>
             <div class="field-group">
-                <label for="storeDesc">小铺描述</label>
-                <textarea id="storeDesc" rows="3" placeholder="介绍一下你的小铺...">{{.Storefront.Description}}</textarea>
+                <label for="storeDesc" data-i18n="sm_store_desc">小铺描述</label>
+                <textarea id="storeDesc" rows="3" data-i18n-placeholder="sm_store_desc_ph" placeholder="介绍一下你的小铺...">{{.Storefront.Description}}</textarea>
             </div>
-            <button class="btn btn-indigo" onclick="saveSettings()">💾 保存设置</button>
+            <button class="btn btn-indigo" onclick="saveSettings()" data-i18n="sm_save_settings">💾 保存设置</button>
         </div>
 
         <!-- Logo Upload -->
         <div class="card">
-            <div class="card-title"><span class="icon">🖼️</span> Logo 设置</div>
+            <div class="card-title"><span class="icon">🖼️</span> <span data-i18n="sm_logo_settings">Logo 设置</span></div>
             <div class="logo-upload-area">
                 <div class="logo-preview" id="logoPreview">
                     {{if .Storefront.HasLogo}}
@@ -534,35 +534,35 @@ const storefrontManageHTML = `<!DOCTYPE html>
                     {{end}}
                 </div>
                 <div class="logo-upload-info">
-                    <p>支持 PNG 或 JPEG 格式，文件大小不超过 2MB，也可直接 Ctrl+V 粘贴图片</p>
+                    <p data-i18n="sm_logo_hint">支持 PNG 或 JPEG 格式，文件大小不超过 2MB，也可直接 Ctrl+V 粘贴图片</p>
                     <input type="file" id="logoFile" accept="image/png,image/jpeg" style="display:none;" onchange="uploadLogo()">
-                    <button class="btn btn-ghost" onclick="document.getElementById('logoFile').click()">📤 上传 Logo</button>
+                    <button class="btn btn-ghost" onclick="document.getElementById('logoFile').click()" data-i18n="sm_upload_logo">📤 上传 Logo</button>
                 </div>
             </div>
         </div>
 
         <!-- Store Slug -->
         <div class="card">
-            <div class="card-title"><span class="icon">🔗</span> 小铺链接</div>
+            <div class="card-title"><span class="icon">🔗</span> <span data-i18n="sm_store_link">小铺链接</span></div>
             <div class="field-group">
-                <label for="storeSlug">小铺标识（Store Slug）</label>
+                <label for="storeSlug" data-i18n="sm_store_slug">小铺标识（Store Slug）</label>
                 <div class="slug-row">
                     <span class="slug-prefix">/store/</span>
                     <input type="text" id="storeSlug" value="{{.Storefront.StoreSlug}}" maxlength="50" placeholder="my-store">
-                    <button class="btn btn-indigo btn-sm" onclick="updateSlug()">保存</button>
+                    <button class="btn btn-indigo btn-sm" onclick="updateSlug()" data-i18n="save">保存</button>
                 </div>
-                <div class="field-hint">仅允许小写字母、数字和连字符，长度 3-50 字符</div>
+                <div class="field-hint" data-i18n="sm_slug_hint">仅允许小写字母、数字和连字符，长度 3-50 字符</div>
             </div>
             <div class="url-display" id="fullUrlDisplay">{{.FullURL}}</div>
             <div style="margin-top:10px;">
-                <button class="btn btn-ghost" onclick="copyStoreUrl()">📋 复制小铺链接</button>
+                <button class="btn btn-ghost" onclick="copyStoreUrl()" data-i18n="sm_copy_link">📋 复制小铺链接</button>
             </div>
         </div>
 
         <!-- Layout Switcher -->
         <div class="card">
-            <div class="card-title"><span class="icon">🎨</span> 小铺布局</div>
-            <div class="field-hint" style="margin-bottom:14px;">选择小铺的展示风格，访客将看到对应的布局效果</div>
+            <div class="card-title"><span class="icon">🎨</span> <span data-i18n="sm_layout">小铺布局</span></div>
+            <div class="field-hint" style="margin-bottom:14px;" data-i18n="sm_layout_hint">选择小铺的展示风格，访客将看到对应的布局效果</div>
             <div style="display:flex;gap:12px;flex-wrap:wrap;" id="layoutOptions">
                 <label style="flex:1;min-width:180px;cursor:pointer;">
                     <input type="radio" name="store_layout" value="default" {{if or (eq .Storefront.StoreLayout "default") (eq .Storefront.StoreLayout "")}}checked{{end}} style="display:none;" onchange="saveLayout('default')">
@@ -577,8 +577,8 @@ const storefrontManageHTML = `<!DOCTYPE html>
                                 <div style="height:16px;background:#fff;border-radius:4px;border:1px solid #e0e7ff;"></div>
                             </div>
                         </div>
-                        <div class="layout-name">默认布局</div>
-                        <div class="layout-desc">经典靛蓝风格</div>
+                        <div class="layout-name" data-i18n="sm_layout_default">默认布局</div>
+                        <div class="layout-desc" data-i18n="sm_layout_default_desc">经典靛蓝风格</div>
                     </div>
                 </label>
                 <label style="flex:1;min-width:180px;cursor:pointer;">
@@ -594,8 +594,8 @@ const storefrontManageHTML = `<!DOCTYPE html>
                                 <div style="height:16px;background:rgba(255,255,255,0.85);border-radius:4px;border:1px solid rgba(212,180,90,0.25);transform:rotate(1deg);"></div>
                             </div>
                         </div>
-                        <div class="layout-name">新奇布局</div>
-                        <div class="layout-desc">奢华金色风格</div>
+                        <div class="layout-name" data-i18n="sm_layout_novelty">新奇布局</div>
+                        <div class="layout-desc" data-i18n="sm_layout_novelty_desc">奢华金色风格</div>
                     </div>
                 </label>
                 <label style="flex:1;min-width:180px;cursor:pointer;">
@@ -604,8 +604,8 @@ const storefrontManageHTML = `<!DOCTYPE html>
                         <div class="layout-preview" style="background:#f8fafc;border-color:#e2e8f0;">
                             <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:18px;">🎨</div>
                         </div>
-                        <div class="layout-name">自定义装修</div>
-                        <div class="layout-desc">自由定制风格</div>
+                        <div class="layout-name" data-i18n="sm_layout_custom">自定义装修</div>
+                        <div class="layout-desc" data-i18n="sm_layout_custom_desc">自由定制风格</div>
                     </div>
                 </label>
             </div>
@@ -613,13 +613,13 @@ const storefrontManageHTML = `<!DOCTYPE html>
 
         <!-- Page Layout Section Editor -->
         <div class="card">
-            <div class="card-title"><span class="icon">📐</span> 页面布局</div>
-            <div class="field-hint" style="margin-bottom:14px;">拖拽调整区块顺序，控制各区块的显示和参数设置</div>
+            <div class="card-title"><span class="icon">📐</span> <span data-i18n="sm_page_layout">页面布局</span></div>
+            <div class="field-hint" style="margin-bottom:14px;" data-i18n="sm_page_layout_hint">拖拽调整区块顺序，控制各区块的显示和参数设置</div>
             <div class="section-list" id="sectionList"></div>
             <div class="layout-actions">
-                <button class="btn btn-green btn-sm" id="addBannerBtn" onclick="addCustomBanner()">+ 添加横幅</button>
-                <button class="btn btn-indigo" onclick="savePageLayout()">💾 保存布局</button>
-                <a class="btn btn-ghost btn-sm" href="/store/{{.Storefront.StoreSlug}}?preview=1" target="_blank">👁️ 预览</a>
+                <button class="btn btn-green btn-sm" id="addBannerBtn" onclick="addCustomBanner()" data-i18n="sm_add_banner">+ 添加横幅</button>
+                <button class="btn btn-indigo" onclick="savePageLayout()" data-i18n="sm_save_layout">💾 保存布局</button>
+                <a class="btn btn-ghost btn-sm" href="/store/{{.Storefront.StoreSlug}}?preview=1" target="_blank" data-i18n="sm_preview">👁️ 预览</a>
             </div>
             <div id="layoutSaveMsg" class="msg" style="margin-top:12px;"></div>
         </div>

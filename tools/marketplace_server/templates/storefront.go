@@ -527,7 +527,7 @@ const storefrontHTML = `<!DOCTYPE html>
 </head>
 <body>
 {{if .IsPreviewMode}}
-<div class="preview-banner" style="background:#fef3c7;color:#92400e;text-align:center;padding:10px 16px;font-size:14px;font-weight:600;border-bottom:2px solid #fde68a;position:sticky;top:0;z-index:9999;">
+<div class="preview-banner" style="background:#fef3c7;color:#92400e;text-align:center;padding:10px 16px;font-size:14px;font-weight:600;border-bottom:2px solid #fde68a;position:sticky;top:0;z-index:9999;" data-i18n="preview_mode_banner">
     🔍 预览模式 — 仅作者可见此提示，访客看到的页面不会包含此横幅
 </div>
 {{end}}
@@ -612,7 +612,7 @@ const storefrontHTML = `<!DOCTYPE html>
                             </div>
                         </div>
                         {{if .PackDesc}}<div class="featured-desc">{{.PackDesc}}</div>
-                        {{else}}<div class="featured-desc" style="color:#94a3b8;font-style:italic;">暂无描述</div>
+                        {{else}}<div class="featured-desc" style="color:#94a3b8;font-style:italic;" data-i18n="no_description">暂无描述</div>
                         {{end}}
                         <div class="featured-footer">
                             {{if eq .ShareMode "free"}}
@@ -762,7 +762,7 @@ const storefrontHTML = `<!DOCTYPE html>
     <div class="custom-products-section" style="margin-top: 28px;">
         <div style="font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: -0.2px;">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-            自定义商品
+            <span data-i18n="custom_products">自定义商品</span>
         </div>
         <div class="pack-list" style="grid-template-columns: repeat(2, 1fr);">
             {{range .CustomProducts}}
@@ -770,8 +770,8 @@ const storefrontHTML = `<!DOCTYPE html>
                 <div class="pack-item-body">
                     <div class="pack-item-header">
                         <span class="pack-item-name">{{.ProductName}}</span>
-                        {{if eq .ProductType "credits"}}<span class="tag" style="background:#fef3c7;color:#b45309;border:1px solid #fde68a;">积分充值</span>
-                        {{else if eq .ProductType "virtual_goods"}}<span class="tag" style="background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;">虚拟商品</span>
+                        {{if eq .ProductType "credits"}}<span class="tag" style="background:#fef3c7;color:#b45309;border:1px solid #fde68a;" data-i18n="product_type_credits">积分充值</span>
+                        {{else if eq .ProductType "virtual_goods"}}<span class="tag" style="background:#ede9fe;color:#6d28d9;border:1px solid #ddd6fe;" data-i18n="product_type_virtual">虚拟商品</span>
                         {{end}}
                     </div>
                     {{if .Description}}<div class="pack-item-desc">{{.Description}}</div>{{end}}
@@ -782,9 +782,9 @@ const storefrontHTML = `<!DOCTYPE html>
                     </div>
                     <div class="pack-item-actions">
                         {{if $.IsLoggedIn}}
-                        <button class="btn btn-indigo" onclick="showCustomProductPurchaseDialog({{.ID}}, '{{.ProductName}}', {{.PriceUSD}})">购买</button>
+                        <button class="btn btn-indigo" onclick="showCustomProductPurchaseDialog({{.ID}}, '{{.ProductName}}', {{.PriceUSD}})" data-i18n="purchase">购买</button>
                         {{else}}
-                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.StoreSlug}}">购买</a>
+                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.StoreSlug}}" data-i18n="login_to_buy">登录后购买</a>
                         {{end}}
                     </div>
                 </div>
@@ -799,18 +799,18 @@ const storefrontHTML = `<!DOCTYPE html>
     <div class="modal-overlay" id="customProductPurchaseModal">
         <div class="modal-box">
             <button class="modal-close" onclick="closeCustomProductPurchaseDialog()">✕</button>
-            <div class="modal-title" id="cpPurchaseTitle">购买确认</div>
+            <div class="modal-title" id="cpPurchaseTitle" data-i18n="purchase_confirm">购买确认</div>
             <div style="margin-bottom: 16px;">
-                <div style="font-size: 14px; color: #475569; margin-bottom: 8px;">商品：<strong id="cpProductName"></strong></div>
+                <div style="font-size: 14px; color: #475569; margin-bottom: 8px;"><span data-i18n="custom_product_label">商品</span>：<strong id="cpProductName"></strong></div>
                 <div class="total-price" id="cpProductPrice"></div>
                 <div style="font-size: 13px; color: #64748b; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-                    支付方式：PayPal
+                    <span data-i18n="payment_via_paypal">支付方式：PayPal</span>
                 </div>
             </div>
             <div class="modal-actions">
-                <button class="btn-ghost" onclick="closeCustomProductPurchaseDialog()">取消</button>
-                <button class="btn btn-indigo" id="cpConfirmBtn" onclick="confirmCustomProductPurchase()">确认购买</button>
+                <button class="btn-ghost" onclick="closeCustomProductPurchaseDialog()" data-i18n="cancel">取消</button>
+                <button class="btn btn-indigo" id="cpConfirmBtn" onclick="confirmCustomProductPurchase()" data-i18n="confirm_purchase">确认购买</button>
             </div>
         </div>
     </div>
@@ -1077,7 +1077,7 @@ function closeCustomProductPurchaseDialog() {
 function confirmCustomProductPurchase() {
     if (!_cpCurrentProductID) return;
     var btn = document.getElementById('cpConfirmBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '处理中...'; }
+    if (btn) { btn.disabled = true; btn.textContent = window._i18n('processing', '处理中...'); }
     fetch('/custom-product/' + _cpCurrentProductID + '/purchase', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -1087,13 +1087,13 @@ function confirmCustomProductPurchase() {
             window.location.href = d.approve_url;
         } else {
             closeCustomProductPurchaseDialog();
-            showMsg('error', d.error || '购买失败');
-            if (btn) { btn.disabled = false; btn.textContent = '确认购买'; }
+            showMsg('error', d.error || window._i18n('purchase_failed', '购买失败'));
+            if (btn) { btn.disabled = false; btn.textContent = window._i18n('confirm_purchase', '确认购买'); }
         }
     }).catch(function() {
         closeCustomProductPurchaseDialog();
-        showMsg('error', '网络错误');
-        if (btn) { btn.disabled = false; btn.textContent = '确认购买'; }
+        showMsg('error', window._i18n('network_error', '网络错误'));
+        if (btn) { btn.disabled = false; btn.textContent = window._i18n('confirm_purchase', '确认购买'); }
     });
 }
 </script>
