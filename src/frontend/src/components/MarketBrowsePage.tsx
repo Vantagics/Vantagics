@@ -94,12 +94,27 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
+    // Pagination state
+    const PAGE_SIZE = 10;
+    const [currentPage, setCurrentPage] = useState(1);
+
     const filteredAndSortedPacks = useMemo(() => {
         let result = filterByShareMode(packs, shareModeFilter);
         result = filterByKeyword(result, searchKeyword);
         result = sortPacks(result, sortField, sortDirection);
         return result;
     }, [packs, shareModeFilter, searchKeyword, sortField, sortDirection]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredAndSortedPacks.length / PAGE_SIZE));
+    const paginatedPacks = useMemo(() => {
+        const start = (currentPage - 1) * PAGE_SIZE;
+        return filteredAndSortedPacks.slice(start, start + PAGE_SIZE);
+    }, [filteredAndSortedPacks, currentPage]);
+
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [shareModeFilter, searchKeyword, sortField, sortDirection, selectedCategoryID]);
 
     const fetchCategories = useCallback(async () => {
         try {
@@ -431,7 +446,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
 
                     {!loading && filteredAndSortedPacks.length > 0 && (
                         <div className="space-y-2">
-                            {filteredAndSortedPacks.map(pack => (
+                            {paginatedPacks.map(pack => (
                                 <div
                                     key={pack.id}
                                     className="p-3 rounded-lg border border-slate-200 dark:border-[#3e3e42] hover:bg-slate-50 dark:hover:bg-[#2d2d30] transition-colors"
@@ -501,6 +516,31 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                                     </div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+
+                    {/* Pagination controls */}
+                    {!loading && filteredAndSortedPacks.length > PAGE_SIZE && (
+                        <div className="flex items-center justify-center gap-3 pt-4">
+                            <button
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage <= 1}
+                                className="px-3 py-1 text-xs font-medium rounded-md border border-slate-200 dark:border-[#3e3e42] text-slate-600 dark:text-[#b0b0b0] hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                aria-label={t('previous_page')}
+                            >
+                                {t('previous_page')}
+                            </button>
+                            <span className="text-xs text-slate-500 dark:text-[#8e8e8e]">
+                                {t('page_info').replace('{0}', String(currentPage)).replace('{1}', String(totalPages))}
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage >= totalPages}
+                                className="px-3 py-1 text-xs font-medium rounded-md border border-slate-200 dark:border-[#3e3e42] text-slate-600 dark:text-[#b0b0b0] hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                aria-label={t('next_page')}
+                            >
+                                {t('next_page')}
+                            </button>
                         </div>
                     )}
                 </div>

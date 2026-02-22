@@ -91,8 +91,8 @@ const storefrontHTML = `<!DOCTYPE html>
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
-            box-shadow: 0 2px 8px rgba(67,56,202,0.35);
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
         .logo-mark svg { width: 20px; height: 20px; fill: none; stroke: #fff; }
         .logo-text { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
@@ -174,7 +174,7 @@ const storefrontHTML = `<!DOCTYPE html>
             display: flex; flex-direction: column;
         }
         .store-featured-title {
-            font-size: 11px; font-weight: 700; color: #64748b;
+            font-size: 11px; font-weight: 700; color: #475569;
             margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
             letter-spacing: 0.8px; text-transform: uppercase;
         }
@@ -184,13 +184,12 @@ const storefrontHTML = `<!DOCTYPE html>
             gap: 10px; flex: 1;
         }
         .featured-card {
-            background: rgba(255,255,255,0.9); border-radius: 14px; padding: 18px 16px 14px;
-            border: 1px solid rgba(203,213,225,0.7);
+            background: #fff; border-radius: 14px; padding: 18px 16px 14px;
+            border: 1px solid #e2e8f0;
             cursor: pointer; text-decoration: none;
             display: flex; flex-direction: column; align-items: flex-start;
             color: inherit;
             transition: all 0.25s cubic-bezier(.4,0,.2,1);
-            backdrop-filter: blur(8px);
             position: relative; overflow: hidden;
         }
         .featured-card:hover {
@@ -203,15 +202,16 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .featured-icon {
             width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 2px 8px rgba(67,56,202,0.35);
+            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
         .featured-icon svg { width: 18px; height: 18px; color: #fff; stroke: #fff; fill: none; }
         .featured-icon-img {
             width: 36px; height: 36px; border-radius: 10px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
         }
         .featured-card-title {
             flex: 1; min-width: 0;
@@ -226,27 +226,27 @@ const storefrontHTML = `<!DOCTYPE html>
             display: inline-block; padding: 1px 7px; border-radius: 10px;
             font-size: 10px; font-weight: 600; margin-top: 2px;
         }
-        .featured-tag-free { background: #ecfdf5; color: #059669; }
-        .featured-tag-per_use { background: #eef2ff; color: #4338ca; }
-        .featured-tag-subscription { background: #f5f3ff; color: #7c3aed; }
+        .featured-tag-free { background: #dcfce7; color: #15803d; }
+        .featured-tag-per_use { background: #e0e7ff; color: #3730a3; }
+        .featured-tag-subscription { background: #ede9fe; color: #6d28d9; }
         .featured-desc {
-            font-size: 11px; color: #475569; line-height: 1.5;
+            font-size: 11px; color: #334155; line-height: 1.5;
             margin-bottom: 10px; flex: 1;
             overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
         }
         .featured-footer {
             display: flex; align-items: center; justify-content: space-between;
-            width: 100%; padding-top: 8px; border-top: 1px solid rgba(226,232,240,0.5);
+            width: 100%; padding-top: 8px; border-top: 1px solid #e2e8f0;
         }
         .featured-price { font-size: 12px; font-weight: 800; }
-        .featured-price.price-free { color: #16a34a; }
-        .featured-price.price-paid { color: var(--primary-hover); }
+        .featured-price.price-free { color: #15803d; }
+        .featured-price.price-paid { color: #4338ca; }
         .featured-downloads {
             display: flex; align-items: center; gap: 3px;
-            font-size: 11px; color: #64748b; font-weight: 500;
+            font-size: 11px; color: #475569; font-weight: 500;
         }
-        .featured-downloads svg { width: 12px; height: 12px; opacity: 0.7; }
+        .featured-downloads svg { width: 12px; height: 12px; opacity: 0.8; }
         .featured-empty-slot {
             background: rgba(255,255,255,0.4); border-radius: 14px; padding: 16px;
             border: 1px dashed rgba(203,213,225,0.6); display: flex;
@@ -350,6 +350,7 @@ const storefrontHTML = `<!DOCTYPE html>
             width: 32px; height: 32px; border-radius: 8px;
             object-fit: cover; flex-shrink: 0;
             box-shadow: 0 2px 6px rgba(99,102,241,0.15);
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
         }
         .pack-item-name { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.2px; }
         .tag {
@@ -578,7 +579,10 @@ const storefrontHTML = `<!DOCTYPE html>
                     <a class="featured-card" href="/pack/{{.ShareToken}}" target="_blank" rel="noopener">
                         <div class="featured-card-top">
                             {{if .HasLogo}}
-                            <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
+                            <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <div class="featured-icon" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            </div>
                             {{else}}
                             <div class="featured-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -593,7 +597,7 @@ const storefrontHTML = `<!DOCTYPE html>
                             </div>
                         </div>
                         {{if .PackDesc}}<div class="featured-desc">{{.PackDesc}}</div>
-                        {{else}}<div class="featured-desc" style="color:#64748b;font-style:italic;">暂无描述</div>
+                        {{else}}<div class="featured-desc" style="color:#94a3b8;font-style:italic;">暂无描述</div>
                         {{end}}
                         <div class="featured-footer">
                             {{if eq .ShareMode "free"}}
@@ -665,7 +669,10 @@ const storefrontHTML = `<!DOCTYPE html>
             <div class="pack-item-body">
                 <div class="pack-item-header">
                     {{if .HasLogo}}
-                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
+                    <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <div class="pack-item-icon" style="display:none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    </div>
                     {{else}}
                     <div class="pack-item-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
