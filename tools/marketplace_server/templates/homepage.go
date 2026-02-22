@@ -56,7 +56,7 @@ const homepageHTML = `<!DOCTYPE html>
             position: relative; overflow: hidden;
             background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #c7d2fe 100%);
             border: 1px solid #e2e8f0;
-            border-radius: 0 0 20px 20px; padding: 0 36px 20px;
+            border-radius: 0 0 20px 20px; padding: 0 36px;
             margin-bottom: 32px;
         }
         .hero::before {
@@ -69,7 +69,11 @@ const homepageHTML = `<!DOCTYPE html>
         /* ── Nav (inside hero) ── */
         .nav {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 0 14px;
+            padding: 14px 0;
+        }
+        .nav-center {
+            display: flex; align-items: center; gap: 12px; flex: 1;
+            justify-content: center;
         }
         .logo-link {
             display: flex; align-items: center; gap: 10px; text-decoration: none;
@@ -90,11 +94,6 @@ const homepageHTML = `<!DOCTYPE html>
         }
         .nav-link:hover { background: #fff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
 
-        .hero-body {
-            display: flex; align-items: center; justify-content: center; gap: 16px;
-            flex-wrap: wrap;
-        }
-        .hero-title { font-size: 18px; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; white-space: nowrap; }
         .hero-desc { font-size: 13px; color: #475569; white-space: nowrap; }
         .hero-sep { width: 1px; height: 20px; background: #cbd5e1; flex-shrink: 0; }
         .hero-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -227,13 +226,12 @@ const homepageHTML = `<!DOCTYPE html>
         }
         @media (max-width: 767px) {
             .page { padding: 0 16px 36px; }
-            .hero { padding: 0 20px 16px; border-radius: 0 0 16px 16px; }
-            .hero-body { flex-direction: column; text-align: center; }
+            .hero { padding: 0 20px; border-radius: 0 0 16px 16px; }
+            .nav { flex-wrap: wrap; gap: 10px; justify-content: center; }
+            .nav-center { flex-wrap: wrap; justify-content: center; }
             .hero-sep { display: none; }
-            .hero-title { font-size: 20px; }
             .hero-buttons { justify-content: center; }
             .card-grid { grid-template-columns: 1fr; }
-            .nav { flex-wrap: wrap; gap: 10px; }
         }
     </style>
 </head>
@@ -249,6 +247,26 @@ const homepageHTML = `<!DOCTYPE html>
                 </span>
                 <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
             </a>
+            <div class="nav-center">
+                <span class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</span>
+                {{if or .DownloadURLWindows .DownloadURLMacOS}}
+                <span class="hero-sep"></span>
+                <div class="hero-buttons">
+                    {{if .DownloadURLWindows}}
+                    <a class="dl-btn dl-btn-win" href="{{.DownloadURLWindows}}">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+                        <span data-i18n="homepage.download_windows">Windows 下载</span>
+                    </a>
+                    {{end}}
+                    {{if .DownloadURLMacOS}}
+                    <a class="dl-btn dl-btn-mac" href="{{.DownloadURLMacOS}}">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+                        <span data-i18n="homepage.download_macos">macOS 下载</span>
+                    </a>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
             <div class="nav-actions">
                 {{if .UserID}}
                 <a class="nav-link" href="/user/" data-i18n="homepage.user_center">用户中心</a>
@@ -259,28 +277,6 @@ const homepageHTML = `<!DOCTYPE html>
                 {{end}}
             </div>
         </nav>
-        <div class="hero-body">
-            <h1 class="hero-title" data-i18n="homepage.hero_title">分析技能包市场</h1>
-            <span class="hero-sep"></span>
-            <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
-            {{if or .DownloadURLWindows .DownloadURLMacOS}}
-            <span class="hero-sep"></span>
-            <div class="hero-buttons">
-                {{if .DownloadURLWindows}}
-                <a class="dl-btn dl-btn-win" href="{{.DownloadURLWindows}}">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-                    <span data-i18n="homepage.download_windows">Windows 下载</span>
-                </a>
-                {{end}}
-                {{if .DownloadURLMacOS}}
-                <a class="dl-btn dl-btn-mac" href="{{.DownloadURLMacOS}}">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                    <span data-i18n="homepage.download_macos">macOS 下载</span>
-                </a>
-                {{end}}
-            </div>
-            {{end}}
-        </div>
     </div>
 
     <!-- Featured Stores Section (7.3) -->
