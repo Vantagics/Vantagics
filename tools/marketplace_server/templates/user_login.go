@@ -70,7 +70,7 @@ const userLoginHTML = `<!DOCTYPE html>
         }
         .form-group input::placeholder { color: #94a3b8; }
         .captcha-row { display: flex; gap: 10px; align-items: flex-end; }
-        .captcha-row input { flex: 1; }
+        .captcha-row input { flex: 1; min-width: 0; }
         .captcha-img {
             height: 42px;
             border-radius: 8px;
@@ -91,8 +91,13 @@ const userLoginHTML = `<!DOCTYPE html>
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-shrink: 0;
         }
         .captcha-refresh:hover { border-color: #6366f1; color: #6366f1; }
+        @media (max-width: 480px) {
+            .captcha-row { flex-wrap: wrap; }
+            .captcha-row input { flex: 1 1 100%; }
+        }
         .btn-submit {
             width: 100%;
             padding: 11px;
