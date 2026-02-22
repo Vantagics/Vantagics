@@ -202,7 +202,7 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .featured-icon {
             width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            background: #6366f1; background: linear-gradient(135deg, var(--primary-color, #6366f1), var(--accent-color, #8b5cf6));
             display: flex; align-items: center; justify-content: center;
             box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
@@ -344,7 +344,7 @@ const storefrontHTML = `<!DOCTYPE html>
         .pack-item-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
         .pack-item-icon {
             width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            background: #6366f1; background: linear-gradient(135deg, var(--primary-color, #6366f1), var(--accent-color, #8b5cf6));
             display: flex; align-items: center; justify-content: center;
             box-shadow: 0 2px 6px rgba(99,102,241,0.15);
         }
