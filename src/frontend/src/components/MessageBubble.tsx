@@ -60,7 +60,7 @@ interface MessageBubbleProps {
     isFailed?: boolean;  // 新增：分析是否失败
     onRetryAnalysis?: () => void;  // 新增：重新分析回调
     isCancelled?: boolean;  // 新增：分析是否被中止（可点击继续分析）
-    isReplaySession?: boolean;  // 快捷分析会话标识
+    isReplaySession?: boolean;  // 分析技能包会话标识
     onShowResult?: (messageId: string) => void;  // 结果显示按钮回调
 }
 

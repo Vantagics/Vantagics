@@ -366,7 +366,7 @@ var chineseTranslations = map[string]string{
 	"qap.missing_required_tables":     "目标数据源缺少必需的表: %s",
 	"qap.python_not_configured":       "此分析包包含 Python 脚本，但尚未配置 Python 环境。请在设置中配置 Python 路径后重试。",
 	"qap.permission_denied":           "权限不足: %s",
-	"qap.not_replay_session":          "该会话不是快捷分析会话",
+	"qap.not_replay_session":          "该会话不是分析技能包会话",
 
 	// 分析技能包 - 步骤标签
 	"qap.step_sql_query":              "SQL 查询 #%d",

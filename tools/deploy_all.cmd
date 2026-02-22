@@ -109,7 +109,7 @@ REM ==========================================
 echo [Market] Packaging source files...
 cd /d "%~dp0marketplace_server"
 
-tar -czf "%TEMP%\marketplace_server.tar.gz" main.go pack_encryption.go go.mod go.sum templates i18n start.sh 2>NUL
+tar -czf "%TEMP%\marketplace_server.tar.gz" main.go pack_encryption.go cache.go go.mod go.sum templates i18n start.sh 2>NUL
 if errorlevel 1 (
     echo [ERROR] Failed to create marketplace_server package
     exit /b 1

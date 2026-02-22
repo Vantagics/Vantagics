@@ -104,22 +104,21 @@ func buildUserPurchasedCacheKey(userID int64) string {
 
 // GetStorefrontData 获取小铺公共数据缓存
 func (c *Cache) GetStorefrontData(key string) (*StorefrontPublicData, bool) {
-	c.mu.Lock()
+	c.mu.RLock()
 	entry, ok := c.storefronts[key]
 	if !ok {
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
-	// TTL 过期检查
+	// TTL 过期检查 — 过期条目由 cleanupExpired 清理，此处仅跳过
 	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
-		delete(c.storefronts, key)
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
-	// 更新 lastAccess
+	// 更新 lastAccess（原子性不影响正确性，仅影响 LRU 精度，可接受）
 	entry.lastAccess = time.Now()
 	data := entry.data.(*StorefrontPublicData)
-	c.mu.Unlock()
+	c.mu.RUnlock()
 	return data, true
 }
 
@@ -139,20 +138,19 @@ func (c *Cache) SetStorefrontData(key string, data *StorefrontPublicData) {
 
 // GetPackDetail 获取分析包详情缓存
 func (c *Cache) GetPackDetail(shareToken string) (*PackDetailPublicData, bool) {
-	c.mu.Lock()
+	c.mu.RLock()
 	entry, ok := c.packDetails[shareToken]
 	if !ok {
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
 	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
-		delete(c.packDetails, shareToken)
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
 	entry.lastAccess = time.Now()
 	data := entry.data.(*PackDetailPublicData)
-	c.mu.Unlock()
+	c.mu.RUnlock()
 	return data, true
 }
 
@@ -172,20 +170,19 @@ func (c *Cache) SetPackDetail(shareToken string, data *PackDetailPublicData) {
 
 // GetShareTokenMapping 获取 ShareToken 到 listingID 的映射缓存
 func (c *Cache) GetShareTokenMapping(shareToken string) (int64, bool) {
-	c.mu.Lock()
+	c.mu.RLock()
 	entry, ok := c.shareTokens[shareToken]
 	if !ok {
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return 0, false
 	}
 	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
-		delete(c.shareTokens, shareToken)
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return 0, false
 	}
 	entry.lastAccess = time.Now()
 	data := entry.data.(int64)
-	c.mu.Unlock()
+	c.mu.RUnlock()
 	return data, true
 }
 
@@ -204,30 +201,41 @@ func (c *Cache) SetShareTokenMapping(shareToken string, listingID int64) {
 }
 
 // GetUserPurchasedIDs 获取用户已购买分析包 ID 列表缓存
+// 返回缓存 map 的浅拷贝，防止调用方修改缓存数据
 func (c *Cache) GetUserPurchasedIDs(userID int64) (map[int64]bool, bool) {
-	c.mu.Lock()
+	c.mu.RLock()
 	entry, ok := c.userPurchased[userID]
 	if !ok {
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
 	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
-		delete(c.userPurchased, userID)
-		c.mu.Unlock()
+		c.mu.RUnlock()
 		return nil, false
 	}
 	entry.lastAccess = time.Now()
-	data := entry.data.(map[int64]bool)
-	c.mu.Unlock()
-	return data, true
+	original := entry.data.(map[int64]bool)
+	// 返回浅拷贝，防止调用方修改缓存内部数据
+	copied := make(map[int64]bool, len(original))
+	for k, v := range original {
+		copied[k] = v
+	}
+	c.mu.RUnlock()
+	return copied, true
 }
 
 // SetUserPurchasedIDs 设置用户已购买分析包 ID 列表缓存
+// 存储 ids 的浅拷贝，防止调用方后续修改影响缓存
 func (c *Cache) SetUserPurchasedIDs(userID int64, ids map[int64]bool) {
+	// 存储浅拷贝，防止调用方后续修改影响缓存数据
+	copied := make(map[int64]bool, len(ids))
+	for k, v := range ids {
+		copied[k] = v
+	}
 	now := time.Now()
 	c.mu.Lock()
 	c.userPurchased[userID] = &cacheEntry{
-		data:       ids,
+		data:       copied,
 		createdAt:  now,
 		lastAccess: now,
 		ttl:        c.config.UserPurchasedTTL,

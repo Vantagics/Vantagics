@@ -88,7 +88,7 @@ ENDSSH
 deploy_market() {
     echo "[Market] Packaging source files..."
     cd "$SCRIPT_DIR/marketplace_server"
-    tar -czf /tmp/marketplace_server.tar.gz main.go go.mod go.sum templates start.sh
+    tar -czf /tmp/marketplace_server.tar.gz main.go pack_encryption.go cache.go go.mod go.sum templates i18n start.sh
     ls -lh /tmp/marketplace_server.tar.gz | awk '{print "         Package: "$5}'
 
     echo "[Market] Uploading to server..."

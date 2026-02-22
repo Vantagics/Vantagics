@@ -260,7 +260,7 @@ const homepageHTML = `<!DOCTYPE html>
             </div>
         </nav>
         <div class="hero-body">
-            <h1 class="hero-title" data-i18n="homepage.hero_title">快捷分析包市场</h1>
+            <h1 class="hero-title" data-i18n="homepage.hero_title">分析技能包市场</h1>
             <span class="hero-sep"></span>
             <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
             {{if or .DownloadURLWindows .DownloadURLMacOS}}

@@ -5284,6 +5284,12 @@ func handleStorefrontFeaturedLogoUpload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Invalidate storefront cache after logo upload
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -5330,6 +5336,12 @@ func handleStorefrontFeaturedLogoDelete(w http.ResponseWriter, r *http.Request) 
 		log.Printf("[STOREFRONT-FEATURED-LOGO-DELETE] failed to delete logo for storefront %d, pack %d: %v", storefrontID, packListingID, err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "删除失败"})
 		return
+	}
+
+	// Invalidate storefront cache after logo deletion
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -10830,6 +10842,14 @@ func handleReplacePack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[REPLACE-PACK] user %d replaced listing %d, version %d -> %d", userID, listingID, currentVersion, newVersion)
+
+	// Invalidate caches after replacing pack data (status reset to pending)
+	globalCache.InvalidateStorefrontsByListingID(listingID)
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"listing_id":  listingID,
 		"new_version": newVersion,
@@ -13717,6 +13737,8 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
 	}
+	// Invalidate storefront caches that display this pack
+	globalCache.InvalidateStorefrontsByListingID(listingID)
 
 	// If AJAX request, return JSON instead of redirect
 	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
@@ -13843,6 +13865,13 @@ func handleAuthorDelistPack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[AUTHOR-DELIST-PACK] user %d delisted listing %d", userID, listingID)
+
+	// Invalidate caches after delisting a pack
+	globalCache.InvalidateStorefrontsByListingID(listingID)
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
 
 	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
