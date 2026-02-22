@@ -327,8 +327,8 @@ const storefrontHTML = `<!DOCTYPE html>
         /* ── Pack Grid ── */
         .pack-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
         .pack-item {
-            background: #fff; border-radius: 14px; padding: 22px 24px;
-            border: 1px solid #e2e8f0;
+            background: linear-gradient(135deg, #fafbff 0%, #f5f7ff 100%); border-radius: 14px; padding: 22px 24px;
+            border: 1px solid #e0e7ff;
             box-shadow: 0 1px 3px rgba(0,0,0,0.04);
             display: flex; flex-direction: column; gap: 12px;
             transition: all 0.25s cubic-bezier(.4,0,.2,1);
