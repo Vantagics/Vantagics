@@ -56,7 +56,7 @@ const homepageHTML = `<!DOCTYPE html>
             position: relative; overflow: hidden;
             background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 50%, #c7d2fe 100%);
             border: 1px solid #e2e8f0;
-            border-radius: 0 0 20px 20px; padding: 0 36px 28px;
+            border-radius: 0 0 20px 20px; padding: 0 36px 20px;
             margin-bottom: 32px;
         }
         .hero::before {
@@ -69,7 +69,7 @@ const homepageHTML = `<!DOCTYPE html>
         /* ── Nav (inside hero) ── */
         .nav {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 16px 0 20px;
+            padding: 12px 0 14px;
         }
         .logo-link {
             display: flex; align-items: center; gap: 10px; text-decoration: none;
@@ -91,13 +91,13 @@ const homepageHTML = `<!DOCTYPE html>
         .nav-link:hover { background: #fff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
 
         .hero-body { text-align: center; }
-        .hero-title { font-size: 26px; font-weight: 800; color: #0f172a; margin-bottom: 8px; letter-spacing: -0.5px; }
-        .hero-desc { font-size: 14px; color: #475569; margin-bottom: 20px; max-width: 600px; margin-left: auto; margin-right: auto; }
-        .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .hero-title { font-size: 22px; font-weight: 800; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.5px; }
+        .hero-desc { font-size: 13px; color: #475569; margin-bottom: 14px; max-width: 600px; margin-left: auto; margin-right: auto; }
+        .hero-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
         .dl-btn {
             display: inline-flex; align-items: center; gap: 8px;
-            padding: 10px 24px; border-radius: 12px;
-            font-size: 13px; font-weight: 600; text-decoration: none;
+            padding: 8px 20px; border-radius: 10px;
+            font-size: 12px; font-weight: 600; text-decoration: none;
             transition: all .25s cubic-bezier(.4,0,.2,1);
         }
         .dl-btn-win {
@@ -223,8 +223,8 @@ const homepageHTML = `<!DOCTYPE html>
         }
         @media (max-width: 767px) {
             .page { padding: 0 16px 36px; }
-            .hero { padding: 0 20px 20px; border-radius: 0 0 16px 16px; }
-            .hero-title { font-size: 22px; }
+            .hero { padding: 0 20px 16px; border-radius: 0 0 16px 16px; }
+            .hero-title { font-size: 20px; }
             .card-grid { grid-template-columns: 1fr; }
             .nav { flex-wrap: wrap; gap: 10px; }
         }

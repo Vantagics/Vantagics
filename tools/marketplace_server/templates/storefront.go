@@ -91,21 +91,21 @@ const storefrontHTML = `<!DOCTYPE html>
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
+            box-shadow: 0 2px 8px rgba(67,56,202,0.35);
         }
         .logo-mark svg { width: 20px; height: 20px; fill: none; stroke: #fff; }
         .logo-text { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
         .nav-actions { display: flex; align-items: center; gap: 8px; }
         .nav-link {
             padding: 8px 18px; font-size: 13px; font-weight: 600; color: #fff;
-            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
+            background: linear-gradient(135deg, #312e81, #1e1b4b);
             border: 1px solid transparent; border-radius: 10px;
             text-decoration: none; transition: all .2s;
-            box-shadow: 0 2px 8px rgba(99,102,241,0.2);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            box-shadow: 0 2px 8px rgba(49,46,129,0.3);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
-        .nav-link:hover { box-shadow: 0 4px 12px rgba(99,102,241,0.3); transform: translateY(-1px); }
+        .nav-link:hover { box-shadow: 0 4px 12px rgba(49,46,129,0.4); transform: translateY(-1px); }
 
         /* ── Hero / Store Header ── */
         .store-hero {
@@ -184,8 +184,8 @@ const storefrontHTML = `<!DOCTYPE html>
             gap: 10px; flex: 1;
         }
         .featured-card {
-            background: rgba(255,255,255,0.75); border-radius: 14px; padding: 18px 16px 14px;
-            border: 1px solid rgba(226,232,240,0.6);
+            background: rgba(255,255,255,0.9); border-radius: 14px; padding: 18px 16px 14px;
+            border: 1px solid rgba(203,213,225,0.7);
             cursor: pointer; text-decoration: none;
             display: flex; flex-direction: column; align-items: flex-start;
             color: inherit;
@@ -203,11 +203,11 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .featured-icon {
             width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
             display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+            box-shadow: 0 2px 8px rgba(67,56,202,0.35);
         }
-        .featured-icon svg { width: 18px; height: 18px; color: #fff; }
+        .featured-icon svg { width: 18px; height: 18px; color: #fff; stroke: #fff; fill: none; }
         .featured-icon-img {
             width: 36px; height: 36px; border-radius: 10px;
             object-fit: cover; flex-shrink: 0;
@@ -275,12 +275,13 @@ const storefrontHTML = `<!DOCTYPE html>
             transform: translateY(-1px);
         }
         .sf-dl-btn-primary {
-            background: linear-gradient(135deg, #4338ca, #3730a3); color: #fff;
+            background: linear-gradient(135deg, #312e81, #1e1b4b); color: #fff;
             border-color: transparent;
-            box-shadow: 0 2px 8px rgba(67,56,202,0.3);
+            box-shadow: 0 2px 8px rgba(49,46,129,0.4);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
         .sf-dl-btn-primary:hover {
-            box-shadow: 0 4px 16px rgba(67,56,202,0.4); color: #fff;
+            box-shadow: 0 4px 16px rgba(49,46,129,0.5); color: #fff;
         }
         .sf-dl-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 
@@ -302,9 +303,9 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .filter-btn:hover { color: #0f172a; background: #f1f5f9; }
         .filter-btn.active {
-            background: linear-gradient(135deg, #4338ca, #3730a3); color: #fff;
-            box-shadow: 0 2px 8px rgba(67,56,202,0.3);
-            text-shadow: 0 1px 2px rgba(0,0,0,0.15);
+            background: linear-gradient(135deg, #312e81, #1e1b4b); color: #fff;
+            box-shadow: 0 2px 8px rgba(49,46,129,0.35);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
         .search-input {
             padding: 8px 16px; border: 1px solid #cbd5e1; border-radius: 10px;
@@ -592,7 +593,7 @@ const storefrontHTML = `<!DOCTYPE html>
                             </div>
                         </div>
                         {{if .PackDesc}}<div class="featured-desc">{{.PackDesc}}</div>
-                        {{else}}<div class="featured-desc" style="color:#94a3b8;font-style:italic;">暂无描述</div>
+                        {{else}}<div class="featured-desc" style="color:#64748b;font-style:italic;">暂无描述</div>
                         {{end}}
                         <div class="featured-footer">
                             {{if eq .ShareMode "free"}}
