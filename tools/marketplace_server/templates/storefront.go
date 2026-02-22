@@ -184,8 +184,8 @@ const storefrontHTML = `<!DOCTYPE html>
             gap: 10px; flex: 1;
         }
         .featured-card {
-            background: #fff; border-radius: 14px; padding: 18px 16px 14px;
-            border: 1px solid #e2e8f0;
+            background: linear-gradient(135deg, #f3f0ff 0%, #eef2ff 50%, #faf5ff 100%); border-radius: 14px; padding: 18px 16px 14px;
+            border: 1px solid #ddd6fe;
             cursor: pointer; text-decoration: none;
             display: flex; flex-direction: column; align-items: flex-start;
             color: inherit;

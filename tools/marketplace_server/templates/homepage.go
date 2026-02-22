@@ -264,7 +264,7 @@ const homepageHTML = `<!DOCTYPE html>
                 <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
             </a>
             <div class="nav-center">
-                <span class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</span>
+                <span class="hero-desc" data-i18n="homepage.hero_desc">站在专家肩上，洞察业务秘密</span>
                 {{if or .DownloadURLWindows .DownloadURLMacOS}}
                 <span class="hero-sep"></span>
                 <div class="hero-buttons">
