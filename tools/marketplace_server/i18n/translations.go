@@ -7,7 +7,7 @@ var translations = map[Lang]map[string]string{
 
 var zhCN = map[string]string{
 	// Common
-	"site_name":       "快捷分析包市场",
+	"site_name":       "分析技能包市场",
 	"personal_center": "个人中心",
 	"login":           "登录",
 	"logout":          "退出登录",
@@ -376,7 +376,7 @@ var zhCN = map[string]string{
 	"claim_success":          "领取成功！",
 	"claim_failed":           "领取失败",
 	"claimed":                "已领取",
-	"add_to_purchased_confirm": "是否将此分析包添加到您的已购快捷分析包中？",
+	"add_to_purchased_confirm": "是否将此分析包添加到您的已购分析技能包中？",
 	"select_quantity":        "选择购买数量",
 	"buy_count_label":        "购买次数",
 	"total":                  "合计",

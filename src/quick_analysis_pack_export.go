@@ -642,7 +642,7 @@ func unescapeToolInput(input string) string {
 
 // attachEChartsFromMessages 从会话的 assistant 消息中提取 ECharts JSON 配置，
 // 并附加到对应的步骤上。原始分析中 LLM 会在文本响应中直接生成 json:echarts 块，
-// 这些图表配置需要在导出时保存，以便快捷分析包重放时能重新显示图表。
+// 这些图表配置需要在导出时保存，以便分析技能包重放时能重新显示图表。
 func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 	if thread == nil || len(thread.Messages) == 0 || len(steps) == 0 {
 		return

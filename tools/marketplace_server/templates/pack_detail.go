@@ -10,8 +10,8 @@ const packDetailHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.PackName}} - 快捷分析包市场</title>
-    <meta property="og:title" content="{{.PackName}} - 快捷分析包市场" />
+    <title>{{.PackName}} - 分析技能包市场</title>
+    <meta property="og:title" content="{{.PackName}} - 分析技能包市场" />
     <meta property="og:description" content="{{.PackDescription}}" />
     <meta property="og:type" content="product" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -97,7 +97,7 @@ const packDetailHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">快捷分析包市场</span></a>
+        <a class="logo" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div>{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
     {{if .Error}}
@@ -152,7 +152,7 @@ const packDetailHTML = `<!DOCTYPE html>
     <div class="msg msg-ok" id="successMsg"></div>
     <div class="msg msg-err" id="errorMsg"></div>
     {{end}}
-    <div class="foot"><p class="foot-text">Vantagics <span data-i18n="site_name">快捷分析包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p></div>
+    <div class="foot"><p class="foot-text">Vantagics <span data-i18n="site_name">分析技能包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p></div>
 </div>
 <div class="copy-toast" id="copyToast" data-i18n="link_copied">链接已复制</div>
 <script>
@@ -197,7 +197,7 @@ var dlURLWindows="{{.DownloadURLWindows}}",dlURLMacOS="{{.DownloadURLMacOS}}";
 })();
 function showMsg(a,b){var s=document.getElementById("successMsg"),e=document.getElementById("errorMsg");if(s)s.style.display="none";if(e)e.style.display="none";if(a==="success"&&s){s.textContent=b;s.style.display="block"}else if(e){e.textContent=b;e.style.display="block"}}
 function copyLink(){navigator.clipboard.writeText(location.href).then(function(){var t=document.getElementById("copyToast");t.classList.add("show");setTimeout(function(){t.classList.remove("show")},2e3)})}
-function claimPack(){if(!confirm(window._i18n("add_to_purchased_confirm","是否将此分析包添加到您的已购快捷分析包中？")))return;var b=document.getElementById("claimBtn");b.disabled=!0;b.innerHTML=window._i18n("claiming","领取中...");fetch("/pack/"+shareToken+"/claim",{method:"POST",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json()}).then(function(d){if(d.success){showMsg("success",window._i18n("claim_success","领取成功！"));b.outerHTML='<div class="badge-owned">'+window._i18n("claimed","已领取")+'</div>'}else{showMsg("error",d.error||window._i18n("claim_failed","领取失败"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")}}).catch(function(){showMsg("error",window._i18n("network_error","网络错误"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")})}
+function claimPack(){if(!confirm(window._i18n("add_to_purchased_confirm","是否将此分析包添加到您的已购分析技能包中？")))return;var b=document.getElementById("claimBtn");b.disabled=!0;b.innerHTML=window._i18n("claiming","领取中...");fetch("/pack/"+shareToken+"/claim",{method:"POST",headers:{"Content-Type":"application/json"}}).then(function(r){return r.json()}).then(function(d){if(d.success){showMsg("success",window._i18n("claim_success","领取成功！"));b.outerHTML='<div class="badge-owned">'+window._i18n("claimed","已领取")+'</div>'}else{showMsg("error",d.error||window._i18n("claim_failed","领取失败"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")}}).catch(function(){showMsg("error",window._i18n("network_error","网络错误"));b.disabled=!1;b.innerHTML=window._i18n("claim_free","免费领取")})}
 function showPurchaseDialog(){var d=document.getElementById("purchaseDialog");if(d)d.style.display="block";updateTotal()}
 function hidePurchaseDialog(){var d=document.getElementById("purchaseDialog");if(d)d.style.display="none"}
 function updateTotal(){var a=0;if(shareMode==="per_use"){var q=parseInt(document.getElementById("quantity").value)||1;if(q<1)q=1;a=creditsPrice*q}else if(shareMode==="subscription"){a=creditsPrice*(parseInt(document.getElementById("months").value)||1)}var el=document.getElementById("totalPrice");if(el)el.textContent=window._i18n("total","合计")+"："+a+" Credits"}

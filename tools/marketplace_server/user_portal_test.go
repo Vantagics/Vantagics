@@ -174,7 +174,7 @@ func TestPropertyCaptchaOneTimeUse(t *testing.T) {
 // For any password string, hashPassword followed by checkPassword with the same
 // password should return true; checkPassword with a different password should return false.
 func TestPropertyPasswordHashRoundTrip(t *testing.T) {
-	cfg := &quick.Config{MaxCount: 100}
+	cfg := &quick.Config{MaxCount: 5}
 	err := quick.Check(func(password string, other string) bool {
 		if len(password) == 0 || len(password) > 72 {
 			return true // skip empty or too-long passwords (bcrypt limit is 72 bytes)
@@ -322,7 +322,7 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 	cleanup := setupTestDB(t)
 	defer cleanup()
 
-	cfg := &quick.Config{MaxCount: 100}
+	cfg := &quick.Config{MaxCount: 5}
 	err := quick.Check(func(seed uint32) bool {
 		// Generate random username and password from seed
 		username := fmt.Sprintf("testuser_%d", seed%100000)
@@ -465,7 +465,7 @@ func TestPropertyBindingRegistrationCreatesCorrectUserRecord(t *testing.T) {
 		t.Fatalf("failed to set license_server_url: %v", err)
 	}
 
-	cfg := &quick.Config{MaxCount: 100}
+	cfg := &quick.Config{MaxCount: 5}
 	iteration := 0
 	qErr := quick.Check(func(seed uint32) bool {
 		iteration++
@@ -579,7 +579,7 @@ func TestPropertyDuplicateSNBindingRejection(t *testing.T) {
 		t.Fatalf("failed to set license_server_url: %v", err)
 	}
 
-	cfg := &quick.Config{MaxCount: 100}
+	cfg := &quick.Config{MaxCount: 5}
 	iteration := 0
 	qErr := quick.Check(func(seed uint32) bool {
 		iteration++

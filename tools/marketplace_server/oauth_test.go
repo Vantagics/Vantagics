@@ -25,6 +25,11 @@ func setupTestDB(t *testing.T) func() {
 	}
 	db = testDB
 
+	// Initialize global cache for tests (handlers may call globalCache methods)
+	if globalCache == nil {
+		globalCache = NewCache(DefaultCacheConfig())
+	}
+
 	return func() {
 		db.Close()
 		os.Remove(tmpFile.Name())

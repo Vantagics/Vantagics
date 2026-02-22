@@ -1,0 +1,460 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"time"
+
+	"golang.org/x/sync/singleflight"
+)
+
+// CacheConfig 缓存配置
+type CacheConfig struct {
+	MaxEntries       int           // 最大缓存条目数，默认 1000
+	StorefrontTTL    time.Duration // 小铺缓存 TTL，默认 5 分钟
+	PackDetailTTL    time.Duration // 分析包详情缓存 TTL，默认 3 分钟
+	ShareTokenTTL    time.Duration // ShareToken 映射缓存 TTL，默认 10 分钟
+	UserPurchasedTTL time.Duration // 用户已购买状态缓存 TTL，默认 1 分钟
+	CleanupInterval  time.Duration // 定期清理间隔，默认 10 分钟
+}
+
+// DefaultCacheConfig 返回默认缓存配置
+func DefaultCacheConfig() CacheConfig {
+	return CacheConfig{
+		MaxEntries:       1000,
+		StorefrontTTL:    5 * time.Minute,
+		PackDetailTTL:    3 * time.Minute,
+		ShareTokenTTL:    10 * time.Minute,
+		UserPurchasedTTL: 1 * time.Minute,
+		CleanupInterval:  10 * time.Minute,
+	}
+}
+
+// cacheEntry 缓存条目
+type cacheEntry struct {
+	data       interface{}   // 缓存的数据
+	createdAt  time.Time     // 创建时间
+	lastAccess time.Time     // 最后访问时间（用于 LRU）
+	ttl        time.Duration // 条目的 TTL
+}
+
+// StorefrontPublicData 小铺页面公共数据（缓存对象）
+type StorefrontPublicData struct {
+	Storefront      StorefrontInfo              // 小铺基本信息
+	FeaturedPacks   []StorefrontPackInfo        // 推荐分析包列表
+	Packs           []StorefrontPackInfo        // 分析包列表
+	Categories      []string                    // 分类列表
+	CustomProducts  []CustomProduct             // 自定义产品列表
+	LayoutConfig    LayoutConfig                // 布局配置
+	ThemeCSS        string                      // 主题样式 CSS
+	PackGridColumns int                         // 分析包网格列数
+	BannerData      map[int]CustomBannerSettings // 自定义横幅数据
+}
+
+// PackDetailPublicData 分析包详情页公共数据（缓存对象）
+type PackDetailPublicData struct {
+	ListingID     int64
+	ShareToken    string
+	PackName      string
+	PackDesc      string
+	SourceName    string
+	AuthorName    string
+	ShareMode     string
+	CreditsPrice  int
+	DownloadCount int
+	CategoryName  string
+}
+
+// Cache 统一缓存管理器
+type Cache struct {
+	mu            sync.RWMutex
+	config        CacheConfig
+	storefronts   map[string]*cacheEntry // key: buildStorefrontCacheKey(slug, filter, sort, search, category)
+	packDetails   map[string]*cacheEntry // key: shareToken
+	shareTokens   map[string]*cacheEntry // key: shareToken -> listingID
+	userPurchased map[int64]*cacheEntry  // key: userID -> map[int64]bool
+	sfGroup       singleflight.Group     // 防止缓存击穿
+}
+
+// NewCache 创建缓存实例
+func NewCache(config CacheConfig) *Cache {
+	return &Cache{
+		config:        config,
+		storefronts:   make(map[string]*cacheEntry),
+		packDetails:   make(map[string]*cacheEntry),
+		shareTokens:   make(map[string]*cacheEntry),
+		userPurchased: make(map[int64]*cacheEntry),
+	}
+}
+
+// buildStorefrontCacheKey 生成小铺缓存键
+// 格式: "sf:{slug}:{filter}:{sort}:{search}:{category}"
+func buildStorefrontCacheKey(slug, filter, sort, search, category string) string {
+	return fmt.Sprintf("sf:%s:%s:%s:%s:%s", slug, filter, sort, search, category)
+}
+
+// buildUserPurchasedCacheKey 生成用户已购买状态缓存键
+// 格式: "up:{userID}"
+func buildUserPurchasedCacheKey(userID int64) string {
+	return fmt.Sprintf("up:%d", userID)
+}
+
+// GetStorefrontData 获取小铺公共数据缓存
+func (c *Cache) GetStorefrontData(key string) (*StorefrontPublicData, bool) {
+	c.mu.Lock()
+	entry, ok := c.storefronts[key]
+	if !ok {
+		c.mu.Unlock()
+		return nil, false
+	}
+	// TTL 过期检查
+	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
+		delete(c.storefronts, key)
+		c.mu.Unlock()
+		return nil, false
+	}
+	// 更新 lastAccess
+	entry.lastAccess = time.Now()
+	data := entry.data.(*StorefrontPublicData)
+	c.mu.Unlock()
+	return data, true
+}
+
+// SetStorefrontData 设置小铺公共数据缓存
+func (c *Cache) SetStorefrontData(key string, data *StorefrontPublicData) {
+	now := time.Now()
+	c.mu.Lock()
+	c.storefronts[key] = &cacheEntry{
+		data:       data,
+		createdAt:  now,
+		lastAccess: now,
+		ttl:        c.config.StorefrontTTL,
+	}
+	c.mu.Unlock()
+	c.evictLRU()
+}
+
+// GetPackDetail 获取分析包详情缓存
+func (c *Cache) GetPackDetail(shareToken string) (*PackDetailPublicData, bool) {
+	c.mu.Lock()
+	entry, ok := c.packDetails[shareToken]
+	if !ok {
+		c.mu.Unlock()
+		return nil, false
+	}
+	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
+		delete(c.packDetails, shareToken)
+		c.mu.Unlock()
+		return nil, false
+	}
+	entry.lastAccess = time.Now()
+	data := entry.data.(*PackDetailPublicData)
+	c.mu.Unlock()
+	return data, true
+}
+
+// SetPackDetail 设置分析包详情缓存
+func (c *Cache) SetPackDetail(shareToken string, data *PackDetailPublicData) {
+	now := time.Now()
+	c.mu.Lock()
+	c.packDetails[shareToken] = &cacheEntry{
+		data:       data,
+		createdAt:  now,
+		lastAccess: now,
+		ttl:        c.config.PackDetailTTL,
+	}
+	c.mu.Unlock()
+	c.evictLRU()
+}
+
+// GetShareTokenMapping 获取 ShareToken 到 listingID 的映射缓存
+func (c *Cache) GetShareTokenMapping(shareToken string) (int64, bool) {
+	c.mu.Lock()
+	entry, ok := c.shareTokens[shareToken]
+	if !ok {
+		c.mu.Unlock()
+		return 0, false
+	}
+	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
+		delete(c.shareTokens, shareToken)
+		c.mu.Unlock()
+		return 0, false
+	}
+	entry.lastAccess = time.Now()
+	data := entry.data.(int64)
+	c.mu.Unlock()
+	return data, true
+}
+
+// SetShareTokenMapping 设置 ShareToken 映射缓存
+func (c *Cache) SetShareTokenMapping(shareToken string, listingID int64) {
+	now := time.Now()
+	c.mu.Lock()
+	c.shareTokens[shareToken] = &cacheEntry{
+		data:       listingID,
+		createdAt:  now,
+		lastAccess: now,
+		ttl:        c.config.ShareTokenTTL,
+	}
+	c.mu.Unlock()
+	c.evictLRU()
+}
+
+// GetUserPurchasedIDs 获取用户已购买分析包 ID 列表缓存
+func (c *Cache) GetUserPurchasedIDs(userID int64) (map[int64]bool, bool) {
+	c.mu.Lock()
+	entry, ok := c.userPurchased[userID]
+	if !ok {
+		c.mu.Unlock()
+		return nil, false
+	}
+	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
+		delete(c.userPurchased, userID)
+		c.mu.Unlock()
+		return nil, false
+	}
+	entry.lastAccess = time.Now()
+	data := entry.data.(map[int64]bool)
+	c.mu.Unlock()
+	return data, true
+}
+
+// SetUserPurchasedIDs 设置用户已购买分析包 ID 列表缓存
+func (c *Cache) SetUserPurchasedIDs(userID int64, ids map[int64]bool) {
+	now := time.Now()
+	c.mu.Lock()
+	c.userPurchased[userID] = &cacheEntry{
+		data:       ids,
+		createdAt:  now,
+		lastAccess: now,
+		ttl:        c.config.UserPurchasedTTL,
+	}
+	c.mu.Unlock()
+	c.evictLRU()
+}
+
+// DoStorefrontQuery 使用 singleflight 执行小铺数据查询
+func (c *Cache) DoStorefrontQuery(key string, fn func() (*StorefrontPublicData, error)) (*StorefrontPublicData, error) {
+	v, err, _ := c.sfGroup.Do(key, func() (interface{}, error) {
+		return fn()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*StorefrontPublicData), nil
+}
+
+// DoPackDetailQuery 使用 singleflight 执行分析包详情查询
+func (c *Cache) DoPackDetailQuery(shareToken string, fn func() (*PackDetailPublicData, error)) (*PackDetailPublicData, error) {
+	v, err, _ := c.sfGroup.Do("pd:"+shareToken, func() (interface{}, error) {
+		return fn()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*PackDetailPublicData), nil
+}
+
+// DoShareTokenResolve 使用 singleflight 执行 ShareToken 解析
+func (c *Cache) DoShareTokenResolve(shareToken string, fn func() (int64, error)) (int64, error) {
+	v, err, _ := c.sfGroup.Do("st:"+shareToken, func() (interface{}, error) {
+		return fn()
+	})
+	if err != nil {
+		return 0, err
+	}
+	return v.(int64), nil
+}
+
+// InvalidateStorefront 清除指定小铺的所有缓存条目
+// 遍历 storefronts map，删除所有以 "sf:{slug}:" 为前缀的条目
+func (c *Cache) InvalidateStorefront(slug string) {
+	prefix := fmt.Sprintf("sf:%s:", slug)
+	c.mu.Lock()
+	for key := range c.storefronts {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.storefronts, key)
+		}
+	}
+	c.mu.Unlock()
+	log.Printf("[CACHE] invalidated storefront cache for slug=%s", slug)
+}
+
+// InvalidatePackDetail 清除指定分析包详情缓存
+func (c *Cache) InvalidatePackDetail(shareToken string) {
+	c.mu.Lock()
+	delete(c.packDetails, shareToken)
+	c.mu.Unlock()
+	log.Printf("[CACHE] invalidated pack detail cache for shareToken=%s", shareToken)
+}
+
+// InvalidateUserPurchased 清除指定用户的已购买状态缓存
+func (c *Cache) InvalidateUserPurchased(userID int64) {
+	c.mu.Lock()
+	delete(c.userPurchased, userID)
+	c.mu.Unlock()
+	log.Printf("[CACHE] invalidated user purchased cache for userID=%d", userID)
+}
+
+// InvalidateStorefrontsByListingID 根据 listing_id 清除包含该分析包的所有小铺缓存
+// 查询数据库获取该 listing 所属的 storefront slug 列表，然后逐一失效
+func (c *Cache) InvalidateStorefrontsByListingID(listingID int64) {
+	rows, err := db.Query(`
+		SELECT DISTINCT s.store_slug
+		FROM storefront_packs sp
+		JOIN author_storefronts s ON s.id = sp.storefront_id
+		WHERE sp.pack_listing_id = ?`, listingID)
+	if err != nil {
+		log.Printf("[CACHE] failed to query storefronts for listingID=%d: %v", listingID, err)
+		return
+	}
+	defer rows.Close()
+
+	var slugs []string
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			log.Printf("[CACHE] failed to scan storefront slug for listingID=%d: %v", listingID, err)
+			continue
+		}
+		slugs = append(slugs, slug)
+	}
+
+	for _, slug := range slugs {
+		c.InvalidateStorefront(slug)
+	}
+	log.Printf("[CACHE] invalidated %d storefronts for listingID=%d", len(slugs), listingID)
+}
+
+// InvalidateShareTokenMapping 清除指定 ShareToken 的映射缓存
+func (c *Cache) InvalidateShareTokenMapping(shareToken string) {
+	c.mu.Lock()
+	delete(c.shareTokens, shareToken)
+	c.mu.Unlock()
+	log.Printf("[CACHE] invalidated share token mapping for shareToken=%s", shareToken)
+}
+
+// evictLRU 当缓存条目数超过上限时，淘汰 lastAccess 最早的条目
+func (c *Cache) evictLRU() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for c.entryCountLocked() > c.config.MaxEntries {
+		// 找到 lastAccess 最早的条目并删除
+		var oldestTime time.Time
+		var oldestMap string // "storefronts", "packDetails", "shareTokens", "userPurchased"
+		var oldestKeyStr string
+		var oldestKeyInt int64
+		first := true
+
+		for k, e := range c.storefronts {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestTime = e.lastAccess
+				oldestMap = "storefronts"
+				oldestKeyStr = k
+				first = false
+			}
+		}
+		for k, e := range c.packDetails {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestTime = e.lastAccess
+				oldestMap = "packDetails"
+				oldestKeyStr = k
+				first = false
+			}
+		}
+		for k, e := range c.shareTokens {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestTime = e.lastAccess
+				oldestMap = "shareTokens"
+				oldestKeyStr = k
+				first = false
+			}
+		}
+		for k, e := range c.userPurchased {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestTime = e.lastAccess
+				oldestMap = "userPurchased"
+				oldestKeyInt = k
+				first = false
+			}
+		}
+
+		switch oldestMap {
+		case "storefronts":
+			delete(c.storefronts, oldestKeyStr)
+		case "packDetails":
+			delete(c.packDetails, oldestKeyStr)
+		case "shareTokens":
+			delete(c.shareTokens, oldestKeyStr)
+		case "userPurchased":
+			delete(c.userPurchased, oldestKeyInt)
+		}
+	}
+}
+
+// entryCountLocked 返回当前缓存条目总数（调用者必须持有锁）
+func (c *Cache) entryCountLocked() int {
+	return len(c.storefronts) + len(c.packDetails) + len(c.shareTokens) + len(c.userPurchased)
+}
+
+// EntryCount 返回当前缓存条目总数
+func (c *Cache) EntryCount() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.entryCountLocked()
+}
+
+// cleanupExpired 清理所有已过期的缓存条目
+func (c *Cache) cleanupExpired() {
+	now := time.Now()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for k, e := range c.storefronts {
+		if now.After(e.createdAt.Add(e.ttl)) {
+			delete(c.storefronts, k)
+		}
+	}
+	for k, e := range c.packDetails {
+		if now.After(e.createdAt.Add(e.ttl)) {
+			delete(c.packDetails, k)
+		}
+	}
+	for k, e := range c.shareTokens {
+		if now.After(e.createdAt.Add(e.ttl)) {
+			delete(c.shareTokens, k)
+		}
+	}
+	for k, e := range c.userPurchased {
+		if now.After(e.createdAt.Add(e.ttl)) {
+			delete(c.userPurchased, k)
+		}
+	}
+}
+
+// startCleanupTicker 启动定期清理 goroutine
+func (c *Cache) startCleanupTicker(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[CACHE] cleanup ticker panic recovered: %v", r)
+			}
+		}()
+
+		ticker := time.NewTicker(c.config.CleanupInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				c.cleanupExpired()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}

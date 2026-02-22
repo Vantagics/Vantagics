@@ -14,7 +14,7 @@ const userDashboardHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title data-i18n="personal_center">个人中心 - 快捷分析包市场</title>
+    <title data-i18n="personal_center">个人中心 - 分析技能包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -2104,7 +2104,7 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自定义商品购买记录 - 快捷分析包市场</title>
+    <title>自定义商品购买记录 - 分析技能包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -2176,7 +2176,7 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">快捷分析包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">分析技能包市场</span></a>
         <a class="nav-link" href="/user/">← 返回个人中心</a>
     </nav>
 
@@ -2245,7 +2245,7 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
     </div>
 
     <div class="foot">
-        <p class="foot-text">Vantagics 快捷分析包市场 · <a href="/">浏览更多</a></p>
+        <p class="foot-text">Vantagics 分析技能包市场 · <a href="/">浏览更多</a></p>
     </div>
 </div>
 </body>

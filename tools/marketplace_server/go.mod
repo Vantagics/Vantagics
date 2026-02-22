@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/crypto v0.48.0
+	golang.org/x/sync v0.19.0
 	modernc.org/sqlite v1.34.5
 )
 

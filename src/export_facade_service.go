@@ -1471,7 +1471,7 @@ func (e *ExportFacadeService) PrepareComprehensiveReport(req ComprehensiveReport
 				continue
 			}
 			trimmed := strings.TrimSpace(msg.Content)
-			if strings.HasPrefix(trimmed, "✅ 快捷分析包执行完成") || strings.HasPrefix(trimmed, "⏭️") {
+			if strings.HasPrefix(trimmed, "✅ 分析技能包执行完成") || strings.HasPrefix(trimmed, "⏭️") {
 				continue
 			}
 			if strings.HasPrefix(trimmed, "❌") {

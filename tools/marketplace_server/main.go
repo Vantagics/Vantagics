@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
@@ -45,6 +46,9 @@ import (
 
 // Global database connection
 var db *sql.DB
+
+// Global cache instance
+var globalCache *Cache
 
 // Session store (in-memory)
 var (
@@ -595,16 +599,29 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("handleHomepage: queryTopSalesProducts error: %v", err)
 	}
 
-	// 4. Read settings
+	// 4. Read settings (single query for all needed settings)
 	var downloadURLWindows, downloadURLMacOS, defaultLang string
-	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'download_url_windows'").Scan(&downloadURLWindows); err != nil && err != sql.ErrNoRows {
-		log.Printf("handleHomepage: read download_url_windows error: %v", err)
-	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'download_url_macos'").Scan(&downloadURLMacOS); err != nil && err != sql.ErrNoRows {
-		log.Printf("handleHomepage: read download_url_macos error: %v", err)
-	}
-	if err := db.QueryRow("SELECT value FROM settings WHERE key = 'default_language'").Scan(&defaultLang); err != nil && err != sql.ErrNoRows {
-		log.Printf("handleHomepage: read default_language error: %v", err)
+	settingsRows, settingsErr := db.Query("SELECT key, value FROM settings WHERE key IN ('download_url_windows', 'download_url_macos', 'default_language')")
+	if settingsErr != nil {
+		log.Printf("handleHomepage: read settings error: %v", settingsErr)
+	} else {
+		defer settingsRows.Close()
+		for settingsRows.Next() {
+			var k, v string
+			if settingsRows.Scan(&k, &v) == nil {
+				switch k {
+				case "download_url_windows":
+					downloadURLWindows = v
+				case "download_url_macos":
+					downloadURLMacOS = v
+				case "default_language":
+					defaultLang = v
+				}
+			}
+		}
+		if err := settingsRows.Err(); err != nil {
+			log.Printf("handleHomepage: settings rows iteration error: %v", err)
+		}
 	}
 
 	// 5. Assemble and render
@@ -1520,6 +1537,9 @@ func handleAdminPendingCustomProducts(w http.ResponseWriter, r *http.Request) {
 		}
 		products = append(products, p)
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[handleAdminPendingCustomProducts] rows iteration error: %v", err)
+	}
 	if products == nil {
 		products = []PendingProduct{}
 	}
@@ -1567,6 +1587,12 @@ func handleAdminCustomProductApprove(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[handleAdminCustomProductApprove] update error: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Invalidate storefront cache for the storefront owning this custom product
+	var slug string
+	if err := db.QueryRow("SELECT s.store_slug FROM custom_products cp JOIN author_storefronts s ON s.id = cp.storefront_id WHERE cp.id = ?", productID).Scan(&slug); err == nil && slug != "" {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -1619,6 +1645,12 @@ func handleAdminCustomProductReject(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[handleAdminCustomProductReject] update error: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
+	}
+
+	// Invalidate storefront cache for the storefront owning this custom product
+	var slug string
+	if err := db.QueryRow("SELECT s.store_slug FROM custom_products cp JOIN author_storefronts s ON s.id = cp.storefront_id WHERE cp.id = ?", productID).Scan(&slug); err == nil && slug != "" {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -1839,6 +1871,12 @@ func handleCustomProductCreate(w http.ResponseWriter, r *http.Request, userID in
 		return
 	}
 
+	// Invalidate storefront cache after creating a custom product
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品创建成功"), http.StatusFound)
 }
 
@@ -1935,6 +1973,12 @@ func handleCustomProductUpdate(w http.ResponseWriter, r *http.Request, userID in
 		return
 	}
 
+	// Invalidate storefront cache after updating a custom product
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品更新成功"), http.StatusFound)
 }
 
@@ -1991,6 +2035,12 @@ func handleCustomProductDelete(w http.ResponseWriter, r *http.Request, userID in
 		log.Printf("[handleCustomProductDelete] soft delete error: %v", err)
 		http.Error(w, "删除商品失败", http.StatusInternalServerError)
 		return
+	}
+
+	// Invalidate storefront cache after deleting a custom product
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已删除"), http.StatusFound)
@@ -2057,6 +2107,12 @@ func handleCustomProductDelist(w http.ResponseWriter, r *http.Request, userID in
 		return
 	}
 
+	// Invalidate storefront cache after delisting a custom product
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已下架"), http.StatusFound)
 }
 
@@ -2120,6 +2176,12 @@ func handleCustomProductSubmit(w http.ResponseWriter, r *http.Request, userID in
 		log.Printf("[handleCustomProductSubmit] submit error: %v", err)
 		http.Error(w, "提交审核失败", http.StatusInternalServerError)
 		return
+	}
+
+	// Invalidate storefront cache after submitting a custom product for review
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	http.Redirect(w, r, "/user/storefront/custom-products?success="+url.QueryEscape("商品已提交审核"), http.StatusFound)
@@ -4116,6 +4178,9 @@ func backfillShareTokens(database *sql.DB) {
 			ids = append(ids, id)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[BACKFILL] rows iteration error: %v", err)
+	}
 	for _, id := range ids {
 		token := generateShareToken()
 		if _, err := database.Exec("UPDATE pack_listings SET share_token = ? WHERE id = ?", token, id); err != nil {
@@ -4239,12 +4304,10 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 
 // --- Storefront stub handlers (to be implemented in later tasks) ---
 
-func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+// queryStorefrontPublicData queries all public data for a storefront page from the database.
+// This includes storefront info, featured packs, packs list, categories, custom products,
+// layout config, theme CSS, pack grid columns, and banner data.
+func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*StorefrontPublicData, error) {
 	// 1. Query storefront by store_slug
 	var storefront StorefrontInfo
 	var logoContentType sql.NullString
@@ -4261,14 +4324,8 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
 		&layoutConfigRaw, &themeRaw,
 	)
-	if err == sql.ErrNoRows {
-		http.NotFound(w, r)
-		return
-	}
 	if err != nil {
-		log.Printf("[STOREFRONT-PAGE] failed to query storefront by slug %q: %v", slug, err)
-		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
-		return
+		return nil, err
 	}
 	if logoContentType.Valid {
 		storefront.LogoContentType = logoContentType.String
@@ -4279,7 +4336,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		storefront.StoreLayout = "default"
 	}
 
-	// Parse layout_config: use default if NULL/empty or parse error
+	// Parse layout_config
 	var layoutConfig LayoutConfig
 	if layoutConfigRaw.Valid && layoutConfigRaw.String != "" {
 		var parseErr error
@@ -4292,7 +4349,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		layoutConfig = DefaultLayoutConfig()
 	}
 
-	// Extract pack_grid columns from layout config, default to 2
+	// Extract pack_grid columns
 	packGridColumns := 2
 	for _, section := range layoutConfig.Sections {
 		if section.Type == "pack_grid" {
@@ -4306,7 +4363,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 	}
 
-	// Extract custom_banner settings for each banner section
+	// Extract custom_banner settings
 	bannerData := make(map[int]CustomBannerSettings)
 	for i, section := range layoutConfig.Sections {
 		if section.Type == "custom_banner" && len(section.Settings) > 0 {
@@ -4317,7 +4374,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 	}
 
-	// Resolve theme: fall back to default if invalid
+	// Resolve theme
 	theme := "default"
 	if themeRaw.Valid && themeRaw.String != "" {
 		if ValidThemes[themeRaw.String] {
@@ -4326,7 +4383,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	}
 	themeCSS := GetThemeCSS(theme)
 
-	// If store_name is empty, fall back to author display_name
+	// Fall back to author display_name if store_name is empty
 	if storefront.StoreName == "" {
 		var displayName string
 		err = db.QueryRow("SELECT COALESCE(display_name, '') FROM users WHERE id = ?", storefront.UserID).Scan(&displayName)
@@ -4335,7 +4392,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		}
 	}
 
-	// 2. Query featured packs (ordered by featured_sort_order ASC)
+	// 2. Query featured packs
 	var featuredPacks []StorefrontPackInfo
 	fpQuery := `SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''),
 		pl.share_mode, pl.credits_price, COALESCE(pl.download_count, 0),
@@ -4360,15 +4417,12 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 			}
 			featuredPacks = append(featuredPacks, fp)
 		}
+		if err := fpRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-PAGE] featured packs rows iteration error: %v", err)
+		}
 	}
 
-	// 3. Read query params for filter, sort, search, category
-	filter := r.URL.Query().Get("filter")
-	sortBy := r.URL.Query().Get("sort")
-	searchQuery := r.URL.Query().Get("q")
-	categoryFilter := r.URL.Query().Get("cat")
-
-	// Validate sort param (default to revenue)
+	// Validate sort param
 	switch sortBy {
 	case "downloads", "orders":
 		// valid
@@ -4376,14 +4430,14 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		sortBy = "revenue"
 	}
 
-	// 4. Query pack listing using queryStorefrontPacks
-	packs, err := queryStorefrontPacks(storefront.ID, storefront.AutoAddEnabled, sortBy, filter, searchQuery, categoryFilter)
+	// 3. Query packs
+	packs, err := queryStorefrontPacks(storefront.ID, storefront.AutoAddEnabled, sortBy, filter, search, category)
 	if err != nil {
 		log.Printf("[STOREFRONT-PAGE] failed to query storefront packs for storefront %d: %v", storefront.ID, err)
 		packs = []StorefrontPackInfo{}
 	}
 
-	// 4.1 Collect distinct category names for the category filter UI (lightweight query)
+	// 4. Query categories
 	var categories []string
 	catRows, catErr := db.Query(`SELECT DISTINCT COALESCE(c.name, '')
 		FROM storefront_packs sp
@@ -4401,8 +4455,10 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 				categories = append(categories, cat)
 			}
 		}
+		if err := catRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-PAGE] categories rows iteration error: %v", err)
+		}
 	}
-	// For auto-add mode, also include categories from all author's published packs
 	if storefront.AutoAddEnabled {
 		catRows2, catErr2 := db.Query(`SELECT DISTINCT COALESCE(c.name, '')
 			FROM pack_listings pl
@@ -4422,39 +4478,14 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 					categories = append(categories, cat)
 				}
 			}
+			if err := catRows2.Err(); err != nil {
+				log.Printf("[STOREFRONT-PAGE] auto-add categories rows iteration error: %v", err)
+			}
 			sort.Strings(categories)
 		}
 	}
 
-	// 5. Check if user is logged in (via cookie, same pattern as handlePackDetailPage)
-	isLoggedIn := false
-	var currentUserID int64
-	purchasedIDs := make(map[int64]bool)
-
-	cookie, cookieErr := r.Cookie("user_session")
-	if cookieErr == nil && isValidUserSession(cookie.Value) {
-		uid := getUserSessionUserID(cookie.Value)
-		if uid > 0 {
-			isLoggedIn = true
-			currentUserID = uid
-			// 6. Query purchased pack IDs for logged-in user
-			purchasedIDs = getUserPurchasedListingIDs(uid)
-		}
-	}
-
-	// 7. Get default language
-	defaultLang := getSetting("default_language")
-	if defaultLang == "" {
-		defaultLang = "zh-CN"
-	}
-
-	// 7.5 Detect preview mode: preview=1 AND current user is the storefront author
-	isPreviewMode := false
-	if r.URL.Query().Get("preview") == "1" && isLoggedIn && currentUserID == storefront.UserID {
-		isPreviewMode = true
-	}
-
-	// 7.6 Query custom products if enabled
+	// 5. Query custom products
 	var customProducts []CustomProduct
 	var cpEnabled int
 	_ = db.QueryRow("SELECT COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE id = ?", storefront.ID).Scan(&cpEnabled)
@@ -4483,14 +4514,107 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 				}
 				customProducts = append(customProducts, cp)
 			}
+			if err := cpRows.Err(); err != nil {
+				log.Printf("[STOREFRONT-PAGE] custom products rows iteration error: %v", err)
+			}
 		}
 	}
 
-	// 8. Build StorefrontPageData and render template
+	return &StorefrontPublicData{
+		Storefront:      storefront,
+		FeaturedPacks:   featuredPacks,
+		Packs:           packs,
+		Categories:      categories,
+		CustomProducts:  customProducts,
+		LayoutConfig:    layoutConfig,
+		ThemeCSS:        themeCSS,
+		PackGridColumns: packGridColumns,
+		BannerData:      bannerData,
+	}, nil
+}
+
+func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read query params for filter, sort, search, category
+	filter := r.URL.Query().Get("filter")
+	sortBy := r.URL.Query().Get("sort")
+	searchQuery := r.URL.Query().Get("q")
+	categoryFilter := r.URL.Query().Get("cat")
+
+	// Validate sort param (default to revenue)
+	switch sortBy {
+	case "downloads", "orders":
+		// valid
+	default:
+		sortBy = "revenue"
+	}
+
+	// 1. Try cache first
+	cacheKey := buildStorefrontCacheKey(slug, filter, sortBy, searchQuery, categoryFilter)
+	publicData, hit := globalCache.GetStorefrontData(cacheKey)
+	if !hit {
+		// 2. Cache miss — use singleflight to query database
+		var err error
+		publicData, err = globalCache.DoStorefrontQuery(cacheKey, func() (*StorefrontPublicData, error) {
+			return queryStorefrontPublicData(slug, filter, sortBy, searchQuery, categoryFilter)
+		})
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.NotFound(w, r)
+				return
+			}
+			log.Printf("[STOREFRONT-PAGE] cache miss, db query failed for slug %q: %v", slug, err)
+			http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+			return
+		}
+		globalCache.SetStorefrontData(cacheKey, publicData)
+	}
+
+	// 3. Check if user is logged in and handle user-specific data
+	isLoggedIn := false
+	var currentUserID int64
+	purchasedIDs := make(map[int64]bool)
+
+	cookie, cookieErr := r.Cookie("user_session")
+	if cookieErr == nil && isValidUserSession(cookie.Value) {
+		uid := getUserSessionUserID(cookie.Value)
+		if uid > 0 {
+			isLoggedIn = true
+			currentUserID = uid
+			// 4. Try user purchased cache first
+			cachedIDs, userHit := globalCache.GetUserPurchasedIDs(uid)
+			if userHit {
+				purchasedIDs = cachedIDs
+			} else {
+				purchasedIDs = getUserPurchasedListingIDs(uid)
+				globalCache.SetUserPurchasedIDs(uid, purchasedIDs)
+			}
+		}
+	}
+
+	// 5. Get default language
+	defaultLang := getSetting("default_language")
+	if defaultLang == "" {
+		defaultLang = "zh-CN"
+	}
+
+	// 6. Detect preview mode
+	isPreviewMode := false
+	if r.URL.Query().Get("preview") == "1" && isLoggedIn && currentUserID == publicData.Storefront.UserID {
+		isPreviewMode = true
+	}
+
+	// 7. Build StorefrontPageData and render template
+	downloadURLWindows := getSetting("download_url_windows")
+	downloadURLMacOS := getSetting("download_url_macos")
 	data := StorefrontPageData{
-		Storefront:         storefront,
-		FeaturedPacks:      featuredPacks,
-		Packs:              packs,
+		Storefront:         publicData.Storefront,
+		FeaturedPacks:      publicData.FeaturedPacks,
+		Packs:              publicData.Packs,
 		PurchasedIDs:       purchasedIDs,
 		IsLoggedIn:         isLoggedIn,
 		CurrentUserID:      currentUserID,
@@ -4498,22 +4622,21 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		Filter:             filter,
 		Sort:               sortBy,
 		SearchQuery:        searchQuery,
-		Categories:         categories,
+		Categories:         publicData.Categories,
 		CategoryFilter:     categoryFilter,
-		DownloadURLWindows: getSetting("download_url_windows"),
-		DownloadURLMacOS:   getSetting("download_url_macos"),
-		Sections:           layoutConfig.Sections,
-		ThemeCSS:           themeCSS,
-		PackGridColumns:    packGridColumns,
-		BannerData:         bannerData,
+		DownloadURLWindows: downloadURLWindows,
+		DownloadURLMacOS:   downloadURLMacOS,
+		Sections:           publicData.LayoutConfig.Sections,
+		ThemeCSS:           publicData.ThemeCSS,
+		PackGridColumns:    publicData.PackGridColumns,
+		BannerData:         publicData.BannerData,
 		IsPreviewMode:      isPreviewMode,
-		CustomProducts:     customProducts,
+		CustomProducts:     publicData.CustomProducts,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Select template based on store layout
 	tmpl := templates.StorefrontTmpl
-	if storefront.StoreLayout == "novelty" {
+	if publicData.Storefront.StoreLayout == "novelty" {
 		tmpl = templates.StorefrontNoveltyTmpl
 	}
 	if err := tmpl.Execute(w, data); err != nil {
@@ -4671,6 +4794,9 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 			}
 			authorPacks = append(authorPacks, ap)
 		}
+		if err := authorRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] authorRows iteration error: %v", err)
+		}
 	}
 
 	// Query storefront packs (joined with pack_listings)
@@ -4696,6 +4822,9 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			storefrontPacks = append(storefrontPacks, sp)
+		}
+		if err := spRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] spRows iteration error: %v", err)
 		}
 	}
 
@@ -4723,6 +4852,9 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 			}
 			featuredPacks = append(featuredPacks, fp)
 		}
+		if err := fpRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] fpRows iteration error: %v", err)
+		}
 	}
 
 	// Query storefront notifications ordered by created_at DESC
@@ -4743,6 +4875,9 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			notifications = append(notifications, n)
+		}
+		if err := nRows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] nRows iteration error: %v", err)
 		}
 	}
 
@@ -4795,6 +4930,9 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				customProducts = append(customProducts, cp)
+			}
+			if err := cpRows.Err(); err != nil {
+				log.Printf("[STOREFRONT-SETTINGS] cpRows iteration error: %v", err)
 			}
 		}
 	}
@@ -4862,6 +5000,12 @@ func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate storefront cache after successful settings update
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -4894,6 +5038,11 @@ func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "success": false, "error": "小铺不存在"})
 			return
 		}
+		// Invalidate storefront cache after successful layout switch
+		var slug string
+		if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+			globalCache.InvalidateStorefront(slug)
+		}
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "success": true})
 		return
 	}
@@ -4925,6 +5074,12 @@ func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate storefront cache after successful layout config update
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
@@ -4954,6 +5109,12 @@ func handleStorefrontSaveTheme(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "小铺不存在"})
 		return
+	}
+
+	// Invalidate storefront cache after successful theme update
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
@@ -5023,6 +5184,12 @@ func handleStorefrontUploadLogo(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
 		return
+	}
+
+	// Invalidate storefront cache after successful logo upload
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -5243,6 +5410,10 @@ func handleStorefrontUpdateSlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get old slug before update for cache invalidation
+	var oldSlug string
+	db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&oldSlug)
+
 	// Update store_slug in author_storefronts table
 	result, err := db.Exec(`UPDATE author_storefronts SET store_slug = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
 		slug, userID)
@@ -5262,6 +5433,12 @@ func handleStorefrontUpdateSlug(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
 		return
 	}
+
+	// Invalidate both old and new slug caches
+	if oldSlug != "" {
+		globalCache.InvalidateStorefront(oldSlug)
+	}
+	globalCache.InvalidateStorefront(slug)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -5329,6 +5506,12 @@ func handleStorefrontAddPack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate storefront cache after adding a pack
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -5379,6 +5562,12 @@ func handleStorefrontRemovePack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate storefront cache after removing a pack
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -5418,6 +5607,12 @@ func handleStorefrontToggleAutoAdd(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "小铺不存在，请先访问小铺设置页面"})
 		return
+	}
+
+	// Invalidate storefront cache after toggling auto-add
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "auto_add_enabled": autoAddEnabled == 1})
@@ -5649,6 +5844,12 @@ func handleStorefrontSetFeatured(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Invalidate storefront cache after setting/unsetting featured
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -5718,6 +5919,12 @@ func handleStorefrontReorderFeatured(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[STOREFRONT-REORDER-FEATURED] failed to commit transaction: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "更新排序失败"})
 		return
+	}
+
+	// Invalidate storefront cache after reordering featured packs
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE id = ?", storefrontID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -5796,6 +6003,9 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 			}
 			recipients = append(recipients, r)
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SEND-NOTIFY] rows iteration error: %v", err)
+		}
 	} else if scope == "partial" {
 		if listingIDsStr == "" {
 			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请选择至少一位收件人"})
@@ -5844,6 +6054,9 @@ func handleStorefrontSendNotify(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			recipients = append(recipients, r)
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[STOREFRONT-SEND-NOTIFY] rows iteration error: %v", err)
 		}
 	} else {
 		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "无效的 scope 参数"})
@@ -6201,6 +6414,9 @@ func handleStorefrontNotifyHistory(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		notifications = append(notifications, n)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[STOREFRONT-NOTIFY-HISTORY] rows iteration error: %v", err)
 	}
 
 	if notifications == nil {
@@ -7214,10 +7430,12 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		captchaID := createCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.SetupTmpl.Execute(w, map[string]interface{}{
+		if err := templates.SetupTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
-		})
+		}); err != nil {
+			log.Printf("[SETUP] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7245,11 +7463,13 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 	if errMsg != "" {
 		newCaptchaID := createCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.SetupTmpl.Execute(w, map[string]interface{}{
+		if err := templates.SetupTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     errMsg,
 			"Username":  username,
-		})
+		}); err != nil {
+			log.Printf("[SETUP] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7259,11 +7479,13 @@ func handleAdminSetup(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to save admin credentials: %v", err)
 		newCaptchaID := createCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.SetupTmpl.Execute(w, map[string]interface{}{
+		if err := templates.SetupTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     i18n.T(lang, "save_failed"),
 			"Username":  username,
-		})
+		}); err != nil {
+			log.Printf("[SETUP] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7290,10 +7512,12 @@ func handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		captchaID := createCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.LoginTmpl.Execute(w, map[string]interface{}{
+		if err := templates.LoginTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": captchaID,
 			"Error":     "",
-		})
+		}); err != nil {
+			log.Printf("[LOGIN] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7328,11 +7552,13 @@ func handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if errMsg != "" {
 		newCaptchaID := createCaptcha()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.LoginTmpl.Execute(w, map[string]interface{}{
+		if err := templates.LoginTmpl.Execute(w, map[string]interface{}{
 			"CaptchaID": newCaptchaID,
 			"Error":     errMsg,
 			"Username":  username,
-		})
+		}); err != nil {
+			log.Printf("[LOGIN] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7365,7 +7591,9 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 			"Error":     "",
 			"Redirect":  redirect,
 		})
-		templates.UserLoginTmpl.Execute(w, data)
+		if err := templates.UserLoginTmpl.Execute(w, data); err != nil {
+			log.Printf("[USER-LOGIN] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7417,7 +7645,9 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 			"Error":     errMsg,
 			"Redirect":  redirect,
 		})
-		templates.UserLoginTmpl.Execute(w, data)
+		if err := templates.UserLoginTmpl.Execute(w, data); err != nil {
+			log.Printf("[USER-LOGIN] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7445,7 +7675,9 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 			"Error":     "",
 			"Redirect":  redirect,
 		})
-		templates.UserRegisterTmpl.Execute(w, data)
+		if err := templates.UserRegisterTmpl.Execute(w, data); err != nil {
+			log.Printf("[USER-REGISTER] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -7470,7 +7702,9 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 			"Error":     msg,
 			"Redirect":  redirect,
 		})
-		templates.UserRegisterTmpl.Execute(w, data)
+		if err := templates.UserRegisterTmpl.Execute(w, data); err != nil {
+			log.Printf("[USER-REGISTER] template execute error: %v", err)
+		}
 	}
 
 	// Step 1: Verify captcha
@@ -8164,7 +8398,7 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 	if defaultLang == "" {
 		defaultLang = "zh-CN"
 	}
-	templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
+	if err := templates.UserDashboardTmpl.Execute(w, map[string]interface{}{
 		"User":                user,
 		"PurchasedPacks":      packs,
 		"HasPassword":         hasPassword,
@@ -8175,7 +8409,9 @@ func handleUserDashboard(w http.ResponseWriter, r *http.Request) {
 		"SuccessMsg":     successMsg,
 		"ErrorMsg":       errorMsg,
 		"DefaultLang":    defaultLang,
-	})
+	}); err != nil {
+		log.Printf("[USER-DASHBOARD] template execute error: %v", err)
+	}
 }
 
 // handleUserBilling renders the billing page showing all transaction records for the user.
@@ -8223,7 +8459,9 @@ func handleUserBilling(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[USER-BILLING] user %d: %d transaction records", userID, len(records))
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.UserBillingTmpl.Execute(w, struct{ Records []BillingRecord }{Records: records})
+	if err := templates.UserBillingTmpl.Execute(w, struct{ Records []BillingRecord }{Records: records}); err != nil {
+		log.Printf("[USER-BILLING] template execute error: %v", err)
+	}
 }
 
 // handleUserRenewPerUse handles per_use pack renewal from the user portal.
@@ -8347,6 +8585,10 @@ func handleUserRenewPerUse(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[USER-RENEW-USES] user %d renewed %d uses for pack %d (%s), cost=%d", userID, quantity, listingID, packName, totalCost)
+
+	// Invalidate user purchased cache after renewing per-use pack
+	globalCache.InvalidateUserPurchased(userID)
+
 	http.Redirect(w, r, "/user/?success=renew_uses", http.StatusFound)
 }
 
@@ -8464,6 +8706,10 @@ func handleUserRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[USER-RENEW-SUB] user %d renewed subscription for pack %d (%s), months=%d, cost=%d", userID, listingID, packName, months, totalCost)
+
+	// Invalidate user purchased cache after renewing subscription
+	globalCache.InvalidateUserPurchased(userID)
+
 	http.Redirect(w, r, "/user/?success=renew_subscription", http.StatusFound)
 }
 
@@ -9046,7 +9292,9 @@ func handleUserChangePassword(w http.ResponseWriter, r *http.Request) {
 			"Error":   errMsg,
 			"Success": successMsg,
 		})
-		templates.UserChangePasswordTmpl.Execute(w, data)
+		if err := templates.UserChangePasswordTmpl.Execute(w, data); err != nil {
+			log.Printf("[CHANGE-PASSWORD] template execute error: %v", err)
+		}
 	}
 
 	if r.Method == http.MethodGet {
@@ -9128,7 +9376,9 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 			"Email": email,
 			"Error": "",
 		})
-		templates.UserSetPasswordTmpl.Execute(w, data)
+		if err := templates.UserSetPasswordTmpl.Execute(w, data); err != nil {
+			log.Printf("[SET-PASSWORD] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -9153,7 +9403,9 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 			"Email": email,
 			"Error": errMsg,
 		})
-		templates.UserSetPasswordTmpl.Execute(w, data)
+		if err := templates.UserSetPasswordTmpl.Execute(w, data); err != nil {
+			log.Printf("[SET-PASSWORD] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -9175,7 +9427,9 @@ func handleUserSetPassword(w http.ResponseWriter, r *http.Request) {
 			"Email": email,
 			"Error": i18n.T(lang, "set_password_failed"),
 		})
-		templates.UserSetPasswordTmpl.Execute(w, errData)
+		if err := templates.UserSetPasswordTmpl.Execute(w, errData); err != nil {
+			log.Printf("[SET-PASSWORD] template execute error: %v", err)
+		}
 		return
 	}
 
@@ -9332,6 +9586,18 @@ func handleUpdateCategory(w http.ResponseWriter, r *http.Request, categoryID int
 	db.QueryRow("SELECT is_preset FROM categories WHERE id = ?", categoryID).Scan(&isPreset)
 	cat.IsPreset = isPreset == 1
 
+	// Invalidate pack detail cache for all packs in this category
+	packRows, err := db.Query("SELECT share_token FROM pack_listings WHERE category_id = ? AND share_token IS NOT NULL AND share_token != ''", categoryID)
+	if err == nil {
+		defer packRows.Close()
+		for packRows.Next() {
+			var st string
+			if err := packRows.Scan(&st); err == nil && st != "" {
+				globalCache.InvalidatePackDetail(st)
+			}
+		}
+	}
+
 	jsonResponse(w, http.StatusOK, cat)
 }
 
@@ -9370,6 +9636,18 @@ func handleDeleteCategory(w http.ResponseWriter, r *http.Request, categoryID int
 			"count": count,
 		})
 		return
+	}
+
+	// Invalidate pack detail cache for any packs in this category before deletion
+	packRows, err := db.Query("SELECT share_token FROM pack_listings WHERE category_id = ? AND share_token IS NOT NULL AND share_token != ''", categoryID)
+	if err == nil {
+		defer packRows.Close()
+		for packRows.Next() {
+			var st string
+			if err := packRows.Scan(&st); err == nil && st != "" {
+				globalCache.InvalidatePackDetail(st)
+			}
+		}
 	}
 
 	result, err := db.Exec("DELETE FROM categories WHERE id = ?", categoryID)
@@ -9575,6 +9853,27 @@ func handleGetPackDetail(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, detail)
 }
 
+// queryPackDetailPublicData queries the database for pack detail public data
+// given a shareToken and listingID. Returns a PackDetailPublicData or an error.
+func queryPackDetailPublicData(shareToken string, listingID int64) (*PackDetailPublicData, error) {
+	var pd PackDetailPublicData
+	pd.ListingID = listingID
+	pd.ShareToken = shareToken
+	err := db.QueryRow(`
+		SELECT pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
+		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
+		       COALESCE(c.name, '')
+		FROM pack_listings pl
+		LEFT JOIN categories c ON pl.category_id = c.id
+		WHERE pl.id = ? AND pl.status = 'published'`,
+		listingID,
+	).Scan(&pd.PackName, &pd.PackDesc, &pd.SourceName, &pd.AuthorName, &pd.ShareMode, &pd.CreditsPrice, &pd.DownloadCount, &pd.CategoryName)
+	if err != nil {
+		return nil, err
+	}
+	return &pd, nil
+}
+
 // handlePackDetailPage handles GET /pack/{share_token}.
 // Renders the server-side pack detail HTML page.
 // Optionally checks user login status via user_session cookie (not enforced).
@@ -9588,115 +9887,125 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 	shareToken := strings.TrimPrefix(r.URL.Path, "/pack/")
 	shareToken = strings.TrimSuffix(shareToken, "/")
 
-	// Resolve share_token to listing_id
-	listingID, err := resolveShareToken(shareToken)
-	if err != nil || listingID <= 0 {
-		lang := i18n.DetectLang(r)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-			"ListingID":    int64(0),
-			"ShareToken":   "",
-			"PackName":     "",
-			"PackDescription": "",
-			"SourceName":   "",
-			"AuthorName":   "",
-			"ShareMode":    "",
-			"CreditsPrice": 0,
-			"DownloadCount": 0,
-			"CategoryName": "",
-			"IsLoggedIn":   false,
-			"HasPurchased": false,
-			"Error":        i18n.T(lang, "invalid_pack_link"),
-			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-			"DownloadURLWindows": getSetting("download_url_windows"),
-			"DownloadURLMacOS":   getSetting("download_url_macos"),
+	// 5.1: Resolve share_token to listing_id using cache + singleflight
+	listingID, hit := globalCache.GetShareTokenMapping(shareToken)
+	if !hit {
+		var err error
+		listingID, err = globalCache.DoShareTokenResolve(shareToken, func() (int64, error) {
+			return resolveShareToken(shareToken)
 		})
-		return
+		if err != nil || listingID <= 0 {
+			lang := i18n.DetectLang(r)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+				"ListingID":    int64(0),
+				"ShareToken":   "",
+				"PackName":     "",
+				"PackDescription": "",
+				"SourceName":   "",
+				"AuthorName":   "",
+				"ShareMode":    "",
+				"CreditsPrice": 0,
+				"DownloadCount": 0,
+				"CategoryName": "",
+				"IsLoggedIn":   false,
+				"HasPurchased": false,
+				"Error":        i18n.T(lang, "invalid_pack_link"),
+				"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+				"DownloadURLWindows": getSetting("download_url_windows"),
+				"DownloadURLMacOS":   getSetting("download_url_macos"),
+			}); err != nil {
+				log.Printf("[PACK-DETAIL] template execute error: %v", err)
+			}
+			return
+		}
+		globalCache.SetShareTokenMapping(shareToken, listingID)
 	}
 
-	// Query pack detail from database
-	var packName, packDesc, sourceName, authorName, shareMode, categoryName string
-	var creditsPrice, downloadCount int
-	err = db.QueryRow(`
-		SELECT pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
-		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
-		       COALESCE(c.name, '')
-		FROM pack_listings pl
-		LEFT JOIN categories c ON pl.category_id = c.id
-		WHERE pl.id = ? AND pl.status = 'published'`,
-		listingID,
-	).Scan(&packName, &packDesc, &sourceName, &authorName, &shareMode, &creditsPrice, &downloadCount, &categoryName)
-	if err == sql.ErrNoRows {
-		lang := i18n.DetectLang(r)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-			"ListingID":    listingID,
-			"ShareToken":   shareToken,
-			"PackName":     "",
-			"PackDescription": "",
-			"SourceName":   "",
-			"AuthorName":   "",
-			"ShareMode":    "",
-			"CreditsPrice": 0,
-			"DownloadCount": 0,
-			"CategoryName": "",
-			"IsLoggedIn":   false,
-			"HasPurchased": false,
-			"Error":        i18n.T(lang, "pack_not_found"),
-			"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-			"DownloadURLWindows": getSetting("download_url_windows"),
-			"DownloadURLMacOS":   getSetting("download_url_macos"),
+	// 5.2: Query pack detail using cache + singleflight
+	packDetail, hit := globalCache.GetPackDetail(shareToken)
+	if !hit {
+		var err error
+		packDetail, err = globalCache.DoPackDetailQuery(shareToken, func() (*PackDetailPublicData, error) {
+			return queryPackDetailPublicData(shareToken, listingID)
 		})
-		return
-	}
-	if err != nil {
-		log.Printf("[PACK-DETAIL-PAGE] failed to query pack id=%d: %v", listingID, err)
-		http.Error(w, i18n.T(i18n.DetectLang(r), "server_internal_error"), http.StatusInternalServerError)
-		return
+		if err != nil {
+			if err == sql.ErrNoRows {
+				lang := i18n.DetectLang(r)
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+					"ListingID":    listingID,
+					"ShareToken":   shareToken,
+					"PackName":     "",
+					"PackDescription": "",
+					"SourceName":   "",
+					"AuthorName":   "",
+					"ShareMode":    "",
+					"CreditsPrice": 0,
+					"DownloadCount": 0,
+					"CategoryName": "",
+					"IsLoggedIn":   false,
+					"HasPurchased": false,
+					"Error":        i18n.T(lang, "pack_not_found"),
+					"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+					"DownloadURLWindows": getSetting("download_url_windows"),
+					"DownloadURLMacOS":   getSetting("download_url_macos"),
+				}); err != nil {
+					log.Printf("[PACK-DETAIL] template execute error: %v", err)
+				}
+				return
+			}
+			log.Printf("[PACK-DETAIL-PAGE] cache miss, db query failed for pack id=%d: %v", listingID, err)
+			http.Error(w, i18n.T(i18n.DetectLang(r), "server_internal_error"), http.StatusInternalServerError)
+			return
+		}
+		globalCache.SetPackDetail(shareToken, packDetail)
 	}
 
-	// Optionally check user login status (read user_session cookie, not enforced)
+	// 5.3: Check user login status and purchased state using cache
 	isLoggedIn := false
 	hasPurchased := false
-	var userID int64
 	cookie, cookieErr := r.Cookie("user_session")
 	if cookieErr == nil && isValidUserSession(cookie.Value) {
-		userID = getUserSessionUserID(cookie.Value)
+		userID := getUserSessionUserID(cookie.Value)
 		if userID > 0 {
 			isLoggedIn = true
 
-			// Check if user already purchased this pack
-			var count int
-			err = db.QueryRow(
-				"SELECT COUNT(*) FROM user_purchased_packs WHERE user_id = ? AND listing_id = ? AND (is_hidden IS NULL OR is_hidden = 0)",
-				userID, listingID,
-			).Scan(&count)
-			if err == nil && count > 0 {
-				hasPurchased = true
+			// Try user purchased cache first
+			cachedIDs, userHit := globalCache.GetUserPurchasedIDs(userID)
+			if userHit {
+				hasPurchased = cachedIDs[listingID]
+			} else {
+				purchasedIDs := getUserPurchasedListingIDs(userID)
+				globalCache.SetUserPurchasedIDs(userID, purchasedIDs)
+				hasPurchased = purchasedIDs[listingID]
 			}
 		}
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-		"ListingID":       listingID,
-		"ShareToken":      shareToken,
-		"PackName":        packName,
-		"PackDescription": packDesc,
-		"SourceName":      sourceName,
-		"AuthorName":      authorName,
-		"ShareMode":       shareMode,
-		"CreditsPrice":    creditsPrice,
-		"DownloadCount":   downloadCount,
-		"CategoryName":    categoryName,
+	if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
+		"ListingID":       packDetail.ListingID,
+		"ShareToken":      packDetail.ShareToken,
+		"PackName":        packDetail.PackName,
+		"PackDescription": packDetail.PackDesc,
+		"SourceName":      packDetail.SourceName,
+		"AuthorName":      packDetail.AuthorName,
+		"ShareMode":       packDetail.ShareMode,
+		"CreditsPrice":    packDetail.CreditsPrice,
+		"DownloadCount":   packDetail.DownloadCount,
+		"CategoryName":    packDetail.CategoryName,
 		"IsLoggedIn":      isLoggedIn,
 		"HasPurchased":    hasPurchased,
 		"Error":           "",
 		"MonthOptions":    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		"DownloadURLWindows": getSetting("download_url_windows"),
 		"DownloadURLMacOS":   getSetting("download_url_macos"),
-	})
+	}); err != nil {
+		log.Printf("[PACK-DETAIL] template execute error: %v", err)
+	}
 }
+
 
 // handleClaimFreePack handles POST /pack/{share_token}/claim.
 // Protected by userAuth middleware. Only allows claiming free packs (share_mode='free').
@@ -9762,6 +10071,9 @@ func handleClaimFreePack(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[CLAIM-FREE-PACK] failed to record download (user=%d, listing=%d): %v", userID, listingID, err)
 		// Non-critical: purchase record already created, so we still return success
 	}
+
+	// Invalidate user purchased cache after claiming a free pack
+	globalCache.InvalidateUserPurchased(userID)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -9931,6 +10243,10 @@ func handlePurchaseFromDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[PURCHASE-FROM-DETAIL] user %d purchased pack %d (%s), mode=%s, cost=%d", userID, listingID, packName, shareMode, totalCost)
+
+	// Invalidate user purchased cache after purchase
+	globalCache.InvalidateUserPurchased(userID)
+
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":          true,
 		"credits_deducted": totalCost,
@@ -10883,6 +11199,23 @@ func sanitizeDownloadFilename(name string) string {
 	return replacer.Replace(name)
 }
 
+// servePackFile writes the pack file data as an HTTP response with appropriate headers.
+func servePackFile(w http.ResponseWriter, packName string, fileData []byte, metaInfoStr sql.NullString, encryptionPassword string) {
+	metaInfoValue := "{}"
+	if metaInfoStr.Valid && metaInfoStr.String != "" {
+		metaInfoValue = metaInfoStr.String
+	}
+	if encryptionPassword != "" {
+		w.Header().Set("X-Encryption-Password", encryptionPassword)
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
+	w.Header().Set("X-Meta-Info", metaInfoValue)
+	w.WriteHeader(http.StatusOK)
+	w.Write(fileData)
+}
+
 func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -10909,6 +11242,8 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 	// Look up the pack listing.
 	// For re-downloads by users who already purchased, allow any status (including delisted).
 	// First try published, then check if user has a purchase record for non-published packs.
+	// NOTE: file_data is loaded eagerly here. For very large packs, consider a two-phase
+	// approach: query metadata first, verify auth, then load file_data only when serving.
 	var shareMode string
 	var creditsPrice int
 	var fileData []byte
@@ -10944,19 +11279,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		// Record download and return file data directly
 		_, _ = db.Exec("INSERT INTO user_downloads (user_id, listing_id, ip_address) VALUES (?, ?, ?)", userID, packID, getClientIP(r))
 
-		metaInfoValue := "{}"
-		if metaInfoStr.Valid && metaInfoStr.String != "" {
-			metaInfoValue = metaInfoStr.String
-		}
-		if encryptionPassword != "" {
-			w.Header().Set("X-Encryption-Password", encryptionPassword)
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
-		w.Header().Set("X-Meta-Info", metaInfoValue)
-		w.WriteHeader(http.StatusOK)
-		w.Write(fileData)
+		servePackFile(w, packName, fileData, metaInfoStr, encryptionPassword)
 		return
 	}
 
@@ -11047,6 +11370,9 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 						renewRows.Close()
+						if err := renewRows.Err(); err != nil {
+							log.Printf("[DOWNLOAD] renewRows iteration error: %v", err)
+						}
 					}
 
 					// Check if subscription is still active
@@ -11066,19 +11392,7 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 					log.Printf("Failed to upsert user purchased pack: %v", err)
 				}
 
-				metaInfoValue := "{}"
-				if metaInfoStr.Valid && metaInfoStr.String != "" {
-					metaInfoValue = metaInfoStr.String
-				}
-				if encryptionPassword != "" {
-					w.Header().Set("X-Encryption-Password", encryptionPassword)
-				}
-				w.Header().Set("Content-Type", "application/octet-stream")
-				w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
-				w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
-				w.Header().Set("X-Meta-Info", metaInfoValue)
-				w.WriteHeader(http.StatusOK)
-				w.Write(fileData)
+				servePackFile(w, packName, fileData, metaInfoStr, encryptionPassword)
 				return
 			}
 		}
@@ -11249,20 +11563,11 @@ func handleDownloadPack(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, packID, err)
 	}
 
+	// Invalidate user purchased cache after download/purchase
+	globalCache.InvalidateUserPurchased(userID)
+
 	// Return file data as binary response with meta_info header
-	metaInfoValue := "{}"
-	if metaInfoStr.Valid && metaInfoStr.String != "" {
-		metaInfoValue = metaInfoStr.String
-	}
-	if encryptionPassword != "" {
-		w.Header().Set("X-Encryption-Password", encryptionPassword)
-	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.qap"`, sanitizeDownloadFilename(packName)))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileData)))
-	w.Header().Set("X-Meta-Info", metaInfoValue)
-	w.WriteHeader(http.StatusOK)
-	w.Write(fileData)
+	servePackFile(w, packName, fileData, metaInfoStr, encryptionPassword)
 
 	// For per_use packs, initialize pack_usage_records on first download (non-critical)
 	if shareMode == "per_use" {
@@ -11413,6 +11718,9 @@ func handlePurchaseAdditionalUses(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[PURCHASE-USES] failed to update total_purchased (user=%d, listing=%d): %v", userID, packID, err)
 	}
+
+	// Invalidate user purchased cache after purchasing additional uses
+	globalCache.InvalidateUserPurchased(userID)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":         true,
@@ -11608,6 +11916,9 @@ func handleRenewSubscription(w http.ResponseWriter, r *http.Request) {
 	if err := upsertUserPurchasedPack(userID, packID); err != nil {
 		log.Printf("Failed to upsert user purchased pack (user=%d, listing=%d): %v", userID, packID, err)
 	}
+
+	// Invalidate user purchased cache after renewing subscription
+	globalCache.InvalidateUserPurchased(userID)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":             true,
@@ -12057,6 +12368,14 @@ func handleApproveReview(w http.ResponseWriter, r *http.Request, listingID int64
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
 	}
+
+	// Invalidate caches after approving a pack listing
+	globalCache.InvalidateStorefrontsByListingID(listingID)
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -12204,7 +12523,7 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	permsJSON, _ := json.Marshal(permissions)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	adminTmpl.Execute(w, map[string]interface{}{
+	if err := adminTmpl.Execute(w, map[string]interface{}{
 		"InitialCredits":  initialCredits,
 		"CreditCashRate":  creditCashRate,
 		"FeeRatePaypal":   feeRatePaypal,
@@ -12223,7 +12542,9 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"DownloadURLWindows":         getSetting("download_url_windows"),
 		"DownloadURLMacOS":           getSetting("download_url_macos"),
 		"SMTPConfigJSON":             template.JS(getSetting("smtp_config")),
-	})
+	}); err != nil {
+		log.Printf("[ADMIN-DASHBOARD] template execute error: %v", err)
+	}
 }
 
 
@@ -13294,10 +13615,12 @@ func handleAuthorWithdrawRecords(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	templates.UserWithdrawalRecordsTmpl.Execute(w, struct {
+	if err := templates.UserWithdrawalRecordsTmpl.Execute(w, struct {
 		Records   []WithdrawalRecord
 		TotalCash float64
-	}{Records: records, TotalCash: totalCash})
+	}{Records: records, TotalCash: totalCash}); err != nil {
+		log.Printf("[WITHDRAWAL-RECORDS] template execute error: %v", err)
+	}
 }
 
 // handleAuthorEditPack processes author pack metadata edit requests.
@@ -13380,6 +13703,12 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[AUTHOR-EDIT-PACK] user %d updated listing %d: name=%s mode=%s price=%d", userID, listingID, packName, shareMode, creditsPrice)
+
+	// Invalidate pack detail cache after editing pack info
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
 
 	// If AJAX request, return JSON instead of redirect
 	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
@@ -13755,6 +14084,13 @@ func handleAdminDelistPack(w http.ResponseWriter, r *http.Request) {
 		// Non-fatal: delist succeeded, just log the cascade failure
 	}
 
+	// Invalidate caches after delisting a pack
+	globalCache.InvalidateStorefrontsByListingID(listingID)
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -13803,6 +14139,14 @@ func handleAdminRelistPack(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "database_error"})
 		return
 	}
+
+	// Invalidate caches after relisting a pack
+	globalCache.InvalidateStorefrontsByListingID(listingID)
+	var shareToken string
+	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
+		globalCache.InvalidatePackDetail(shareToken)
+	}
+
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -13893,6 +14237,9 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 		accountMap[email] = acc
 		emailOrder = append(emailOrder, email)
 	}
+	if err := custRows.Err(); err != nil {
+		log.Printf("[ACCOUNT-LIST] custRows iteration error: %v", err)
+	}
 
 	// Step 2: Query author stats (published packs, revenue) grouped by email
 	// Only query for emails we already have in accountMap
@@ -13929,6 +14276,9 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 				acc.AuthorRevenue = authorRevenue
 			}
 		}
+		if err := authorRows.Err(); err != nil {
+			log.Printf("[ACCOUNT-LIST] authorRows iteration error: %v", err)
+		}
 	}
 
 	// Step 3: Load wallet balances only for emails in accountMap
@@ -13951,6 +14301,9 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+			if err := wRows.Err(); err != nil {
+				log.Printf("[ACCOUNT-LIST] wRows iteration error: %v", err)
+			}
 		}
 	}
 
@@ -13972,6 +14325,9 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 					acc.CustomProductsEnabled = cpEnabled == 1
 				}
 			}
+		}
+		if err := sfRows.Err(); err != nil {
+			log.Printf("[ACCOUNT-LIST] sfRows iteration error: %v", err)
 		}
 	}
 
@@ -14067,6 +14423,9 @@ func handleAdminAccountDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if err := idRows.Err(); err != nil {
+		log.Printf("[ACCOUNT-DETAIL] idRows iteration error: %v", err)
+	}
 	if len(userIDs) == 0 {
 		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "not_found"})
 		return
@@ -14104,6 +14463,9 @@ func handleAdminAccountDetail(w http.ResponseWriter, r *http.Request) {
 				sa.IsBlocked = blocked == 1
 				subAccounts = append(subAccounts, sa)
 			}
+		}
+		if err := saRows.Err(); err != nil {
+			log.Printf("[ACCOUNT-DETAIL] saRows iteration error: %v", err)
 		}
 	}
 
@@ -14153,6 +14515,9 @@ func handleAdminAccountDetail(w http.ResponseWriter, r *http.Request) {
 				&p.CreditsPrice, &p.DownloadCount, &p.TotalRevenue, &p.Status, &p.CreatedAt) == nil {
 				packs = append(packs, p)
 			}
+		}
+		if err := packRows.Err(); err != nil {
+			log.Printf("[ACCOUNT-DETAIL] packRows iteration error: %v", err)
 		}
 	}
 
@@ -14355,6 +14720,9 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 				email = em
 			}
 		}
+		if err := rows.Err(); err != nil {
+			log.Printf("[AUTHOR-DETAIL] rows iteration error: %v", err)
+		}
 		if len(userIDs) == 0 {
 			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "user_not_found"})
 			return
@@ -14385,6 +14753,9 @@ func handleAdminAuthorDetail(w http.ResponseWriter, r *http.Request) {
 					if err := idRows.Scan(&uid); err == nil {
 						userIDs = append(userIDs, uid)
 					}
+				}
+				if err := idRows.Err(); err != nil {
+					log.Printf("[AUTHOR-DETAIL] idRows iteration error: %v", err)
 				}
 			}
 		}
@@ -15659,6 +16030,13 @@ func main() {
 	} else {
 		i18n.DefaultLang = i18n.ZhCN
 	}
+
+	// Initialize global cache
+	cacheConfig := DefaultCacheConfig()
+	globalCache = NewCache(cacheConfig)
+	globalCache.startCleanupTicker(context.Background())
+	log.Printf("[CACHE] initialized: MaxEntries=%d, StorefrontTTL=%v, PackDetailTTL=%v, ShareTokenTTL=%v, UserPurchasedTTL=%v",
+		cacheConfig.MaxEntries, cacheConfig.StorefrontTTL, cacheConfig.PackDetailTTL, cacheConfig.ShareTokenTTL, cacheConfig.UserPurchasedTTL)
 
 	// Start background goroutine to clean up expired sessions and captchas
 	go func() {

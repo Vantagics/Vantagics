@@ -11,7 +11,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title>小铺管理 - 快捷分析包市场</title>
+    <title>小铺管理 - 分析技能包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -484,7 +484,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
 <div class="page">
     <!-- Navigation -->
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">快捷分析包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div style="display:flex;gap:8px;">
             <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank">🔗 查看小铺</a>
             <a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>
@@ -1004,7 +1004,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
 
     <!-- Footer -->
     <div class="foot">
-        <p class="foot-text">Vantagics <span data-i18n="site_name">快捷分析包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p>
+        <p class="foot-text">Vantagics <span data-i18n="site_name">分析技能包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p>
     </div>
 </div>
 
@@ -2187,7 +2187,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>订单记录 - 自定义商品 - 快捷分析包市场</title>
+    <title>订单记录 - 自定义商品 - 分析技能包市场</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -2282,7 +2282,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">快捷分析包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">分析技能包市场</span></a>
         <a class="nav-link" href="/user/storefront/">← 返回小铺管理</a>
     </nav>
 
@@ -2361,7 +2361,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
     </div>
 
     <div class="foot">
-        <p class="foot-text">Vantagics 快捷分析包市场 · <a href="/">浏览更多</a></p>
+        <p class="foot-text">Vantagics 分析技能包市场 · <a href="/">浏览更多</a></p>
     </div>
 </div>
 </body>

@@ -349,17 +349,17 @@ var chineseTranslations = map[string]string{
 	"comprehensive_report.pack_description":   "描述：",
 	"comprehensive_report.pack_source_name":   "原始数据源：",
 
-	// 快捷分析包 - 预览与导出
+	// 分析技能包 - 预览与导出
 	"qap.no_exportable_records":       "没有找到可导出的分析记录",
 	"qap.unknown_request":             "(未知请求)",
 	"qap.no_exportable_steps":         "所选分析请求没有可导出的操作",
 	"qap.no_exportable_operations":    "该会话没有可导出的分析操作",
-	"qap.load_pack_dialog_title":      "加载快捷分析包",
+	"qap.load_pack_dialog_title":      "加载分析技能包",
 
-	// 快捷分析包 - 导入
-	"qap.invalid_file_format":         "文件格式无效，无法解析快捷分析包: %v",
+	// 分析技能包 - 导入
+	"qap.invalid_file_format":         "文件格式无效，无法解析分析技能包: %v",
 	"qap.wrong_password":              "口令不正确",
-	"qap.invalid_pack_file":           "文件格式无效: 不是有效的快捷分析包文件",
+	"qap.invalid_pack_file":           "文件格式无效: 不是有效的分析技能包文件",
 	"qap.unsupported_version":         "不支持的分析包版本: %s，请升级软件后重试",
 	"qap.no_executable_steps":         "分析包中没有可执行的步骤",
 	"qap.schema_fetch_failed":         "无法获取目标数据源的 schema: %v",
@@ -368,24 +368,24 @@ var chineseTranslations = map[string]string{
 	"qap.permission_denied":           "权限不足: %s",
 	"qap.not_replay_session":          "该会话不是快捷分析会话",
 
-	// 快捷分析包 - 步骤标签
+	// 分析技能包 - 步骤标签
 	"qap.step_sql_query":              "SQL 查询 #%d",
 	"qap.step_python_script":          "Python 脚本 #%d",
 	"qap.step_generic":                "步骤 #%d",
 	"qap.step_execution_failed":       "步骤 %d 执行失败: %v",
 	"qap.step_python_not_configured":  "步骤 %d 执行失败: Python 环境未配置",
 
-	// 快捷分析包 - 导入验证
+	// 分析技能包 - 导入验证
 	"qap.table_not_exists":            "表 '%s' 不存在",
 	"qap.column_not_exists":           "字段 '%s.%s' 不存在",
 	"qap.step_sql_success":            "执行SQL成功 (步骤 %d):\n\n```json:table\n%s\n```",
 	"qap.step_sql_failed":             "执行SQL失败：%v\n\nSQL:\n```sql\n%s\n```",
 	"qap.step_execute_query":          "执行步骤 %d 的分析查询",
 
-	// 快捷分析包 - 执行消息
+	// 分析技能包 - 执行消息
 	"qap.step_skipped":                "⏭️ 步骤 %d (%s) 已跳过：依赖的前置步骤执行失败",
-	"qap.execution_complete":          "✅ 快捷分析包执行完成！共执行了 %d 个步骤。",
-	"qap.reexecution_complete":        "✅ 快捷分析包重新执行完成！共执行了 %d 个步骤。",
+	"qap.execution_complete":          "✅ 分析技能包执行完成！共执行了 %d 个步骤。",
+	"qap.reexecution_complete":        "✅ 分析技能包重新执行完成！共执行了 %d 个步骤。",
 	"qap.step_sql_error":              "❌ 步骤 %d (%s) 执行失败：%v\n\n> 📋 分析请求：%s\n\n```sql\n%s\n```",
 	"qap.step_sql_success_full":       "✅ 步骤 %d (%s):\n\n> 📋 分析请求：%s\n\n```json:table\n%s\n```",
 	"qap.step_sql_success_truncated":  "✅ 步骤 %d (%s) (共 %d 行，显示前 20 行):\n\n> 📋 分析请求：%s\n\n```json:table\n%s\n```",

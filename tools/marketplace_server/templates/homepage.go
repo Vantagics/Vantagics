@@ -34,7 +34,7 @@ const homepageHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title data-i18n="homepage.title">快捷分析包市场</title>
+    <title data-i18n="homepage.title">分析技能包市场</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -240,7 +240,7 @@ const homepageHTML = `<!DOCTYPE html>
                 <span class="logo-mark">
                     <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                 </span>
-                <span class="logo-text" data-i18n="site_name">快捷分析包市场</span>
+                <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
             </a>
             <div class="nav-actions">
                 {{if .UserID}}
@@ -253,7 +253,7 @@ const homepageHTML = `<!DOCTYPE html>
             </div>
         </nav>
         <div class="hero-body">
-            <h1 class="hero-title" data-i18n="homepage.hero_title">快捷分析包市场</h1>
+            <h1 class="hero-title" data-i18n="homepage.hero_title">分析技能包市场</h1>
             <p class="hero-desc" data-i18n="homepage.hero_desc">发现优质分析包，提升数据分析效率</p>
             {{if or .DownloadURLWindows .DownloadURLMacOS}}
             <div class="hero-buttons">
@@ -385,7 +385,7 @@ const homepageHTML = `<!DOCTYPE html>
 
     <!-- Footer (7.7) -->
     <footer class="footer">
-        <p class="footer-text" data-i18n="homepage.copyright">&copy; 2025 快捷分析包市场</p>
+        <p class="footer-text" data-i18n="homepage.copyright">&copy; 2025 分析技能包市场</p>
     </footer>
 
 </div>

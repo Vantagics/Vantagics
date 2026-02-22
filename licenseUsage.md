@@ -290,7 +290,7 @@ Auth server starting on :6699 (HTTP)
 
 ### 5.1 市场认证流程
 
-VantageData 快捷分析包市场使用 License 服务器进行用户认证，实现与授权系统的统一管理。
+VantageData 分析技能包市场使用 License 服务器进行用户认证，实现与授权系统的统一管理。
 
 #### 认证流程
 

@@ -51,7 +51,7 @@ const storefrontHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title>{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}} - 快捷分析包市场</title>
+    <title>{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}} - 分析技能包市场</title>
     <meta property="og:type" content="website" />
     <meta property="og:title" content="{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}" />
     <meta property="og:description" content="{{if .Storefront.Description}}{{truncateDesc .Storefront.Description 200}}{{else}}该作者暂未设置小铺描述{{end}}" />
@@ -94,15 +94,16 @@ const storefrontHTML = `<!DOCTYPE html>
             background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
             box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
-        .logo-mark svg { width: 20px; height: 20px; }
-        .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; letter-spacing: -0.3px; }
+        .logo-mark svg { width: 20px; height: 20px; fill: none; stroke: #fff; }
+        .logo-text { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
         .nav-actions { display: flex; align-items: center; gap: 8px; }
         .nav-link {
             padding: 8px 18px; font-size: 13px; font-weight: 600; color: #fff;
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+            background: linear-gradient(135deg, var(--primary-hover), #3730a3);
             border: 1px solid transparent; border-radius: 10px;
             text-decoration: none; transition: all .2s;
             box-shadow: 0 2px 8px rgba(99,102,241,0.2);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.15);
         }
         .nav-link:hover { box-shadow: 0 4px 12px rgba(99,102,241,0.3); transform: translateY(-1px); }
 
@@ -153,7 +154,7 @@ const storefrontHTML = `<!DOCTYPE html>
             margin-bottom: 8px; letter-spacing: -0.4px;
         }
         .store-desc {
-            font-size: 13px; color: #64748b; line-height: 1.7;
+            font-size: 13px; color: #475569; line-height: 1.7;
             max-width: 220px;
         }
         .store-stats {
@@ -165,7 +166,7 @@ const storefrontHTML = `<!DOCTYPE html>
             border-radius: 8px; border: 1px solid rgba(226,232,240,0.5);
         }
         .store-stat-val { font-size: 16px; font-weight: 800; color: var(--primary-hover); }
-        .store-stat-label { font-size: 10px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .store-stat-label { font-size: 10px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 
         /* ── Featured Section ── */
         .store-featured {
@@ -173,7 +174,7 @@ const storefrontHTML = `<!DOCTYPE html>
             display: flex; flex-direction: column;
         }
         .store-featured-title {
-            font-size: 11px; font-weight: 700; color: #94a3b8;
+            font-size: 11px; font-weight: 700; color: #64748b;
             margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
             letter-spacing: 0.8px; text-transform: uppercase;
         }
@@ -229,7 +230,7 @@ const storefrontHTML = `<!DOCTYPE html>
         .featured-tag-per_use { background: #eef2ff; color: #4338ca; }
         .featured-tag-subscription { background: #f5f3ff; color: #7c3aed; }
         .featured-desc {
-            font-size: 11px; color: #64748b; line-height: 1.5;
+            font-size: 11px; color: #475569; line-height: 1.5;
             margin-bottom: 10px; flex: 1;
             overflow: hidden; text-overflow: ellipsis;
             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -243,9 +244,9 @@ const storefrontHTML = `<!DOCTYPE html>
         .featured-price.price-paid { color: var(--primary-hover); }
         .featured-downloads {
             display: flex; align-items: center; gap: 3px;
-            font-size: 11px; color: #94a3b8; font-weight: 500;
+            font-size: 11px; color: #64748b; font-weight: 500;
         }
-        .featured-downloads svg { width: 12px; height: 12px; opacity: 0.6; }
+        .featured-downloads svg { width: 12px; height: 12px; opacity: 0.7; }
         .featured-empty-slot {
             background: rgba(255,255,255,0.4); border-radius: 14px; padding: 16px;
             border: 1px dashed rgba(203,213,225,0.6); display: flex;
@@ -296,13 +297,14 @@ const storefrontHTML = `<!DOCTYPE html>
         .filter-btn {
             padding: 7px 16px; border: none; border-radius: 8px;
             font-size: 12px; font-weight: 600; cursor: pointer;
-            background: transparent; color: #475569; transition: all 0.2s;
+            background: transparent; color: #334155; transition: all 0.2s;
             text-decoration: none; display: inline-block;
         }
-        .filter-btn:hover { color: #1e293b; background: #f1f5f9; }
+        .filter-btn:hover { color: #0f172a; background: #f1f5f9; }
         .filter-btn.active {
             background: linear-gradient(135deg, #4338ca, #3730a3); color: #fff;
             box-shadow: 0 2px 8px rgba(67,56,202,0.3);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.15);
         }
         .search-input {
             padding: 8px 16px; border: 1px solid #cbd5e1; border-radius: 10px;
@@ -371,10 +373,10 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .pack-item-meta {
             display: flex; align-items: center; gap: 14px;
-            font-size: 12px; color: #94a3b8;
+            font-size: 12px; color: #64748b;
         }
         .pack-item-meta .meta-item { display: flex; align-items: center; gap: 4px; }
-        .pack-item-meta .meta-item svg { width: 14px; height: 14px; opacity: 0.6; }
+        .pack-item-meta .meta-item svg { width: 14px; height: 14px; opacity: 0.7; }
         .pack-item-price { font-weight: 800; color: var(--primary-hover); font-size: 14px; letter-spacing: -0.2px; }
         .pack-item-price.price-free { color: #16a34a; }
 
@@ -521,7 +523,7 @@ const storefrontHTML = `<!DOCTYPE html>
             <span class="logo-mark">
                 <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
             </span>
-            <span class="logo-text" data-i18n="site_name">快捷分析包市场</span>
+            <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
         </a>
         <div class="nav-actions">
             {{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}
@@ -590,7 +592,7 @@ const storefrontHTML = `<!DOCTYPE html>
                             </div>
                         </div>
                         {{if .PackDesc}}<div class="featured-desc">{{.PackDesc}}</div>
-                        {{else}}<div class="featured-desc" style="color:#cbd5e1;">暂无描述</div>
+                        {{else}}<div class="featured-desc" style="color:#94a3b8;font-style:italic;">暂无描述</div>
                         {{end}}
                         <div class="featured-footer">
                             {{if eq .ShareMode "free"}}
@@ -789,7 +791,7 @@ const storefrontHTML = `<!DOCTYPE html>
 
     <!-- Footer -->
     <div class="foot">
-        <p class="foot-text">Vantagics <span data-i18n="site_name">快捷分析包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p>
+        <p class="foot-text">Vantagics <span data-i18n="site_name">分析技能包市场</span> · <a href="/" data-i18n="browse_more">浏览更多</a></p>
         <div class="powered-by">
             Powered by
             <a href="https://vantagics.com" target="_blank" rel="noopener">
@@ -914,7 +916,7 @@ function changeCat(val) {
 }
 
 function claimPack(shareToken) {
-    if (!confirm(window._i18n('add_to_purchased_confirm', '是否将此分析包添加到您的已购快捷分析包中？'))) return;
+    if (!confirm(window._i18n('add_to_purchased_confirm', '是否将此分析包添加到您的已购分析技能包中？'))) return;
     fetch('/pack/' + shareToken + '/claim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
