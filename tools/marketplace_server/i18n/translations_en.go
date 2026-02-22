@@ -815,6 +815,9 @@ var enUS = map[string]string{
 	"homepage.store_manage":       "Store Management",
 	"homepage.per_use_unit":       "use",
 	"homepage.monthly_unit":       "mo",
+	"homepage.newest_products":    "New Arrivals",
+	"homepage.categories":         "Browse Categories",
+	"homepage.packs_unit":         "packs",
 
 	// Storefront
 	"stat_packs":              "Packs",

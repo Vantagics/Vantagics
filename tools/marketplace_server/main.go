@@ -204,6 +204,13 @@ type HomepageProductInfo struct {
 	ShareToken    string
 }
 
+// HomepageCategoryInfo 首页分类浏览卡片数据
+type HomepageCategoryInfo struct {
+	ID        int64
+	Name      string
+	PackCount int
+}
+
 // HomepageData 首页模板数据
 type HomepageData struct {
 	UserID             int64
@@ -215,6 +222,8 @@ type HomepageData struct {
 	TopSalesStores     []HomepageStoreInfo
 	TopDownloadsStores []HomepageStoreInfo
 	TopSalesProducts   []HomepageProductInfo
+	NewestProducts     []HomepageProductInfo
+	Categories         []HomepageCategoryInfo
 }
 
 // queryFeaturedStorefronts 查询管理员设置的明星店铺，按 sort_order 升序排列，最多 16 个。
@@ -255,7 +264,7 @@ func queryTopSalesStorefronts(limit int) ([]HomepageStoreInfo, error) {
 		FROM author_storefronts s
 		JOIN pack_listings pl ON pl.user_id = s.user_id AND pl.status = 'published'
 		JOIN credits_transactions ct ON ct.listing_id = pl.id
-			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')
+			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew', 'download')
 		GROUP BY s.id
 		HAVING total_sales > 0
 		ORDER BY total_sales DESC
@@ -322,7 +331,7 @@ func queryTopSalesProducts(limit int) ([]HomepageProductInfo, error) {
 		COALESCE(SUM(ABS(ct.amount)), 0) as total_sales
 		FROM pack_listings pl
 		JOIN credits_transactions ct ON ct.listing_id = pl.id
-			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')
+			AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew', 'download')
 		WHERE pl.status = 'published'
 		GROUP BY pl.id
 		HAVING total_sales > 0
@@ -346,6 +355,61 @@ func queryTopSalesProducts(limit int) ([]HomepageProductInfo, error) {
 		return nil, fmt.Errorf("queryTopSalesProducts rows: %w", err)
 	}
 	return products, nil
+}
+
+// queryNewestProducts 查询最新上架的已发布产品，按 created_at 降序，最多返回 limit 个。
+func queryNewestProducts(limit int) ([]HomepageProductInfo, error) {
+	rows, err := db.Query(`SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''), pl.author_name, pl.share_mode, pl.credits_price,
+		pl.download_count, COALESCE(pl.share_token, '')
+		FROM pack_listings pl
+		WHERE pl.status = 'published'
+		ORDER BY pl.created_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("queryNewestProducts: %w", err)
+	}
+	defer rows.Close()
+
+	var products []HomepageProductInfo
+	for rows.Next() {
+		var p HomepageProductInfo
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDesc, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.ShareToken); err != nil {
+			return nil, fmt.Errorf("queryNewestProducts scan: %w", err)
+		}
+		products = append(products, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryNewestProducts rows: %w", err)
+	}
+	return products, nil
+}
+
+// queryHomepageCategories 查询有已发布分析包的分类及其包数量。
+func queryHomepageCategories() ([]HomepageCategoryInfo, error) {
+	rows, err := db.Query(`SELECT c.id, c.name,
+		COUNT(CASE WHEN pl.status = 'published' THEN 1 END) AS pack_count
+		FROM categories c
+		LEFT JOIN pack_listings pl ON pl.category_id = c.id
+		GROUP BY c.id
+		HAVING pack_count > 0
+		ORDER BY pack_count DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("queryHomepageCategories: %w", err)
+	}
+	defer rows.Close()
+
+	var cats []HomepageCategoryInfo
+	for rows.Next() {
+		var c HomepageCategoryInfo
+		if err := rows.Scan(&c.ID, &c.Name, &c.PackCount); err != nil {
+			return nil, fmt.Errorf("queryHomepageCategories scan: %w", err)
+		}
+		cats = append(cats, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryHomepageCategories rows: %w", err)
+	}
+	return cats, nil
 }
 
 // handleAdminFeaturedStorefronts 处理明星店铺管理的所有 API 请求。
@@ -606,6 +670,16 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("handleHomepage: queryTopSalesProducts error: %v", err)
 	}
 
+	newestProducts, err := queryNewestProducts(16)
+	if err != nil {
+		log.Printf("handleHomepage: queryNewestProducts error: %v", err)
+	}
+
+	categories, err := queryHomepageCategories()
+	if err != nil {
+		log.Printf("handleHomepage: queryHomepageCategories error: %v", err)
+	}
+
 	// 4. Read settings (single query for all needed settings)
 	var downloadURLWindows, downloadURLMacOS, defaultLang string
 	settingsRows, settingsErr := db.Query("SELECT key, value FROM settings WHERE key IN ('download_url_windows', 'download_url_macos', 'default_language')")
@@ -642,6 +716,8 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		TopSalesStores:     topSalesStores,
 		TopDownloadsStores: topDownloadsStores,
 		TopSalesProducts:   topSalesProducts,
+		NewestProducts:     newestProducts,
+		Categories:         categories,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

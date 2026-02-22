@@ -820,6 +820,9 @@ var zhCN = map[string]string{
 	"homepage.store_manage":       "店铺管理",
 	"homepage.per_use_unit":       "次",
 	"homepage.monthly_unit":       "月",
+	"homepage.newest_products":    "最新上架",
+	"homepage.categories":         "分类浏览",
+	"homepage.packs_unit":         "个分析包",
 
 	// Storefront
 	"stat_packs":              "分析包",

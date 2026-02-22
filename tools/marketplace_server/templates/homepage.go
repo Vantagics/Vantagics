@@ -229,6 +229,35 @@ const homepageHTML = `<!DOCTYPE html>
         }
         .product-card-downloads svg { width: 14px; height: 14px; opacity: 0.6; }
 
+        /* ── Category Card ── */
+        .category-card {
+            background: #fff; border-radius: 14px; padding: 20px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            text-decoration: none; color: inherit;
+            display: flex; align-items: center; gap: 14px;
+            transition: all 0.25s cubic-bezier(.4,0,.2,1);
+        }
+        .category-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 32px rgba(99,102,241,0.1), 0 2px 8px rgba(0,0,0,0.04);
+            border-color: #c7d2fe;
+        }
+        .category-card-icon {
+            width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+            background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .category-card-icon svg { width: 20px; height: 20px; color: #4f46e5; }
+        .category-card-info { flex: 1; min-width: 0; }
+        .category-card-name {
+            font-size: 14px; font-weight: 700; color: #0f172a;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .category-card-count {
+            font-size: 12px; color: #94a3b8; font-weight: 500; margin-top: 2px;
+        }
+
         /* ── Footer ── */
         .footer {
             text-align: center; margin-top: 40px; padding: 24px 0;
@@ -379,6 +408,72 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .TopSalesProducts}}
+            <a class="product-card" href="/store/share/{{.ShareToken}}">
+                <div class="product-card-top">
+                    <div class="product-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    </div>
+                    <div class="product-card-title">
+                        <span class="product-card-name" title="{{.PackName}}">{{.PackName}}</span>
+                        {{if eq .ShareMode "free"}}<span class="product-tag tag-free" data-i18n="free">免费</span>
+                        {{else if eq .ShareMode "per_use"}}<span class="product-tag tag-per-use" data-i18n="per_use">按次</span>
+                        {{else if eq .ShareMode "subscription"}}<span class="product-tag tag-subscription" data-i18n="subscription">订阅</span>
+                        {{end}}
+                    </div>
+                </div>
+                <div class="product-card-author">{{.AuthorName}}</div>
+                {{if .PackDesc}}<div class="product-card-desc">{{.PackDesc}}</div>{{end}}
+                <div class="product-card-footer">
+                    {{if eq .ShareMode "free"}}
+                    <span class="product-card-price price-free" data-i18n="free">免费</span>
+                    {{else if eq .ShareMode "per_use"}}
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.per_use_unit">次</span></span>
+                    {{else if eq .ShareMode "subscription"}}
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.monthly_unit">月</span></span>
+                    {{end}}
+                    <span class="product-card-downloads">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        {{.DownloadCount}}
+                    </span>
+                </div>
+            </a>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Categories Section -->
+    {{if .Categories}}
+    <div class="section">
+        <h2 class="section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <span data-i18n="homepage.categories">分类浏览</span>
+        </h2>
+        <div class="card-grid">
+            {{range .Categories}}
+            <a class="category-card" href="/api/packs?category_id={{.ID}}">
+                <div class="category-card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                </div>
+                <div class="category-card-info">
+                    <div class="category-card-name" title="{{.Name}}">{{.Name}}</div>
+                    <div class="category-card-count">{{.PackCount}} <span data-i18n="homepage.packs_unit">个分析包</span></div>
+                </div>
+            </a>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Newest Products Section -->
+    {{if .NewestProducts}}
+    <div class="section">
+        <h2 class="section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span data-i18n="homepage.newest_products">最新上架</span>
+        </h2>
+        <div class="card-grid">
+            {{range .NewestProducts}}
             <a class="product-card" href="/store/share/{{.ShareToken}}">
                 <div class="product-card-top">
                     <div class="product-card-icon">
