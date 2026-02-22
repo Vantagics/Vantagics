@@ -34,6 +34,7 @@ interface MarketBrowseDialogProps {
 }
 
 const TOPUP_URL = 'https://market.vantagics.com/user/credits';
+const PAGE_SIZE = 10;
 
 /**
  * Determines whether the purchased badge should be visible for a pack listing.
@@ -95,7 +96,6 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
     const [showInsufficientBalance, setShowInsufficientBalance] = useState(false);
 
     // Pagination state
-    const PAGE_SIZE = 10;
     const [currentPage, setCurrentPage] = useState(1);
 
     const filteredAndSortedPacks = useMemo(() => {
@@ -105,16 +105,15 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
         return result;
     }, [packs, shareModeFilter, searchKeyword, sortField, sortDirection]);
 
+    // Clamp currentPage so it never exceeds the actual page count
     const totalPages = Math.max(1, Math.ceil(filteredAndSortedPacks.length / PAGE_SIZE));
-    const paginatedPacks = useMemo(() => {
-        const start = (currentPage - 1) * PAGE_SIZE;
-        return filteredAndSortedPacks.slice(start, start + PAGE_SIZE);
-    }, [filteredAndSortedPacks, currentPage]);
+    const safePage = Math.min(currentPage, totalPages);
+    const paginatedPacks = filteredAndSortedPacks.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-    // Reset to page 1 when filters change
+    // Sync state when clamped (avoids stale UI on next interaction)
     useEffect(() => {
-        setCurrentPage(1);
-    }, [shareModeFilter, searchKeyword, sortField, sortDirection, selectedCategoryID]);
+        if (currentPage !== safePage) setCurrentPage(safePage);
+    }, [currentPage, safePage]);
 
     const fetchCategories = useCallback(async () => {
         try {
@@ -171,6 +170,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
 
     const handleCategoryChange = (catID: number) => {
         setSelectedCategoryID(catID);
+        setCurrentPage(1);
         fetchPacks(catID);
     };
 
@@ -353,7 +353,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                         ]).map(opt => (
                             <button
                                 key={opt.value}
-                                onClick={() => setShareModeFilter(opt.value)}
+                                onClick={() => { setShareModeFilter(opt.value); setCurrentPage(1); }}
                                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                                     shareModeFilter === opt.value
                                         ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
@@ -372,6 +372,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                             const parts = e.target.value.split('|');
                             setSortField(parts[0] as SortField);
                             setSortDirection(parts[1] as SortDirection);
+                            setCurrentPage(1);
                         }}
                         className="ml-auto px-2 py-1 text-xs border border-slate-200 dark:border-[#3e3e42] rounded-md bg-white dark:bg-[#1e1e1e] text-slate-700 dark:text-[#d4d4d4] focus:outline-none focus:ring-1 focus:ring-blue-500"
                     >
@@ -388,7 +389,7 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                         <input
                             type="text"
                             value={searchKeyword}
-                            onChange={e => setSearchKeyword(e.target.value)}
+                            onChange={e => { setSearchKeyword(e.target.value); setCurrentPage(1); }}
                             placeholder={t('search_packs_placeholder')}
                             className="pl-7 pr-3 py-1 text-xs w-40 border border-slate-200 dark:border-[#3e3e42] rounded-md bg-white dark:bg-[#1e1e1e] text-slate-700 dark:text-[#d4d4d4] placeholder-slate-400 dark:placeholder-[#6e6e6e] focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
@@ -524,18 +525,18 @@ const MarketBrowseDialog: React.FC<MarketBrowseDialogProps> = ({ onClose }) => {
                         <div className="flex items-center justify-center gap-3 pt-4">
                             <button
                                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage <= 1}
+                                disabled={safePage <= 1}
                                 className="px-3 py-1 text-xs font-medium rounded-md border border-slate-200 dark:border-[#3e3e42] text-slate-600 dark:text-[#b0b0b0] hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 aria-label={t('previous_page')}
                             >
                                 {t('previous_page')}
                             </button>
                             <span className="text-xs text-slate-500 dark:text-[#8e8e8e]">
-                                {t('page_info').replace('{0}', String(currentPage)).replace('{1}', String(totalPages))}
+                                {t('page_info').replace('{0}', String(safePage)).replace('{1}', String(totalPages))}
                             </span>
                             <button
                                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage >= totalPages}
+                                disabled={safePage >= totalPages}
                                 className="px-3 py-1 text-xs font-medium rounded-md border border-slate-200 dark:border-[#3e3e42] text-slate-600 dark:text-[#b0b0b0] hover:bg-slate-100 dark:hover:bg-[#2d2d30] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 aria-label={t('next_page')}
                             >
