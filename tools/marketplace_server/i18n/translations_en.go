@@ -808,6 +808,7 @@ var enUS = map[string]string{
 	"homepage.featured_stores":    "Featured Stores",
 	"homepage.top_sales_stores":   "Top Sales Stores",
 	"homepage.top_downloads_stores": "Top Downloads Stores",
+	"homepage.top_downloads_products": "Top Downloaded Products",
 	"homepage.top_sales_products": "Top Selling Products",
 	"homepage.download_windows":   "Windows Download",
 	"homepage.download_macos":     "macOS Download",

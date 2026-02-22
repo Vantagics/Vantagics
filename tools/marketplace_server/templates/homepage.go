@@ -442,6 +442,49 @@ const homepageHTML = `<!DOCTYPE html>
     </div>
     {{end}}
 
+    <!-- Top Downloads Products Section -->
+    {{if .TopDownloadsProducts}}
+    <div class="section">
+        <h2 class="section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span data-i18n="homepage.top_downloads_products">热门下载产品</span>
+        </h2>
+        <div class="card-grid">
+            {{range .TopDownloadsProducts}}
+            <a class="product-card" href="/store/share/{{.ShareToken}}">
+                <div class="product-card-top">
+                    <div class="product-card-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                    </div>
+                    <div class="product-card-title">
+                        <span class="product-card-name" title="{{.PackName}}">{{.PackName}}</span>
+                        {{if eq .ShareMode "free"}}<span class="product-tag tag-free" data-i18n="free">免费</span>
+                        {{else if eq .ShareMode "per_use"}}<span class="product-tag tag-per-use" data-i18n="per_use">按次</span>
+                        {{else if eq .ShareMode "subscription"}}<span class="product-tag tag-subscription" data-i18n="subscription">订阅</span>
+                        {{end}}
+                    </div>
+                </div>
+                <div class="product-card-author">{{.AuthorName}}</div>
+                {{if .PackDesc}}<div class="product-card-desc">{{.PackDesc}}</div>{{end}}
+                <div class="product-card-footer">
+                    {{if eq .ShareMode "free"}}
+                    <span class="product-card-price price-free" data-i18n="free">免费</span>
+                    {{else if eq .ShareMode "per_use"}}
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.per_use_unit">次</span></span>
+                    {{else if eq .ShareMode "subscription"}}
+                    <span class="product-card-price">{{.CreditsPrice}} Credits/<span data-i18n="homepage.monthly_unit">月</span></span>
+                    {{end}}
+                    <span class="product-card-downloads">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        {{.DownloadCount}}
+                    </span>
+                </div>
+            </a>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
     <!-- Categories Section -->
     {{if .Categories}}
     <div class="section">
@@ -451,7 +494,7 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .Categories}}
-            <a class="category-card" href="/api/packs?category_id={{.ID}}">
+            <a class="category-card" href="javascript:void(0)" onclick="loadCategoryPacks({{.ID}}, this)" data-cat-id="{{.ID}}">
                 <div class="category-card-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                 </div>
@@ -462,6 +505,14 @@ const homepageHTML = `<!DOCTYPE html>
             </a>
             {{end}}
         </div>
+    </div>
+    <div id="category-packs-section" class="section" style="display:none;">
+        <h2 class="section-title" id="category-packs-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span id="category-packs-name"></span>
+            <a href="javascript:void(0)" onclick="closeCategoryPacks()" style="margin-left:auto;font-size:13px;font-weight:600;color:#94a3b8;text-decoration:none;">✕</a>
+        </h2>
+        <div class="card-grid" id="category-packs-grid"></div>
     </div>
     {{end}}
 
@@ -514,6 +565,66 @@ const homepageHTML = `<!DOCTYPE html>
     </footer>
 
 </div>
+<script>
+function loadCategoryPacks(catId, el) {
+    var section = document.getElementById('category-packs-section');
+    var grid = document.getElementById('category-packs-grid');
+    var nameEl = document.getElementById('category-packs-name');
+    var catName = el.querySelector('.category-card-name').textContent;
+    nameEl.textContent = catName;
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#94a3b8;padding:20px;" data-i18n="loading">加载中...</div>';
+    section.style.display = '';
+    section.scrollIntoView({behavior:'smooth', block:'start'});
+    // highlight active
+    document.querySelectorAll('.category-card').forEach(function(c){c.style.borderColor='';});
+    el.style.borderColor = '#6366f1';
+    fetch('/api/packs?category_id=' + catId)
+        .then(function(r){return r.json();})
+        .then(function(data){
+            var packs = data.packs || [];
+            if (!packs.length) {
+                grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#94a3b8;padding:20px;" data-i18n="no_results">没有找到匹配的分析包</div>';
+                if(typeof applyI18n==='function') applyI18n();
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < packs.length; i++) {
+                var p = packs[i];
+                var token = p.share_token || '';
+                var tag = '', tagClass = '';
+                if (p.share_mode === 'free') { tag = '免费'; tagClass = 'tag-free'; }
+                else if (p.share_mode === 'per_use') { tag = '按次'; tagClass = 'tag-per-use'; }
+                else if (p.share_mode === 'subscription') { tag = '订阅'; tagClass = 'tag-subscription'; }
+                var priceHtml = '';
+                if (p.share_mode === 'free') priceHtml = '<span class="product-card-price price-free" data-i18n="free">免费</span>';
+                else if (p.share_mode === 'per_use') priceHtml = '<span class="product-card-price">' + p.credits_price + ' Credits/<span data-i18n="homepage.per_use_unit">次</span></span>';
+                else if (p.share_mode === 'subscription') priceHtml = '<span class="product-card-price">' + p.credits_price + ' Credits/<span data-i18n="homepage.monthly_unit">月</span></span>';
+                var desc = p.pack_description || '';
+                html += '<a class="product-card" href="/store/share/' + token + '">'
+                    + '<div class="product-card-top">'
+                    + '<div class="product-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>'
+                    + '<div class="product-card-title"><span class="product-card-name" title="' + p.pack_name + '">' + p.pack_name + '</span>'
+                    + (tag ? '<span class="product-tag ' + tagClass + '">' + tag + '</span>' : '')
+                    + '</div></div>'
+                    + '<div class="product-card-author">' + (p.author_name || '') + '</div>'
+                    + (desc ? '<div class="product-card-desc">' + desc + '</div>' : '')
+                    + '<div class="product-card-footer">' + priceHtml
+                    + '<span class="product-card-downloads"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>'
+                    + (p.download_count || 0) + '</span></div></a>';
+            }
+            grid.innerHTML = html;
+            if(typeof applyI18n==='function') applyI18n();
+        })
+        .catch(function(){
+            grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#ef4444;padding:20px;" data-i18n="load_failed">加载失败，请重试</div>';
+            if(typeof applyI18n==='function') applyI18n();
+        });
+}
+function closeCategoryPacks() {
+    document.getElementById('category-packs-section').style.display = 'none';
+    document.querySelectorAll('.category-card').forEach(function(c){c.style.borderColor='';});
+}
+</script>
 ` + I18nJS + `
 </body>
 </html>`

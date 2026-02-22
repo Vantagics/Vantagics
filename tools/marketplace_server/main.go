@@ -222,6 +222,7 @@ type HomepageData struct {
 	TopSalesStores     []HomepageStoreInfo
 	TopDownloadsStores []HomepageStoreInfo
 	TopSalesProducts   []HomepageProductInfo
+	TopDownloadsProducts []HomepageProductInfo
 	NewestProducts     []HomepageProductInfo
 	Categories         []HomepageCategoryInfo
 }
@@ -410,6 +411,33 @@ func queryHomepageCategories() ([]HomepageCategoryInfo, error) {
 		return nil, fmt.Errorf("queryHomepageCategories rows: %w", err)
 	}
 	return cats, nil
+}
+
+// queryTopDownloadsProducts 查询下载量最高的已发布产品，最多返回 limit 个。
+func queryTopDownloadsProducts(limit int) ([]HomepageProductInfo, error) {
+	rows, err := db.Query(`SELECT pl.id, pl.pack_name, COALESCE(pl.pack_description, ''), pl.author_name, pl.share_mode, pl.credits_price,
+		pl.download_count, COALESCE(pl.share_token, '')
+		FROM pack_listings pl
+		WHERE pl.status = 'published' AND pl.download_count > 0
+		ORDER BY pl.download_count DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("queryTopDownloadsProducts: %w", err)
+	}
+	defer rows.Close()
+
+	var products []HomepageProductInfo
+	for rows.Next() {
+		var p HomepageProductInfo
+		if err := rows.Scan(&p.ListingID, &p.PackName, &p.PackDesc, &p.AuthorName, &p.ShareMode, &p.CreditsPrice, &p.DownloadCount, &p.ShareToken); err != nil {
+			return nil, fmt.Errorf("queryTopDownloadsProducts scan: %w", err)
+		}
+		products = append(products, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("queryTopDownloadsProducts rows: %w", err)
+	}
+	return products, nil
 }
 
 // handleAdminFeaturedStorefronts 处理明星店铺管理的所有 API 请求。
@@ -670,6 +698,11 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("handleHomepage: queryTopSalesProducts error: %v", err)
 	}
 
+	topDownloadsProducts, err := queryTopDownloadsProducts(32)
+	if err != nil {
+		log.Printf("handleHomepage: queryTopDownloadsProducts error: %v", err)
+	}
+
 	newestProducts, err := queryNewestProducts(16)
 	if err != nil {
 		log.Printf("handleHomepage: queryNewestProducts error: %v", err)
@@ -716,6 +749,7 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		TopSalesStores:     topSalesStores,
 		TopDownloadsStores: topDownloadsStores,
 		TopSalesProducts:   topSalesProducts,
+		TopDownloadsProducts: topDownloadsProducts,
 		NewestProducts:     newestProducts,
 		Categories:         categories,
 	}

@@ -813,6 +813,7 @@ var zhCN = map[string]string{
 	"homepage.featured_stores":    "明星店铺",
 	"homepage.top_sales_stores":   "热销店铺",
 	"homepage.top_downloads_stores": "热门下载店铺",
+	"homepage.top_downloads_products": "热门下载产品",
 	"homepage.top_sales_products": "热销产品",
 	"homepage.download_windows":   "Windows 下载",
 	"homepage.download_macos":     "macOS 下载",
