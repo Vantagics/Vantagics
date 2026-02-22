@@ -2543,7 +2543,7 @@ function escapeHtml(str) {
 var featuredSearchTimer = null;
 
 function loadFeaturedStorefronts() {
-    apiFetch('/api/admin/featured-storefronts').then(function(data) {
+    apiFetch('/api/admin/featured-storefronts').then(function(r) { return r.json(); }).then(function(data) {
         if (!data.ok) { showMsg(data.error || 'Failed to load', true); return; }
         var list = data.data || [];
         var countEl = document.getElementById('featured-count');
@@ -2576,7 +2576,7 @@ function searchFeaturedStores() {
     var resultsDiv = document.getElementById('featured-search-results');
     if (q.length < 1) { resultsDiv.style.display = 'none'; return; }
     featuredSearchTimer = setTimeout(function() {
-        apiFetch('/api/admin/featured-storefronts/search?q=' + encodeURIComponent(q)).then(function(data) {
+        apiFetch('/api/admin/featured-storefronts/search?q=' + encodeURIComponent(q)).then(function(r) { return r.json(); }).then(function(data) {
             if (!data.ok || !data.data || data.data.length === 0) {
                 resultsDiv.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:13px;">' + window._i18n('no_matching_stores', '没有找到匹配的店铺') + '</div>';
                 resultsDiv.style.display = '';
@@ -2600,7 +2600,7 @@ function searchFeaturedStores() {
 function addFeatured(storefrontId) {
     var fd = new FormData();
     fd.append('storefront_id', storefrontId);
-    apiFetch('/api/admin/featured-storefronts', { method: 'POST', body: fd }).then(function(data) {
+    apiFetch('/api/admin/featured-storefronts', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
         if (!data.ok) { showMsg(data.error || 'Failed to add', true); return; }
         document.getElementById('featured-search-input').value = '';
         document.getElementById('featured-search-results').style.display = 'none';
@@ -2613,7 +2613,7 @@ function removeFeatured(storefrontId) {
     if (!confirm(window._i18n('confirm_remove_featured', '确定移除该明星店铺？'))) return;
     var fd = new FormData();
     fd.append('storefront_id', storefrontId);
-    apiFetch('/api/admin/featured-storefronts/remove', { method: 'POST', body: fd }).then(function(data) {
+    apiFetch('/api/admin/featured-storefronts/remove', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
         if (!data.ok) { showMsg(data.error || 'Failed to remove', true); return; }
         showMsg(window._i18n('featured_removed', '已移除明星店铺'));
         loadFeaturedStorefronts();
@@ -2631,7 +2631,7 @@ function moveFeatured(index, direction) {
     ids[newIndex] = tmp;
     var fd = new FormData();
     fd.append('ids', ids.join(','));
-    apiFetch('/api/admin/featured-storefronts/reorder', { method: 'POST', body: fd }).then(function(data) {
+    apiFetch('/api/admin/featured-storefronts/reorder', { method: 'POST', body: fd }).then(function(r) { return r.json(); }).then(function(data) {
         if (!data.ok) { showMsg(data.error || 'Failed to reorder', true); return; }
         loadFeaturedStorefronts();
     });
