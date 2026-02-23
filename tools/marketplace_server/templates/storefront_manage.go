@@ -374,10 +374,40 @@ const storefrontManageHTML = `<!DOCTYPE html>
         /* Layout option cards */
         .layout-option {
             padding: 14px; border-radius: 12px; border: 2px solid #e2e8f0;
-            background: #fff; transition: all 0.2s; text-align: center;
+            background: #fff; transition: all 0.25s ease; text-align: center;
+            position: relative;
         }
         .layout-option:hover { border-color: #cbd5e1; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
         .layout-option-active { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+        .layout-option.switching {
+            opacity: 0.6; pointer-events: none;
+        }
+        .layout-option.switching::after {
+            content: ''; position: absolute; top: 50%; left: 50%;
+            width: 20px; height: 20px; margin: -10px 0 0 -10px;
+            border: 2px solid #e2e8f0; border-top-color: #4f46e5;
+            border-radius: 50%; animation: layoutSpin 0.6s linear infinite;
+        }
+        @keyframes layoutSpin { to { transform: rotate(360deg); } }
+        .layout-option-active .layout-name { color: #4f46e5; }
+        .layout-option-active .layout-desc { color: #6366f1; }
+
+        /* Decoration confirmation modal */
+        .deco-modal-icon { font-size: 40px; text-align: center; margin-bottom: 16px; }
+        .deco-modal-title { font-size: 17px; font-weight: 700; color: #1e293b; text-align: center; margin-bottom: 8px; }
+        .deco-modal-desc { font-size: 14px; color: #64748b; text-align: center; line-height: 1.7; margin-bottom: 20px; }
+        .deco-modal-fee {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 14px 20px; background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-radius: 10px; border: 1px solid #f59e0b; margin-bottom: 20px;
+            font-size: 15px; font-weight: 700; color: #92400e;
+        }
+        .deco-modal-fee-free {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-color: #22c55e; color: #16a34a;
+        }
+        .deco-modal-actions { display: flex; gap: 10px; justify-content: center; }
+        .deco-modal-actions .btn { min-width: 120px; justify-content: center; }
         .layout-preview {
             height: 60px; border-radius: 8px; border: 1px solid #e2e8f0;
             padding: 8px; margin-bottom: 10px; overflow: hidden;
@@ -1055,6 +1085,21 @@ const storefrontManageHTML = `<!DOCTYPE html>
     </div>
 </div>
 
+<!-- Decoration Confirmation Modal -->
+<div class="modal-overlay" id="decoConfirmModal">
+    <div class="modal-box" style="max-width:420px;">
+        <button class="modal-close" onclick="closeDecoModal()">✕</button>
+        <div class="deco-modal-icon" id="decoModalIcon">🎨</div>
+        <div class="deco-modal-title" id="decoModalTitle"></div>
+        <div class="deco-modal-desc" id="decoModalDesc"></div>
+        <div class="deco-modal-fee" id="decoModalFee" style="display:none;"></div>
+        <div class="deco-modal-actions">
+            <button class="btn btn-ghost" onclick="closeDecoModal()" id="decoModalCancel">取消</button>
+            <button class="btn btn-indigo" onclick="confirmDecoAction()" id="decoModalConfirm">确认</button>
+        </div>
+    </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -1197,63 +1242,143 @@ function copyStoreUrl() {
 
 /* ===== Settings: Save Layout ===== */
 var _decorationSessionActive = false;
+var _decoModalCallback = null;
+var _decoModalIsLayoutSwitch = false;
+
+function openDecoModal(opts) {
+    var modal = document.getElementById('decoConfirmModal');
+    document.getElementById('decoModalIcon').textContent = opts.icon || '🎨';
+    document.getElementById('decoModalTitle').textContent = opts.title || '';
+    document.getElementById('decoModalDesc').textContent = opts.desc || '';
+    var feeEl = document.getElementById('decoModalFee');
+    if (opts.feeText) {
+        feeEl.textContent = opts.feeText;
+        feeEl.style.display = '';
+        feeEl.className = 'deco-modal-fee' + (opts.isFree ? ' deco-modal-fee-free' : '');
+    } else {
+        feeEl.style.display = 'none';
+    }
+    document.getElementById('decoModalConfirm').textContent = opts.confirmText || '确认';
+    document.getElementById('decoModalCancel').textContent = opts.cancelText || '取消';
+    _decoModalCallback = opts.onConfirm || null;
+    _decoModalIsLayoutSwitch = !!opts.isLayoutSwitch;
+    modal.classList.add('show');
+}
+
+function closeDecoModal() {
+    document.getElementById('decoConfirmModal').classList.remove('show');
+    _decoModalCallback = null;
+    if (_decoModalIsLayoutSwitch) revertLayoutRadio();
+    _decoModalIsLayoutSwitch = false;
+}
+
+function confirmDecoAction() {
+    document.getElementById('decoConfirmModal').classList.remove('show');
+    if (_decoModalCallback) { _decoModalCallback(); _decoModalCallback = null; }
+}
+
+function revertLayoutRadio() {
+    var currentActive = document.querySelector('.layout-option-active');
+    if (currentActive) {
+        var radio = currentActive.closest('label').querySelector('input[type=radio]');
+        if (radio) radio.checked = true;
+    }
+}
+
+function setLayoutSwitching(layout, on) {
+    var opt = document.getElementById('layout-opt-' + layout);
+    if (opt) {
+        if (on) opt.classList.add('switching');
+        else opt.classList.remove('switching');
+    }
+}
 
 function saveLayout(layout) {
     if (layout === 'custom') {
-        // Fetch decoration fee and prompt user before switching
+        // Fetch decoration fee and show confirmation modal
+        setLayoutSwitching('custom', true);
         fetch('/api/decoration-fee')
         .then(function(r) { return r.json(); })
         .then(function(d) {
+            setLayoutSwitching('custom', false);
             var fee = parseInt(d.fee || '0', 10);
-            var msg = fee > 0
-                ? (T('decoration_fee_confirm') || '启用自定义装修将收取 {fee} Credits 的装修费用，费用将在您发布装修后扣除。确定要开始装修吗？').replace('{fee}', fee)
-                : (T('decoration_free_confirm') || '当前自定义装修免费，确定要开始装修吗？');
-            if (!confirm(msg)) {
-                // Revert radio selection
-                var currentLayout = document.querySelector('.layout-option-active');
-                if (currentLayout) {
-                    var radio = currentLayout.closest('label').querySelector('input[type=radio]');
-                    if (radio) radio.checked = true;
-                }
-                return;
-            }
-            // User confirmed, switch to custom layout
-            _decorationSessionActive = true;
-            var fd = new FormData();
-            fd.append('layout', 'custom');
-            fetch('/user/storefront/layout', { method: 'POST', body: fd })
-            .then(function(r) { return r.json(); })
-            .then(function(d2) {
-                if (d2.success) {
-                    showToast(T('decoration_started') || '装修模式已开启，完成后请点击发布');
-                    document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
-                    var opt = document.getElementById('layout-opt-custom');
-                    if (opt) opt.classList.add('layout-option-active');
-                    showPublishDecorationBtn(fee);
-                } else {
-                    showMsg('err', d2.error || T('save_failed') || '保存失败');
-                }
-            }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
-        }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
+            var isFree = fee === 0;
+            openDecoModal({
+                icon: '🎨',
+                isLayoutSwitch: true,
+                title: isFree
+                    ? (T('decoration_free_confirm_title') || '开始自定义装修')
+                    : (T('decoration_fee_confirm_title') || '自定义装修需要付费'),
+                desc: isFree
+                    ? (T('decoration_free_confirm') || '当前自定义装修免费，确定要开始装修吗？')
+                    : (T('decoration_fee_confirm') || '启用自定义装修将收取 {fee} Credits 的装修费用，费用将在您发布装修后扣除。确定要开始装修吗？').replace('{fee}', fee),
+                feeText: isFree
+                    ? (T('decoration_fee_free_label') || '🎉 免费装修')
+                    : ('💰 ' + fee + ' Credits'),
+                isFree: isFree,
+                confirmText: isFree
+                    ? (T('decoration_start_btn') || '开始装修')
+                    : (T('decoration_start_paid_btn') || '确认并开始装修'),
+                cancelText: T('cancel') || '取消',
+                onConfirm: function() { doSwitchToCustom(fee); }
+            });
+        }).catch(function() {
+            setLayoutSwitching('custom', false);
+            revertLayoutRadio();
+            showMsg('err', T('network_error') || '网络错误');
+        });
         return;
     }
-    // Non-custom layout: hide publish button and save directly
+    // Non-custom layout: save directly with loading state
     _decorationSessionActive = false;
     hidePublishDecorationBtn();
+    setLayoutSwitching(layout, true);
     var fd = new FormData();
     fd.append('layout', layout);
     fetch('/user/storefront/layout', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
+        setLayoutSwitching(layout, false);
         if (d.success) {
             showToast(T('layout_switched') || '布局已切换');
             document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
             var opt = document.getElementById('layout-opt-' + layout);
             if (opt) opt.classList.add('layout-option-active');
         } else {
+            revertLayoutRadio();
             showMsg('err', d.error || T('save_failed') || '保存失败');
         }
-    }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
+    }).catch(function() {
+        setLayoutSwitching(layout, false);
+        revertLayoutRadio();
+        showMsg('err', T('network_error') || '网络错误');
+    });
+}
+
+function doSwitchToCustom(fee) {
+    _decorationSessionActive = true;
+    setLayoutSwitching('custom', true);
+    var fd = new FormData();
+    fd.append('layout', 'custom');
+    fetch('/user/storefront/layout', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d2) {
+        setLayoutSwitching('custom', false);
+        if (d2.success) {
+            showToast(T('decoration_started') || '装修模式已开启，完成后请点击发布');
+            document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
+            var opt = document.getElementById('layout-opt-custom');
+            if (opt) opt.classList.add('layout-option-active');
+            showPublishDecorationBtn(fee);
+        } else {
+            revertLayoutRadio();
+            showMsg('err', d2.error || T('save_failed') || '保存失败');
+        }
+    }).catch(function() {
+        setLayoutSwitching('custom', false);
+        revertLayoutRadio();
+        showMsg('err', T('network_error') || '网络错误');
+    });
 }
 
 function showPublishDecorationBtn(fee) {
@@ -1276,8 +1401,17 @@ function hidePublishDecorationBtn() {
 }
 
 function publishDecoration() {
-    var confirmMsg = T('decoration_publish_confirm') || '一旦发布，此次装修即完成，费用将被扣除。确定发布吗？';
-    if (!confirm(confirmMsg)) return;
+    openDecoModal({
+        icon: '🚀',
+        title: T('decoration_publish_confirm_title') || '确认发布装修',
+        desc: T('decoration_publish_confirm') || '一旦发布，此次装修即完成，费用将被扣除。确定发布吗？',
+        confirmText: T('decoration_publish_btn') || '🚀 发布装修',
+        cancelText: T('cancel') || '取消',
+        onConfirm: function() { doPublishDecoration(); }
+    });
+}
+
+function doPublishDecoration() {
     fetch('/user/storefront/decoration/publish', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
