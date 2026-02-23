@@ -53,7 +53,7 @@ const storefrontHTML = `<!DOCTYPE html>
     <meta name="default-lang" content="{{.DefaultLang}}">
     <title>{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}} - 分析技能包市场</title>
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}" />
+    <meta property="og:title" content="{{if .Storefront.StoreName}}{{.Storefront.StoreName}}的小铺{{else}}小铺{{end}}" />
     <meta property="og:description" content="{{if .Storefront.Description}}{{truncateDesc .Storefront.Description 200}}{{else}}该作者暂未设置小铺描述{{end}}" />
     {{if .Storefront.HasLogo}}<meta property="og:image" content="/store/{{.Storefront.StoreSlug}}/logo" />{{end}}
     <meta name="twitter:card" content="summary" />

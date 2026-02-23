@@ -830,6 +830,8 @@ type StorefrontManageData struct {
 	CurrentTheme           string // Current theme identifier for the theme selector
 	CustomProductsEnabled  bool   // Whether custom products feature is enabled for this storefront
 	CustomProducts         []CustomProduct // Custom products for this storefront (non-deleted)
+	DecorationFee          string // Current decoration fee setting for display
+	DecorationFeeMax       string // Maximum decoration fee limit
 }
 
 // CustomProduct 自定义商品
@@ -4404,6 +4406,8 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 		handleStorefrontFeaturedLogoDelete(w, r)
 	case path == "/layout" && r.Method == http.MethodPost:
 		handleStorefrontSaveLayout(w, r)
+	case path == "/decoration/publish" && r.Method == http.MethodPost:
+		handlePublishDecoration(w, r)
 	case path == "/theme" && r.Method == http.MethodPost:
 		handleStorefrontSaveTheme(w, r)
 	case path == "/notify" && r.Method == http.MethodPost:
@@ -5054,6 +5058,15 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	decorationFee := getSetting("decoration_fee")
+	if decorationFee == "" {
+		decorationFee = "0"
+	}
+	decorationFeeMax := getSetting("decoration_fee_max")
+	if decorationFeeMax == "" {
+		decorationFeeMax = "1000"
+	}
+
 	data := StorefrontManageData{
 		Storefront:            storefront,
 		AuthorPacks:           authorPacks,
@@ -5068,6 +5081,8 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		CurrentTheme:          currentTheme,
 		CustomProductsEnabled: customProductsEnabled,
 		CustomProducts:        customProducts,
+		DecorationFee:         decorationFee,
+		DecorationFeeMax:      decorationFeeMax,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -5963,8 +5978,8 @@ func handleStorefrontSetFeatured(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	} else {
-		// Unset featured: clear is_featured, featured_sort_order, and cascade clear logo data
-		_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0, logo_data = NULL, logo_content_type = NULL WHERE storefront_id = ? AND pack_listing_id = ?`,
+		// Unset featured: clear is_featured and featured_sort_order
+		_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE storefront_id = ? AND pack_listing_id = ?`,
 			storefrontID, packListingID)
 		if err != nil {
 			log.Printf("[STOREFRONT-SET-FEATURED] failed to unset featured for storefront %d, pack %d: %v", storefrontID, packListingID, err)
@@ -12687,6 +12702,8 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"DownloadURLWindows":         getSetting("download_url_windows"),
 		"DownloadURLMacOS":           getSetting("download_url_macos"),
 		"SMTPConfigJSON":             template.JS(getSetting("smtp_config")),
+		"DecorationFee":              func() string { v := getSetting("decoration_fee"); if v == "" { return "0" }; return v }(),
+		"DecorationFeeMax":           func() string { v := getSetting("decoration_fee_max"); if v == "" { return "1000" }; return v }(),
 	}); err != nil {
 		log.Printf("[ADMIN-DASHBOARD] template execute error: %v", err)
 	}
@@ -12778,6 +12795,190 @@ func handleSetCreditCashRate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleSetDecorationFeeMax updates the decoration_fee_max setting.
+// POST /admin/api/settings/decoration-fee-max
+func handleSetDecorationFeeMax(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	value := r.FormValue("value")
+	if value == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value is required"})
+		return
+	}
+
+	maxVal, err := strconv.Atoi(value)
+	if err != nil || maxVal < 0 || maxVal > 1000 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value must be an integer between 0 and 1000"})
+		return
+	}
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('decoration_fee_max', ?)", value)
+	if err != nil {
+		log.Printf("Failed to update decoration_fee_max: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	// Cascade adjustment: if current fee exceeds new max, lower it
+	currentFeeStr := getSetting("decoration_fee")
+	if currentFeeStr != "" {
+		currentFee, _ := strconv.Atoi(currentFeeStr)
+		if currentFee > maxVal {
+			db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('decoration_fee', ?)", strconv.Itoa(maxVal))
+		}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleSetDecorationFee updates the decoration_fee setting.
+// POST /admin/api/settings/decoration-fee
+func handleSetDecorationFee(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	value := r.FormValue("value")
+	if value == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value is required"})
+		return
+	}
+
+	fee, err := strconv.Atoi(value)
+	if err != nil || fee < 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "value must be a non-negative integer"})
+		return
+	}
+
+	// Check against decoration_fee_max
+	maxStr := getSetting("decoration_fee_max")
+	maxVal := 1000
+	if maxStr != "" {
+		if v, e := strconv.Atoi(maxStr); e == nil {
+			maxVal = v
+		}
+	}
+	if fee > maxVal {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("value must not exceed the maximum limit of %d", maxVal)})
+		return
+	}
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('decoration_fee', ?)", value)
+	if err != nil {
+		log.Printf("Failed to update decoration_fee: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok", "value": value})
+}
+
+// handleGetDecorationFee returns the current decoration fee and max settings.
+// GET /api/decoration-fee
+func handleGetDecorationFee(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	fee := getSetting("decoration_fee")
+	if fee == "" {
+		fee = "0"
+	}
+	max := getSetting("decoration_fee_max")
+	if max == "" {
+		max = "1000"
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"fee": fee, "max": max})
+}
+
+// handlePublishDecoration handles the user publishing their custom decoration.
+// This deducts the decoration fee from the user's wallet and records the transaction.
+// POST /user/storefront/decoration/publish
+func handlePublishDecoration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"ok": false, "error": "未登录"})
+		return
+	}
+
+	// Get current decoration fee
+	feeStr := getSetting("decoration_fee")
+	if feeStr == "" {
+		feeStr = "0"
+	}
+	fee, _ := strconv.ParseFloat(feeStr, 64)
+
+	if fee > 0 {
+		// Check balance first
+		balance := getWalletBalance(userID)
+		if balance < fee {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{
+				"ok":    false,
+				"error": "insufficient_balance",
+			})
+			return
+		}
+
+		// Begin transaction to deduct credits
+		tx, err := db.Begin()
+		if err != nil {
+			log.Printf("[PUBLISH-DECORATION] failed to begin tx for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		defer tx.Rollback()
+
+		rows, err := deductWalletBalance(tx, userID, fee)
+		if err != nil {
+			log.Printf("[PUBLISH-DECORATION] failed to deduct wallet for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+		if rows == 0 {
+			jsonResponse(w, http.StatusOK, map[string]interface{}{
+				"ok":    false,
+				"error": "insufficient_balance",
+			})
+			return
+		}
+
+		// Record credits transaction
+		_, err = tx.Exec(
+			`INSERT INTO credits_transactions (user_id, transaction_type, amount, description, ip_address)
+			 VALUES (?, 'decoration', ?, ?, ?)`,
+			userID, -fee, fmt.Sprintf("店铺自定义装修费用 %.0f Credits", fee), getClientIP(r))
+		if err != nil {
+			log.Printf("[PUBLISH-DECORATION] failed to record transaction for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Printf("[PUBLISH-DECORATION] failed to commit tx for user %d: %v", userID, err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
+			return
+		}
+	}
+
+	// Invalidate storefront cache
+	var slug string
+	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
+		globalCache.InvalidateStorefront(slug)
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "fee_charged": fee})
 }
 
 // handleSaveDownloadURLs saves the client download URLs for Windows and macOS.
@@ -13848,6 +14049,13 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[AUTHOR-EDIT-PACK] user %d updated listing %d: name=%s mode=%s price=%d", userID, listingID, packName, shareMode, creditsPrice)
+
+	// Cascade: clear featured status since pack is now pending (non-published) (Requirement 10.9)
+	_, err = db.Exec(`UPDATE storefront_packs SET is_featured = 0, featured_sort_order = 0 WHERE pack_listing_id = ? AND is_featured = 1`, listingID)
+	if err != nil {
+		log.Printf("[AUTHOR-EDIT-PACK] failed to clear featured status for listing %d: %v", listingID, err)
+		// Non-fatal: edit succeeded, just log the cascade failure
+	}
 
 	// Invalidate pack detail cache after editing pack info
 	var shareToken string
@@ -16338,6 +16546,8 @@ func main() {
 	http.HandleFunc("/admin/api/settings/download-urls", permissionAuth("settings")(handleSaveDownloadURLs))
 	http.HandleFunc("/admin/api/settings/smtp", permissionAuth("settings")(handleAdminSaveSMTPConfig))
 	http.HandleFunc("/admin/api/settings/smtp-test", permissionAuth("settings")(handleAdminTestSMTPConfig))
+	http.HandleFunc("/admin/api/settings/decoration-fee", permissionAuth("billing")(handleSetDecorationFee))
+	http.HandleFunc("/admin/api/settings/decoration-fee-max", permissionAuth("billing")(handleSetDecorationFeeMax))
 	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals/approve", permissionAuth("settings")(handleAdminApproveWithdrawals))
 	http.HandleFunc("/admin/api/withdrawals", permissionAuth("settings")(handleAdminGetWithdrawals))
@@ -16427,6 +16637,7 @@ func main() {
 
 	// Storefront public routes (no auth required)
 	http.HandleFunc("/store/", handleStorefrontRoutes)
+	http.HandleFunc("/api/decoration-fee", handleGetDecorationFee)
 
 	// Pack detail page route (catches /pack/*)
 	http.HandleFunc("/pack/", func(w http.ResponseWriter, r *http.Request) {

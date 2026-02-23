@@ -1196,22 +1196,105 @@ function copyStoreUrl() {
 }
 
 /* ===== Settings: Save Layout ===== */
+var _decorationSessionActive = false;
+
 function saveLayout(layout) {
+    if (layout === 'custom') {
+        // Fetch decoration fee and prompt user before switching
+        fetch('/api/decoration-fee')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            var fee = parseInt(d.fee || '0', 10);
+            var msg = fee > 0
+                ? (T('decoration_fee_confirm') || '启用自定义装修将收取 {fee} Credits 的装修费用，费用将在您发布装修后扣除。确定要开始装修吗？').replace('{fee}', fee)
+                : (T('decoration_free_confirm') || '当前自定义装修免费，确定要开始装修吗？');
+            if (!confirm(msg)) {
+                // Revert radio selection
+                var currentLayout = document.querySelector('.layout-option-active');
+                if (currentLayout) {
+                    var radio = currentLayout.closest('label').querySelector('input[type=radio]');
+                    if (radio) radio.checked = true;
+                }
+                return;
+            }
+            // User confirmed, switch to custom layout
+            _decorationSessionActive = true;
+            var fd = new FormData();
+            fd.append('layout', 'custom');
+            fetch('/user/storefront/layout', { method: 'POST', body: fd })
+            .then(function(r) { return r.json(); })
+            .then(function(d2) {
+                if (d2.success) {
+                    showToast(T('decoration_started') || '装修模式已开启，完成后请点击发布');
+                    document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
+                    var opt = document.getElementById('layout-opt-custom');
+                    if (opt) opt.classList.add('layout-option-active');
+                    showPublishDecorationBtn(fee);
+                } else {
+                    showMsg('err', d2.error || T('save_failed') || '保存失败');
+                }
+            }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
+        }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
+        return;
+    }
+    // Non-custom layout: hide publish button and save directly
+    _decorationSessionActive = false;
+    hidePublishDecorationBtn();
     var fd = new FormData();
     fd.append('layout', layout);
     fetch('/user/storefront/layout', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
-            showToast('布局已切换');
-            // Update active state
+            showToast(T('layout_switched') || '布局已切换');
             document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
             var opt = document.getElementById('layout-opt-' + layout);
             if (opt) opt.classList.add('layout-option-active');
         } else {
-            showMsg('err', d.error || '保存失败');
+            showMsg('err', d.error || T('save_failed') || '保存失败');
         }
-    }).catch(function() { showMsg('err', '网络错误'); });
+    }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
+}
+
+function showPublishDecorationBtn(fee) {
+    var existing = document.getElementById('publishDecorationBar');
+    if (existing) { existing.style.display = ''; return; }
+    var bar = document.createElement('div');
+    bar.id = 'publishDecorationBar';
+    bar.style.cssText = 'position:sticky;bottom:0;left:0;right:0;background:linear-gradient(135deg,#fef3c7,#fde68a);border-top:2px solid #f59e0b;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;z-index:100;border-radius:12px 12px 0 0;margin-top:20px;box-shadow:0 -4px 16px rgba(0,0,0,0.1);';
+    var feeText = fee > 0
+        ? (T('decoration_publish_hint') || '装修完成后点击发布，将扣除 {fee} Credits').replace('{fee}', fee)
+        : (T('decoration_publish_hint_free') || '装修完成后点击发布即可生效');
+    bar.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:20px;">🎨</span><span style="font-size:14px;font-weight:600;color:#92400e;">' + feeText + '</span></div>'
+        + '<button onclick="publishDecoration()" style="padding:10px 28px;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(245,158,11,0.3);transition:all 0.2s;" onmouseover="this.style.transform=\'translateY(-1px)\'" onmouseout="this.style.transform=\'\'">' + (T('decoration_publish_btn') || '🚀 发布装修') + '</button>';
+    document.querySelector('.page') ? document.querySelector('.page').appendChild(bar) : document.body.appendChild(bar);
+}
+
+function hidePublishDecorationBtn() {
+    var bar = document.getElementById('publishDecorationBar');
+    if (bar) bar.style.display = 'none';
+}
+
+function publishDecoration() {
+    var confirmMsg = T('decoration_publish_confirm') || '一旦发布，此次装修即完成，费用将被扣除。确定发布吗？';
+    if (!confirm(confirmMsg)) return;
+    fetch('/user/storefront/decoration/publish', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.ok) {
+            _decorationSessionActive = false;
+            hidePublishDecorationBtn();
+            var charged = d.fee_charged || 0;
+            var successMsg = charged > 0
+                ? (T('decoration_published_charged') || '装修已发布，已扣除 {fee} Credits').replace('{fee}', charged)
+                : (T('decoration_published_free') || '装修已发布');
+            showToast(successMsg);
+        } else if (d.error === 'insufficient_balance') {
+            showMsg('err', T('decoration_insufficient_balance') || 'Credits 余额不足，无法发布装修');
+        } else {
+            showMsg('err', d.error || T('save_failed') || '发布失败');
+        }
+    }).catch(function() { showMsg('err', T('network_error') || '网络错误'); });
 }
 
 /* ===== Settings: Select Theme ===== */
@@ -2062,6 +2145,13 @@ function getSectionDragAfter(container, y) {
 document.addEventListener('DOMContentLoaded', function() {
     initLayoutSections();
     initCustomProductDragDrop();
+    // If already in custom layout, show publish decoration bar
+    var currentLayout = '{{.Storefront.StoreLayout}}';
+    if (currentLayout === 'custom') {
+        var fee = parseInt('{{.DecorationFee}}' || '0', 10);
+        _decorationSessionActive = true;
+        showPublishDecorationBtn(fee);
+    }
 });
 
 /* ===== Custom Products: Form management ===== */

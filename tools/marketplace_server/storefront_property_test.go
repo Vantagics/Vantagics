@@ -263,6 +263,12 @@ func TestProperty3_StoreNameLengthValidation(t *testing.T) {
 // For any valid image (PNG or JPEG, <= 2MB), uploading it via handleStorefrontUploadLogo
 // and then retrieving the stored data from the database yields the same binary data
 // and the same content type.
+// Feature: author-storefront, Property 11: Logo 上传 Round-Trip
+// **Validates: Requirements 1.7, 1.11, 7.8**
+//
+// For any valid image (PNG or JPEG, ≤ 2MB), uploading it via handleStorefrontUploadLogo
+// and then retrieving via /store/{slug}/logo (handleStorefrontLogo) returns identical data.
+// The Content-Type header must match the uploaded image type.
 func TestProperty11_LogoUploadRoundTrip(t *testing.T) {
 	cfg := &quick.Config{
 		MaxCount: 30,
@@ -327,29 +333,29 @@ func TestProperty11_LogoUploadRoundTrip(t *testing.T) {
 			return false
 		}
 
-		// Retrieve logo data from database (round-trip verification)
-		var storedData []byte
-		var storedContentType string
-		err = db.QueryRow(
-			"SELECT logo_data, logo_content_type FROM author_storefronts WHERE user_id = ?",
-			userID,
-		).Scan(&storedData, &storedContentType)
-		if err != nil {
-			t.Logf("FAIL: failed to query stored logo: %v", err)
+		// Retrieve logo via /store/{slug}/logo HTTP endpoint (round-trip verification)
+		logoReq := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/store/%s/logo", slug), nil)
+		logoRR := httptest.NewRecorder()
+		handleStorefrontLogo(logoRR, logoReq, slug)
+
+		if logoRR.Code != http.StatusOK {
+			t.Logf("FAIL: GET /store/%s/logo returned status %d", slug, logoRR.Code)
 			return false
 		}
 
-		// Verify data matches
-		if !bytes.Equal(storedData, imageData) {
-			t.Logf("FAIL: stored data (%d bytes) does not match uploaded data (%d bytes)",
-				len(storedData), len(imageData))
+		// Verify retrieved data matches original upload
+		retrievedData := logoRR.Body.Bytes()
+		if !bytes.Equal(retrievedData, imageData) {
+			t.Logf("FAIL: retrieved data (%d bytes) does not match uploaded data (%d bytes)",
+				len(retrievedData), len(imageData))
 			return false
 		}
 
-		// Verify content type matches
-		if storedContentType != expectedContentType {
-			t.Logf("FAIL: stored content_type %q does not match expected %q",
-				storedContentType, expectedContentType)
+		// Verify Content-Type header matches the uploaded image type
+		retrievedContentType := logoRR.Header().Get("Content-Type")
+		if retrievedContentType != expectedContentType {
+			t.Logf("FAIL: retrieved Content-Type %q does not match expected %q",
+				retrievedContentType, expectedContentType)
 			return false
 		}
 

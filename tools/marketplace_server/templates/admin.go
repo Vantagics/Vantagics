@@ -743,11 +743,26 @@ const AdminHTML = `<!DOCTYPE html>
         <!-- Tab: 店铺装修 -->
         <div id="billing-tab-storefront" class="wd-tab-content" style="display:none;">
             <div class="card">
-                <div style="text-align:center;padding:48px 24px;color:#9ca3af;">
-                    <div style="font-size:48px;margin-bottom:16px;">🎨</div>
-                    <h2 style="color:#6b7280;margin-bottom:8px;">店铺装修收费</h2>
-                    <p style="font-size:14px;">此功能正在开发中，敬请期待...</p>
+                <h2 data-i18n="admin_decoration_fee_title">店铺装修收费设置</h2>
+                <p style="font-size:13px;color:#6b7280;margin-bottom:16px;" data-i18n="admin_decoration_fee_desc">设置用户每次自定义装修店铺的费用（Credits），最小 0，最大 1000</p>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label data-i18n="admin_decoration_fee_max_label">装修费用上限 (Credits)</label>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <input type="number" id="decorationFeeMaxInput" min="0" max="1000" step="1" value="{{.DecorationFeeMax}}" style="width:200px;" placeholder="0 - 1000">
+                        <button class="btn btn-primary btn-sm" onclick="saveDecorationFeeMax()" data-i18n="save">保存</button>
+                    </div>
+                    <div class="form-hint" data-i18n="admin_decoration_fee_max_hint">管理员设定的装修费用上限，范围 0-1000 Credits</div>
                 </div>
+                <div id="decorationFeeMaxMsg" class="msg" style="display:none;"></div>
+                <div class="form-group">
+                    <label data-i18n="admin_decoration_fee_label">装修费用 (Credits)</label>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <input type="number" id="decorationFeeInput" min="0" max="{{.DecorationFeeMax}}" step="1" value="{{.DecorationFee}}" style="width:200px;" placeholder="0 - {{.DecorationFeeMax}}">
+                        <button class="btn btn-primary btn-sm" onclick="saveDecorationFee()" data-i18n="save">保存</button>
+                    </div>
+                    <div class="form-hint" data-i18n="admin_decoration_fee_hint">设为 0 表示免费装修，不超过上限值</div>
+                </div>
+                <div id="decorationFeeMsg" class="msg" style="display:none;"></div>
             </div>
         </div>
     </div>
@@ -2450,6 +2465,77 @@ function switchBillingTab(tabId, btn) {
     for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
     btn.classList.add('active');
     if (tabId === 'billing-tab-email') { loadBillingData(1); }
+}
+
+function saveDecorationFeeMax() {
+    var input = document.getElementById('decorationFeeMaxInput');
+    var val = parseInt(input.value, 10);
+    if (isNaN(val) || val < 0 || val > 1000) {
+        var msgEl = document.getElementById('decorationFeeMaxMsg');
+        msgEl.style.display = '';
+        msgEl.className = 'msg msg-error';
+        msgEl.textContent = T('admin_decoration_fee_max_invalid') || '上限必须在 0 到 1000 之间';
+        return;
+    }
+    var fd = new FormData();
+    fd.append('value', val.toString());
+    apiFetch('/admin/api/settings/decoration-fee-max', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        var msgEl = document.getElementById('decorationFeeMaxMsg');
+        msgEl.style.display = '';
+        if (d.status === 'ok') {
+            msgEl.className = 'msg msg-success';
+            msgEl.textContent = T('save_success') || '保存成功';
+            // Update fee input max attribute
+            var feeInput = document.getElementById('decorationFeeInput');
+            feeInput.max = val;
+            // If current fee exceeds new max, update display
+            if (parseInt(feeInput.value, 10) > val) { feeInput.value = val; }
+        } else {
+            msgEl.className = 'msg msg-error';
+            msgEl.textContent = d.error || T('save_failed') || '保存失败';
+        }
+        setTimeout(function() { msgEl.style.display = 'none'; }, 3000);
+    }).catch(function() {
+        var msgEl = document.getElementById('decorationFeeMaxMsg');
+        msgEl.style.display = '';
+        msgEl.className = 'msg msg-error';
+        msgEl.textContent = T('network_error') || '网络错误';
+    });
+}
+
+function saveDecorationFee() {
+    var input = document.getElementById('decorationFeeInput');
+    var val = parseInt(input.value, 10);
+    if (isNaN(val) || val < 0 || val > 1000) {
+        var msgEl = document.getElementById('decorationFeeMsg');
+        msgEl.style.display = '';
+        msgEl.className = 'msg msg-error';
+        msgEl.textContent = T('admin_decoration_fee_invalid') || '费用必须在 0 到 1000 之间';
+        return;
+    }
+    var fd = new FormData();
+    fd.append('value', val.toString());
+    apiFetch('/admin/api/settings/decoration-fee', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        var msgEl = document.getElementById('decorationFeeMsg');
+        msgEl.style.display = '';
+        if (d.status === 'ok') {
+            msgEl.className = 'msg msg-success';
+            msgEl.textContent = T('save_success') || '保存成功';
+        } else {
+            msgEl.className = 'msg msg-error';
+            msgEl.textContent = d.error || T('save_failed') || '保存失败';
+        }
+        setTimeout(function() { msgEl.style.display = 'none'; }, 3000);
+    }).catch(function() {
+        var msgEl = document.getElementById('decorationFeeMsg');
+        msgEl.style.display = '';
+        msgEl.className = 'msg msg-error';
+        msgEl.textContent = T('network_error') || '网络错误';
+    });
 }
 
 function loadBillingData(page) {
