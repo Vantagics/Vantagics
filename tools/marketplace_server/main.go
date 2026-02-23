@@ -13788,6 +13788,80 @@ func handleDecorationBillingList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleDecorationBillingExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+
+	dataQuery := `SELECT ct.id, u.display_name, COALESCE(s.store_name, ''),
+		ABS(ct.amount), ct.description, ct.created_at
+		FROM credits_transactions ct
+		JOIN users u ON ct.user_id = u.id
+		LEFT JOIN author_storefronts s ON s.user_id = ct.user_id
+		WHERE ct.transaction_type = 'decoration'`
+	var dataArgs []interface{}
+	if search != "" {
+		dataQuery += " AND (u.display_name LIKE ? OR COALESCE(s.store_name, '') LIKE ?)"
+		pattern := "%" + search + "%"
+		dataArgs = append(dataArgs, pattern, pattern)
+	}
+	dataQuery += " ORDER BY ct.created_at DESC"
+
+	rows, err := db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		log.Printf("[DECORATION-BILLING-EXPORT] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheetName := "装修计费明细"
+	f.SetSheetName("Sheet1", sheetName)
+
+	headers := []string{"交易 ID", "用户名", "店铺名", "扣费金额", "交易描述", "创建时间"}
+	for i, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheetName, cell, h)
+	}
+
+	rowIdx := 2
+	for rows.Next() {
+		var id int64
+		var displayName, storeName string
+		var amount float64
+		var description, createdAt string
+		if err := rows.Scan(&id, &displayName, &storeName, &amount, &description, &createdAt); err != nil {
+			continue
+		}
+		vals := []interface{}{id, displayName, storeName, amount, description, createdAt}
+		for i, val := range vals {
+			cell, _ := excelize.CoordinatesToCellName(i+1, rowIdx)
+			f.SetCellValue(sheetName, cell, val)
+		}
+		rowIdx++
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[DECORATION-BILLING-EXPORT] rows iteration error: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := f.Write(&buf); err != nil {
+		log.Printf("[DECORATION-BILLING-EXPORT] excel write error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "生成 Excel 失败"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="decoration_billing_export.xlsx"`)
+	w.Write(buf.Bytes())
+}
+
+
 
 
 
@@ -16688,6 +16762,10 @@ func main() {
 	// Billing management API routes (permission-based)
 	http.HandleFunc("/admin/api/billing", permissionAuth("billing")(handleAdminBillingList))
 	http.HandleFunc("/admin/api/billing/export", permissionAuth("billing")(handleAdminBillingExport))
+
+	// Decoration billing details API routes (permission-based)
+	http.HandleFunc("/admin/api/billing/decoration/export", permissionAuth("billing")(handleDecorationBillingExport))
+	http.HandleFunc("/admin/api/billing/decoration", permissionAuth("billing")(handleDecorationBillingList))
 
 	// Custom products admin routes (permission-based)
 	http.HandleFunc("/api/admin/pending-custom-products", permissionAuth("review")(handleAdminPendingCustomProducts))

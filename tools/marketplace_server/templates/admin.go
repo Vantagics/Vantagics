@@ -764,6 +764,47 @@ const AdminHTML = `<!DOCTYPE html>
                 </div>
                 <div id="decorationFeeMsg" class="msg" style="display:none;"></div>
             </div>
+
+            <!-- 装修计费明细 -->
+            <div class="card">
+                <div class="card-header">
+                    <h2>🧾 装修计费明细</h2>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn btn-secondary" onclick="loadDecorationBillingDetails(1)">↻ 刷新</button>
+                        <button class="btn btn-primary" id="decorationBillingExportBtn" onclick="exportDecorationBilling()">📥 导出</button>
+                    </div>
+                </div>
+                <div id="decorationBillingSummary" style="display:flex;gap:24px;margin-bottom:16px;font-size:14px;color:#374151;">
+                    <span>共 <b id="decorationBillingTotal">0</b> 条记录</span>
+                    <span>总扣费 <b id="decorationBillingCredits" style="color:#dc2626;">0</b> Credits</span>
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="decorationBillingSearch" placeholder="搜索用户名或店铺名" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:240px;" onkeyup="if(event.key==='Enter')searchDecorationBilling()" />
+                    <button class="btn btn-secondary btn-sm" onclick="searchDecorationBilling()">搜索</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('decorationBillingSearch').value='';searchDecorationBilling()">清除</button>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>交易 ID</th>
+                            <th>用户名</th>
+                            <th>店铺名</th>
+                            <th>扣费金额</th>
+                            <th>描述</th>
+                            <th>时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="decorationBillingTable"></tbody>
+                </table>
+                <div id="decorationBillingPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                    <div id="decorationBillingPageInfo" style="font-size:13px;color:#6b7280;"></div>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                        <button class="btn btn-secondary btn-sm" id="decorationBillingPrevBtn" onclick="loadDecorationBillingDetails(decorationBillingCurrentPage-1)" disabled>‹ 上一页</button>
+                        <span id="decorationBillingPageDisplay" style="font-size:13px;color:#374151;"></span>
+                        <button class="btn btn-secondary btn-sm" id="decorationBillingNextBtn" onclick="loadDecorationBillingDetails(decorationBillingCurrentPage+1)" disabled>下一页 ›</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -2465,6 +2506,7 @@ function switchBillingTab(tabId, btn) {
     for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
     btn.classList.add('active');
     if (tabId === 'billing-tab-email') { loadBillingData(1); }
+    if (tabId === 'billing-tab-storefront') { loadDecorationBillingDetails(1); }
 }
 
 function saveDecorationFeeMax() {
@@ -2618,6 +2660,74 @@ function exportBillingExcel() {
     var storeFilter = document.getElementById('billing-store-filter').value.trim();
     var qs = storeFilter ? '?store_name=' + encodeURIComponent(storeFilter) : '';
     window.open('/admin/api/billing/export' + qs, '_blank');
+}
+
+/* ===== Decoration Billing Details ===== */
+var decorationBillingCurrentPage = 1;
+var decorationBillingTotalPages = 1;
+
+function loadDecorationBillingDetails(page) {
+    if (typeof page !== 'number' || page < 1) page = 1;
+    decorationBillingCurrentPage = page;
+    var search = document.getElementById('decorationBillingSearch').value.trim();
+    var params = ['page=' + page];
+    if (search) params.push('search=' + encodeURIComponent(search));
+    apiFetch('/admin/api/billing/decoration?' + params.join('&'))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var records = data.records || [];
+        var total = data.total || 0;
+        var pageSize = data.page_size || 50;
+        decorationBillingCurrentPage = data.page || 1;
+        decorationBillingTotalPages = Math.ceil(total / pageSize) || 1;
+        // Update statistics
+        document.getElementById('decorationBillingTotal').textContent = total;
+        document.getElementById('decorationBillingCredits').textContent = data.total_credits || 0;
+        // Render table
+        var tbody = document.getElementById('decorationBillingTable');
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px;">暂无装修计费记录</td></tr>';
+        } else {
+            tbody.innerHTML = records.map(function(r) {
+                return '<tr>' +
+                    '<td>' + r.id + '</td>' +
+                    '<td>' + (r.display_name || '-') + '</td>' +
+                    '<td>' + (r.store_name || '-') + '</td>' +
+                    '<td style="font-weight:600;color:#dc2626;">' + r.amount + '</td>' +
+                    '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (r.description||'').replace(/"/g,'&quot;') + '">' + (r.description || '-') + '</td>' +
+                    '<td>' + r.created_at + '</td>' +
+                    '</tr>';
+            }).join('');
+        }
+        // Pagination
+        var pageInfo = document.getElementById('decorationBillingPageInfo');
+        var prevBtn = document.getElementById('decorationBillingPrevBtn');
+        var nextBtn = document.getElementById('decorationBillingNextBtn');
+        var pageDisplay = document.getElementById('decorationBillingPageDisplay');
+        if (total === 0) {
+            pageInfo.textContent = '';
+            pageDisplay.textContent = '';
+            prevBtn.disabled = true;
+            nextBtn.disabled = true;
+        } else {
+            var start = (decorationBillingCurrentPage - 1) * pageSize + 1;
+            var end = Math.min(decorationBillingCurrentPage * pageSize, total);
+            pageInfo.textContent = '显示 ' + start + '-' + end + ' 条，共 ' + total + ' 条';
+            pageDisplay.textContent = decorationBillingCurrentPage + ' / ' + decorationBillingTotalPages;
+            prevBtn.disabled = decorationBillingCurrentPage <= 1;
+            nextBtn.disabled = decorationBillingCurrentPage >= decorationBillingTotalPages;
+        }
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
+function searchDecorationBilling() {
+    loadDecorationBillingDetails(1);
+}
+
+function exportDecorationBilling() {
+    var search = document.getElementById('decorationBillingSearch').value.trim();
+    var qs = search ? '?search=' + encodeURIComponent(search) : '';
+    window.open('/admin/api/billing/decoration/export' + qs, '_blank');
 }
 
 // ===== Featured Storefronts Management =====

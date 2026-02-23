@@ -378,7 +378,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
             position: relative;
         }
         .layout-option:hover { border-color: #cbd5e1; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-        .layout-option-active { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+        input[name="store_layout"]:checked + .layout-option { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
         .layout-option.switching {
             opacity: 0.6; pointer-events: none;
         }
@@ -389,8 +389,8 @@ const storefrontManageHTML = `<!DOCTYPE html>
             border-radius: 50%; animation: layoutSpin 0.6s linear infinite;
         }
         @keyframes layoutSpin { to { transform: rotate(360deg); } }
-        .layout-option-active .layout-name { color: #4f46e5; }
-        .layout-option-active .layout-desc { color: #6366f1; }
+        input[name="store_layout"]:checked + .layout-option .layout-name { color: #4f46e5; }
+        input[name="store_layout"]:checked + .layout-option .layout-desc { color: #6366f1; }
 
         /* Decoration confirmation modal */
         .deco-modal-icon { font-size: 40px; text-align: center; margin-bottom: 16px; }
@@ -596,7 +596,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
             <div style="display:flex;gap:12px;flex-wrap:wrap;" id="layoutOptions">
                 <label style="flex:1;min-width:180px;cursor:pointer;">
                     <input type="radio" name="store_layout" value="default" {{if or (eq .Storefront.StoreLayout "default") (eq .Storefront.StoreLayout "")}}checked{{end}} style="display:none;" onchange="saveLayout('default')">
-                    <div class="layout-option{{if or (eq .Storefront.StoreLayout "default") (eq .Storefront.StoreLayout "")}} layout-option-active{{end}}" id="layout-opt-default">
+                    <div class="layout-option" id="layout-opt-default">
                         <div class="layout-preview" style="background:linear-gradient(135deg,#eef2ff 0%,#faf5ff 40%,#f0fdf4 100%);border-color:#e0e7ff;">
                             <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
                                 <div style="width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#6366f1,#8b5cf6);"></div>
@@ -613,7 +613,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
                 </label>
                 <label style="flex:1;min-width:180px;cursor:pointer;">
                     <input type="radio" name="store_layout" value="novelty" {{if eq .Storefront.StoreLayout "novelty"}}checked{{end}} style="display:none;" onchange="saveLayout('novelty')">
-                    <div class="layout-option{{if eq .Storefront.StoreLayout "novelty"}} layout-option-active{{end}}" id="layout-opt-novelty">
+                    <div class="layout-option" id="layout-opt-novelty">
                         <div class="layout-preview" style="background:linear-gradient(160deg,#fdf6e3 0%,#fdf8ee 30%,#faf7f0 60%,#fdf6e3 100%);border-color:rgba(212,180,90,0.25);">
                             <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
                                 <div style="width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#d4b45a,#9a7a2e);"></div>
@@ -630,7 +630,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
                 </label>
                 <label style="flex:1;min-width:180px;cursor:pointer;">
                     <input type="radio" name="store_layout" value="custom" {{if eq .Storefront.StoreLayout "custom"}}checked{{end}} style="display:none;" onchange="saveLayout('custom')">
-                    <div class="layout-option{{if eq .Storefront.StoreLayout "custom"}} layout-option-active{{end}}" id="layout-opt-custom">
+                    <div class="layout-option" id="layout-opt-custom">
                         <div class="layout-preview" style="background:#f8fafc;border-color:#e2e8f0;">
                             <div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:18px;">🎨</div>
                         </div>
@@ -1244,6 +1244,7 @@ function copyStoreUrl() {
 var _decorationSessionActive = false;
 var _decoModalCallback = null;
 var _decoModalIsLayoutSwitch = false;
+var _previousActiveLayout = '';
 
 function openDecoModal(opts) {
     var modal = document.getElementById('decoConfirmModal');
@@ -1278,9 +1279,8 @@ function confirmDecoAction() {
 }
 
 function revertLayoutRadio() {
-    var currentActive = document.querySelector('.layout-option-active');
-    if (currentActive) {
-        var radio = currentActive.closest('label').querySelector('input[type=radio]');
+    if (_previousActiveLayout) {
+        var radio = document.querySelector('input[name="store_layout"][value="' + _previousActiveLayout + '"]');
         if (radio) radio.checked = true;
     }
 }
@@ -1294,6 +1294,10 @@ function setLayoutSwitching(layout, on) {
 }
 
 function saveLayout(layout) {
+    // Track previous layout for revert on failure
+    var prevRadio = document.querySelector('input[name="store_layout"]:checked');
+    if (prevRadio && prevRadio.value !== layout) _previousActiveLayout = prevRadio.value;
+
     if (layout === 'custom') {
         // Fetch decoration fee and show confirmation modal
         setLayoutSwitching('custom', true);
@@ -1341,9 +1345,6 @@ function saveLayout(layout) {
         setLayoutSwitching(layout, false);
         if (d.success) {
             showToast(T('layout_switched') || '布局已切换');
-            document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
-            var opt = document.getElementById('layout-opt-' + layout);
-            if (opt) opt.classList.add('layout-option-active');
         } else {
             revertLayoutRadio();
             showMsg('err', d.error || T('save_failed') || '保存失败');
@@ -1366,9 +1367,9 @@ function doSwitchToCustom(fee) {
         setLayoutSwitching('custom', false);
         if (d2.success) {
             showToast(T('decoration_started') || '装修模式已开启，完成后请点击发布');
-            document.querySelectorAll('.layout-option').forEach(function(el) { el.classList.remove('layout-option-active'); });
-            var opt = document.getElementById('layout-opt-custom');
-            if (opt) opt.classList.add('layout-option-active');
+            // Ensure radio is on custom (CSS :checked handles highlight)
+            var customRadio = document.querySelector('input[name="store_layout"][value="custom"]');
+            if (customRadio) customRadio.checked = true;
             showPublishDecorationBtn(fee);
         } else {
             revertLayoutRadio();
