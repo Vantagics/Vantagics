@@ -5224,7 +5224,8 @@ func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update layout_config in author_storefronts
-	result, err := db.Exec(`UPDATE author_storefronts SET layout_config = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`, layoutConfig, userID)
+	// Also set store_layout to 'custom' so the template respects the custom sections
+	result, err := db.Exec(`UPDATE author_storefronts SET layout_config = ?, store_layout = 'custom', updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`, layoutConfig, userID)
 	if err != nil {
 		log.Printf("[STOREFRONT-SAVE-LAYOUT] failed to update layout_config for user %d: %v", userID, err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "保存失败"})
@@ -5243,7 +5244,7 @@ func handleStorefrontSaveLayout(w http.ResponseWriter, r *http.Request) {
 		globalCache.InvalidateStorefront(slug)
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true, "layout_switched": true})
 }
 
 // handleStorefrontSaveTheme saves the storefront theme selection.

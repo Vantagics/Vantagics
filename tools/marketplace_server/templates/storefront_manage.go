@@ -2203,6 +2203,11 @@ function savePageLayout() {
     .then(function(d) {
         if (d.ok) {
             showToast('布局已保存');
+            // Server auto-switches to custom layout when saving layout_config
+            if (d.layout_switched) {
+                var customRadio = document.querySelector('input[name="store_layout"][value="custom"]');
+                if (customRadio) customRadio.checked = true;
+            }
         } else {
             showMsg('err', d.error || '保存失败');
         }
