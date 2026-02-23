@@ -514,6 +514,7 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "storefront not in featured list"})
 			return
 		}
+		globalCache.InvalidateHomepage()
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
 		return
 	}
@@ -567,6 +568,7 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 			jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
 			return
 		}
+		globalCache.InvalidateHomepage()
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
 		return
 	}
@@ -650,6 +652,7 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 				jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"ok": false, "error": "internal_error"})
 				return
 			}
+			globalCache.InvalidateHomepage()
 			jsonResponse(w, http.StatusOK, map[string]interface{}{"ok": true})
 
 		default:
@@ -661,6 +664,80 @@ func handleAdminFeaturedStorefronts(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusNotFound, map[string]interface{}{"ok": false, "error": "not_found"})
 }
 
+
+// queryHomepagePublicData 查询首页所有公共数据（不含用户相关字段）。
+// 各子查询失败时记录日志并返回空切片，不影响其他数据。
+func queryHomepagePublicData() (*HomepagePublicData, error) {
+	data := &HomepagePublicData{}
+
+	featuredStores, err := queryFeaturedStorefronts()
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryFeaturedStorefronts error: %v", err)
+	}
+	data.FeaturedStores = featuredStores
+
+	topSalesStores, err := queryTopSalesStorefronts(16)
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryTopSalesStorefronts error: %v", err)
+	}
+	data.TopSalesStores = topSalesStores
+
+	topDownloadsStores, err := queryTopDownloadsStorefronts(16)
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryTopDownloadsStorefronts error: %v", err)
+	}
+	data.TopDownloadsStores = topDownloadsStores
+
+	topSalesProducts, err := queryTopSalesProducts(128)
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryTopSalesProducts error: %v", err)
+	}
+	data.TopSalesProducts = topSalesProducts
+
+	topDownloadsProducts, err := queryTopDownloadsProducts(32)
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryTopDownloadsProducts error: %v", err)
+	}
+	data.TopDownloadsProducts = topDownloadsProducts
+
+	newestProducts, err := queryNewestProducts(16)
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryNewestProducts error: %v", err)
+	}
+	data.NewestProducts = newestProducts
+
+	categories, err := queryHomepageCategories()
+	if err != nil {
+		log.Printf("queryHomepagePublicData: queryHomepageCategories error: %v", err)
+	}
+	data.Categories = categories
+
+	// Read settings
+	settingsRows, settingsErr := db.Query("SELECT key, value FROM settings WHERE key IN ('download_url_windows', 'download_url_macos', 'default_language')")
+	if settingsErr != nil {
+		log.Printf("queryHomepagePublicData: read settings error: %v", settingsErr)
+	} else {
+		defer settingsRows.Close()
+		for settingsRows.Next() {
+			var k, v string
+			if settingsRows.Scan(&k, &v) == nil {
+				switch k {
+				case "download_url_windows":
+					data.DownloadURLWindows = v
+				case "download_url_macos":
+					data.DownloadURLMacOS = v
+				case "default_language":
+					data.DefaultLang = v
+				}
+			}
+		}
+		if err := settingsRows.Err(); err != nil {
+			log.Printf("queryHomepagePublicData: settings rows iteration error: %v", err)
+		}
+	}
+
+	return data, nil
+}
 
 // handleHomepage 处理市场首页请求。
 // 查询所有首页数据并渲染 HTML 模板。
@@ -677,81 +754,35 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Query homepage data (each failure = empty section, log error)
-	featuredStores, err := queryFeaturedStorefronts()
-	if err != nil {
-		log.Printf("handleHomepage: queryFeaturedStorefronts error: %v", err)
-	}
-
-	topSalesStores, err := queryTopSalesStorefronts(16)
-	if err != nil {
-		log.Printf("handleHomepage: queryTopSalesStorefronts error: %v", err)
-	}
-
-	topDownloadsStores, err := queryTopDownloadsStorefronts(16)
-	if err != nil {
-		log.Printf("handleHomepage: queryTopDownloadsStorefronts error: %v", err)
-	}
-
-	topSalesProducts, err := queryTopSalesProducts(128)
-	if err != nil {
-		log.Printf("handleHomepage: queryTopSalesProducts error: %v", err)
-	}
-
-	topDownloadsProducts, err := queryTopDownloadsProducts(32)
-	if err != nil {
-		log.Printf("handleHomepage: queryTopDownloadsProducts error: %v", err)
-	}
-
-	newestProducts, err := queryNewestProducts(16)
-	if err != nil {
-		log.Printf("handleHomepage: queryNewestProducts error: %v", err)
-	}
-
-	categories, err := queryHomepageCategories()
-	if err != nil {
-		log.Printf("handleHomepage: queryHomepageCategories error: %v", err)
-	}
-
-	// 4. Read settings (single query for all needed settings)
-	var downloadURLWindows, downloadURLMacOS, defaultLang string
-	settingsRows, settingsErr := db.Query("SELECT key, value FROM settings WHERE key IN ('download_url_windows', 'download_url_macos', 'default_language')")
-	if settingsErr != nil {
-		log.Printf("handleHomepage: read settings error: %v", settingsErr)
-	} else {
-		defer settingsRows.Close()
-		for settingsRows.Next() {
-			var k, v string
-			if settingsRows.Scan(&k, &v) == nil {
-				switch k {
-				case "download_url_windows":
-					downloadURLWindows = v
-				case "download_url_macos":
-					downloadURLMacOS = v
-				case "default_language":
-					defaultLang = v
-				}
-			}
+	// 3. Try homepage cache first; on miss use singleflight to query all data
+	publicData, hit := globalCache.GetHomepageData()
+	if !hit {
+		var err error
+		publicData, err = globalCache.DoHomepageQuery(func() (*HomepagePublicData, error) {
+			return queryHomepagePublicData()
+		})
+		if err != nil {
+			log.Printf("handleHomepage: queryHomepagePublicData error: %v", err)
+			// 降级：使用空数据渲染页面
+			publicData = &HomepagePublicData{}
 		}
-		if err := settingsRows.Err(); err != nil {
-			log.Printf("handleHomepage: settings rows iteration error: %v", err)
-		}
+		globalCache.SetHomepageData(publicData)
 	}
 
-	// 5. Assemble and render
+	// 4. Assemble template data (merge cached public data with per-user fields)
 	data := HomepageData{
-		UserID:             userID,
-		DisplayName:        displayName,
-		DefaultLang:        defaultLang,
-		DownloadURLWindows: downloadURLWindows,
-		DownloadURLMacOS:   downloadURLMacOS,
-		FeaturedStores:     featuredStores,
-		TopSalesStores:     topSalesStores,
-		TopDownloadsStores: topDownloadsStores,
-		TopSalesProducts:   topSalesProducts,
-		TopDownloadsProducts: topDownloadsProducts,
-		NewestProducts:     newestProducts,
-		Categories:         categories,
+		UserID:               userID,
+		DisplayName:          displayName,
+		DefaultLang:          publicData.DefaultLang,
+		DownloadURLWindows:   publicData.DownloadURLWindows,
+		DownloadURLMacOS:     publicData.DownloadURLMacOS,
+		FeaturedStores:       publicData.FeaturedStores,
+		TopSalesStores:       publicData.TopSalesStores,
+		TopDownloadsStores:   publicData.TopDownloadsStores,
+		TopSalesProducts:     publicData.TopSalesProducts,
+		TopDownloadsProducts: publicData.TopDownloadsProducts,
+		NewestProducts:       publicData.NewestProducts,
+		Categories:           publicData.Categories,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -10977,6 +11008,7 @@ func handleReplacePack(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate caches after replacing pack data (status reset to pending)
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 	var shareToken string
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
@@ -12531,6 +12563,7 @@ func handleApproveReview(w http.ResponseWriter, r *http.Request, listingID int64
 
 	// Invalidate caches after approving a pack listing
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 	var shareToken string
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
@@ -13660,6 +13693,102 @@ func handleAdminBillingExport(w http.ResponseWriter, r *http.Request) {
 	w.Write(buf.Bytes())
 }
 
+// handleDecorationBillingList returns paginated decoration billing detail records.
+// GET /admin/api/billing/decoration?page=1&search=xxx
+func handleDecorationBillingList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize := 50
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+
+	// Count total and sum credits
+	var total int
+	var totalCredits float64
+	countQuery := `SELECT COUNT(*), COALESCE(SUM(ABS(ct.amount)), 0)
+		FROM credits_transactions ct
+		JOIN users u ON ct.user_id = u.id
+		LEFT JOIN author_storefronts s ON s.user_id = ct.user_id
+		WHERE ct.transaction_type = 'decoration'`
+	var countArgs []interface{}
+	if search != "" {
+		countQuery += " AND (u.display_name LIKE ? OR COALESCE(s.store_name, '') LIKE ?)"
+		pattern := "%" + search + "%"
+		countArgs = append(countArgs, pattern, pattern)
+	}
+	if err := db.QueryRow(countQuery, countArgs...).Scan(&total, &totalCredits); err != nil {
+		log.Printf("[DECORATION-BILLING] count query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
+	// Query page
+	offset := (page - 1) * pageSize
+	dataQuery := `SELECT ct.id, ct.user_id, u.display_name, COALESCE(s.store_name, ''),
+		ABS(ct.amount), ct.description, ct.created_at
+		FROM credits_transactions ct
+		JOIN users u ON ct.user_id = u.id
+		LEFT JOIN author_storefronts s ON s.user_id = ct.user_id
+		WHERE ct.transaction_type = 'decoration'`
+	var dataArgs []interface{}
+	if search != "" {
+		dataQuery += " AND (u.display_name LIKE ? OR COALESCE(s.store_name, '') LIKE ?)"
+		pattern := "%" + search + "%"
+		dataArgs = append(dataArgs, pattern, pattern)
+	}
+	dataQuery += " ORDER BY ct.created_at DESC LIMIT ? OFFSET ?"
+	dataArgs = append(dataArgs, pageSize, offset)
+
+	rows, err := db.Query(dataQuery, dataArgs...)
+	if err != nil {
+		log.Printf("[DECORATION-BILLING] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+
+	type DecorationBillingRecord struct {
+		ID          int64   `json:"id"`
+		UserID      int64   `json:"user_id"`
+		DisplayName string  `json:"display_name"`
+		StoreName   string  `json:"store_name"`
+		Amount      float64 `json:"amount"`
+		Description string  `json:"description"`
+		CreatedAt   string  `json:"created_at"`
+	}
+	var records []DecorationBillingRecord
+	for rows.Next() {
+		var rec DecorationBillingRecord
+		if err := rows.Scan(&rec.ID, &rec.UserID, &rec.DisplayName, &rec.StoreName,
+			&rec.Amount, &rec.Description, &rec.CreatedAt); err != nil {
+			log.Printf("[DECORATION-BILLING] scan error: %v", err)
+			continue
+		}
+		records = append(records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[DECORATION-BILLING] rows iteration error: %v", err)
+	}
+	if records == nil {
+		records = []DecorationBillingRecord{}
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"records":       records,
+		"total":         total,
+		"total_credits": totalCredits,
+		"page":          page,
+		"page_size":     pageSize,
+	})
+}
+
+
 
 
 
@@ -14064,6 +14193,7 @@ func handleAuthorEditPack(w http.ResponseWriter, r *http.Request) {
 	}
 	// Invalidate storefront caches that display this pack
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 
 	// If AJAX request, return JSON instead of redirect
 	if r.Header.Get("X-Requested-With") == "XMLHttpRequest" {
@@ -14193,6 +14323,7 @@ func handleAuthorDelistPack(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate caches after delisting a pack
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 	var shareToken string
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
@@ -14448,6 +14579,7 @@ func handleAdminDelistPack(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate caches after delisting a pack
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 	var shareToken string
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
@@ -14504,6 +14636,7 @@ func handleAdminRelistPack(w http.ResponseWriter, r *http.Request) {
 
 	// Invalidate caches after relisting a pack
 	globalCache.InvalidateStorefrontsByListingID(listingID)
+	globalCache.InvalidateHomepage()
 	var shareToken string
 	if err := db.QueryRow("SELECT share_token FROM pack_listings WHERE id = ?", listingID).Scan(&shareToken); err == nil && shareToken != "" {
 		globalCache.InvalidatePackDetail(shareToken)
@@ -16397,8 +16530,8 @@ func main() {
 	cacheConfig := DefaultCacheConfig()
 	globalCache = NewCache(cacheConfig)
 	globalCache.startCleanupTicker(context.Background())
-	log.Printf("[CACHE] initialized: MaxEntries=%d, StorefrontTTL=%v, PackDetailTTL=%v, ShareTokenTTL=%v, UserPurchasedTTL=%v",
-		cacheConfig.MaxEntries, cacheConfig.StorefrontTTL, cacheConfig.PackDetailTTL, cacheConfig.ShareTokenTTL, cacheConfig.UserPurchasedTTL)
+	log.Printf("[CACHE] initialized: MaxEntries=%d, StorefrontTTL=%v, PackDetailTTL=%v, ShareTokenTTL=%v, UserPurchasedTTL=%v, HomepageTTL=%v",
+		cacheConfig.MaxEntries, cacheConfig.StorefrontTTL, cacheConfig.PackDetailTTL, cacheConfig.ShareTokenTTL, cacheConfig.UserPurchasedTTL, cacheConfig.HomepageTTL)
 
 	// Start background goroutine to clean up expired sessions and captchas
 	go func() {

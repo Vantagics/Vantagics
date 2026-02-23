@@ -18,6 +18,7 @@ type CacheConfig struct {
 	PackDetailTTL    time.Duration // 分析包详情缓存 TTL，默认 3 分钟
 	ShareTokenTTL    time.Duration // ShareToken 映射缓存 TTL，默认 10 分钟
 	UserPurchasedTTL time.Duration // 用户已购买状态缓存 TTL，默认 1 分钟
+	HomepageTTL      time.Duration // 首页数据缓存 TTL，默认 2 分钟
 	CleanupInterval  time.Duration // 定期清理间隔，默认 10 分钟
 }
 
@@ -29,6 +30,7 @@ func DefaultCacheConfig() CacheConfig {
 		PackDetailTTL:    3 * time.Minute,
 		ShareTokenTTL:    10 * time.Minute,
 		UserPurchasedTTL: 1 * time.Minute,
+		HomepageTTL:      2 * time.Minute,
 		CleanupInterval:  10 * time.Minute,
 	}
 }
@@ -68,6 +70,20 @@ type PackDetailPublicData struct {
 	CategoryName  string
 }
 
+// HomepagePublicData 首页公共数据（缓存对象，不含用户相关字段）
+type HomepagePublicData struct {
+	DefaultLang        string
+	DownloadURLWindows string
+	DownloadURLMacOS   string
+	FeaturedStores     []HomepageStoreInfo
+	TopSalesStores     []HomepageStoreInfo
+	TopDownloadsStores []HomepageStoreInfo
+	TopSalesProducts   []HomepageProductInfo
+	TopDownloadsProducts []HomepageProductInfo
+	NewestProducts     []HomepageProductInfo
+	Categories         []HomepageCategoryInfo
+}
+
 // Cache 统一缓存管理器
 type Cache struct {
 	mu            sync.RWMutex
@@ -76,6 +92,7 @@ type Cache struct {
 	packDetails   map[string]*cacheEntry // key: shareToken
 	shareTokens   map[string]*cacheEntry // key: shareToken -> listingID
 	userPurchased map[int64]*cacheEntry  // key: userID -> map[int64]bool
+	homepage      map[string]*cacheEntry // key: "hp" -> *HomepagePublicData
 	sfGroup       singleflight.Group     // 防止缓存击穿
 }
 
@@ -87,6 +104,7 @@ func NewCache(config CacheConfig) *Cache {
 		packDetails:   make(map[string]*cacheEntry),
 		shareTokens:   make(map[string]*cacheEntry),
 		userPurchased: make(map[int64]*cacheEntry),
+		homepage:      make(map[string]*cacheEntry),
 	}
 }
 
@@ -244,6 +262,57 @@ func (c *Cache) SetUserPurchasedIDs(userID int64, ids map[int64]bool) {
 	c.evictLRU()
 }
 
+// GetHomepageData 获取首页公共数据缓存
+func (c *Cache) GetHomepageData() (*HomepagePublicData, bool) {
+	c.mu.RLock()
+	entry, ok := c.homepage["hp"]
+	if !ok {
+		c.mu.RUnlock()
+		return nil, false
+	}
+	if time.Now().After(entry.createdAt.Add(entry.ttl)) {
+		c.mu.RUnlock()
+		return nil, false
+	}
+	entry.lastAccess = time.Now()
+	data := entry.data.(*HomepagePublicData)
+	c.mu.RUnlock()
+	return data, true
+}
+
+// SetHomepageData 设置首页公共数据缓存
+func (c *Cache) SetHomepageData(data *HomepagePublicData) {
+	now := time.Now()
+	c.mu.Lock()
+	c.homepage["hp"] = &cacheEntry{
+		data:       data,
+		createdAt:  now,
+		lastAccess: now,
+		ttl:        c.config.HomepageTTL,
+	}
+	c.mu.Unlock()
+	c.evictLRU()
+}
+
+// InvalidateHomepage 清除首页缓存
+func (c *Cache) InvalidateHomepage() {
+	c.mu.Lock()
+	delete(c.homepage, "hp")
+	c.mu.Unlock()
+	log.Printf("[CACHE] invalidated homepage cache")
+}
+
+// DoHomepageQuery 使用 singleflight 执行首页数据查询
+func (c *Cache) DoHomepageQuery(fn func() (*HomepagePublicData, error)) (*HomepagePublicData, error) {
+	v, err, _ := c.sfGroup.Do("homepage", func() (interface{}, error) {
+		return fn()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*HomepagePublicData), nil
+}
+
 // DoStorefrontQuery 使用 singleflight 执行小铺数据查询
 func (c *Cache) DoStorefrontQuery(key string, fn func() (*StorefrontPublicData, error)) (*StorefrontPublicData, error) {
 	v, err, _ := c.sfGroup.Do(key, func() (interface{}, error) {
@@ -390,6 +459,14 @@ func (c *Cache) evictLRU() {
 				first = false
 			}
 		}
+		for k, e := range c.homepage {
+			if first || e.lastAccess.Before(oldestTime) {
+				oldestTime = e.lastAccess
+				oldestMap = "homepage"
+				oldestKeyStr = k
+				first = false
+			}
+		}
 
 		switch oldestMap {
 		case "storefronts":
@@ -400,13 +477,15 @@ func (c *Cache) evictLRU() {
 			delete(c.shareTokens, oldestKeyStr)
 		case "userPurchased":
 			delete(c.userPurchased, oldestKeyInt)
+		case "homepage":
+			delete(c.homepage, oldestKeyStr)
 		}
 	}
 }
 
 // entryCountLocked 返回当前缓存条目总数（调用者必须持有锁）
 func (c *Cache) entryCountLocked() int {
-	return len(c.storefronts) + len(c.packDetails) + len(c.shareTokens) + len(c.userPurchased)
+	return len(c.storefronts) + len(c.packDetails) + len(c.shareTokens) + len(c.userPurchased) + len(c.homepage)
 }
 
 // EntryCount 返回当前缓存条目总数
@@ -440,6 +519,11 @@ func (c *Cache) cleanupExpired() {
 	for k, e := range c.userPurchased {
 		if now.After(e.createdAt.Add(e.ttl)) {
 			delete(c.userPurchased, k)
+		}
+	}
+	for k, e := range c.homepage {
+		if now.After(e.createdAt.Add(e.ttl)) {
+			delete(c.homepage, k)
 		}
 	}
 }
