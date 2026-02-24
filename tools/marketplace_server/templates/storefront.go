@@ -573,7 +573,7 @@ const storefrontHTML = `<!DOCTYPE html>
                         <span class="store-stat-val">{{len $.Packs}}</span>
                         <span class="store-stat-label" data-i18n="stat_packs">分析包</span>
                     </div>
-                    {{if $.FeaturedPacks}}
+                    {{if and $.FeaturedPacks $.FeaturedVisible}}
                     <div class="store-stat">
                         <span class="store-stat-val">{{len $.FeaturedPacks}}</span>
                         <span class="store-stat-label" data-i18n="stat_featured">推荐</span>
@@ -581,7 +581,7 @@ const storefrontHTML = `<!DOCTYPE html>
                     {{end}}
                 </div>
             </div>
-            {{if $.FeaturedPacks}}
+            {{if and $.FeaturedPacks $.FeaturedVisible}}
             <div class="store-featured">
                 <div class="store-featured-header">
                     <div class="store-featured-title">
@@ -633,7 +633,7 @@ const storefrontHTML = `<!DOCTYPE html>
                 </div>
             </div>
             {{end}}
-            {{if not $.FeaturedPacks}}
+            {{if or (not $.FeaturedPacks) (not $.FeaturedVisible)}}
             {{if or $.DownloadURLWindows $.DownloadURLMacOS}}
             <div class="store-featured" style="justify-content:flex-start;">
                 <span id="sfDlBtn"></span>

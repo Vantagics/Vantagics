@@ -845,6 +845,7 @@ type StorefrontPageData struct {
 	HeroLayout          string // "default" or "reversed"
 	IsPreviewMode       bool
 	CustomProducts      []CustomProduct
+	FeaturedVisible     bool   // 推荐分析包区块是否可见
 }
 
 // StorefrontManageData 小铺管理页面模板数据
@@ -2678,6 +2679,16 @@ func DefaultLayoutConfig() LayoutConfig {
 	}
 }
 
+// isFeaturedVisible 检查 featured 区块是否可见（默认可见）
+func isFeaturedVisible(sections []SectionConfig) bool {
+	for _, s := range sections {
+		if s.Type == "featured" {
+			return s.Visible
+		}
+	}
+	return true // 没有 featured 区块时默认可见
+}
+
 func ParseLayoutConfig(jsonStr string) (LayoutConfig, error) {
 	var config LayoutConfig
 	if err := json.Unmarshal([]byte(jsonStr), &config); err != nil {
@@ -3901,6 +3912,390 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleStorefrontSupportLogin handles POST /user/storefront/support/login.
+// It authenticates the user with License_Server, obtains a login_ticket from Service_Portal,
+// and returns a login URL for the storefront support backend.
+func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+
+	// Step 1: Get user ID from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "未登录"})
+		return
+	}
+
+	// Step 2: Query user's storefront
+	var storefrontID int64
+	err = db.QueryRow(
+		"SELECT id FROM author_storefronts WHERE user_id = ?", userID,
+	).Scan(&storefrontID)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先创建小铺"})
+		return
+	}
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to query storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	// Step 3: Verify support system status is 'approved'
+	supportStatus, err := getStorefrontSupportStatus(storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to get support status for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+	if supportStatus != "approved" {
+		jsonResponse(w, http.StatusForbidden, map[string]interface{}{"success": false, "error": "客户支持系统尚未开通"})
+		return
+	}
+
+	// Step 4: Query user's SN (auth_id) and Email
+	var sn, email string
+	err = db.QueryRow(
+		"SELECT COALESCE(auth_id, ''), COALESCE(email, '') FROM users WHERE id = ?", userID,
+	).Scan(&sn, &email)
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to query user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+	if sn == "" || email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
+		return
+	}
+
+	// Step 5: Get Auth_Token from License_Server
+	lsURL := getSetting("license_server_url")
+	if lsURL == "" {
+		lsURL = licenseServerURL
+	}
+	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to marshal auth request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	authURL := lsURL + "/api/marketplace-auth"
+	authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to contact license server at %s: %v", authURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
+		return
+	}
+	defer authResp.Body.Close()
+
+	authRespBody, err := io.ReadAll(authResp.Body)
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to read license server response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
+		return
+	}
+
+	var authResult struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+		log.Printf("[SUPPORT-LOGIN] license server auth failed for user %d: resp=%s err=%v", userID, string(authRespBody), err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
+		return
+	}
+
+	// Step 6: Get login_ticket from Service_Portal
+	spURL := getSetting("service_portal_url")
+	if spURL == "" {
+		spURL = servicePortalURL
+	}
+	loginReqBody, err := json.Marshal(map[string]string{"license_token": authResult.Token})
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to marshal login request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	loginURL := spURL + "/api/auth/sn-login"
+	loginResp, err := http.Post(loginURL, "application/json", bytes.NewReader(loginReqBody))
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to contact service portal at %s: %v", loginURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+	defer loginResp.Body.Close()
+
+	loginRespBody, err := io.ReadAll(loginResp.Body)
+	if err != nil {
+		log.Printf("[SUPPORT-LOGIN] failed to read service portal response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+
+	var loginResult struct {
+		Success     bool   `json:"success"`
+		LoginTicket string `json:"login_ticket"`
+		Message     string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(loginRespBody, &loginResult); err != nil || !loginResult.Success || loginResult.LoginTicket == "" {
+		log.Printf("[SUPPORT-LOGIN] service portal login failed for user %d: resp=%s err=%v", userID, string(loginRespBody), err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+
+	// Step 7: Build and return login URL
+	ticketLoginURL := fmt.Sprintf("https://service.vantagedata.chat/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
+		loginResult.LoginTicket, storefrontID)
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"login_url": ticketLoginURL,
+	})
+}
+
+// handleAdminStorefrontSupportList returns the paginated list of storefront support requests for admin.
+// GET /admin/api/storefront-support/list?status=&search=&page=1
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+func handleAdminStorefrontSupportList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	// Parse query parameters
+	statusFilter := strings.TrimSpace(r.URL.Query().Get("status"))
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const pageSize = 20
+	offset := (page - 1) * pageSize
+
+	// Build dynamic SQL query
+	baseQuery := `SELECT ssr.id, ssr.storefront_id, ssr.store_name, u.display_name, ssr.software_name,
+		ssr.status, COALESCE(ssr.disable_reason, ''), ssr.created_at,
+		COALESCE(ssr.reviewed_at, ''), COALESCE(ac.username, '')
+		FROM storefront_support_requests ssr
+		JOIN users u ON ssr.user_id = u.id
+		LEFT JOIN admin_credentials ac ON ssr.reviewed_by = ac.id
+		WHERE 1=1`
+	var args []interface{}
+
+	if statusFilter != "" {
+		baseQuery += " AND ssr.status = ?"
+		args = append(args, statusFilter)
+	}
+	if search != "" {
+		baseQuery += " AND (ssr.store_name LIKE ? OR u.display_name LIKE ?)"
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern)
+	}
+
+	baseQuery += " ORDER BY ssr.created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, pageSize, offset)
+
+	rows, err := db.Query(baseQuery, args...)
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-LIST] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+
+	var results []AdminSupportRequestInfo
+	for rows.Next() {
+		var info AdminSupportRequestInfo
+		if err := rows.Scan(&info.ID, &info.StorefrontID, &info.StoreName, &info.Username,
+			&info.SoftwareName, &info.Status, &info.DisableReason, &info.CreatedAt,
+			&info.ReviewedAt, &info.ReviewedBy); err != nil {
+			log.Printf("[ADMIN-SUPPORT-LIST] scan error: %v", err)
+			continue
+		}
+		// Compute total sales for each storefront
+		totalSales, err := computeStorefrontTotalSales(info.StorefrontID)
+		if err != nil {
+			log.Printf("[ADMIN-SUPPORT-LIST] failed to compute total sales for storefront %d: %v", info.StorefrontID, err)
+			totalSales = 0
+		}
+		info.TotalSales = totalSales
+		results = append(results, info)
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[ADMIN-SUPPORT-LIST] rows iteration error: %v", err)
+	}
+	if results == nil {
+		results = []AdminSupportRequestInfo{}
+	}
+
+	jsonResponse(w, http.StatusOK, results)
+}
+
+// handleAdminStorefrontSupportApprove approves a pending support request.
+// POST /admin/api/storefront-support/approve
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+func handleAdminStorefrontSupportApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	var req struct {
+		RequestID int64 `json:"request_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Check current status
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM storefront_support_requests WHERE id = ?", req.RequestID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "请求不存在"})
+		return
+	}
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-APPROVE] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if currentStatus != "pending" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "当前状态不允许此操作"})
+		return
+	}
+
+	_, err = db.Exec(
+		"UPDATE storefront_support_requests SET status = 'approved', reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		adminID, req.RequestID,
+	)
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-APPROVE] update error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminStorefrontSupportDisable disables a pending or approved support request.
+// POST /admin/api/storefront-support/disable
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+func handleAdminStorefrontSupportDisable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	var req struct {
+		RequestID int64  `json:"request_id"`
+		Reason    string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	if strings.TrimSpace(req.Reason) == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "请填写禁用原因"})
+		return
+	}
+
+	// Check current status
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM storefront_support_requests WHERE id = ?", req.RequestID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "请求不存在"})
+		return
+	}
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-DISABLE] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if currentStatus != "pending" && currentStatus != "approved" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "当前状态不允许此操作"})
+		return
+	}
+
+	_, err = db.Exec(
+		"UPDATE storefront_support_requests SET status = 'disabled', disable_reason = ?, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		req.Reason, adminID, req.RequestID,
+	)
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-DISABLE] update error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleAdminStorefrontSupportReApprove re-approves a disabled support request.
+// POST /admin/api/storefront-support/re-approve
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+func handleAdminStorefrontSupportReApprove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	adminIDStr := r.Header.Get("X-Admin-ID")
+	adminID, _ := strconv.ParseInt(adminIDStr, 10, 64)
+
+	var req struct {
+		RequestID int64 `json:"request_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Check current status
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM storefront_support_requests WHERE id = ?", req.RequestID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "请求不存在"})
+		return
+	}
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-REAPPROVE] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if currentStatus != "disabled" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "当前状态不允许此操作"})
+		return
+	}
+
+	_, err = db.Exec(
+		"UPDATE storefront_support_requests SET status = 'approved', disable_reason = NULL, reviewed_by = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+		adminID, req.RequestID,
+	)
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-REAPPROVE] update error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // --- Email Wallet helpers ---
 
 // getEmailForUser returns the email for a given user ID.
@@ -5085,6 +5480,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		HeroLayout:         publicData.HeroLayout,
 		IsPreviewMode:      isPreviewMode,
 		CustomProducts:     publicData.CustomProducts,
+		FeaturedVisible:    isFeaturedVisible(publicData.LayoutConfig.Sections),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
