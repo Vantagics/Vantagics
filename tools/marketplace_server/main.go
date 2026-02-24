@@ -4181,6 +4181,42 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleStorefrontSupportCancel handles POST /user/storefront/support/cancel.
+// It allows the store owner to cancel (delete) their support request.
+func handleStorefrontSupportCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "未登录"})
+		return
+	}
+
+	// Query user's storefront
+	var storefrontID int64
+	err = db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先创建小铺"})
+		return
+	}
+
+	// Delete all support requests for this storefront
+	result, err := db.Exec("DELETE FROM storefront_support_requests WHERE storefront_id = ?", storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-CANCEL] delete error for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	log.Printf("[SUPPORT-CANCEL] user %d cancelled support for storefront %d, %d rows deleted", userID, storefrontID, rows)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
 // getSupportSalesThreshold 获取当前的支持系统销售额门槛。
 // 从 settings 表读取 support_sales_threshold，不存在或解析失败则返回默认值 1000。
 func getSupportSalesThreshold() int {
@@ -5696,6 +5732,8 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 		handleStorefrontSupportApply(w, r)
 	case path == "/support/login" && r.Method == http.MethodPost:
 		handleStorefrontSupportLogin(w, r)
+	case path == "/support/cancel" && r.Method == http.MethodPost:
+		handleStorefrontSupportCancel(w, r)
 	default:
 		http.NotFound(w, r)
 	}

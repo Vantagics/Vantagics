@@ -680,13 +680,17 @@ const storefrontManageHTML = `<!DOCTYPE html>
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                 <span class="tag" style="background:#fef3c7;color:#d97706;border:1px solid #fde68a;">审批中</span>
             </div>
-            <div style="font-size:13px;color:#64748b;">您的开通请求正在等待管理员审批</div>
+            <div style="font-size:13px;color:#64748b;margin-bottom:10px;">您的开通请求正在等待管理员审批</div>
+            <button class="btn" id="supportCancelBtn" onclick="cancelSupportSystem()" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-size:13px;">撤回申请</button>
             {{else if eq .SupportStatus "approved"}}
             <!-- 已开通 -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
                 <span class="tag" style="background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;">已开通</span>
             </div>
-            <button class="btn btn-green" id="supportLoginBtn" onclick="loginSupportSystem()">🚀 进入客服后台</button>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <button class="btn btn-green" id="supportLoginBtn" onclick="loginSupportSystem()">🚀 进入客服后台</button>
+                <button class="btn" id="supportCancelBtn" onclick="cancelSupportSystem()" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-size:13px;">取消客户支持</button>
+            </div>
             {{else if eq .SupportStatus "disabled"}}
             <!-- 已禁用 -->
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
@@ -2497,6 +2501,27 @@ function loginSupportSystem() {
             showMsg('err', d.error || '登录失败');
         }
         if (btn) btn.disabled = false;
+    }).catch(function() {
+        showMsg('err', '网络错误');
+        if (btn) btn.disabled = false;
+    });
+}
+
+/* ===== Customer Support: Cancel ===== */
+function cancelSupportSystem() {
+    if (!confirm('确定取消客户支持？取消后店铺将不再显示客服入口，您可以随时重新申请。')) return;
+    var btn = document.getElementById('supportCancelBtn');
+    if (btn) btn.disabled = true;
+    fetch('/user/storefront/support/cancel', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            showMsg('ok', '已取消客户支持');
+            setTimeout(function() { location.reload(); }, 1000);
+        } else {
+            showMsg('err', d.error || '操作失败');
+            if (btn) btn.disabled = false;
+        }
     }).catch(function() {
         showMsg('err', '网络错误');
         if (btn) btn.disabled = false;
