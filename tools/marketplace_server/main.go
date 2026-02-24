@@ -868,7 +868,7 @@ type StorefrontManageData struct {
 	SupportStatus          string              // 支持系统状态: "none", "pending", "approved", "disabled"
 	SupportRequest         *SupportRequestInfo // 开通请求详情（如有）
 	TotalSales             float64             // 累计销售额
-	SupportThreshold       float64             // 开通门槛（10000）
+	SupportThreshold       float64             // 开通门槛（动态配置）
 	SupportDisableReason   string              // 禁用原因（如有）
 }
 
@@ -898,6 +898,14 @@ type AdminSupportRequestInfo struct {
 	CreatedAt     string  `json:"created_at"`
 	ReviewedAt    string  `json:"reviewed_at,omitempty"`
 	ReviewedBy    string  `json:"reviewed_by,omitempty"`
+}
+
+// AdminSupportListResponse 是增强后的列表 API 返回结构。
+type AdminSupportListResponse struct {
+	Items    []AdminSupportRequestInfo `json:"items"`
+	Total    int                       `json:"total"`
+	Page     int                       `json:"page"`
+	PageSize int                       `json:"page_size"`
 }
 
 // CustomProduct 自定义商品
@@ -3835,7 +3843,7 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
 		return
 	}
-	if totalSales < 10000 {
+	if totalSales < float64(getSupportSalesThreshold()) {
 		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "累计销售额未达到开通门槛"})
 		return
 	}
@@ -4123,6 +4131,78 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getSupportSalesThreshold 获取当前的支持系统销售额门槛。
+// 从 settings 表读取 support_sales_threshold，不存在或解析失败则返回默认值 1000。
+func getSupportSalesThreshold() int {
+	val := getSetting("support_sales_threshold")
+	if val == "" {
+		return 1000
+	}
+	threshold, err := strconv.Atoi(val)
+	if err != nil || threshold <= 0 {
+		return 1000
+	}
+	return threshold
+}
+
+// handleGetSupportThreshold returns the current support sales threshold value.
+// GET /admin/api/storefront-support/get-threshold
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+// Returns: {"threshold": N}
+func handleGetSupportThreshold(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	threshold := getSupportSalesThreshold()
+	jsonResponse(w, http.StatusOK, map[string]int{"threshold": threshold})
+}
+
+// handleSetSupportThreshold sets the support sales threshold value.
+// POST /admin/api/storefront-support/set-threshold
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+// Request body: {"threshold": 5000} or form parameter threshold=5000
+// Validation: threshold must be a positive integer (> 0)
+func handleSetSupportThreshold(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var thresholdStr string
+	// Try JSON body first, then fall back to form value
+	var req struct {
+		Threshold interface{} `json:"threshold"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.Threshold != nil {
+		thresholdStr = fmt.Sprintf("%v", req.Threshold)
+	} else {
+		thresholdStr = r.FormValue("threshold")
+	}
+
+	thresholdStr = strings.TrimSpace(thresholdStr)
+	if thresholdStr == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "门槛值必须为正整数"})
+		return
+	}
+
+	// Must be a valid positive integer
+	threshold, err := strconv.Atoi(thresholdStr)
+	if err != nil || threshold <= 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "门槛值必须为正整数"})
+		return
+	}
+
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('support_sales_threshold', ?)", strconv.Itoa(threshold))
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-THRESHOLD] db error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleAdminStorefrontSupportList returns the paginated list of storefront support requests for admin.
 // GET /admin/api/storefront-support/list?status=&search=&page=1
 // Middleware: permissionAuth("storefront_support") (applied at route registration)
@@ -4139,33 +4219,71 @@ func handleAdminStorefrontSupportList(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	const pageSize = 20
+	const pageSize = 50
 	offset := (page - 1) * pageSize
 
-	// Build dynamic SQL query
-	baseQuery := `SELECT ssr.id, ssr.storefront_id, ssr.store_name, u.display_name, ssr.software_name,
+	// Parse sort_order parameter (asc/desc, default desc)
+	sortOrder := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort_order")))
+	orderDirection := "DESC"
+	if sortOrder == "asc" {
+		orderDirection = "ASC"
+	}
+
+	// Parse date_from and date_to parameters (format YYYY-MM-DD)
+	dateFrom := strings.TrimSpace(r.URL.Query().Get("date_from"))
+	dateTo := strings.TrimSpace(r.URL.Query().Get("date_to"))
+
+	// Validate: date_from must not be later than date_to
+	if dateFrom != "" && dateTo != "" && dateFrom > dateTo {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "开始日期不能晚于结束日期"})
+		return
+	}
+
+	// Build dynamic WHERE clause
+	whereClause := "WHERE 1=1"
+	var args []interface{}
+
+	if statusFilter != "" {
+		whereClause += " AND ssr.status = ?"
+		args = append(args, statusFilter)
+	}
+	if search != "" {
+		whereClause += " AND (ssr.store_name LIKE ? OR u.display_name LIKE ?)"
+		searchPattern := "%" + search + "%"
+		args = append(args, searchPattern, searchPattern)
+	}
+	if dateFrom != "" {
+		whereClause += " AND ssr.created_at >= ?"
+		args = append(args, dateFrom+" 00:00:00")
+	}
+	if dateTo != "" {
+		whereClause += " AND ssr.created_at <= ?"
+		args = append(args, dateTo+" 23:59:59")
+	}
+
+	// COUNT query to get total matching records (reuse same WHERE conditions)
+	countQuery := `SELECT COUNT(*) FROM storefront_support_requests ssr
+		JOIN users u ON ssr.user_id = u.id
+		LEFT JOIN admin_credentials ac ON ssr.reviewed_by = ac.id
+		` + whereClause
+	var total int
+	if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		log.Printf("[ADMIN-SUPPORT-LIST] count query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
+		return
+	}
+
+	// Build data query with ORDER BY and LIMIT/OFFSET
+	dataQuery := `SELECT ssr.id, ssr.storefront_id, ssr.store_name, u.display_name, ssr.software_name,
 		ssr.status, COALESCE(ssr.disable_reason, ''), ssr.created_at,
 		COALESCE(ssr.reviewed_at, ''), COALESCE(ac.username, '')
 		FROM storefront_support_requests ssr
 		JOIN users u ON ssr.user_id = u.id
 		LEFT JOIN admin_credentials ac ON ssr.reviewed_by = ac.id
-		WHERE 1=1`
-	var args []interface{}
+		` + whereClause + " ORDER BY ssr.created_at " + orderDirection + " LIMIT ? OFFSET ?"
+	dataArgs := append(args, pageSize, offset)
 
-	if statusFilter != "" {
-		baseQuery += " AND ssr.status = ?"
-		args = append(args, statusFilter)
-	}
-	if search != "" {
-		baseQuery += " AND (ssr.store_name LIKE ? OR u.display_name LIKE ?)"
-		searchPattern := "%" + search + "%"
-		args = append(args, searchPattern, searchPattern)
-	}
-
-	baseQuery += " ORDER BY ssr.created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, pageSize, offset)
-
-	rows, err := db.Query(baseQuery, args...)
+	rows, err := db.Query(dataQuery, dataArgs...)
 	if err != nil {
 		log.Printf("[ADMIN-SUPPORT-LIST] query error: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "查询失败"})
@@ -4198,7 +4316,12 @@ func handleAdminStorefrontSupportList(w http.ResponseWriter, r *http.Request) {
 		results = []AdminSupportRequestInfo{}
 	}
 
-	jsonResponse(w, http.StatusOK, results)
+	jsonResponse(w, http.StatusOK, AdminSupportListResponse{
+		Items:    results,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	})
 }
 
 // handleAdminStorefrontSupportApprove approves a pending support request.
@@ -6038,7 +6161,7 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		SupportStatus:         supportStatus,
 		SupportRequest:        supportRequest,
 		TotalSales:            supportTotalSales,
-		SupportThreshold:      10000,
+		SupportThreshold:      float64(getSupportSalesThreshold()),
 		SupportDisableReason:  supportDisableReason,
 	}
 
@@ -17701,6 +17824,8 @@ func main() {
 	http.HandleFunc("/admin/api/billing/decoration", permissionAuth("billing")(handleDecorationBillingList))
 
 	// Storefront support management API routes (permission-based)
+	http.HandleFunc("/admin/api/storefront-support/get-threshold", permissionAuth("storefront_support")(handleGetSupportThreshold))
+	http.HandleFunc("/admin/api/storefront-support/set-threshold", permissionAuth("storefront_support")(handleSetSupportThreshold))
 	http.HandleFunc("/admin/api/storefront-support/list", permissionAuth("storefront_support")(handleAdminStorefrontSupportList))
 	http.HandleFunc("/admin/api/storefront-support/approve", permissionAuth("storefront_support")(handleAdminStorefrontSupportApprove))
 	http.HandleFunc("/admin/api/storefront-support/disable", permissionAuth("storefront_support")(handleAdminStorefrontSupportDisable))

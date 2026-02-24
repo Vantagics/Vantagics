@@ -840,6 +840,19 @@ const AdminHTML = `<!DOCTYPE html>
 
     <!-- Storefront Support Management Section -->
     <div id="section-storefront-support" style="display:none;">
+        <!-- Threshold Settings -->
+        <div class="card" style="margin-bottom:20px;">
+            <h2>💰 销售额门槛设置</h2>
+            <p class="form-hint" style="margin-bottom:16px;">设置店铺申请开通客户支持系统所需的最低累计销售额（Credits）</p>
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+                <div class="form-group" style="margin-bottom:0;flex:0 0 200px;">
+                    <label for="support-threshold-input">门槛值（Credits）</label>
+                    <input type="number" id="support-threshold-input" min="1" step="1" placeholder="1000" style="width:200px;" />
+                </div>
+                <button class="btn btn-primary" onclick="saveSupportThreshold()" style="height:38px;">保存</button>
+            </div>
+            <div id="support-threshold-msg" style="margin-top:8px;display:none;"></div>
+        </div>
         <div class="card">
             <div class="card-header">
                 <h2>🛎️ 店铺支持管理</h2>
@@ -855,6 +868,8 @@ const AdminHTML = `<!DOCTYPE html>
             <!-- Search -->
             <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
                 <input type="text" id="support-search" placeholder="搜索店铺名称或用户名..." style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:260px;" onkeydown="if(event.key==='Enter')loadStorefrontSupport()" />
+                <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:4px;">开始日期 <input type="date" id="support-date-from" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" /></label>
+                <label style="font-size:13px;color:#374151;display:flex;align-items:center;gap:4px;">结束日期 <input type="date" id="support-date-to" style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;" /></label>
                 <button class="btn btn-primary btn-sm" onclick="loadStorefrontSupport()">搜索</button>
             </div>
             <table>
@@ -864,7 +879,7 @@ const AdminHTML = `<!DOCTYPE html>
                         <th>店铺主用户名</th>
                         <th>软件名称</th>
                         <th>累计销售额</th>
-                        <th>申请时间</th>
+                        <th style="cursor:pointer;user-select:none;" onclick="toggleSupportSortOrder()">申请时间 <span id="support-sort-icon">▼</span></th>
                         <th>当前状态</th>
                         <th>操作</th>
                     </tr>
@@ -1138,7 +1153,7 @@ function showSection(name) {
     if (name === 'billing') loadBillingData(1);
     if (name === 'featured') loadFeaturedStorefronts();
     if (name === 'settings') { loadSMTPConfig(); loadPayPalConfig(); }
-    if (name === 'storefront-support') loadStorefrontSupport();
+    if (name === 'storefront-support') { loadSupportThreshold(); loadStorefrontSupport(); }
 }
 
 function showMsg(text, isError) {
@@ -2579,7 +2594,7 @@ function saveDecorationFeeMax() {
         var msgEl = document.getElementById('decorationFeeMaxMsg');
         msgEl.style.display = '';
         msgEl.className = 'msg msg-error';
-        msgEl.textContent = T('admin_decoration_fee_max_invalid') || '上限必须在 0 到 1000 之间';
+        msgEl.textContent = window._i18n('admin_decoration_fee_max_invalid', '上限必须在 0 到 1000 之间');
         return;
     }
     var fd = new FormData();
@@ -2591,7 +2606,7 @@ function saveDecorationFeeMax() {
         msgEl.style.display = '';
         if (d.status === 'ok') {
             msgEl.className = 'msg msg-success';
-            msgEl.textContent = T('save_success') || '保存成功';
+            msgEl.textContent = window._i18n('save_success', '保存成功');
             // Update fee input max attribute
             var feeInput = document.getElementById('decorationFeeInput');
             feeInput.max = val;
@@ -2599,14 +2614,14 @@ function saveDecorationFeeMax() {
             if (parseInt(feeInput.value, 10) > val) { feeInput.value = val; }
         } else {
             msgEl.className = 'msg msg-error';
-            msgEl.textContent = d.error || T('save_failed') || '保存失败';
+            msgEl.textContent = d.error || window._i18n('save_failed', '保存失败');
         }
         setTimeout(function() { msgEl.style.display = 'none'; }, 3000);
     }).catch(function() {
         var msgEl = document.getElementById('decorationFeeMaxMsg');
         msgEl.style.display = '';
         msgEl.className = 'msg msg-error';
-        msgEl.textContent = T('network_error') || '网络错误';
+        msgEl.textContent = window._i18n('network_error', '网络错误');
     });
 }
 
@@ -2617,7 +2632,7 @@ function saveDecorationFee() {
         var msgEl = document.getElementById('decorationFeeMsg');
         msgEl.style.display = '';
         msgEl.className = 'msg msg-error';
-        msgEl.textContent = T('admin_decoration_fee_invalid') || '费用必须在 0 到 1000 之间';
+        msgEl.textContent = window._i18n('admin_decoration_fee_invalid', '费用必须在 0 到 1000 之间');
         return;
     }
     var fd = new FormData();
@@ -2629,17 +2644,17 @@ function saveDecorationFee() {
         msgEl.style.display = '';
         if (d.status === 'ok') {
             msgEl.className = 'msg msg-success';
-            msgEl.textContent = T('save_success') || '保存成功';
+            msgEl.textContent = window._i18n('save_success', '保存成功');
         } else {
             msgEl.className = 'msg msg-error';
-            msgEl.textContent = d.error || T('save_failed') || '保存失败';
+            msgEl.textContent = d.error || window._i18n('save_failed', '保存失败');
         }
         setTimeout(function() { msgEl.style.display = 'none'; }, 3000);
     }).catch(function() {
         var msgEl = document.getElementById('decorationFeeMsg');
         msgEl.style.display = '';
         msgEl.className = 'msg msg-error';
-        msgEl.textContent = T('network_error') || '网络错误';
+        msgEl.textContent = window._i18n('network_error', '网络错误');
     });
 }
 
@@ -2909,6 +2924,53 @@ document.addEventListener('click', function(e) {
 var supportCurrentPage = 1;
 var supportTotalPages = 1;
 var supportStatusFilter = '';
+var supportSortOrder = 'desc';
+
+function loadSupportThreshold() {
+    apiFetch('/admin/api/storefront-support/get-threshold')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var input = document.getElementById('support-threshold-input');
+        if (input && data.threshold !== undefined) {
+            input.value = data.threshold;
+        }
+    }).catch(function() {});
+}
+
+function saveSupportThreshold() {
+    var input = document.getElementById('support-threshold-input');
+    var msgDiv = document.getElementById('support-threshold-msg');
+    var val = parseInt(input.value, 10);
+    if (!val || val <= 0 || input.value !== String(val)) {
+        msgDiv.style.display = '';
+        msgDiv.className = 'msg msg-error';
+        msgDiv.textContent = '门槛值必须为正整数';
+        setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
+        return;
+    }
+    apiFetch('/admin/api/storefront-support/set-threshold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold: val })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'ok' || data.ok) {
+            msgDiv.style.display = '';
+            msgDiv.className = 'msg msg-success';
+            msgDiv.textContent = '门槛值已保存';
+            setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
+        } else {
+            msgDiv.style.display = '';
+            msgDiv.className = 'msg msg-error';
+            msgDiv.textContent = data.error || '保存失败';
+            setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
+        }
+    }).catch(function() {
+        msgDiv.style.display = '';
+        msgDiv.className = 'msg msg-error';
+        msgDiv.textContent = '请求失败';
+        setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
+    });
+}
 
 function switchSupportStatusFilter(status, btn) {
     supportStatusFilter = status;
@@ -2918,19 +2980,31 @@ function switchSupportStatusFilter(status, btn) {
     loadStorefrontSupport(1);
 }
 
+function toggleSupportSortOrder() {
+    supportSortOrder = (supportSortOrder === 'asc') ? 'desc' : 'asc';
+    var icon = document.getElementById('support-sort-icon');
+    if (icon) icon.textContent = (supportSortOrder === 'asc') ? '▲' : '▼';
+    loadStorefrontSupport(1);
+}
+
 function loadStorefrontSupport(page) {
     if (typeof page !== 'number' || page < 1) page = 1;
     supportCurrentPage = page;
     var search = (document.getElementById('support-search') || {}).value || '';
+    var dateFrom = (document.getElementById('support-date-from') || {}).value || '';
+    var dateTo = (document.getElementById('support-date-to') || {}).value || '';
     var params = ['page=' + page];
     if (supportStatusFilter) params.push('status=' + encodeURIComponent(supportStatusFilter));
     if (search.trim()) params.push('search=' + encodeURIComponent(search.trim()));
+    if (dateFrom) params.push('date_from=' + encodeURIComponent(dateFrom));
+    if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
+    if (supportSortOrder) params.push('sort_order=' + encodeURIComponent(supportSortOrder));
     apiFetch('/admin/api/storefront-support/list?' + params.join('&'))
     .then(function(r) { return r.json(); })
     .then(function(data) {
-        var records = data.requests || [];
+        var records = data.items || [];
         var total = data.total || 0;
-        var pageSize = data.page_size || 20;
+        var pageSize = data.page_size || 50;
         supportCurrentPage = data.page || 1;
         supportTotalPages = Math.ceil(total / pageSize) || 1;
         var tbody = document.getElementById('support-list');
