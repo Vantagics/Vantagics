@@ -96,7 +96,7 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .logo-mark svg { width: 20px; height: 20px; fill: none; stroke: #fff; }
         .logo-text { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
-        .nav-actions { display: flex; align-items: center; gap: 8px; }
+        .nav-actions { display: flex; align-items: center; gap: 12px; }
         .nav-link {
             padding: 8px 18px; font-size: 13px; font-weight: 600; color: #fff;
             background: linear-gradient(135deg, #312e81, #1e1b4b);
@@ -544,6 +544,7 @@ const storefrontHTML = `<!DOCTYPE html>
             <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
         </a>
         <div class="nav-actions">
+            {{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="sfDlBtn"></span>{{end}}
             {{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}
         </div>
     </nav>
@@ -588,7 +589,6 @@ const storefrontHTML = `<!DOCTYPE html>
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                         <span data-i18n="featured_packs">店主推荐</span>
                     </div>
-                    {{if or $.DownloadURLWindows $.DownloadURLMacOS}}<span id="sfDlBtn"></span>{{end}}
                 </div>
                 <div class="featured-grid">
                     {{range $.FeaturedPacks}}
@@ -632,13 +632,6 @@ const storefrontHTML = `<!DOCTYPE html>
                     {{end}}
                 </div>
             </div>
-            {{end}}
-            {{if or (not $.FeaturedPacks) (not $.FeaturedVisible)}}
-            {{if or $.DownloadURLWindows $.DownloadURLMacOS}}
-            <div class="store-featured" style="justify-content:flex-start;">
-                <span id="sfDlBtn"></span>
-            </div>
-            {{end}}
             {{end}}
         </div>
     </div>
