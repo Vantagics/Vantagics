@@ -87,9 +87,10 @@ func (s *UsageLicenseStore) Load() error {
 
 // Save writes the current license store to the JSON file on disk.
 // It creates the parent directory if it does not exist.
+// Uses a full Lock to prevent concurrent writes from producing inconsistent snapshots.
 func (s *UsageLicenseStore) Save() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Ensure directory exists
 	dir := filepath.Dir(s.filePath)

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -82,8 +85,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Update password (store as plaintext to match license_server's getSetting/setSetting pattern)
-	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_password', ?)", newPassword)
+	// Hash the password before storing (salted SHA-256)
+	hashedPassword := hashAdminPassword(newPassword)
+
+	// Update password
+	_, err = db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_password', ?)", hashedPassword)
 	if err != nil {
 		fmt.Printf("错误: 更新密码失败: %v\n", err)
 		os.Exit(1)
@@ -98,6 +104,20 @@ func main() {
 	fmt.Println("   新密码: (已设置)")
 	fmt.Println()
 	fmt.Println("注意: 如果授权服务器正在运行，新密码将立即生效（无需重启）。")
+}
+
+// hashAdminPassword hashes a password using SHA-256 with a random salt.
+// Format: hex(salt):hex(sha256(salt+password))
+// Must match the license_server's hashAdminPassword function.
+func hashAdminPassword(password string) string {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		salt = []byte(fmt.Sprintf("%016x", 0))
+	}
+	h := sha256.New()
+	h.Write(salt)
+	h.Write([]byte(password))
+	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
 }
 
 func findDBPath() string {

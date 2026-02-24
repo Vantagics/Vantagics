@@ -8807,7 +8807,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
 	redirect := r.FormValue("redirect")
 
-	log.Printf("[USER-REGISTER] attempt: email=%q, sn=%q, captchaID=%q", email, sn, captchaID)
+	log.Printf("[USER-REGISTER] attempt: email=%q, captchaID=%q", email, captchaID)
 
 	renderError := func(msg string) {
 		newCaptchaID := createMathCaptcha()

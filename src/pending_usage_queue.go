@@ -110,7 +110,7 @@ func (q *PendingUsageQueue) Enqueue(record PendingUsageRecord) error {
 }
 
 // Dequeue removes a pending usage record matching the given listingID and usedAt.
-// If no matching record is found, this is a no-op.
+// If no matching record is found, this is a no-op (no disk write).
 func (q *PendingUsageQueue) Dequeue(listingID int64, usedAt string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -118,10 +118,11 @@ func (q *PendingUsageQueue) Dequeue(listingID int64, usedAt string) error {
 	for i, r := range q.records {
 		if r.ListingID == listingID && r.UsedAt == usedAt {
 			q.records = append(q.records[:i], q.records[i+1:]...)
-			break
+			return q.saveLocked()
 		}
 	}
-	return q.saveLocked()
+	// No matching record found — skip unnecessary disk write
+	return nil
 }
 
 // GetAll returns a copy of all pending usage records.

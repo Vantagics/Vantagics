@@ -42,6 +42,39 @@ const (
 	defaultAdminPassword    = "sunion123"
 )
 
+// hashAdminPassword hashes a password using SHA-256 with a random salt.
+// Format: hex(salt):hex(sha256(salt+password))
+func hashAdminPassword(password string) string {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		// Fallback: use timestamp-based salt (should never happen)
+		salt = []byte(fmt.Sprintf("%016x", time.Now().UnixNano()))
+	}
+	h := sha256.New()
+	h.Write(salt)
+	h.Write([]byte(password))
+	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+}
+
+// checkAdminPassword verifies a password against a stored hash.
+// Supports both salted SHA-256 (new format: hex_salt:hex_hash) and plaintext (legacy).
+func checkAdminPassword(password, stored string) bool {
+	parts := strings.SplitN(stored, ":", 2)
+	if len(parts) == 2 && len(parts[0]) == 32 && len(parts[1]) == 64 {
+		// New salted SHA-256 format
+		salt, err := hex.DecodeString(parts[0])
+		if err != nil {
+			return false
+		}
+		h := sha256.New()
+		h.Write(salt)
+		h.Write([]byte(password))
+		return hex.EncodeToString(h.Sum(nil)) == parts[1]
+	}
+	// Legacy plaintext comparison
+	return password == stored
+}
+
 // getDBPassword returns the database encryption password.
 // Priority: environment variable LICENSE_DB_PASSWORD > default fallback.
 func getDBPassword() string {
@@ -1612,7 +1645,7 @@ func handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		validUsername = "admin"
 	}
 	validPassword := getSetting("admin_password")
-	if username != validUsername || password != validPassword {
+	if username != validUsername || !checkAdminPassword(password, validPassword) {
 		recordLoginFailure(clientIP)
 
 		// Check lock status after recording failure
@@ -2918,12 +2951,12 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		NewPassword string `json:"new_password"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
-	if req.OldPassword != getSetting("admin_password") {
+	if !checkAdminPassword(req.OldPassword, getSetting("admin_password")) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "旧密码错误"})
 		return
 	}
-	setSetting("admin_password", req.NewPassword)
+	setSetting("admin_password", hashAdminPassword(req.NewPassword))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
