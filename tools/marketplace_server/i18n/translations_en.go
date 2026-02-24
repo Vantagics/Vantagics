@@ -281,7 +281,7 @@ var enUS = map[string]string{
 
 	// User Login
 	"user_login_title":       "User Login",
-	"enter_credentials":      "Enter your username and password to log in",
+	"enter_credentials":      "Enter your email and password to log in",
 	"enter_username":         "Enter username",
 	"password":               "Password",
 	"enter_password":         "Enter password",

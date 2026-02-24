@@ -846,6 +846,8 @@ type StorefrontPageData struct {
 	IsPreviewMode       bool
 	CustomProducts      []CustomProduct
 	FeaturedVisible     bool   // 推荐分析包区块是否可见
+	SupportApproved     bool   // 店铺客户支持系统是否已开通
+	ServicePortalURL    string // 客服系统地址
 }
 
 // StorefrontManageData 小铺管理页面模板数据
@@ -3952,11 +3954,16 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 	if spURL == "" {
 		spURL = servicePortalURL
 	}
-	regReqBody, err := json.Marshal(map[string]string{
-		"token":           authToken,
-		"software_name":   "vantagics",
-		"store_name":      storeName,
-		"welcome_message": welcomeMessage,
+	parentProductID := ""
+	if v := getSetting("support_parent_product_id"); v != "" {
+		parentProductID = v
+	}
+	regReqBody, err := json.Marshal(map[string]interface{}{
+		"token":             authToken,
+		"software_name":     "vantagics",
+		"store_name":        storeName,
+		"welcome_message":   welcomeMessage,
+		"parent_product_id": parentProductID,
 	})
 	if err != nil {
 		log.Printf("[SUPPORT-APPLY] failed to marshal register request: %v", err)
@@ -4130,7 +4137,7 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 	if spURL == "" {
 		spURL = servicePortalURL
 	}
-	loginReqBody, err := json.Marshal(map[string]string{"license_token": authToken})
+	loginReqBody, err := json.Marshal(map[string]string{"token": authToken})
 	if err != nil {
 		log.Printf("[SUPPORT-LOGIN] failed to marshal login request: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
@@ -4165,8 +4172,8 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 7: Build and return login URL
-	ticketLoginURL := fmt.Sprintf("https://service.vantagedata.chat/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
-		loginResult.LoginTicket, storefrontID)
+	ticketLoginURL := fmt.Sprintf("%s/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
+		spURL, loginResult.LoginTicket, storefrontID)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
@@ -4526,6 +4533,47 @@ func handleAdminStorefrontSupportReApprove(w http.ResponseWriter, r *http.Reques
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleAdminStorefrontSupportDelete deletes a support request record so the store owner can re-register.
+// POST /admin/api/storefront-support/delete
+// Middleware: permissionAuth("storefront_support") (applied at route registration)
+func handleAdminStorefrontSupportDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		RequestID int64 `json:"request_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	// Verify the request exists
+	var currentStatus string
+	err := db.QueryRow("SELECT status FROM storefront_support_requests WHERE id = ?", req.RequestID).Scan(&currentStatus)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "请求不存在"})
+		return
+	}
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-DELETE] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	_, err = db.Exec("DELETE FROM storefront_support_requests WHERE id = ?", req.RequestID)
+	if err != nil {
+		log.Printf("[ADMIN-SUPPORT-DELETE] delete error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	log.Printf("[ADMIN-SUPPORT-DELETE] request %d (status=%s) deleted", req.RequestID, currentStatus)
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleStorefrontSupportStatus returns the support system status for a storefront.
 // GET /api/storefront-support/status?storefront_id=xxx
 // Returns: {"status": "none"/"pending"/"approved"/"disabled"}
@@ -4635,6 +4683,180 @@ func handleStorefrontSupportCheck(w http.ResponseWriter, r *http.Request) {
 	} else {
 		jsonResponse(w, http.StatusOK, map[string]interface{}{"approved": false, "status": status})
 	}
+}
+
+// handleCustomerSupportLogin handles POST /api/storefront-support/customer-login.
+// It allows a logged-in marketplace customer to obtain a login URL for a storefront's
+// customer support system. The product is automatically switched to the storefront
+// (product name displayed as "ProductName-StoreName").
+func handleCustomerSupportLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+
+	// Step 1: Get user ID from cookie session
+	cookie, cookieErr := r.Cookie("user_session")
+	if cookieErr != nil || !isValidUserSession(cookie.Value) {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "未登录", "need_login": true})
+		return
+	}
+	userID := getUserSessionUserID(cookie.Value)
+	if userID == 0 {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "未登录", "need_login": true})
+		return
+	}
+
+	// Step 2: Parse storefront_id from request body
+	var req struct {
+		StorefrontID int64 `json:"storefront_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.StorefrontID == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "invalid storefront_id"})
+		return
+	}
+
+	// Step 3: Verify storefront has approved support
+	supportStatus, err := getStorefrontSupportStatus(req.StorefrontID)
+	if err != nil || supportStatus != "approved" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "该店铺未开通客户支持"})
+		return
+	}
+
+	// Step 4: Get storefront store_name and software_name from support request
+	var storeName, softwareName string
+	err = db.QueryRow(`SELECT COALESCE(store_name, ''), COALESCE(software_name, 'vantagics')
+		FROM storefront_support_requests WHERE storefront_id = ? AND status = 'approved' ORDER BY id DESC LIMIT 1`,
+		req.StorefrontID).Scan(&storeName, &softwareName)
+	if err != nil {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to query support request for storefront %d: %v", req.StorefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	// Step 5: Get user's email and SNs for authentication
+	var email string
+	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	if err != nil || email == "" {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to query email for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
+		return
+	}
+
+	var allSNs []string
+	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
+	if snErr == nil {
+		defer snRows.Close()
+		for snRows.Next() {
+			var s string
+			if snRows.Scan(&s) == nil && s != "" {
+				allSNs = append(allSNs, s)
+			}
+		}
+	}
+	if len(allSNs) == 0 {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
+		return
+	}
+
+	// Step 6: Get Auth_Token from License_Server
+	lsURL := getSetting("license_server_url")
+	if lsURL == "" {
+		lsURL = licenseServerURL
+	}
+	authURL := lsURL + "/api/marketplace-auth"
+
+	var authToken string
+	var lastAuthErr string
+	for _, sn := range allSNs {
+		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+		if err != nil {
+			continue
+		}
+		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+		if err != nil {
+			log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to contact license server with SN %s: %v", sn, err)
+			lastAuthErr = "认证失败，请稍后重试"
+			continue
+		}
+		authRespBody, err := io.ReadAll(authResp.Body)
+		authResp.Body.Close()
+		if err != nil {
+			lastAuthErr = "认证失败，请稍后重试"
+			continue
+		}
+		var authResult struct {
+			Success bool   `json:"success"`
+			Token   string `json:"token"`
+			Message string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+			log.Printf("[CUSTOMER-SUPPORT-LOGIN] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
+			if authResult.Message != "" {
+				lastAuthErr = authResult.Message
+			} else {
+				lastAuthErr = "认证失败，请稍后重试"
+			}
+			continue
+		}
+		authToken = authResult.Token
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] license server auth success for user %d with SN %s", userID, sn)
+		break
+	}
+	if authToken == "" {
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
+		return
+	}
+
+	// Step 7: Get login_ticket from Service_Portal
+	spURL := getSetting("service_portal_url")
+	if spURL == "" {
+		spURL = servicePortalURL
+	}
+	loginReqBody, err := json.Marshal(map[string]string{"token": authToken})
+	if err != nil {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to marshal login request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	loginURL := spURL + "/api/auth/sn-login"
+	loginResp, err := http.Post(loginURL, "application/json", bytes.NewReader(loginReqBody))
+	if err != nil {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to contact service portal at %s: %v", loginURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+	defer loginResp.Body.Close()
+
+	loginRespBody, err := io.ReadAll(loginResp.Body)
+	if err != nil {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to read service portal response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+
+	var loginResult struct {
+		Success     bool   `json:"success"`
+		LoginTicket string `json:"login_ticket"`
+		Message     string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(loginRespBody, &loginResult); err != nil || !loginResult.Success || loginResult.LoginTicket == "" {
+		log.Printf("[CUSTOMER-SUPPORT-LOGIN] service portal login failed for user %d: resp=%s err=%v", userID, string(loginRespBody), err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
+		return
+	}
+
+	// Step 8: Build login URL with scope=customer, store_id, and product switch info
+	// Product name format: "SoftwareName-StoreName"
+	productName := softwareName + "-" + storeName
+	ticketLoginURL := fmt.Sprintf("%s/auth/ticket-login?ticket=%s&scope=customer&store_id=%d&product=%s",
+		spURL, loginResult.LoginTicket, req.StorefrontID, url.QueryEscape(productName))
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"login_url": ticketLoginURL,
+	})
 }
 
 // --- Email Wallet helpers ---
@@ -5803,6 +6025,19 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	// 7. Build StorefrontPageData and render template
 	downloadURLWindows := getSetting("download_url_windows")
 	downloadURLMacOS := getSetting("download_url_macos")
+
+	// 7.1 Check if storefront has approved support system
+	supportApproved := false
+	var supportServicePortalURL string
+	supportStatus, ssErr := getStorefrontSupportStatus(publicData.Storefront.ID)
+	if ssErr == nil && supportStatus == "approved" {
+		supportApproved = true
+		supportServicePortalURL = getSetting("service_portal_url")
+		if supportServicePortalURL == "" {
+			supportServicePortalURL = servicePortalURL
+		}
+	}
+
 	data := StorefrontPageData{
 		Storefront:         publicData.Storefront,
 		FeaturedPacks:      publicData.FeaturedPacks,
@@ -5826,6 +6061,8 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		IsPreviewMode:      isPreviewMode,
 		CustomProducts:     publicData.CustomProducts,
 		FeaturedVisible:    isFeaturedVisible(publicData.LayoutConfig.Sections),
+		SupportApproved:    supportApproved,
+		ServicePortalURL:   supportServicePortalURL,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -8619,7 +8856,7 @@ func generateCaptchaImage(id string) []byte {
 
 // adminAuth protects admin routes with session-based authentication.
 func isAPIRoute(r *http.Request) bool {
-	return strings.HasPrefix(r.URL.Path, "/api/")
+	return strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/admin/api/")
 }
 
 func makeSessionCookie(name, value string, maxAge int) *http.Cookie {
@@ -8886,13 +9123,13 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 
 	// POST
 	lang := i18n.DetectLang(r)
-	username := strings.TrimSpace(r.FormValue("username"))
+	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
 	captchaID := r.FormValue("captcha_id")
 	captchaAns := strings.TrimSpace(r.FormValue("captcha_answer"))
 	redirect := r.FormValue("redirect")
 
-	log.Printf("[USER-LOGIN] attempt: username=%q, captchaID=%q", username, captchaID)
+	log.Printf("[USER-LOGIN] attempt: email=%q, captchaID=%q", email, captchaID)
 
 	errMsg := ""
 	var userID int64
@@ -8901,24 +9138,22 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 		errMsg = i18n.T(lang, "captcha_error")
 	} else {
 		// Authenticate against email_wallets (email-level password)
-		// username can be either the email itself or the username stored in email_wallets
-		var walletEmail string
 		var storedHash sql.NullString
-		err := db.QueryRow("SELECT email, password_hash FROM email_wallets WHERE email = ? OR username = ?", username, username).Scan(&walletEmail, &storedHash)
+		err := db.QueryRow("SELECT password_hash FROM email_wallets WHERE email = ?", email).Scan(&storedHash)
 		if err != nil {
-			log.Printf("[USER-LOGIN] db query error for username=%q: %v", username, err)
+			log.Printf("[USER-LOGIN] db query error for email=%q: %v", email, err)
 			errMsg = i18n.T(lang, "login_error")
 		} else if !storedHash.Valid || storedHash.String == "" || !checkPassword(password, storedHash.String) {
-			log.Printf("[USER-LOGIN] password check failed for username=%q", username)
+			log.Printf("[USER-LOGIN] password check failed for email=%q", email)
 			errMsg = i18n.T(lang, "login_error")
 		} else {
 			// Find the first non-blocked user record for this email to create session
-			err = db.QueryRow("SELECT id FROM users WHERE email = ? AND COALESCE(is_blocked, 0) = 0 ORDER BY id ASC LIMIT 1", walletEmail).Scan(&userID)
+			err = db.QueryRow("SELECT id FROM users WHERE email = ? AND COALESCE(is_blocked, 0) = 0 ORDER BY id ASC LIMIT 1", email).Scan(&userID)
 			if err != nil {
-				log.Printf("[USER-LOGIN] no active user record found for email=%q: %v", walletEmail, err)
+				log.Printf("[USER-LOGIN] no active user record found for email=%q: %v", email, err)
 				errMsg = i18n.T(lang, "login_error")
 			} else {
-				log.Printf("[USER-LOGIN] success for username=%q email=%q userID=%d", username, walletEmail, userID)
+				log.Printf("[USER-LOGIN] success for email=%q userID=%d", email, userID)
 			}
 		}
 	}
@@ -8941,8 +9176,8 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	sid := createUserSession(userID)
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
 
-	// Redirect to the original page if redirect parameter starts with /pack/
-	if strings.HasPrefix(redirect, "/pack/") {
+	// Redirect to the original page if redirect parameter is a valid internal path
+	if strings.HasPrefix(redirect, "/pack/") || strings.HasPrefix(redirect, "/store/") {
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	}
@@ -9141,8 +9376,8 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 	sid := createUserSession(userID)
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
 
-	// Redirect to the original page if redirect parameter starts with /pack/ (security: only allow /pack/ prefix)
-	if strings.HasPrefix(redirect, "/pack/") {
+	// Redirect to the original page if redirect parameter is a valid internal path (security: only allow /pack/ and /store/ prefix)
+	if strings.HasPrefix(redirect, "/pack/") || strings.HasPrefix(redirect, "/store/") {
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	}
@@ -13841,6 +14076,8 @@ func handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"SMTPConfigJSON":             template.JS(getSetting("smtp_config")),
 		"DecorationFee":              func() string { v := getSetting("decoration_fee"); if v == "" { return "0" }; return v }(),
 		"DecorationFeeMax":           func() string { v := getSetting("decoration_fee_max"); if v == "" { return "1000" }; return v }(),
+		"ServicePortalURL":           getSetting("service_portal_url"),
+		"SupportParentProductID":     getSetting("support_parent_product_id"),
 	}); err != nil {
 		log.Printf("[ADMIN-DASHBOARD] template execute error: %v", err)
 	}
@@ -14173,6 +14410,51 @@ func handleSaveDownloadURLs(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
+
+// handleSaveServicePortalURL saves the service portal URL setting.
+// POST /admin/settings/service-portal-url
+func handleSaveServicePortalURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	value := strings.TrimSpace(r.FormValue("value"))
+	if value != "" && !strings.HasPrefix(value, "http://") && !strings.HasPrefix(value, "https://") {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "地址必须以 http:// 或 https:// 开头"})
+		return
+	}
+
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('service_portal_url', ?)", value)
+	if err != nil {
+		log.Printf("[ADMIN] failed to save service_portal_url: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleSaveSupportParentProductID saves the support parent product ID setting.
+// POST /admin/settings/support-parent-product-id
+func handleSaveSupportParentProductID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	value := strings.TrimSpace(r.FormValue("value"))
+
+	_, err := db.Exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('support_parent_product_id', ?)", value)
+	if err != nil {
+		log.Printf("[ADMIN] failed to save support_parent_product_id: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 
 // handleAdminSaveSMTPConfig saves the SMTP email server configuration.
 // POST /admin/api/settings/smtp
@@ -17861,6 +18143,8 @@ func main() {
 	http.HandleFunc("/admin/api/settings/download-urls", permissionAuth("settings")(handleSaveDownloadURLs))
 	http.HandleFunc("/admin/api/settings/smtp", permissionAuth("settings")(handleAdminSaveSMTPConfig))
 	http.HandleFunc("/admin/api/settings/smtp-test", permissionAuth("settings")(handleAdminTestSMTPConfig))
+	http.HandleFunc("/admin/settings/service-portal-url", permissionAuth("settings")(handleSaveServicePortalURL))
+	http.HandleFunc("/admin/settings/support-parent-product-id", permissionAuth("settings")(handleSaveSupportParentProductID))
 	http.HandleFunc("/admin/api/settings/decoration-fee", permissionAuth("billing")(handleSetDecorationFee))
 	http.HandleFunc("/admin/api/settings/decoration-fee-max", permissionAuth("billing")(handleSetDecorationFeeMax))
 	http.HandleFunc("/admin/api/withdrawals/export", permissionAuth("settings")(handleAdminExportWithdrawals))
@@ -17882,10 +18166,12 @@ func main() {
 	http.HandleFunc("/admin/api/storefront-support/approve", permissionAuth("storefront_support")(handleAdminStorefrontSupportApprove))
 	http.HandleFunc("/admin/api/storefront-support/disable", permissionAuth("storefront_support")(handleAdminStorefrontSupportDisable))
 	http.HandleFunc("/admin/api/storefront-support/re-approve", permissionAuth("storefront_support")(handleAdminStorefrontSupportReApprove))
+	http.HandleFunc("/admin/api/storefront-support/delete", permissionAuth("storefront_support")(handleAdminStorefrontSupportDelete))
 
 	// Storefront support external query API routes (public)
 	http.HandleFunc("/api/storefront-support/status", handleStorefrontSupportStatus)
 	http.HandleFunc("/api/storefront-support/check", handleStorefrontSupportCheck)
+	http.HandleFunc("/api/storefront-support/customer-login", handleCustomerSupportLogin)
 
 	// Custom products admin routes (permission-based)
 	http.HandleFunc("/api/admin/pending-custom-products", permissionAuth("review")(handleAdminPendingCustomProducts))

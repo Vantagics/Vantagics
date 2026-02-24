@@ -357,8 +357,8 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 			return false
 		}
 
-		form1 := fmt.Sprintf("username=%s&password=%s&captcha_id=%s&captcha_answer=%s",
-			username, password, captchaID1, captchaAnswer1)
+		form1 := fmt.Sprintf("email=%s&password=%s&captcha_id=%s&captcha_answer=%s",
+			testEmail, password, captchaID1, captchaAnswer1)
 		req1 := httptest.NewRequest(http.MethodPost, "/user/login", strings.NewReader(form1))
 		req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr1 := httptest.NewRecorder()
@@ -391,8 +391,8 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 		captchaID2 := createMathCaptcha()
 		captchaAnswer2 := getCaptchaCode(captchaID2)
 
-		form2 := fmt.Sprintf("username=%s&password=%s&captcha_id=%s&captcha_answer=%s",
-			username, wrongPassword, captchaID2, captchaAnswer2)
+		form2 := fmt.Sprintf("email=%s&password=%s&captcha_id=%s&captcha_answer=%s",
+			testEmail, wrongPassword, captchaID2, captchaAnswer2)
 		req2 := httptest.NewRequest(http.MethodPost, "/user/login", strings.NewReader(form2))
 		req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr2 := httptest.NewRecorder()
@@ -412,8 +412,8 @@ func TestPropertyLoginCredentialVerification(t *testing.T) {
 		// Use a deliberately wrong captcha answer
 		wrongCaptchaAnswer := "99999"
 
-		form3 := fmt.Sprintf("username=%s&password=%s&captcha_id=%s&captcha_answer=%s",
-			username, password, captchaID3, wrongCaptchaAnswer)
+		form3 := fmt.Sprintf("email=%s&password=%s&captcha_id=%s&captcha_answer=%s",
+			testEmail, password, captchaID3, wrongCaptchaAnswer)
 		req3 := httptest.NewRequest(http.MethodPost, "/user/login", strings.NewReader(form3))
 		req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr3 := httptest.NewRecorder()

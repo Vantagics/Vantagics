@@ -109,7 +109,6 @@ const AdminHTML = `<!DOCTYPE html>
         <a href="#marketplace" data-perm="marketplace" onclick="showSection('marketplace')" style="display:none;"><span class="nav-icon">🏪</span><span data-i18n="marketplace_mgmt">市场管理</span></a>
         <a href="#accounts" data-perm="accounts" onclick="showSection('accounts')" style="display:none;"><span class="nav-icon">👤</span><span data-i18n="account_mgmt">账号管理</span></a>
         <a href="#review" data-perm="review" onclick="showSection('review')" style="display:none;"><span class="nav-icon">📋</span><span data-i18n="review_mgmt">审核管理</span></a>
-        <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span><span data-i18n="system_settings">系统设置</span></a>
         <a href="#notifications" data-perm="notifications" onclick="showSection('notifications')" style="display:none;"><span class="nav-icon">📢</span><span data-i18n="notification_mgmt">消息管理</span></a>
         <a href="#withdrawals" data-perm="settings" onclick="showSection('withdrawals')" style="display:none;"><span class="nav-icon">💰</span><span data-i18n="withdraw_mgmt">提现管理</span></a>
         <a href="#featured" data-perm="settings" onclick="showSection('featured')" style="display:none;"><span class="nav-icon">⭐</span><span data-i18n="featured_stores_mgmt">明星店铺</span></a>
@@ -117,6 +116,7 @@ const AdminHTML = `<!DOCTYPE html>
         <a href="#billing" data-perm="billing" onclick="showSection('billing')" style="display:none;"><span class="nav-icon">💳</span><span data-i18n="billing_mgmt">收费管理</span></a>
         <a href="#storefront-support" data-perm="storefront_support" onclick="showSection('storefront-support')" style="display:none;"><span class="nav-icon">🛎️</span><span data-i18n="storefront_support_mgmt">店铺支持</span></a>
         <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span><span data-i18n="admin_mgmt">管理员管理</span></a>
+        <a href="#settings" data-perm="settings" onclick="showSection('settings')" style="display:none;"><span class="nav-icon">⚙️</span><span data-i18n="system_settings">系统设置</span></a>
         <div class="nav-divider"></div>
         <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span><span data-i18n="edit_profile">修改资料</span></a>
     </nav>
@@ -259,6 +259,27 @@ const AdminHTML = `<!DOCTYPE html>
                         <option value="sandbox">Sandbox</option>
                         <option value="live">Live</option>
                     </select>
+                </div>
+                <button type="submit" class="btn btn-primary">保存设置</button>
+            </form>
+        </div>
+        <div class="card">
+            <h2>🎧 客服系统地址设置</h2>
+            <p class="form-hint" style="margin-bottom:16px;">设置客户服务系统的服务器地址，店铺开通客户支持后将跳转至此地址。留空则使用默认地址。</p>
+            <form id="service-portal-url-form" onsubmit="saveServicePortalURL(event)">
+                <div class="form-group">
+                    <label for="service-portal-url">客服系统地址</label>
+                    <input type="url" id="service-portal-url" placeholder="https://service.vantagedata.chat" value="{{.ServicePortalURL}}" />
+                    <div class="form-hint">例如：https://service.vantagedata.chat</div>
+                </div>
+                <button type="submit" class="btn btn-primary">保存设置</button>
+            </form>
+            <hr style="margin:20px 0;border:none;border-top:1px solid #e2e8f0;">
+            <form id="support-parent-product-id-form" onsubmit="saveSupportParentProductID(event)">
+                <div class="form-group">
+                    <label for="support-parent-product-id">客服系统父产品ID</label>
+                    <input type="text" id="support-parent-product-id" placeholder="" value="{{.SupportParentProductID}}" />
+                    <div class="form-hint">店铺开通客户支持时传给客服系统的 parent_product_id</div>
                 </div>
                 <button type="submit" class="btn btn-primary">保存设置</button>
             </form>
@@ -1106,7 +1127,7 @@ var adminID = {{.AdminID}};
 var permissions = {{.PermissionsJSON}};
 // Lazy _i18n wrapper: safe to call before I18nJS loads
 if (!window._i18n) { window._i18n = function(key, fallback) { return fallback || key; }; }
-var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理") };
+var permLabels = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), authors: window._i18n("author_mgmt","作者管理"), customers: window._i18n("customer_mgmt","客户管理"), review: window._i18n("review_mgmt","审核管理"), settings: window._i18n("system_settings","系统设置"), notifications: window._i18n("notification_mgmt","消息管理"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理"), storefront_support: window._i18n("storefront_support_mgmt","店铺支持") };
 
 function hasPerm(p) {
     if (p === 'accounts') return permissions.indexOf('accounts') !== -1 || permissions.indexOf('authors') !== -1 || permissions.indexOf('customers') !== -1;
@@ -1130,7 +1151,9 @@ function isSuperAdmin() { return adminID === 1; }
 function showSection(name) {
     // Map old section names to new unified accounts section
     if (name === 'authors' || name === 'customers') name = 'accounts';
-    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'featured', 'sales', 'billing', 'storefront-support'];
+    // Map permission name to section name
+    if (name === 'storefront_support') name = 'storefront-support';
+    var sections = ['categories', 'marketplace', 'accounts', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'featured', 'sales', 'billing', 'storefront-support', 'settings'];
     var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), featured: window._i18n("featured_stores_mgmt","明星店铺"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理"), 'storefront-support': window._i18n("storefront_support_mgmt","店铺支持") };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
@@ -1419,6 +1442,34 @@ function savePayPalConfig(e) {
     }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
     .then(function(res) {
         if (res.ok) { showMsg('PayPal 配置已保存', false); loadPayPalConfig(); }
+        else { showMsg(res.data.error || '保存失败', true); }
+    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+}
+
+function saveServicePortalURL(e) {
+    e.preventDefault();
+    var val = document.getElementById('service-portal-url').value.trim();
+    apiFetch('/admin/settings/service-portal-url', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'value=' + encodeURIComponent(val)
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg('客服系统地址已保存', false); }
+        else { showMsg(res.data.error || '保存失败', true); }
+    }).catch(function(err) { showMsg('请求失败: ' + err, true); });
+}
+
+function saveSupportParentProductID(e) {
+    e.preventDefault();
+    var val = document.getElementById('support-parent-product-id').value.trim();
+    apiFetch('/admin/settings/support-parent-product-id', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'value=' + encodeURIComponent(val)
+    }).then(function(r) { return r.json().then(function(d) { return {ok: r.ok, data: d}; }); })
+    .then(function(res) {
+        if (res.ok) { showMsg('客服系统父产品ID已保存', false); }
         else { showMsg(res.data.error || '保存失败', true); }
     }).catch(function(err) { showMsg('请求失败: ' + err, true); });
 }
@@ -2964,10 +3015,10 @@ function saveSupportThreshold() {
             msgDiv.textContent = data.error || '保存失败';
             setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
         }
-    }).catch(function() {
+    }).catch(function(err) {
         msgDiv.style.display = '';
         msgDiv.className = 'msg msg-error';
-        msgDiv.textContent = '请求失败';
+        msgDiv.textContent = err && err.message === 'session_expired' ? window._i18n('session_expired','会话已过期') : '请求失败';
         setTimeout(function() { msgDiv.style.display = 'none'; }, 3000);
     });
 }
@@ -3000,7 +3051,10 @@ function loadStorefrontSupport(page) {
     if (dateTo) params.push('date_to=' + encodeURIComponent(dateTo));
     if (supportSortOrder) params.push('sort_order=' + encodeURIComponent(supportSortOrder));
     apiFetch('/admin/api/storefront-support/list?' + params.join('&'))
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+        if (!r.ok) return r.text().then(function(t) { throw new Error('HTTP ' + r.status + ': ' + t); });
+        return r.json();
+    })
     .then(function(data) {
         var records = data.items || [];
         var total = data.total || 0;
@@ -3018,11 +3072,11 @@ function loadStorefrontSupport(page) {
                 else if (r.status === 'disabled') statusBadge = '<span class="badge" style="background:#fee2e2;color:#991b1b;">已禁用</span>';
                 var actions = '';
                 if (r.status === 'pending') {
-                    actions = '<button class="btn btn-primary btn-sm" onclick="approveSupport(' + r.id + ')">批准</button> <button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button>';
+                    actions = '<button class="btn btn-primary btn-sm" onclick="approveSupport(' + r.id + ')">批准</button> <button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button> <button class="btn btn-secondary btn-sm" onclick="deleteSupport(' + r.id + ')" style="color:#dc2626;">删除</button>';
                 } else if (r.status === 'approved') {
-                    actions = '<button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button>';
+                    actions = '<button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button> <button class="btn btn-secondary btn-sm" onclick="deleteSupport(' + r.id + ')" style="color:#dc2626;">删除</button>';
                 } else if (r.status === 'disabled') {
-                    actions = '<button class="btn btn-primary btn-sm" onclick="reApproveSupport(' + r.id + ')">重新批准</button>';
+                    actions = '<button class="btn btn-primary btn-sm" onclick="reApproveSupport(' + r.id + ')">重新批准</button> <button class="btn btn-secondary btn-sm" onclick="deleteSupport(' + r.id + ')" style="color:#dc2626;">删除</button>';
                 }
                 return '<tr>' +
                     '<td>' + escHtml(r.store_name || '-') + '</td>' +
@@ -3036,7 +3090,7 @@ function loadStorefrontSupport(page) {
             }).join('');
         }
         renderSupportPagination(total, pageSize);
-    }).catch(function() { showMsg('加载店铺支持请求失败', true); });
+    }).catch(function(err) { if (err && err.message !== 'session_expired') showMsg('加载店铺支持请求失败' + (err ? ': ' + err : ''), true); });
 }
 
 function renderSupportPagination(total, pageSize) {
@@ -3142,9 +3196,25 @@ function reApproveSupport(requestId) {
     }).catch(function() { showMsg('请求失败', true); });
 }
 
+function deleteSupport(requestId) {
+    if (!confirm('确定删除该店铺支持请求？删除后店铺主可重新申请注册。')) return;
+    apiFetch('/admin/api/storefront-support/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'ok' || data.ok) {
+            showMsg('已删除');
+            loadStorefrontSupport(supportCurrentPage);
+        } else {
+            showMsg(data.error || '操作失败', true);
+        }
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
 // Init: show first available section based on permissions
 (function initDefaultSection() {
-    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'featured', 'sales', 'billing', 'storefront-support'];
+    var order = ['categories', 'marketplace', 'accounts', 'review', 'notifications', 'featured', 'sales', 'billing', 'storefront_support', 'settings'];
     for (var i = 0; i < order.length; i++) {
         if (hasPerm(order[i])) {
             showSection(order[i]);

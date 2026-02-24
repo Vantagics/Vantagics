@@ -146,8 +146,8 @@ const userLoginHTML = `<!DOCTYPE html>
         <input type="hidden" name="captcha_id" id="captcha_id" value="{{.CaptchaID}}" />
         <input type="hidden" name="redirect" value="{{.Redirect}}" />
         <div class="form-group">
-            <label for="username">{{index .T "username"}}</label>
-            <input type="text" id="username" name="username" required autocomplete="username" placeholder="{{index .T "enter_username"}}" />
+            <label for="email">{{index .T "email"}}</label>
+            <input type="email" id="email" name="email" required autocomplete="email" placeholder="{{index .T "enter_email"}}" />
         </div>
         <div class="form-group">
             <label for="password">{{index .T "password"}}</label>

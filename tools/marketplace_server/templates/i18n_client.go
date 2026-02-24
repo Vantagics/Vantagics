@@ -74,19 +74,41 @@ const I18nJS = `
   function addLangSwitcher() {
     var switcher = document.createElement('div');
     switcher.id = 'lang-switcher';
-    switcher.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;gap:4px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.1);font-size:13px;';
+    switcher.style.cssText = 'display:inline-flex;gap:2px;background:rgba(255,255,255,0.8);border:1px solid #e2e8f0;border-radius:8px;padding:2px;font-size:12px;margin-left:10px;vertical-align:middle;backdrop-filter:blur(4px);';
     var currentPath = encodeURIComponent(window.location.pathname + window.location.search);
     var zhBtn = document.createElement('a');
     zhBtn.href = '/set-lang?lang=zh-CN&redirect=' + currentPath;
     zhBtn.textContent = '中文';
-    zhBtn.style.cssText = 'padding:5px 12px;border-radius:7px;text-decoration:none;font-weight:500;transition:all 0.2s;' + (_lang === 'zh-CN' ? 'background:#6366f1;color:#fff;' : 'color:#64748b;');
+    zhBtn.style.cssText = 'padding:3px 10px;border-radius:6px;text-decoration:none;font-weight:500;transition:all 0.2s;' + (_lang === 'zh-CN' ? 'background:#6366f1;color:#fff;' : 'color:#64748b;');
     var enBtn = document.createElement('a');
     enBtn.href = '/set-lang?lang=en-US&redirect=' + currentPath;
     enBtn.textContent = 'EN';
-    enBtn.style.cssText = 'padding:5px 12px;border-radius:7px;text-decoration:none;font-weight:500;transition:all 0.2s;' + (_lang === 'en-US' ? 'background:#6366f1;color:#fff;' : 'color:#64748b;');
+    enBtn.style.cssText = 'padding:3px 10px;border-radius:6px;text-decoration:none;font-weight:500;transition:all 0.2s;' + (_lang === 'en-US' ? 'background:#6366f1;color:#fff;' : 'color:#64748b;');
     switcher.appendChild(zhBtn);
     switcher.appendChild(enBtn);
-    document.body.appendChild(switcher);
+    // Insert after the site name / logo text in the nav bar
+    var target = document.querySelector('.logo-text[data-i18n="site_name"]')
+               || document.querySelector('.logo-text')
+               || document.querySelector('.logo-brand');
+    if (target) {
+      target.parentNode.insertBefore(switcher, target.nextSibling);
+    } else {
+      // Admin panel: insert into topbar next to user info
+      var topbarUser = document.querySelector('.topbar-user');
+      if (topbarUser) {
+        switcher.style.marginLeft = '0';
+        switcher.style.marginRight = '12px';
+        topbarUser.insertBefore(switcher, topbarUser.firstChild);
+      } else {
+        // Fallback: prepend to nav-actions or nav-center
+        var navActions = document.querySelector('.nav-actions') || document.querySelector('.nav-center');
+        if (navActions) {
+          navActions.insertBefore(switcher, navActions.firstChild);
+        } else {
+          document.body.appendChild(switcher);
+        }
+      }
+    }
   }
 
   // Fetch translations and apply

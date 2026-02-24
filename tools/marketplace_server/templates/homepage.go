@@ -412,7 +412,7 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .TopSalesProducts}}
-            <a class="product-card" href="/store/share/{{.ShareToken}}">
+            <a class="product-card" href="/pack/{{.ShareToken}}">
                 <div class="product-card-top">
                     <div class="product-card-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -455,7 +455,7 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .TopDownloadsProducts}}
-            <a class="product-card" href="/store/share/{{.ShareToken}}">
+            <a class="product-card" href="/pack/{{.ShareToken}}">
                 <div class="product-card-top">
                     <div class="product-card-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -529,7 +529,7 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .NewestProducts}}
-            <a class="product-card" href="/store/share/{{.ShareToken}}">
+            <a class="product-card" href="/pack/{{.ShareToken}}">
                 <div class="product-card-top">
                     <div class="product-card-icon">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -604,7 +604,7 @@ function loadCategoryPacks(catId, el) {
                 else if (p.share_mode === 'per_use') priceHtml = '<span class="product-card-price">' + p.credits_price + ' Credits/<span data-i18n="homepage.per_use_unit">次</span></span>';
                 else if (p.share_mode === 'subscription') priceHtml = '<span class="product-card-price">' + p.credits_price + ' Credits/<span data-i18n="homepage.monthly_unit">月</span></span>';
                 var desc = p.pack_description || '';
-                html += '<a class="product-card" href="/store/share/' + token + '">'
+                html += '<a class="product-card" href="/pack/' + token + '">'
                     + '<div class="product-card-top">'
                     + '<div class="product-card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>'
                     + '<div class="product-card-title"><span class="product-card-name" title="' + p.pack_name + '">' + p.pack_name + '</span>'

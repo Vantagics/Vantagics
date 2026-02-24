@@ -286,7 +286,7 @@ var zhCN = map[string]string{
 
 	// User Login
 	"user_login_title":       "用户登录",
-	"enter_credentials":      "请输入用户名和密码登录",
+	"enter_credentials":      "请输入邮箱和密码登录",
 	"enter_username":         "请输入用户名",
 	"password":               "密码",
 	"enter_password":         "请输入密码",

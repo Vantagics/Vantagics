@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 var StorefrontNoveltyTmpl = template.Must(
-template.New("storefront_novelty").Funcs(storefrontFuncMap).Parse(novP1 + novP2 + novP3 + novP4 + "\n" + I18nJS + "\n</body>\n</html>"),
+template.New("storefront_novelty").Funcs(storefrontFuncMap).Parse(novP1 + novP2 + novP3 + novP4 + novSupportFloat + "\n" + I18nJS + "\n</body>\n</html>"),
 )
 
 const novP1 = `<!DOCTYPE html>
@@ -181,3 +181,82 @@ function updatePurchaseTotal(){var total=0;if(_currentShareMode==='per_use'){var
 function confirmPurchase(){var body={};if(_currentShareMode==='per_use'){var q=parseInt(document.getElementById('purchaseQuantity').value)||1;if(q<1){showMsg('error',window._i18n('min_1_count','购买次数至少为 1'));return;}body.quantity=q;}else if(_currentShareMode==='subscription'){body.months=parseInt(document.getElementById('purchaseDuration').value)||1;}var btn=document.getElementById('confirmPurchaseBtn');if(btn){btn.disabled=true;btn.textContent=window._i18n('processing','处理中...');}fetch('/pack/'+_currentShareToken+'/purchase',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(d){if(d.success){closePurchaseDialog();showMsg('success',window._i18n('purchase_success','购买成功！'));setTimeout(function(){location.reload();},1000);}else if(d.insufficient_balance){closePurchaseDialog();var errEl=document.getElementById('errorMsg');if(errEl){errEl.innerHTML=window._i18n('insufficient_balance','余额不足，当前余额')+' '+(d.balance||0)+' Credits。<a href="/user/dashboard" style="color:var(--g600);text-decoration:underline;font-weight:600;">'+window._i18n('go_topup','前往充值')+'</a>';errEl.style.display='block';}if(btn){btn.disabled=false;btn.textContent=window._i18n('confirm_purchase','确认购买');}}else{showMsg('error',d.error||window._i18n('purchase_failed','购买失败'));if(btn){btn.disabled=false;btn.textContent=window._i18n('confirm_purchase','确认购买');}}}).catch(function(){showMsg('error',window._i18n('network_error','网络错误'));if(btn){btn.disabled=false;btn.textContent=window._i18n('confirm_purchase','确认购买');}});}
 </script>
 `
+
+const novSupportFloat = `{{if .SupportApproved}}
+<style>
+.support-float {
+    position: fixed; bottom: 32px; right: 32px; z-index: 999;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    box-shadow: 0 4px 16px rgba(34,197,94,0.4), 0 2px 6px rgba(0,0,0,0.1);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.3s ease;
+    text-decoration: none;
+}
+.support-float:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 8px 24px rgba(34,197,94,0.5), 0 4px 12px rgba(0,0,0,0.15);
+}
+.support-float svg { width: 28px; height: 28px; color: #fff; }
+.support-float-label {
+    position: absolute; right: 64px; top: 50%; transform: translateY(-50%);
+    background: #1e293b; color: #fff; padding: 6px 14px; border-radius: 8px;
+    font-size: 13px; font-weight: 600; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.support-float-label::after {
+    content: ''; position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+    border: 6px solid transparent; border-left-color: #1e293b; border-right: none;
+}
+.support-float:hover .support-float-label { opacity: 1; }
+@media (max-width: 640px) {
+    .support-float { bottom: 20px; right: 20px; width: 48px; height: 48px; }
+    .support-float svg { width: 24px; height: 24px; }
+    .support-float-label { display: none; }
+}
+</style>
+<div class="support-float" onclick="enterCustomerSupport()" title="客户支持">
+    <span class="support-float-label" data-i18n="customer_support">客户支持</span>
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12a8.25 8.25 0 1116.5 0v2.25a2.25 2.25 0 01-2.25 2.25h-.75a1.5 1.5 0 01-1.5-1.5v-3a1.5 1.5 0 011.5-1.5h.75c.17 0 .336.019.497.055A6.75 6.75 0 0012 5.25a6.75 6.75 0 00-5.997 5.305c.16-.036.327-.055.497-.055h.75a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H6.5a2.25 2.25 0 01-2.25-2.25V12z" />
+    </svg>
+</div>
+<script>
+function enterCustomerSupport() {
+    var isLoggedIn = {{if .IsLoggedIn}}true{{else}}false{{end}};
+    var storefrontID = {{.Storefront.ID}};
+    var storeSlug = '{{.Storefront.StoreSlug}}';
+    if (!isLoggedIn) {
+        window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
+        return;
+    }
+    fetch('/api/storefront-support/customer-login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({storefront_id: storefrontID})
+    }).then(function(r){ return r.json(); }).then(function(d){
+        if (d.success && d.login_url) {
+            window.open(d.login_url, '_blank');
+        } else if (d.need_login) {
+            window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
+        } else {
+            alert(d.error || (window._i18n ? window._i18n('support_login_failed', '进入客服系统失败') : '进入客服系统失败'));
+        }
+    }).catch(function(){
+        alert(window._i18n ? window._i18n('network_error', '网络错误') : '网络错误');
+    });
+}
+(function(){
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('support') === '1') {
+        params.delete('support');
+        var newURL = window.location.pathname;
+        var remaining = params.toString();
+        if (remaining) newURL += '?' + remaining;
+        window.history.replaceState({}, '', newURL);
+        setTimeout(enterCustomerSupport, 500);
+    }
+})();
+</script>
+{{end}}`
