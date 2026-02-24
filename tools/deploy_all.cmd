@@ -109,7 +109,8 @@ REM ==========================================
 echo [Market] Packaging source files...
 cd /d "%~dp0marketplace_server"
 
-tar -czf "%TEMP%\marketplace_server.tar.gz" main.go pack_encryption.go cache.go go.mod go.sum templates i18n start.sh 2>NUL
+REM 使用通配符打包所有 .go 源文件（排除 _test.go），避免新增文件遗漏
+tar -czf "%TEMP%\marketplace_server.tar.gz" --exclude="*_test.go" --exclude="build" *.go go.mod go.sum templates i18n start.sh 2>NUL
 if errorlevel 1 (
     echo [ERROR] Failed to create marketplace_server package
     exit /b 1
