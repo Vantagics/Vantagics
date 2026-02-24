@@ -13,7 +13,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // WebFetchTool provides web page fetching and parsing capabilities using HTTP client
@@ -106,14 +106,14 @@ The tool returns structured content including:
 - Metadata
 
 **Limitations:**
-- Static HTML only ‚Äî JavaScript-rendered content may not be available
+- Static HTML only ‚Ä?JavaScript-rendered content may not be available
 - Max content: 10KB main text, 50 links, 20 images, 10 tables
 - Requires full URL starting with http:// or https://
 
 **Do NOT use this tool to:**
-- ‚ùå Guess URLs without searching first
-- ‚ùå Fetch internal database data (use execute_sql instead)
-- ‚ùå Download files (use export_data instead)`
+- ‚ù?Guess URLs without searching first
+- ‚ù?Fetch internal database data (use execute_sql instead)
+- ‚ù?Download files (use export_data instead)`
 
 	return &schema.ToolInfo{
 		Name: "web_fetch",

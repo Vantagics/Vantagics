@@ -384,14 +384,14 @@ var englishTranslations = map[string]string{
 
 	// Quick Analysis Pack - Execution Messages
 	"qap.step_skipped":                "⏭️ Step %d (%s) skipped: dependent step failed",
-	"qap.execution_complete":          "✅ Quick analysis pack execution complete! Executed %d steps in total.",
-	"qap.reexecution_complete":        "✅ Quick analysis pack re-execution complete! Executed %d steps in total.",
-	"qap.step_sql_error":              "❌ Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```sql\n%s\n```",
-	"qap.step_sql_success_full":       "✅ Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
-	"qap.step_sql_success_truncated":  "✅ Step %d (%s) (%d rows, showing first 20):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
-	"qap.step_python_no_env":          "❌ Step %d (%s) execution failed: Python environment not configured\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
-	"qap.step_python_error":           "❌ Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
-	"qap.step_python_success":         "✅ Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```\n%s\n```",
+	"qap.execution_complete":          "�?Quick analysis pack execution complete! Executed %d steps in total.",
+	"qap.reexecution_complete":        "�?Quick analysis pack re-execution complete! Executed %d steps in total.",
+	"qap.step_sql_error":              "�?Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```sql\n%s\n```",
+	"qap.step_sql_success_full":       "�?Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_truncated":  "�?Step %d (%s) (%d rows, showing first 20):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_python_no_env":          "�?Step %d (%s) execution failed: Python environment not configured\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
+	"qap.step_python_error":           "�?Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
+	"qap.step_python_success":         "�?Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```\n%s\n```",
 
 	// Analysis Export
 	"analysis_export.description":     "Vantagics analysis export file - contains executable SQL/Python steps",
@@ -477,7 +477,7 @@ var englishTranslations = map[string]string{
 	"context.key_data":                  "📈 Key data: %s",
 
 	// Analysis Errors
-	"analysis.error_format":             "❌ **Error** [%s]\n\n%s",
+	"analysis.error_format":             "�?**Error** [%s]\n\n%s",
 	"analysis.timeout_detail":           "Analysis timed out (ran for %dm%ds). Please try simplifying the query or try again later.",
 	"analysis.timeout_request":          "Analysis request timed out. Please try simplifying the query or try again later.",
 	"analysis.network_error_msg":        "Network connection error. Please check your network connection and try again.",
@@ -486,7 +486,7 @@ var englishTranslations = map[string]string{
 	"analysis.llm_error_msg":            "AI model call error. Please check the API configuration or try again later.",
 	"analysis.error_detail":             "An error occurred during analysis: %s",
 	"analysis.cancelled_msg":            "⚠️ Analysis cancelled.",
-	"analysis.error_with_detail":        "❌ **Analysis Error** [%s]\n\n%s\n\n<details><summary>Error Details</summary>\n\n```\n%s\n```\n</details>",
+	"analysis.error_with_detail":        "�?**Analysis Error** [%s]\n\n%s\n\n<details><summary>Error Details</summary>\n\n```\n%s\n```\n</details>",
 	"analysis.timing":                   "\n\n---\n⏱️ Analysis time: %dm%ds",
 	"analysis.timing_check":             "⏱️ Analysis time:",
 	"analysis.queue_wait":               "Waiting in analysis queue... (%d/%d tasks in progress)",
@@ -524,7 +524,7 @@ var englishTranslations = map[string]string{
 	"location.unavailable":              "Unable to get location: %s. Please ask the user for their city, or use a default city for the query.",
 
 	// Export Tool
-	"export.file_generated":             "✅ %s file generated: %s (%.2f KB)\n\nFile saved to session directory, available for download in the interface.",
+	"export.file_generated":             "�?%s file generated: %s (%.2f KB)\n\nFile saved to session directory, available for download in the interface.",
 
 	// Memory Extractor
 	"memory.table_columns":              "Table %s contains columns: %s",

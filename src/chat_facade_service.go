@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"vantagedata/agent"
-	"vantagedata/config"
-	"vantagedata/i18n"
+	"vantagics/agent"
+	"vantagics/config"
+	"vantagics/i18n"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -44,7 +44,7 @@ type ChatManager interface {
 	OpenSessionResultsDirectory(threadID string) error
 }
 
-// ChatFacadeService 聊天服务门面，封装所有聊天相关的业务逻辑和并发状态
+// ChatFacadeService 聊天服务门面，封装所有聊天相关的业务逻辑和并发状�?
 type ChatFacadeService struct {
 	ctx             context.Context
 	chatService     *ChatService
@@ -53,7 +53,7 @@ type ChatFacadeService struct {
 	eventAggregator *EventAggregator
 	logger          func(string)
 
-	// 并发状态（从 App 迁移过来）
+	// 并发状态（�?App 迁移过来�?
 	activeThreads      map[string]bool
 	activeThreadsMutex sync.RWMutex
 	cancelAnalysis     bool
@@ -93,7 +93,7 @@ func (c *ChatFacadeService) Name() string {
 	return "chat"
 }
 
-// Initialize 初始化聊天门面服务
+// Initialize 初始化聊天门面服�?
 func (c *ChatFacadeService) Initialize(ctx context.Context) error {
 	c.ctx = ctx
 	if c.chatService == nil {
@@ -103,7 +103,7 @@ func (c *ChatFacadeService) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown 关闭聊天门面服务，取消所有活跃分析
+// Shutdown 关闭聊天门面服务，取消所有活跃分�?
 func (c *ChatFacadeService) Shutdown() error {
 	c.cancelAnalysisMutex.Lock()
 	c.cancelAnalysis = true
@@ -138,7 +138,7 @@ func (c *ChatFacadeService) SetSaveChartDataToFileFn(fn func(threadID, chartType
 	c.saveChartDataToFileFn = fn
 }
 
-// SetChatOpen 更新聊天打开状态
+// SetChatOpen 更新聊天打开状�?
 func (c *ChatFacadeService) SetChatOpen(isOpen bool) {
 	c.isChatOpen = isOpen
 }
@@ -193,7 +193,7 @@ func (c *ChatFacadeService) CreateChatThread(dataSourceID, title string) (ChatTh
 	return thread, nil
 }
 
-// DeleteThread 删除指定的聊天线程
+// DeleteThread 删除指定的聊天线�?
 func (c *ChatFacadeService) DeleteThread(threadID string) error {
 	if c.chatService == nil {
 		return WrapError("chat", "DeleteThread", fmt.Errorf("chat service not initialized"))
@@ -244,7 +244,7 @@ func (c *ChatFacadeService) UpdateThreadTitle(threadID, newTitle string) (string
 	return c.chatService.UpdateThreadTitle(threadID, newTitle)
 }
 
-// ClearHistory 清除所有聊天历史
+// ClearHistory 清除所有聊天历�?
 func (c *ChatFacadeService) ClearHistory() error {
 	if c.chatService == nil {
 		return WrapError("chat", "ClearHistory", fmt.Errorf("chat service not initialized"))
@@ -290,7 +290,7 @@ func (c *ChatFacadeService) ClearThreadMessages(threadID string) error {
 
 // --- Concurrent State Methods ---
 
-// CancelAnalysis 取消当前正在运行的分析
+// CancelAnalysis 取消当前正在运行的分�?
 func (c *ChatFacadeService) CancelAnalysis() error {
 	c.cancelAnalysisMutex.Lock()
 
@@ -344,7 +344,7 @@ func (c *ChatFacadeService) IsCancelRequested() bool {
 	return c.cancelAnalysis
 }
 
-// GetActiveThreadID 返回当前活跃的线程 ID
+// GetActiveThreadID 返回当前活跃的线�?ID
 func (c *ChatFacadeService) GetActiveThreadID() string {
 	c.cancelAnalysisMutex.Lock()
 	defer c.cancelAnalysisMutex.Unlock()
@@ -358,7 +358,7 @@ func (c *ChatFacadeService) GetActiveAnalysisCount() int {
 	return len(c.activeThreads)
 }
 
-// CanStartNewAnalysis 检查是否可以启动新的分析
+// CanStartNewAnalysis 检查是否可以启动新的分�?
 func (c *ChatFacadeService) CanStartNewAnalysis() (bool, string) {
 	cfg, _ := c.configProvider.GetConfig()
 	maxConcurrent := cfg.MaxConcurrentAnalysis
@@ -375,7 +375,7 @@ func (c *ChatFacadeService) CanStartNewAnalysis() (bool, string) {
 
 	if activeCount >= maxConcurrent {
 		var errorMessage string
-		if cfg.Language == "简体中文" {
+		if cfg.Language == "简体中�? {
 			errorMessage = i18n.T("analysis.max_concurrent", activeCount, maxConcurrent)
 		} else {
 			errorMessage = fmt.Sprintf("There are currently %d analysis sessions in progress (max concurrent: %d). Please wait for some analyses to complete before starting a new analysis, or increase the max concurrent analysis limit in settings.", activeCount, maxConcurrent)
@@ -395,7 +395,7 @@ func (c *ChatFacadeService) HasActiveAnalysis() bool {
 
 // --- Session File Methods ---
 
-// GetSessionFiles 获取线程的会话文件列表
+// GetSessionFiles 获取线程的会话文件列�?
 func (c *ChatFacadeService) GetSessionFiles(threadID string) ([]SessionFile, error) {
 	if c.chatService == nil {
 		return nil, WrapError("chat", "GetSessionFiles", fmt.Errorf("chat service not initialized"))
@@ -403,7 +403,7 @@ func (c *ChatFacadeService) GetSessionFiles(threadID string) ([]SessionFile, err
 	return c.chatService.GetSessionFiles(threadID)
 }
 
-// GetSessionFilePath 返回会话文件的完整路径
+// GetSessionFilePath 返回会话文件的完整路�?
 func (c *ChatFacadeService) GetSessionFilePath(threadID, fileName string) (string, error) {
 	if c.chatService == nil {
 		return "", WrapError("chat", "GetSessionFilePath", fmt.Errorf("chat service not initialized"))
@@ -671,7 +671,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 		}
 
 		var waitMessage string
-		if cfg.Language == "简体中文" {
+		if cfg.Language == "简体中�? {
 			waitMessage = i18n.T("analysis.queue_wait", activeCount, maxConcurrent)
 		} else {
 			waitMessage = fmt.Sprintf("Waiting in analysis queue... (%d/%d tasks in progress)", activeCount, maxConcurrent)
@@ -711,7 +711,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 				})
 			}
 			var errorMessage string
-			if cfg.Language == "简体中文" {
+			if cfg.Language == "简体中�? {
 				errorMessage = i18n.T("analysis.queue_timeout", time.Since(waitStartTime).Round(time.Second), activeCount)
 			} else {
 				errorMessage = fmt.Sprintf("Timeout waiting for analysis queue (waited %v). There are currently %d analysis tasks in progress. Please try again later.", time.Since(waitStartTime).Round(time.Second), activeCount)
@@ -737,7 +737,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 		if notifiedWaiting && int(time.Since(waitStartTime).Seconds())%5 == 0 {
 			var waitMessage string
 			waitedTime := time.Since(waitStartTime).Round(time.Second)
-			if cfg.Language == "简体中文" {
+			if cfg.Language == "简体中�? {
 				waitMessage = i18n.T("analysis.queue_wait_elapsed", waitedTime, activeCount, maxConcurrent)
 			} else {
 				waitMessage = fmt.Sprintf("Waiting in analysis queue... (waited %v, %d/%d tasks in progress)", waitedTime, activeCount, maxConcurrent)
@@ -863,7 +863,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 			timingInfo := fmt.Sprintf(i18n.T("analysis.timing"), minutes, seconds)
 			resp = resp + timingInfo
 		}
-		c.log(fmt.Sprintf("[TIMING] Chat completed in: %d分%d秒 (%v)", minutes, seconds, chatDuration))
+		c.log(fmt.Sprintf("[TIMING] Chat completed in: %d�?d�?(%v)", minutes, seconds, chatDuration))
 	}
 
 	if threadID != "" && cfg.DetailedLog {
@@ -884,7 +884,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 	return resp, err
 }
 
-// runEinoAnalysis 执行 Eino 分析引擎的分析流程
+// runEinoAnalysis 执行 Eino 分析引擎的分析流�?
 func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, requestID, dataSourceID string, cfg config.Config) (string, error) {
 	// Load history
 	startHist := time.Now()
@@ -974,7 +974,7 @@ func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, re
 	if !strings.Contains(resp, i18n.T("analysis.timing_check")) {
 		timingInfo := fmt.Sprintf(i18n.T("analysis.timing"), minutes, seconds)
 		resp = resp + timingInfo
-		c.log(fmt.Sprintf("[TIMING] Analysis completed in: %d分%d秒 (%v)", minutes, seconds, analysisDuration))
+		c.log(fmt.Sprintf("[TIMING] Analysis completed in: %d�?d�?(%v)", minutes, seconds, analysisDuration))
 	}
 
 	if cfg.DetailedLog {
@@ -1015,8 +1015,8 @@ func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, re
 			"stages": []map[string]interface{}{
 				{"name": "AI 分析", "duration": totalSecs * 0.60, "percentage": 60.0, "description": "LLM 理解需求、生成代码和分析结果"},
 				{"name": "SQL 查询", "duration": totalSecs * 0.20, "percentage": 20.0, "description": "数据库查询和数据提取"},
-				{"name": "Python 处理", "duration": totalSecs * 0.15, "percentage": 15.0, "description": "数据处理和图表生成"},
-				{"name": "其他", "duration": totalSecs * 0.05, "percentage": 5.0, "description": "初始化和后处理"},
+				{"name": "Python 处理", "duration": totalSecs * 0.15, "percentage": 15.0, "description": "数据处理和图表生�?},
+				{"name": "其他", "duration": totalSecs * 0.05, "percentage": 5.0, "description": "初始化和后处�?},
 			},
 		}
 
@@ -1340,7 +1340,7 @@ func (c *ChatFacadeService) extractChartItems(resp, threadID, userMessageID, req
 				if lastNewline >= 0 {
 					lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
 					tableTitle = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
-					tableTitle = strings.TrimRight(tableTitle, ":：")
+					tableTitle = strings.TrimRight(tableTitle, ":�?)
 					tableTitle = strings.TrimSpace(tableTitle)
 					if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
 						tableTitle = ""
@@ -1488,7 +1488,7 @@ func (c *ChatFacadeService) attachChartToUserMessage(threadID, messageID string,
 	}
 }
 
-// detectAndEmitImages 检测并发送响应中的图片
+// detectAndEmitImages 检测并发送响应中的图�?
 func (c *ChatFacadeService) detectAndEmitImages(response, threadID, userMessageID, requestID string) {
 	if c.chatService == nil || threadID == "" {
 		return
@@ -1527,7 +1527,7 @@ func (c *ChatFacadeService) filterFalseFileClaimsIfECharts(response string) stri
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// Skip lines that claim file generation but are likely false
-		if strings.Contains(trimmed, "已保存") && strings.Contains(trimmed, ".png") && strings.Contains(response, "json:echarts") {
+		if strings.Contains(trimmed, "已保�?) && strings.Contains(trimmed, ".png") && strings.Contains(response, "json:echarts") {
 			continue
 		}
 		if strings.Contains(trimmed, "saved to") && strings.Contains(trimmed, ".png") && strings.Contains(response, "json:echarts") {
@@ -1623,7 +1623,7 @@ func (c *ChatFacadeService) SendFreeChatMessage(threadID, message, userMessageID
 	// Check history for analysis context
 	historyStr := historyContext.String()
 	historyHasAnalysisContext := strings.Contains(historyStr, "分析") ||
-		strings.Contains(historyStr, "数据源") ||
+		strings.Contains(historyStr, "数据�?) ||
 		strings.Contains(historyStr, "analyze") ||
 		strings.Contains(historyStr, "data source") ||
 		strings.Contains(historyStr, "start_datasource_analysis")
@@ -1739,9 +1739,9 @@ func (c *ChatFacadeService) SendFreeChatMessage(threadID, message, userMessageID
 	return resp, nil
 }
 
-// runFreeChatWithTools 使用工具运行自由聊天（搜索、获取等）
-// 注意：此方法是 App.runFreeChatWithTools 的简化版本，
-// 完整的工具集成将在 App 门面委托时通过 App 上下文提供
+// runFreeChatWithTools 使用工具运行自由聊天（搜索、获取等�?
+// 注意：此方法�?App.runFreeChatWithTools 的简化版本，
+// 完整的工具集成将�?App 门面委托时通过 App 上下文提�?
 func (c *ChatFacadeService) runFreeChatWithTools(ctx context.Context, userMessage, historyContext, langPrompt string, onChunk func(string), cfg config.Config) (string, error) {
 	if c.einoService == nil {
 		return "", fmt.Errorf("eino service not available for tool-based chat")
@@ -1773,7 +1773,7 @@ func (c *ChatFacadeService) log(msg string) {
 }
 
 // getLangPromptFromMessage 从消息内容检测语言并返回语言提示
-// 这是一个包级别的辅助函数，供 ChatFacadeService 使用
+// 这是一个包级别的辅助函数，�?ChatFacadeService 使用
 func getLangPromptFromMessage(message string) string {
 	return "the same language as the user's message"
 }

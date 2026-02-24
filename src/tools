@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"vantagedata/agent"
-	"vantagedata/config"
+	"vantagics/agent"
+	"vantagics/config"
 )
 
 // loadConfig 加载配置文件
 func loadConfig() (config.Config, error) {
-	// 获取用户主目录
+	// 获取用户主目�?
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return config.Config{}, fmt.Errorf("failed to get home directory: %v", err)
@@ -66,13 +66,13 @@ func main() {
 	fmt.Println("[1/5] 加载配置...")
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Printf("❌ 加载配置失败: %v\n", err)
+		fmt.Printf("�?加载配置失败: %v\n", err)
 		fmt.Println("   使用默认配置继续...")
 		cfg = getDefaultConfig()
 	}
-	fmt.Println("✅ 配置加载成功")
+	fmt.Println("�?配置加载成功")
 	fmt.Printf("   - 搜索引擎: %s\n", getActiveEngineName(cfg))
-	fmt.Printf("   - 代理状态: %s\n", getProxyStatus(cfg))
+	fmt.Printf("   - 代理状�? %s\n", getProxyStatus(cfg))
 	fmt.Println()
 
 	// 2. 创建Web搜索工具
@@ -83,14 +83,14 @@ func main() {
 		activeEngine,
 		cfg.ProxyConfig,
 	)
-	fmt.Println("✅ Web搜索工具初始化成功")
+	fmt.Println("�?Web搜索工具初始化成�?)
 	fmt.Println()
 
 	// 3. 测试Web搜索
 	fmt.Println("[3/5] 测试Web搜索...")
 	fmt.Println("   查询: \"OpenAI GPT-4 latest news\"")
 	fmt.Println("   最大结果数: 5")
-	fmt.Println("   超时: 90秒")
+	fmt.Println("   超时: 90�?)
 	fmt.Println()
 
 	searchInput := map[string]interface{}{
@@ -107,35 +107,35 @@ func main() {
 	duration := time.Since(startTime)
 
 	if err != nil {
-		fmt.Printf("❌ 搜索失败 (耗时: %.2f秒)\n", duration.Seconds())
+		fmt.Printf("�?搜索失败 (耗时: %.2f�?\n", duration.Seconds())
 		fmt.Printf("   错误: %v\n", err)
 		fmt.Println()
-		fmt.Println("💡 可能的原因:")
+		fmt.Println("💡 可能的原�?")
 		fmt.Println("   1. 网络连接问题")
-		fmt.Println("   2. 搜索引擎被墙或限制访问")
-		fmt.Println("   3. 代理配置不正确")
+		fmt.Println("   2. 搜索引擎被墙或限制访�?)
+		fmt.Println("   3. 代理配置不正�?)
 		fmt.Println("   4. 超时时间不够")
 		fmt.Println()
 		fmt.Println("🔧 建议:")
-		fmt.Println("   1. 检查网络连接")
+		fmt.Println("   1. 检查网络连�?)
 		fmt.Println("   2. 尝试配置代理")
-		fmt.Println("   3. 更换搜索引擎（Bing或Baidu）")
+		fmt.Println("   3. 更换搜索引擎（Bing或Baidu�?)
 		os.Exit(1)
 	}
 
-	fmt.Printf("✅ 搜索成功 (耗时: %.2f秒)\n", duration.Seconds())
+	fmt.Printf("�?搜索成功 (耗时: %.2f�?\n", duration.Seconds())
 	fmt.Println()
 
 	// 解析搜索结果
 	var results []map[string]interface{}
 	if err := json.Unmarshal([]byte(searchResult), &results); err != nil {
-		fmt.Printf("❌ 解析搜索结果失败: %v\n", err)
+		fmt.Printf("�?解析搜索结果失败: %v\n", err)
 		fmt.Println("原始结果:")
 		fmt.Println(searchResult)
 		os.Exit(1)
 	}
 
-	fmt.Printf("📊 找到 %d 个结果:\n", len(results))
+	fmt.Printf("📊 找到 %d 个结�?\n", len(results))
 	fmt.Println()
 
 	for i, result := range results {
@@ -173,13 +173,13 @@ func main() {
 		duration = time.Since(startTime)
 
 		if err != nil {
-			fmt.Printf("❌ 抓取失败 (耗时: %.2f秒)\n", duration.Seconds())
+			fmt.Printf("�?抓取失败 (耗时: %.2f�?\n", duration.Seconds())
 			fmt.Printf("   错误: %v\n", err)
 		} else {
-			fmt.Printf("✅ 抓取成功 (耗时: %.2f秒)\n", duration.Seconds())
+			fmt.Printf("�?抓取成功 (耗时: %.2f�?\n", duration.Seconds())
 			fmt.Printf("   内容长度: %d 字符\n", len(fetchResult))
 			fmt.Println()
-			fmt.Println("内容预览 (前500字符):")
+			fmt.Println("内容预览 (�?00字符):")
 			fmt.Println("---")
 			fmt.Println(truncate(fetchResult, 500))
 			fmt.Println("---")
@@ -192,10 +192,10 @@ func main() {
 	fmt.Println("[5/5] 测试完成")
 	fmt.Println()
 	fmt.Println("=== 测试总结 ===")
-	fmt.Println("✅ Web搜索工具工作正常")
-	fmt.Println("✅ 可以获取搜索结果")
+	fmt.Println("�?Web搜索工具工作正常")
+	fmt.Println("�?可以获取搜索结果")
 	if len(results) > 0 {
-		fmt.Println("✅ Web抓取工具工作正常")
+		fmt.Println("�?Web抓取工具工作正常")
 	}
 	fmt.Println()
 	fmt.Println("💡 提示: 如果在实际使用中仍然失败，可能是:")
@@ -213,24 +213,24 @@ func getActiveEngineName(cfg config.Config) string {
 	return "Google (默认)"
 }
 
-// getProxyStatus 获取代理状态
+// getProxyStatus 获取代理状�?
 func getProxyStatus(cfg config.Config) string {
 	if cfg.ProxyConfig == nil {
-		return "未配置"
+		return "未配�?
 	}
 	if !cfg.ProxyConfig.Enabled {
-		return "已禁用"
+		return "已禁�?
 	}
 	if !cfg.ProxyConfig.Tested {
-		return "未测试"
+		return "未测�?
 	}
-	return fmt.Sprintf("已启用 (%s://%s:%d)",
+	return fmt.Sprintf("已启�?(%s://%s:%d)",
 		cfg.ProxyConfig.Protocol,
 		cfg.ProxyConfig.Host,
 		cfg.ProxyConfig.Port)
 }
 
-// truncate 截断字符串
+// truncate 截断字符�?
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s

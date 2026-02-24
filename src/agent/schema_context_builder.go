@@ -311,7 +311,7 @@ func (b *SchemaContextBuilder) PrioritizeTables(tables []string, userRequest str
 		}
 
 		// Common important table patterns
-		importantPatterns := []string{"order", "订单", "sales", "销售", "customer", "客户", "product", "产品", "user", "用户"}
+		importantPatterns := []string{"order", "订单", "sales", "销�?, "customer", "客户", "product", "产品", "user", "用户"}
 		for _, pattern := range importantPatterns {
 			if strings.Contains(tableLower, pattern) {
 				score += 10

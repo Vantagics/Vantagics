@@ -40,7 +40,7 @@ USE THIS TOOL BEFORE python_executor for complex analysis tasks (>20 lines of co
 The tool returns a detailed plan including:
 - Required libraries
 - Step-by-step logic
-- Generated Python code (validated and â‰¤80 lines)
+- Generated Python code (validated and â‰?0 lines)
 
 After receiving the plan, review it and then use python_executor with the generated code.`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{

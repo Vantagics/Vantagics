@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 	"html"
-	"vantagedata/agent"
-	"vantagedata/export"
-	"vantagedata/i18n"
+	"vantagics/agent"
+	"vantagics/export"
+	"vantagics/i18n"
 
 	ppt "github.com/VantageDataChat/GoPPT"
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
@@ -90,7 +90,7 @@ func (e *ExportFacadeService) Name() string {
 	return "export"
 }
 
-// Initialize 初始化导出门面服务
+// Initialize 初始化导出门面服�?
 func (e *ExportFacadeService) Initialize(ctx context.Context) error {
 	e.ctx = ctx
 	return nil
@@ -101,12 +101,12 @@ func (e *ExportFacadeService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下文
+// SetContext 设置 Wails 上下�?
 func (e *ExportFacadeService) SetContext(ctx context.Context) {
 	e.ctx = ctx
 }
 
-// SetGetMessageAnalysisDataFn 注入获取分析数据的函数
+// SetGetMessageAnalysisDataFn 注入获取分析数据的函�?
 func (e *ExportFacadeService) SetGetMessageAnalysisDataFn(fn func(threadID, messageID string) (map[string]interface{}, error)) {
 	e.getMessageAnalysisDataFn = fn
 }
@@ -1471,15 +1471,15 @@ func (e *ExportFacadeService) PrepareComprehensiveReport(req ComprehensiveReport
 				continue
 			}
 			trimmed := strings.TrimSpace(msg.Content)
-			if strings.HasPrefix(trimmed, "✅ 分析技能包执行完成") || strings.HasPrefix(trimmed, "⏭️") {
+			if strings.HasPrefix(trimmed, "�?分析技能包执行完成") || strings.HasPrefix(trimmed, "⏭️") {
 				continue
 			}
-			if strings.HasPrefix(trimmed, "❌") {
+			if strings.HasPrefix(trimmed, "�?) {
 				continue
 			}
 
-			if idx := strings.Index(msg.Content, "📋 分析请求："); idx >= 0 {
-				reqStart := idx + len("📋 分析请求：")
+			if idx := strings.Index(msg.Content, "📋 分析请求�?); idx >= 0 {
+				reqStart := idx + len("📋 分析请求�?)
 				reqEnd := strings.Index(msg.Content[reqStart:], "\n")
 				if reqEnd > 0 {
 					userReq := strings.TrimSpace(msg.Content[reqStart : reqStart+reqEnd])
@@ -1990,7 +1990,7 @@ func (e *ExportFacadeService) extractJsonTablesFromContent(content string, allTa
 				if lastNewline >= 0 {
 					lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
 					lineBeforeCodeBlock = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
-					lineBeforeCodeBlock = strings.TrimRight(lineBeforeCodeBlock, ":：")
+					lineBeforeCodeBlock = strings.TrimRight(lineBeforeCodeBlock, ":�?)
 					tableTitle = strings.TrimSpace(lineBeforeCodeBlock)
 					if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
 						tableTitle = ""

@@ -10,8 +10,8 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"vantagedata/export"
-	"vantagedata/i18n"
+	"vantagics/export"
+	"vantagics/i18n"
 )
 
 // ExportTool provides PDF, Excel, and PPT export capabilities
@@ -68,7 +68,7 @@ func (t *ExportTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 Use this tool to create professional reports and presentations from analysis results.
 
 **Supported Formats:**
-- **excel**: Data tables with formatting and multiple sheets (⭐ PREFERRED for data export)
+- **excel**: Data tables with formatting and multiple sheets (�?PREFERRED for data export)
 - **pdf**: Dashboard reports with metrics, insights, charts, and tables
 - **ppt**: Presentation slides with metrics, insights, and visualizations
 
@@ -79,14 +79,14 @@ Use this tool to create professional reports and presentations from analysis res
 - Only use PPT for presentation slides
 
 **When to use:**
-- User requests "导出数据" or "导出表格" → Use excel format
+- User requests "导出数据" or "导出表格" �?Use excel format
 - User requests "导出为PDF/Excel/PPT" or "生成报告/演示文稿"
 - After completing analysis and user wants to save results
 - Creating professional documents for sharing
 
-**Excel Export Data Structure (⭐ PREFERRED for data):**
+**Excel Export Data Structure (�?PREFERRED for data):**
 {
-  "sheet_name": "工作表名称",
+  "sheet_name": "工作表名�?,
   "table_data": {
     "columns": [{"title": "列名", "data_type": "string"}],
     "data": [[value1, value2, ...]]
@@ -95,7 +95,7 @@ Use this tool to create professional reports and presentations from analysis res
 
 **PDF Export Data Structure:**
 {
-  "user_request": "用户的原始请求",
+  "user_request": "用户的原始请�?,
   "metrics": [
     {"title": "指标名称", "value": "123", "change": "+5%"}
   ],
@@ -114,7 +114,7 @@ Same as PDF structure
 {
   "format": "excel",
   "data": {
-    "sheet_name": "销售数据",
+    "sheet_name": "销售数�?,
     "table_data": {
       "columns": [{"title": "日期", "data_type": "string"}, {"title": "销售额", "data_type": "number"}],
       "data": [["2024-01", 12345], ["2024-02", 23456]]
@@ -127,9 +127,9 @@ Same as PDF structure
 {
   "format": "pdf",
   "data": {
-    "user_request": "分析销售趋势",
+    "user_request": "分析销售趋�?,
     "metrics": [{"title": "总销售额", "value": "¥1,234,567", "change": "+15%"}],
-    "insights": ["销售额持续增长", "Q4表现最佳"],
+    "insights": ["销售额持续增长", "Q4表现最�?],
     "table_data": {...}
   },
   "file_name": "sales_report"
@@ -329,7 +329,7 @@ func (t *ExportTool) exportPDF(data map[string]interface{}) ([]byte, error) {
 // exportExcel exports data to Excel format
 func (t *ExportTool) exportExcel(data map[string]interface{}) ([]byte, error) {
 	// Extract sheet name
-	sheetName := "数据表"
+	sheetName := "数据�?
 	if name, ok := data["sheet_name"].(string); ok {
 		sheetName = name
 	}

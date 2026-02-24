@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"vantagedata/export"
-	"vantagedata/i18n"
+	"vantagics/export"
+	"vantagics/i18n"
 )
 
 // regex to extract base64 images from markdown content

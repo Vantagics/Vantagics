@@ -216,7 +216,7 @@ func (c *CombinedClassifierPlanner) buildCombinedPrompt(userQuery, dataSourceInf
 
 ## Visualization Decision
 Default to generating charts, unless it's consultation/calculation/user only wants text results.
-Involves analysis, statistics, trends, distribution, comparison, ranking → needs_visualization=true
+Involves analysis, statistics, trends, distribution, comparison, ranking �?needs_visualization=true
 
 ## Chart Types
 Time trends→line, Category comparison→bar, Proportions→pie, Multi-dimensional→grouped_bar
@@ -305,13 +305,13 @@ func (c *CombinedClassifierPlanner) getCachedResult(key string) (*CombinedResult
 func (c *CombinedClassifierPlanner) detectQuickPath(queryLower string) *CombinedResult {
 	// Time/Date queries
 	if containsAny(queryLower, []string{"时间", "日期", "几点", "今天", "现在", "当前时间", "what time", "current time"}) &&
-		!containsAny(queryLower, []string{"订单", "销售", "数据", "查询", "统计", "分析"}) {
+		!containsAny(queryLower, []string{"订单", "销�?, "数据", "查询", "统计", "分析"}) {
 		return &CombinedResult{
 			RequestType: "calculation", TaskType: "calculation", Complexity: "simple",
 			IsQuickPath: true, NeedsPython: true, OutputFormat: "text", EstimatedCalls: 1,
 			Confidence: 1.0,
 			QuickPathCode: `import datetime
-print(datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M:%S"))`,
+print(datetime.datetime.now().strftime("%Y�?m�?d�?%H:%M:%S"))`,
 			Steps: []PlanStep{{StepNum: 1, Tool: "python_executor", Purpose: "获取系统时间"}},
 		}
 	}
@@ -328,7 +328,7 @@ print(datetime.datetime.now().strftime("%Y年%m月%d日 %H:%M:%S"))`,
 func (c *CombinedClassifierPlanner) tryKeywordClassification(queryLower, dataSourceInfo string) *CombinedResult {
 	// Pure consultation (no analysis keywords)
 	analysisIndicators := []string{"分析", "统计", "查询", "计算", "对比", "趋势", "分布", "排名",
-		"销售", "订单", "客户", "产品", "收入", "利润", "数量", "图", "表"}
+		"销�?, "订单", "客户", "产品", "收入", "利润", "数量", "�?, "�?}
 	hasAnalysis := false
 	for _, ind := range analysisIndicators {
 		if strings.Contains(queryLower, ind) {
@@ -337,16 +337,16 @@ func (c *CombinedClassifierPlanner) tryKeywordClassification(queryLower, dataSou
 		}
 	}
 
-	if !hasAnalysis && containsAny(queryLower, []string{"可以做什么分析", "分析方向", "怎么分析", "能做什么", "建议"}) {
+	if !hasAnalysis && containsAny(queryLower, []string{"可以做什么分�?, "分析方向", "怎么分析", "能做什�?, "建议"}) {
 		return &CombinedResult{
 			RequestType: "consultation", TaskType: "consultation", Complexity: "simple",
 			NeedsSchema: true, OutputFormat: "text", EstimatedCalls: 1, Confidence: 0.9,
-			Steps: []PlanStep{{StepNum: 1, Tool: "get_data_source_context", Purpose: "获取数据源信息"}},
+			Steps: []PlanStep{{StepNum: 1, Tool: "get_data_source_context", Purpose: "获取数据源信�?}},
 		}
 	}
 
 	// Web search patterns
-	if containsAny(queryLower, []string{"天气", "新闻", "股价", "汇率", "搜索最新"}) &&
+	if containsAny(queryLower, []string{"天气", "新闻", "股价", "汇率", "搜索最�?}) &&
 		!containsAny(queryLower, []string{"数据", "订单", "分析"}) {
 		return &CombinedResult{
 			RequestType: "web_search", TaskType: "web_search", Complexity: "simple",
@@ -404,7 +404,7 @@ func (c *CombinedClassifierPlanner) fallbackResult(queryLower, dataSourceInfo st
 	}
 
 	// Adjust for non-analysis requests
-	if containsAny(queryLower, []string{"建议", "可以做什么"}) && !containsAny(queryLower, []string{"分析", "统计"}) {
+	if containsAny(queryLower, []string{"建议", "可以做什�?}) && !containsAny(queryLower, []string{"分析", "统计"}) {
 		result.RequestType = "consultation"
 		result.NeedsVisualization = false
 		result.OutputFormat = "text"
@@ -415,7 +415,7 @@ func (c *CombinedClassifierPlanner) fallbackResult(queryLower, dataSourceInfo st
 
 	// Chart type hints
 	if result.NeedsVisualization {
-		if containsAny(queryLower, []string{"趋势", "变化", "时间", "月", "年"}) {
+		if containsAny(queryLower, []string{"趋势", "变化", "时间", "�?, "�?}) {
 			result.SuggestedChartType = "line"
 		} else if containsAny(queryLower, []string{"占比", "比例", "分布"}) {
 			result.SuggestedChartType = "pie"

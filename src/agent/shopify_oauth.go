@@ -284,7 +284,7 @@ func (s *ShopifyOAuthService) sendSuccessResponse(w http.ResponseWriter) {
 </head>
 <body>
     <div class="container">
-        <div class="icon">‚úÖ</div>
+        <div class="icon">‚ú?/div>
         <h1>Authorization Successful!</h1>
         <p>You can close this window and return to Vantagics.</p>
     </div>
@@ -322,7 +322,7 @@ func (s *ShopifyOAuthService) sendErrorResponse(w http.ResponseWriter, message s
 </head>
 <body>
     <div class="container">
-        <div class="icon">‚ùå</div>
+        <div class="icon">‚ù?/div>
         <h1>Authorization Failed</h1>
         <p>%s</p>
         <p style="margin-top: 20px;">Please close this window and try again.</p>

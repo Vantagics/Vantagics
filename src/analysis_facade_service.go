@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/agent"
-	"vantagedata/config"
-	"vantagedata/i18n"
+	"vantagics/agent"
+	"vantagics/config"
+	"vantagics/i18n"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -83,7 +83,7 @@ func (s *AnalysisFacadeService) Name() string {
 	return "analysis"
 }
 
-// Initialize 初始化分析门面服务
+// Initialize 初始化分析门面服�?
 func (s *AnalysisFacadeService) Initialize(ctx context.Context) error {
 	s.ctx = ctx
 	s.log("AnalysisFacadeService initialized")
@@ -201,7 +201,7 @@ func (s *AnalysisFacadeService) GenerateIntentSuggestionsWithExclusions(threadID
 		s.log("[INTENT] Using new IntentUnderstandingService")
 
 		language := "en"
-		if cfg.Language == "简体中文" {
+		if cfg.Language == "简体中�? {
 			language = "zh"
 		}
 
@@ -357,8 +357,8 @@ func (s *AnalysisFacadeService) GenerateIntentSuggestionsWithExclusions(threadID
 func (s *AnalysisFacadeService) buildIntentUnderstandingPrompt(userMessage, tableName string, columns []string, language string, excludedSuggestions []IntentSuggestion, dataSourceID string, exclusionSummary string) string {
 	outputLangInstruction := "Respond in English"
 	langCode := "en"
-	if language == "简体中文" {
-		outputLangInstruction = "用简体中文回复"
+	if language == "简体中�? {
+		outputLangInstruction = "用简体中文回�?
 		langCode = "zh"
 	}
 
@@ -396,13 +396,13 @@ The user rejected ALL previous suggestions. This means:
 	}
 
 	stickToOriginalGuidance := ""
-	if language == "简体中文" {
+	if language == "简体中�? {
 		stickToOriginalGuidance = `
 
 # 关于"坚持我的请求"选项
 用户可以选择"坚持我的请求"来直接使用他们的原始输入进行分析。因此：
 1. 你的建议应该提供与原始请求不同的分析角度
-2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方向
+2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方�?
 3. 不要简单地重复或轻微改写用户的原始请求
 4. 每个建议都应该为用户提供独特的价值`
 	} else {
@@ -587,32 +587,32 @@ func (s *AnalysisFacadeService) ExtractMetricsFromAnalysis(threadID string, mess
 	}
 
 	var prompt string
-	if cfg.Language == "简体中文" {
-		prompt = fmt.Sprintf(`请从以下分析结果中提取最重要的数值型关键指标，以JSON格式返回。
+	if cfg.Language == "简体中�? {
+		prompt = fmt.Sprintf(`请从以下分析结果中提取最重要的数值型关键指标，以JSON格式返回�?
 
-要求：
-1. 只返回JSON数组，不要其他文字说明
+要求�?
+1. 只返回JSON数组，不要其他文字说�?
 2. 每个指标必须包含：name（指标名称）、value（数值）、unit（单位，可选）
 3. **重要**：只提取数值型指标，value必须是数字或包含数字的字符串
 4. **重要**：如果分析结果中没有明确的数值型指标，返回空数组 []
-5. 最多提取6个最重要的业务指标
+5. 最多提�?个最重要的业务指�?
 6. 优先提取：总量、增长率、平均值、比率、金额、数量等核心业务指标
 7. 数值要准确，来源于分析内容
-8. 单位要合适（如：个、%%、元、$、次/年、天等）
-9. 指标名称要简洁明了
-10. 不要提取非数值型的描述性内容
+8. 单位要合适（如：个�?%、元�?、次/年、天等）
+9. 指标名称要简洁明�?
+10. 不要提取非数值型的描述性内�?
 
 示例格式（有数值指标时）：
 [
-  {"name":"总销售额","value":"1,234,567","unit":"元"},
-  {"name":"增长率","value":"+15.5","unit":"%%"},
-  {"name":"平均订单价值","value":"89.50","unit":"元"}
+  {"name":"总销售额","value":"1,234,567","unit":"�?},
+  {"name":"增长�?,"value":"+15.5","unit":"%%"},
+  {"name":"平均订单价�?,"value":"89.50","unit":"�?}
 ]
 
 示例格式（无数值指标时）：
 []
 
-分析内容：
+分析内容�?
 %s
 
 请返回JSON：`, analysisContent)
@@ -789,11 +789,11 @@ func (s *AnalysisFacadeService) fallbackTextExtraction(messageId string, content
 		name  string
 		unit  string
 	}{
-		{regexp.MustCompile(`总.*?[：:]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)`), "总计", ""},
-		{regexp.MustCompile(`(\d+(?:\.\d+)?)%`), "百分比", "%"},
+		{regexp.MustCompile(`�?*?[�?]?\s*(\d+(?:,\d{3})*(?:\.\d+)?)`), "总计", ""},
+		{regexp.MustCompile(`(\d+(?:\.\d+)?)%`), "百分�?, "%"},
 		{regexp.MustCompile(`\$(\d+(?:,\d{3})*(?:\.\d+)?)`), "金额", "$"},
-		{regexp.MustCompile(`平均.*?[：:]?\s*(\d+(?:\.\d+)?)`), "平均值", ""},
-		{regexp.MustCompile(`增长.*?[：:]?\s*([+\-]?\d+(?:\.\d+)?)%`), "增长率", "%"},
+		{regexp.MustCompile(`平均.*?[�?]?\s*(\d+(?:\.\d+)?)`), "平均�?, ""},
+		{regexp.MustCompile(`增长.*?[�?]?\s*([+\-]?\d+(?:\.\d+)?)%`), "增长�?, "%"},
 	}
 
 	for _, pattern := range patterns {
@@ -865,9 +865,9 @@ func (s *AnalysisFacadeService) extractSuggestionInsights(analysisContent string
 	var insights []Insight
 	lines := strings.Split(analysisContent, "\n")
 
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.�?]\*{0,2}\s*(.+)`)
 	listPattern := regexp.MustCompile(`^\s*[-•]\s+(.+)`)
-	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[：:\-–—]\s*(.+)`)
+	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[�?\-–—]\s*(.+)`)
 
 	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步|后续|下一步|洞察|insight|分析方向|可以从|希望从哪)`)
 
@@ -905,7 +905,7 @@ func (s *AnalysisFacadeService) extractSuggestionInsights(analysisContent string
 				title := strings.TrimSpace(matches[1])
 				desc := strings.TrimSpace(matches[2])
 				if desc != "" {
-					suggestionText = title + "：" + desc
+					suggestionText = title + "�? + desc
 				} else {
 					suggestionText = title
 				}
@@ -975,7 +975,7 @@ func (s *AnalysisFacadeService) detectAnalysisType(response string) string {
 	responseLower := strings.ToLower(response)
 
 	if strings.Contains(responseLower, "trend") || strings.Contains(responseLower, "趋势") ||
-		strings.Contains(responseLower, "over time") || strings.Contains(responseLower, "随时间") {
+		strings.Contains(responseLower, "over time") || strings.Contains(responseLower, "随时�?) {
 		return "trend"
 	}
 	if strings.Contains(responseLower, "comparison") || strings.Contains(responseLower, "对比") ||
@@ -991,12 +991,12 @@ func (s *AnalysisFacadeService) detectAnalysisType(response string) string {
 		return "correlation"
 	}
 	if strings.Contains(responseLower, "total") || strings.Contains(responseLower, "sum") ||
-		strings.Contains(responseLower, "average") || strings.Contains(responseLower, "汇总") ||
+		strings.Contains(responseLower, "average") || strings.Contains(responseLower, "汇�?) ||
 		strings.Contains(responseLower, "平均") {
 		return "aggregation"
 	}
 	if strings.Contains(responseLower, "ranking") || strings.Contains(responseLower, "排名") ||
-		strings.Contains(responseLower, "top") || strings.Contains(responseLower, "前") {
+		strings.Contains(responseLower, "top") || strings.Contains(responseLower, "�?) {
 		return "ranking"
 	}
 	if strings.Contains(responseLower, "time series") || strings.Contains(responseLower, "时间序列") ||
@@ -1032,7 +1032,7 @@ func (s *AnalysisFacadeService) extractKeyFindings(response string) string {
 			excerpt := response[start:end]
 			excerpt = strings.TrimSpace(excerpt)
 			if len(excerpt) > 150 {
-				lastPeriod := strings.LastIndex(excerpt[:150], "。")
+				lastPeriod := strings.LastIndex(excerpt[:150], "�?)
 				if lastPeriod == -1 {
 					lastPeriod = strings.LastIndex(excerpt[:150], ".")
 				}
@@ -1049,7 +1049,7 @@ func (s *AnalysisFacadeService) extractKeyFindings(response string) string {
 
 	if len(response) > 150 {
 		excerpt := response[:150]
-		lastPeriod := strings.LastIndex(excerpt, "。")
+		lastPeriod := strings.LastIndex(excerpt, "�?)
 		if lastPeriod == -1 {
 			lastPeriod = strings.LastIndex(excerpt, ".")
 		}
@@ -1304,10 +1304,10 @@ func (s *AnalysisFacadeService) ShowAllSessionResults(threadID string) error {
 		if msg.Role != "assistant" {
 			continue
 		}
-		if strings.Contains(msg.Content, "❌") || strings.Contains(msg.Content, "⏭️") {
+		if strings.Contains(msg.Content, "�?) || strings.Contains(msg.Content, "⏭️") {
 			continue
 		}
-		if !strings.Contains(msg.Content, "✅") {
+		if !strings.Contains(msg.Content, "�?) {
 			continue
 		}
 
@@ -1353,7 +1353,7 @@ func (s *AnalysisFacadeService) ShowAllSessionResults(threadID string) error {
 	}
 
 	if pushed == 0 {
-		return fmt.Errorf("该会话没有可显示的结果")
+		return fmt.Errorf("该会话没有可显示的结�?)
 	}
 
 	s.eventAggregator.FlushNow(threadID, true)
@@ -1649,7 +1649,7 @@ func (s *AnalysisFacadeService) parseSuggestionsToInsights(llmResponse, dataSour
 	var insights []Insight
 	lines := strings.Split(llmResponse, "\n")
 
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.�?]\*{0,2}\s*(.+)`)
 	listPattern := regexp.MustCompile(`^\s*[-*•]\s+(.+)`)
 
 	for _, line := range lines {

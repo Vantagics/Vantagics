@@ -77,8 +77,8 @@ func (c *RequestClassifier) IsConsultationRequest(queryLower string) bool {
 	// First check if it's an actual analysis request (should NOT be consultation)
 	analysisIndicators := []string{
 		"分析", "统计", "查询", "计算", "对比", "趋势", "分布", "排名",
-		"销售", "订单", "客户", "产品", "收入", "利润", "数量",
-		"图", "表", "chart", "table", "可视化",
+		"销�?, "订单", "客户", "产品", "收入", "利润", "数量",
+		"�?, "�?, "chart", "table", "可视�?,
 	}
 	for _, indicator := range analysisIndicators {
 		if strings.Contains(queryLower, indicator) {
@@ -109,7 +109,7 @@ func (c *RequestClassifier) IsMultiStepAnalysis(queryLower string) bool {
 // IsWebSearchRequest checks if the request requires web search
 func (c *RequestClassifier) IsWebSearchRequest(queryLower string) bool {
 	webSearchKeywords := []string{
-		"搜索", "查询", "最新", "新闻", "股价", "天气", "实时",
+		"搜索", "查询", "最�?, "新闻", "股价", "天气", "实时",
 		"search", "latest", "news", "stock", "weather", "real-time",
 	}
 	for _, keyword := range webSearchKeywords {
@@ -125,7 +125,7 @@ func (c *RequestClassifier) IsWebSearchRequest(queryLower string) bool {
 func (c *RequestClassifier) IsVisualizationRequest(queryLower string) bool {
 	// Explicit visualization keywords
 	vizKeywords := []string{
-		"图", "图表", "可视化", "趋势", "分布", "对比", "排名",
+		"�?, "图表", "可视�?, "趋势", "分布", "对比", "排名",
 		"chart", "visualization", "trend", "distribution", "comparison", "ranking",
 	}
 	for _, keyword := range vizKeywords {
@@ -136,8 +136,8 @@ func (c *RequestClassifier) IsVisualizationRequest(queryLower string) bool {
 	
 	// Implicit visualization: analysis requests that benefit from charts
 	analysisKeywords := []string{
-		"分析", "统计", "销售", "收入", "利润", "增长",
-		"按月", "按年", "时间", "周期", "top", "前", "最",
+		"分析", "统计", "销�?, "收入", "利润", "增长",
+		"按月", "按年", "时间", "周期", "top", "�?, "最",
 	}
 	matchCount := 0
 	for _, keyword := range analysisKeywords {
@@ -151,13 +151,13 @@ func (c *RequestClassifier) IsVisualizationRequest(queryLower string) bool {
 // IsCalculationRequest checks if the request is a simple calculation
 func (c *RequestClassifier) IsCalculationRequest(queryLower string) bool {
 	calcKeywords := []string{
-		"计算", "等于多少", "加", "减", "乘", "除", "平方", "开方",
+		"计算", "等于多少", "�?, "�?, "�?, "�?, "平方", "开�?,
 		"calculate", "compute", "plus", "minus", "multiply", "divide",
 	}
 	for _, keyword := range calcKeywords {
 		if strings.Contains(queryLower, keyword) {
 			// Make sure it's not a data query
-			if !strings.Contains(queryLower, "订单") && !strings.Contains(queryLower, "销售") &&
+			if !strings.Contains(queryLower, "订单") && !strings.Contains(queryLower, "销�?) &&
 				!strings.Contains(queryLower, "数据") && !strings.Contains(queryLower, "查询") {
 				return true
 			}

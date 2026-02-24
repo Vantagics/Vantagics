@@ -6,7 +6,7 @@ cd /d "%~dp0"
 
 REM Marketplace JWT secret - must match marketplace_server's MARKETPLACE_JWT_SECRET
 set LICENSE_MARKETPLACE_SECRET=marketplace-server-jwt-secret-key-2024
-set LICENSE_DB_PASSWORD=vantagedata2024
+set LICENSE_DB_PASSWORD=vantagics2024
 set LICENSE_ADMIN_PASSWORD=admin123
 
 echo ==========================================

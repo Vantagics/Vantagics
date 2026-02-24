@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // UsageLicense 本地使用权限记录
@@ -16,10 +16,10 @@ type UsageLicense struct {
 	ListingID          int64  `json:"listing_id"`
 	PackName           string `json:"pack_name"`
 	PricingModel       string `json:"pricing_model"`       // free, per_use, subscription
-	RemainingUses      int    `json:"remaining_uses"`      // per_use 模式：剩余次数
-	TotalUses          int    `json:"total_uses"`          // per_use 模式：总购买次数
+	RemainingUses      int    `json:"remaining_uses"`      // per_use 模式：剩余次�?
+	TotalUses          int    `json:"total_uses"`          // per_use 模式：总购买次�?
 	ExpiresAt          string `json:"expires_at"`          // subscription 模式，RFC3339
-	SubscriptionMonths int    `json:"subscription_months"` // subscription 模式：订阅总月数
+	SubscriptionMonths int    `json:"subscription_months"` // subscription 模式：订阅总月�?
 	Blocked            bool   `json:"blocked,omitempty"`   // 服务器验证后标记为已过期/已封禁，不再允许运行
 	CreatedAt          string `json:"created_at"`
 	UpdatedAt          string `json:"updated_at"`
@@ -38,7 +38,7 @@ type UsageLicenseStore struct {
 }
 
 // NewUsageLicenseStore creates a new UsageLicenseStore with the default file path
-// (~/.vantagedata/marketplace_licenses.json).
+// (~/.vantagics/marketplace_licenses.json).
 func NewUsageLicenseStore() (*UsageLicenseStore, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *UsageLicenseStore) Load() error {
 	data, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File doesn't exist yet — start with empty store
+			// File doesn't exist yet �?start with empty store
 			s.licenses = make(map[int64]*UsageLicense)
 			return nil
 		}
@@ -70,7 +70,7 @@ func (s *UsageLicenseStore) Load() error {
 
 	var fileData usageLicenseFileData
 	if err := json.Unmarshal(data, &fileData); err != nil {
-		// Corrupted file — log warning and reset to empty
+		// Corrupted file �?log warning and reset to empty
 		fmt.Printf("[UsageLicenseStore] warning: corrupted license file %s, resetting: %v\n", s.filePath, err)
 		s.licenses = make(map[int64]*UsageLicense)
 		return nil
@@ -186,7 +186,7 @@ func (s *UsageLicenseStore) CheckPermission(listingID int64) (allowed bool, reas
 		// Legacy support: treat time_limited like subscription (optimistic)
 		return true, ""
 	default:
-		// Unknown pricing model — be permissive
+		// Unknown pricing model �?be permissive
 		return true, ""
 	}
 }

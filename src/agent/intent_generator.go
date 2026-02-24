@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
-// IntentGenerator 意图生成器
+// IntentGenerator 意图生成�?
 // 负责构建提示词并调用LLM生成意图建议
-// 整合 ContextProvider 和 ExclusionManager 的功能
+// 整合 ContextProvider �?ExclusionManager 的功�?
 // Validates: Requirements 1.3
 type IntentGenerator struct {
 	contextProvider *ContextProvider
@@ -19,10 +19,10 @@ type IntentGenerator struct {
 	logger          func(string)
 }
 
-// NewIntentGenerator 创建意图生成器
+// NewIntentGenerator 创建意图生成�?
 // Parameters:
-//   - contextProvider: 上下文提供器，用于获取数据源上下文
-//   - exclusionMgr: 排除项管理器，用于生成排除摘要
+//   - contextProvider: 上下文提供器，用于获取数据源上下�?
+//   - exclusionMgr: 排除项管理器，用于生成排除摘�?
 //   - logger: 日志函数
 //
 // Returns: 新的 IntentGenerator 实例
@@ -52,16 +52,16 @@ func (g *IntentGenerator) log(msg string) {
 	}
 }
 
-// BuildPrompt 构建提示词
-// 整合用户消息、数据源上下文、排除项摘要，生成完整的LLM提示词
+// BuildPrompt 构建提示�?
+// 整合用户消息、数据源上下文、排除项摘要，生成完整的LLM提示�?
 // Parameters:
-//   - userMessage: 用户的原始请求消息
-//   - dataSourceContext: 数据源上下文信息（表名、列信息、分析提示等）
-//   - exclusionSummary: 排除项摘要（已排除的分析方向）
+//   - userMessage: 用户的原始请求消�?
+//   - dataSourceContext: 数据源上下文信息（表名、列信息、分析提示等�?
+//   - exclusionSummary: 排除项摘要（已排除的分析方向�?
 //   - language: 语言设置 ("zh" 中文, "en" 英文)
-//   - maxSuggestions: 最大建议数量
+//   - maxSuggestions: 最大建议数�?
 //
-// Returns: 完整的LLM提示词
+// Returns: 完整的LLM提示�?
 // Validates: Requirements 1.3 (将数据源的列信息和数据特征作为上下文传递给LLM)
 func (g *IntentGenerator) BuildPrompt(
 	userMessage string,
@@ -73,13 +73,13 @@ func (g *IntentGenerator) BuildPrompt(
 	// 确定输出语言指令
 	outputLangInstruction := "Respond in English"
 	if language == "zh" {
-		outputLangInstruction = "用简体中文回复"
+		outputLangInstruction = "用简体中文回�?
 	}
 
 	// 构建数据源上下文部分
 	contextSection := g.buildDataSourceContextSection(dataSourceContext, language)
 
-	// 构建排除项部分
+	// 构建排除项部�?
 	exclusionSection := g.buildExclusionSection(exclusionSummary, language)
 
 	// 构建重试指导（如果有排除项）
@@ -91,7 +91,7 @@ func (g *IntentGenerator) BuildPrompt(
 	// 构建"坚持原始请求"指导
 	stickToOriginalGuidance := g.buildStickToOriginalGuidance(language)
 
-	// 构建完整提示词
+	// 构建完整提示�?
 	prompt := g.buildFullPrompt(
 		userMessage,
 		contextSection,
@@ -116,12 +116,12 @@ func (g *IntentGenerator) buildDataSourceContextSection(context *DataSourceConte
 		return ""
 	}
 
-	// 使用 ContextProvider 的 BuildContextSection 方法
+	// 使用 ContextProvider �?BuildContextSection 方法
 	if g.contextProvider != nil {
 		return g.contextProvider.BuildContextSection(context, language)
 	}
 
-	// 如果没有 ContextProvider，手动构建
+	// 如果没有 ContextProvider，手动构�?
 	var sb strings.Builder
 
 	if language == "zh" {
@@ -139,10 +139,10 @@ func (g *IntentGenerator) buildDataSourceContextSection(context *DataSourceConte
 		}
 	}
 
-	// 列信息
+	// 列信�?
 	if len(context.Columns) > 0 {
 		if language == "zh" {
-			sb.WriteString("**列信息**:\n")
+			sb.WriteString("**列信�?*:\n")
 		} else {
 			sb.WriteString("**Column Information**:\n")
 		}
@@ -167,16 +167,16 @@ func (g *IntentGenerator) buildDataSourceContextSection(context *DataSourceConte
 		sb.WriteString("\n")
 	}
 
-	// 最近分析记录
+	// 最近分析记�?
 	if len(context.RecentAnalyses) > 0 {
 		if language == "zh" {
-			sb.WriteString("**最近分析记录**:\n")
+			sb.WriteString("**最近分析记�?*:\n")
 		} else {
 			sb.WriteString("**Recent Analysis Records**:\n")
 		}
 
 		for i, record := range context.RecentAnalyses {
-			if i >= 5 { // 最多显示5条
+			if i >= 5 { // 最多显�?�?
 				break
 			}
 			sb.WriteString(fmt.Sprintf("- %s: %s\n", record.AnalysisType, record.KeyFindings))
@@ -187,7 +187,7 @@ func (g *IntentGenerator) buildDataSourceContextSection(context *DataSourceConte
 	return sb.String()
 }
 
-// buildExclusionSection 构建排除项部分
+// buildExclusionSection 构建排除项部�?
 func (g *IntentGenerator) buildExclusionSection(exclusionSummary string, language string) string {
 	if exclusionSummary == "" {
 		return ""
@@ -215,10 +215,10 @@ func (g *IntentGenerator) buildRetryGuidance(language string) string {
 		return `
 
 ## 重新理解指导
-用户拒绝了之前的所有建议。这意味着：
+用户拒绝了之前的所有建议。这意味着�?
 1. 之前的理解偏离了用户意图
-2. 需要从完全不同的角度思考
-3. 考虑替代的含义、上下文或分析方法
+2. 需要从完全不同的角度思�?
+3. 考虑替代的含义、上下文或分析方�?
 4. 避免与被拒绝建议相似的模式或主题
 5. 更具创造性，探索边缘情况或非常规解释`
 	}
@@ -242,7 +242,7 @@ func (g *IntentGenerator) buildStickToOriginalGuidance(language string) string {
 # 关于"坚持我的请求"选项
 用户可以选择"坚持我的请求"来直接使用他们的原始输入进行分析。因此：
 1. 你的建议应该提供与原始请求不同的分析角度
-2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方向
+2. 如果原始请求已经足够具体，你的建议应该探索相关但不同的分析方�?
 3. 不要简单地重复或轻微改写用户的原始请求
 4. 每个建议都应该为用户提供独特的价值`
 	}
@@ -268,12 +268,12 @@ func (g *IntentGenerator) buildFullPrompt(
 	maxSuggestions int,
 	language string,
 ) string {
-	// 构建列信息字符串（从上下文中提取）
+	// 构建列信息字符串（从上下文中提取�?
 	columnsStr := "No schema information available"
 	tableName := "Unknown"
 
-	// 从 contextSection 中提取信息（如果有的话）
-	// 这里我们直接使用 contextSection 作为上下文
+	// �?contextSection 中提取信息（如果有的话）
+	// 这里我们直接使用 contextSection 作为上下�?
 
 	// 确定建议数量范围
 	minSuggestions := 3
@@ -286,7 +286,7 @@ func (g *IntentGenerator) buildFullPrompt(
 	// 角色定义
 	if language == "zh" {
 		prompt.WriteString(`# 角色
-你是一位专业的数据分析意图解释专家。你的任务是理解用户的模糊请求，并生成多个可能的解释。
+你是一位专业的数据分析意图解释专家。你的任务是理解用户的模糊请求，并生成多个可能的解释�?
 
 `)
 	} else {
@@ -315,9 +315,9 @@ You are an expert data analysis intent interpreter. Your task is to understand a
 	} else {
 		// 如果没有上下文，添加基本信息
 		if language == "zh" {
-			prompt.WriteString(fmt.Sprintf(`# 可用数据上下文
+			prompt.WriteString(fmt.Sprintf(`# 可用数据上下�?
 - **表名**: %s
-- **列**: %s
+- **�?*: %s
 
 `, tableName, columnsStr))
 		} else {
@@ -329,7 +329,7 @@ You are an expert data analysis intent interpreter. Your task is to understand a
 		}
 	}
 
-	// 排除项部分
+	// 排除项部�?
 	if exclusionSection != "" {
 		prompt.WriteString(exclusionSection)
 	}
@@ -350,42 +350,42 @@ You are an expert data analysis intent interpreter. Your task is to understand a
 生成 %d-%d 个不同的用户意图解释。每个解释应该：
 1. 代表不同的分析视角或方法
 2. 具体且可执行
-3. 与可用的数据结构一致
+3. 与可用的数据结构一�?
 4. 按可能性排序（最可能的排在前面）
 
-# 考虑的解释维度
-- **时间分析**: 时间趋势、周期对比、季节性
+# 考虑的解释维�?
+- **时间分析**: 时间趋势、周期对比、季节�?
 - **分类分析**: 按类别、地区、产品、客户类型等
-- **聚合级别**: 汇总统计、详细分解、排名
+- **聚合级别**: 汇总统计、详细分解、排�?
 - **对比分析**: 同比、环比、基准对比、A/B测试
-- **相关性分析**: 变量间关系、因果分析
-- **异常检测**: 异常值、异常模式、例外情况
-- **预测分析**: 预测、预估、假设分析
+- **相关性分�?*: 变量间关系、因果分�?
+- **异常检�?*: 异常值、异常模式、例外情�?
+- **预测分析**: 预测、预估、假设分�?
 
 # 输出格式
-返回一个包含 %d-%d 个解释的 JSON 数组。每个对象必须包含：
+返回一个包�?%d-%d 个解释的 JSON 数组。每个对象必须包含：
 
 [
   {
-    "title": "简短描述性标题（最多10个字）",
-    "description": "清晰解释这个解释的含义（最多30个字）",
+    "title": "简短描述性标题（最�?0个字�?,
+    "description": "清晰解释这个解释的含义（最�?0个字�?,
     "icon": "相关的表情符号（📊, 📈, 📉, 🔍, 💡, 📅, 🎯 等）",
     "query": "具体、详细的分析请求，可以直接执行（明确指标、维度和筛选条件）"
   }
 ]
 
 # 质量要求
-- **具体性**: 每个 query 应该足够详细，可以无歧义地执行
-- **多样性**: 解释应该覆盖不同的分析角度
-- **可行性**: 只建议可以用可用列执行的分析
-- **清晰性**: 描述应该清晰，避免专业术语
+- **具体�?*: 每个 query 应该足够详细，可以无歧义地执�?
+- **多样�?*: 解释应该覆盖不同的分析角�?
+- **可行�?*: 只建议可以用可用列执行的分析
+- **清晰�?*: 描述应该清晰，避免专业术�?
 - **语言**: %s
 
 # 输出规则
-- 只返回 JSON 数组
-- 不要使用 markdown 代码块，不要解释，不要额外文本
+- 只返�?JSON 数组
+- 不要使用 markdown 代码块，不要解释，不要额外文�?
 - 确保 JSON 语法正确
-- 以 [ 开始，以 ] 结束
+- �?[ 开始，�?] 结束
 
 现在生成解释：`, minSuggestions, maxSuggestions, minSuggestions, maxSuggestions, outputLangInstruction))
 	} else {
@@ -447,26 +447,26 @@ Generate the interpretations now:`, minSuggestions, maxSuggestions, minSuggestio
 //   - prompt: 发送给LLM的提示词
 //
 // Returns:
-//   - string: LLM的响应文本
+//   - string: LLM的响应文�?
 //   - error: 调用失败时的错误
 type LLMCallFunc func(ctx context.Context, prompt string) (string, error)
 
 // Generate 生成意图建议
-// 构建提示词，调用LLM，解析响应
+// 构建提示词，调用LLM，解析响�?
 // Parameters:
 //   - ctx: 上下文，用于取消操作
-//   - userMessage: 用户的原始请求消息
-//   - dataSourceContext: 数据源上下文信息（表名、列信息、分析提示等）
-//   - exclusionSummary: 排除项摘要（已排除的分析方向）
+//   - userMessage: 用户的原始请求消�?
+//   - dataSourceContext: 数据源上下文信息（表名、列信息、分析提示等�?
+//   - exclusionSummary: 排除项摘要（已排除的分析方向�?
 //   - language: 语言设置 ("zh" 中文, "en" 英文)
-//   - maxSuggestions: 最大建议数量
+//   - maxSuggestions: 最大建议数�?
 //   - llmCall: LLM调用函数，用于实际调用LLM服务
 //
 // Returns:
-//   - []IntentSuggestion: 生成的意图建议列表
+//   - []IntentSuggestion: 生成的意图建议列�?
 //   - error: 生成失败时的错误
 //
-// Validates: Requirements 1.1 (调用LLM生成3-5个意图建议), 1.2 (每个意图建议包含完整字段)
+// Validates: Requirements 1.1 (调用LLM生成3-5个意图建�?, 1.2 (每个意图建议包含完整字段)
 func (g *IntentGenerator) Generate(
 	ctx context.Context,
 	userMessage string,
@@ -481,7 +481,7 @@ func (g *IntentGenerator) Generate(
 		return nil, fmt.Errorf("LLM call function is required")
 	}
 
-	// 构建提示词
+	// 构建提示�?
 	prompt := g.BuildPrompt(userMessage, dataSourceContext, exclusionSummary, language, maxSuggestions)
 	g.log(fmt.Sprintf("[INTENT-GENERATOR] Built prompt, length: %d characters", len(prompt)))
 
@@ -516,7 +516,7 @@ func (g *IntentGenerator) Generate(
 // ParseResponse 解析LLM响应为IntentSuggestion列表
 // 从LLM响应中提取JSON数组并解析为意图建议
 // Parameters:
-//   - response: LLM的原始响应文本
+//   - response: LLM的原始响应文�?
 //
 // Returns:
 //   - []IntentSuggestion: 解析后的意图建议列表
@@ -566,11 +566,11 @@ func (g *IntentGenerator) ParseResponse(response string) ([]IntentSuggestion, er
 		// 验证必需字段
 		// Validates: Requirements 1.2 (每个意图建议包含完整字段)
 		if suggestion.Title != "" && suggestion.Query != "" {
-			// 如果缺少icon，使用默认值
+			// 如果缺少icon，使用默认�?
 			if suggestion.Icon == "" {
 				suggestion.Icon = "📊"
 			}
-			// 如果缺少description，使用title作为默认值
+			// 如果缺少description，使用title作为默认�?
 			if suggestion.Description == "" {
 				suggestion.Description = suggestion.Title
 			}
@@ -590,7 +590,7 @@ func (g *IntentGenerator) ParseResponse(response string) ([]IntentSuggestion, er
 // getStringField 从map中获取字符串字段
 // Parameters:
 //   - m: 包含字段的map
-//   - key: 字段名
+//   - key: 字段�?
 //
 // Returns: 字段值，如果不存在或不是字符串则返回空字符串
 func (g *IntentGenerator) getStringField(m map[string]interface{}, key string) string {
@@ -608,7 +608,7 @@ func (g *IntentGenerator) getStringField(m map[string]interface{}, key string) s
 //   - suggestions: 要验证的意图建议列表
 //
 // Returns:
-//   - []IntentSuggestion: 有效的意图建议列表
+//   - []IntentSuggestion: 有效的意图建议列�?
 //   - []string: 验证错误信息列表
 //
 // Validates: Requirements 1.2 (每个意图建议包含完整字段)

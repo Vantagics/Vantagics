@@ -5,7 +5,7 @@ build/bin/
 *.app/
 
 # Compiled binaries
-src/vantagedata
+src/vantagics
 tools/license_server/license_server
 tools/license_server/build/license_server_macos
 

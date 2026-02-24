@@ -15,15 +15,15 @@ var trayIcon []byte
 
 // getTrayText returns localized text for system tray based on language
 func getTrayText(language string) map[string]string {
-	if language == "简体中文" {
+	if language == "简体中�? {
 		return map[string]string{
 			"show":        "显示",
 			"show_tip":    "显示应用程序",
 			"hide":        "隐藏",
 			"hide_tip":    "隐藏应用程序",
-			"quit":        "退出",
-			"quit_tip":    "退出应用程序",
-			"tooltip":     "万策 - 于万千数据中，定最优之策",
+			"quit":        "退�?,
+			"quit_tip":    "退出应用程�?,
+			"tooltip":     "万策 - 于万千数据中，定最优之�?,
 		}
 	}
 	// Default to English

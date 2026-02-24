@@ -400,7 +400,7 @@ func (s *PythonService) getPythonVersion(pythonPath string) string {
 // ExecuteScript runs a Python script and returns the output
 func (s *PythonService) ExecuteScript(pythonPath string, script string) (string, error) {
 	// Create a temp file for the script
-	tmpFile, err := os.CreateTemp("", "vantagedata_script_*.py")
+	tmpFile, err := os.CreateTemp("", "vantagics_script_*.py")
 	if err != nil {
 		return "", err
 	}
@@ -709,13 +709,13 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 	// Add detection attempts for debugging
 	errorMsg += "Detection attempts:\n"
 	for _, attempt := range detectionAttempts {
-		errorMsg += "• " + attempt + "\n"
+		errorMsg += "�?" + attempt + "\n"
 	}
 	
 	if len(detectionErrors) > 0 {
 		errorMsg += "\nDetection errors:\n"
 		for _, errMsg := range detectionErrors {
-			errorMsg += "• " + errMsg + "\n"
+			errorMsg += "�?" + errMsg + "\n"
 		}
 	}
 	

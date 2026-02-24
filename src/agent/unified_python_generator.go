@@ -269,7 +269,7 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 
 	// Check for explicit NO-visualization keywords (very rare cases)
 	noVizKeywords := []string{
-		"不要图", "不需要图", "只要数字", "只要文字", "纯文本",
+		"不要�?, "不需要图", "只要数字", "只要文字", "纯文�?,
 		"no chart", "no graph", "text only",
 	}
 	for _, keyword := range noVizKeywords {
@@ -280,9 +280,9 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 
 	// Check for explicit visualization keywords - definitely need charts
 	vizKeywords := []string{
-		"图", "图表", "可视化", "趋势", "分布", "对比", "排名",
+		"�?, "图表", "可视�?, "趋势", "分布", "对比", "排名",
 		"chart", "visualization", "trend", "distribution", "comparison",
-		"柱状图", "折线图", "饼图", "散点图", "热力图",
+		"柱状�?, "折线�?, "饼图", "散点�?, "热力�?,
 		"bar", "line", "pie", "scatter", "heatmap",
 	}
 	for _, keyword := range vizKeywords {
@@ -294,9 +294,9 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 	// Check for analysis keywords that typically benefit from visualization
 	// These are common analysis scenarios where charts add value
 	analysisKeywords := []string{
-		"分析", "统计", "销售", "收入", "利润", "增长", "下降",
-		"按月", "按年", "按季度", "时间", "周期",
-		"top", "前", "最", "排行", "占比", "比例",
+		"分析", "统计", "销�?, "收入", "利润", "增长", "下降",
+		"按月", "按年", "按季�?, "时间", "周期",
+		"top", "�?, "最", "排行", "占比", "比例",
 		"analysis", "sales", "revenue", "growth", "monthly", "yearly",
 		"rfm", "cohort", "漏斗", "funnel", "留存", "retention",
 		"客户", "产品", "订单", "地区", "类别",
@@ -318,8 +318,8 @@ func (g *UnifiedPythonGenerator) determineOutputFormat(request string) string {
 
 	// Check for simple aggregation-only keywords (no visualization needed)
 	aggOnlyKeywords := []string{
-		"总数是多少", "一共有多少", "count", "总计多少",
-		"有几个", "有几条", "how many",
+		"总数是多�?, "一共有多少", "count", "总计多少",
+		"有几�?, "有几�?, "how many",
 	}
 	for _, keyword := range aggOnlyKeywords {
 		if strings.Contains(requestLower, keyword) {

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // ConfigProvider 定义配置读取接口
@@ -17,7 +17,7 @@ type ConfigProvider interface {
 	GetEffectiveConfig() (config.Config, error)
 }
 
-// ConfigPersister 定义配置持久化接口
+// ConfigPersister 定义配置持久化接�?
 type ConfigPersister interface {
 	SaveConfig(cfg config.Config) error
 }
@@ -62,12 +62,12 @@ func (cs *ConfigService) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown 关闭配置服务（无操作）
+// Shutdown 关闭配置服务（无操作�?
 func (cs *ConfigService) Shutdown() error {
 	return nil
 }
 
-// GetStorageDir 返回存储目录路径（~/Vantagics）
+// GetStorageDir 返回存储目录路径（~/Vantagics�?
 func (cs *ConfigService) GetStorageDir() (string, error) {
 	cs.mu.RLock()
 	sd := cs.storageDir
@@ -83,7 +83,7 @@ func (cs *ConfigService) GetStorageDir() (string, error) {
 	return filepath.Join(home, "Vantagics"), nil
 }
 
-// SetStorageDir 设置自定义存储目录（主要用于测试）
+// SetStorageDir 设置自定义存储目录（主要用于测试�?
 func (cs *ConfigService) SetStorageDir(dir string) {
 	cs.mu.Lock()
 	cs.storageDir = dir
@@ -99,7 +99,7 @@ func (cs *ConfigService) GetConfigPath() (string, error) {
 	return filepath.Join(dir, "config.json"), nil
 }
 
-// GetConfig 从磁盘加载配置文件
+// GetConfig 从磁盘加载配置文�?
 func (cs *ConfigService) GetConfig() (config.Config, error) {
 	path, err := cs.GetConfigPath()
 	if err != nil {
@@ -151,13 +151,13 @@ func (cs *ConfigService) GetConfig() (config.Config, error) {
 	return cfg, nil
 }
 
-// GetEffectiveConfig 返回配置（基础实现，不含许可证合并逻辑）
-// 许可证 LLM 配置的合并由 App 门面层处理
+// GetEffectiveConfig 返回配置（基础实现，不含许可证合并逻辑�?
+// 许可�?LLM 配置的合并由 App 门面层处�?
 func (cs *ConfigService) GetEffectiveConfig() (config.Config, error) {
 	return cs.GetConfig()
 }
 
-// SaveConfig 保存配置到磁盘，调用 Validate()，并触发所有回调
+// SaveConfig 保存配置到磁盘，调用 Validate()，并触发所有回�?
 func (cs *ConfigService) SaveConfig(cfg config.Config) error {
 	// Initialize MCPServices if nil
 	if cfg.MCPServices == nil {
@@ -217,7 +217,7 @@ func (cs *ConfigService) OnConfigChanged(callback func(config.Config)) {
 	cs.callbacks = append(cs.callbacks, callback)
 }
 
-// NotifyConfigChanged 触发所有已注册的配置变更回调
+// NotifyConfigChanged 触发所有已注册的配置变更回�?
 func (cs *ConfigService) NotifyConfigChanged(cfg config.Config) {
 	cs.mu.RLock()
 	cbs := make([]func(config.Config), len(cs.callbacks))

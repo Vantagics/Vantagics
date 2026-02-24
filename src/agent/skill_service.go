@@ -454,7 +454,7 @@ func parseSkillMD(content, skillName string) map[string]interface{} {
 		}
 		
 		// Extract author
-		if currentSection == "作者" || currentSection == "author" {
+		if currentSection == "作�? || currentSection == "author" {
 			if line != "" && !strings.HasPrefix(line, "#") {
 				metadata["author"] = line
 				currentSection = ""

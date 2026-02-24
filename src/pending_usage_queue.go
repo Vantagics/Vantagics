@@ -11,7 +11,7 @@ import (
 // PendingUsageRecord 待上报的使用记录
 type PendingUsageRecord struct {
 	ListingID int64  `json:"listing_id"`
-	UsedAt    string `json:"used_at"` // RFC3339 时间戳
+	UsedAt    string `json:"used_at"` // RFC3339 时间�?
 }
 
 // pendingUsageFileData is the JSON file structure for persisting pending usage records.
@@ -19,7 +19,7 @@ type pendingUsageFileData struct {
 	Records []PendingUsageRecord `json:"records"`
 }
 
-// PendingUsageQueue 管理待上报使用记录的持久化队列
+// PendingUsageQueue 管理待上报使用记录的持久化队�?
 type PendingUsageQueue struct {
 	mu       sync.Mutex
 	filePath string
@@ -27,7 +27,7 @@ type PendingUsageQueue struct {
 }
 
 // NewPendingUsageQueue creates a new PendingUsageQueue with the default file path
-// (~/.vantagedata/pending_usage_reports.json).
+// (~/.vantagics/pending_usage_reports.json).
 func NewPendingUsageQueue() (*PendingUsageQueue, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -121,7 +121,7 @@ func (q *PendingUsageQueue) Dequeue(listingID int64, usedAt string) error {
 			return q.saveLocked()
 		}
 	}
-	// No matching record found — skip unnecessary disk write
+	// No matching record found �?skip unnecessary disk write
 	return nil
 }
 

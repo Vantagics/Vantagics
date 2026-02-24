@@ -54,7 +54,7 @@ type CacheStats struct {
 	HitRate      float64 `json:"hit_rate"`      // Hit rate percentage (0.0 to 1.0)
 }
 
-// CachePersistence 缓存持久化结构
+// CachePersistence 缓存持久化结�?
 // Used for JSON serialization of cache state
 type CachePersistence struct {
 	Entries  []*CacheEntry `json:"entries"`   // All cache entries
@@ -107,7 +107,7 @@ func NewIntentCache(
 	}
 }
 
-// NewIntentCacheWithDataDir 创建带持久化目录的意图缓存
+// NewIntentCacheWithDataDir 创建带持久化目录的意图缓�?
 // Creates a new IntentCache with persistence support
 // Parameters:
 //   - maxEntries: maximum number of cache entries
@@ -127,7 +127,7 @@ func NewIntentCacheWithDataDir(
 	return cache
 }
 
-// GenerateCacheKey 生成缓存键
+// GenerateCacheKey 生成缓存�?
 // Generates a unique cache key from dataSourceID and userMessage
 // The key format ensures different (dataSourceID, userMessage) combinations
 // produce different keys
@@ -143,7 +143,7 @@ func GenerateCacheKey(dataSourceID, userMessage string) string {
 	return fmt.Sprintf("%s|%s", dataSourceID, userMessage)
 }
 
-// Initialize 初始化缓存
+// Initialize 初始化缓�?
 // Loads cache from disk if persistence is enabled
 // Returns error if loading fails
 func (c *IntentCache) Initialize() error {
@@ -354,7 +354,7 @@ func (c *IntentCache) CleanExpired() int {
 	return removed
 }
 
-// Save 保存缓存到磁盘
+// Save 保存缓存到磁�?
 // Persists the cache to a JSON file
 // Returns error if saving fails
 func (c *IntentCache) Save() error {
@@ -368,7 +368,7 @@ func (c *IntentCache) Save() error {
 	return c.saveToDisk()
 }
 
-// Load 从磁盘加载缓存
+// Load 从磁盘加载缓�?
 // Loads the cache from a JSON file
 // Returns error if loading fails
 func (c *IntentCache) Load() error {
@@ -497,7 +497,7 @@ func (c *IntentCache) loadFromDisk() error {
 	return nil
 }
 
-// GetAllEntries 获取所有缓存条目
+// GetAllEntries 获取所有缓存条�?
 // Returns a copy of all cache entries (for debugging/testing)
 func (c *IntentCache) GetAllEntries() []*CacheEntry {
 	c.mu.RLock()

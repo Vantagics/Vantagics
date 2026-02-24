@@ -13,7 +13,7 @@ import (
 	"github.com/AxT-Team/uapi-sdk-go/uapi"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // SearchAPITool provides unified search capabilities using various API services

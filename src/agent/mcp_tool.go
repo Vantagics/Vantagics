@@ -11,7 +11,7 @@ import (
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // MCPTool provides access to configured MCP services

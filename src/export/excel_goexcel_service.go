@@ -8,7 +8,7 @@ import (
 	"time"
 
 	gospreadsheet "github.com/VantageDataChat/GoExcel"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // GoExcelExportService handles Excel file generation using GoExcel (pure Go)

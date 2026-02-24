@@ -1,4 +1,4 @@
-module vantagedata
+module vantagics
 
 go 1.25.5
 

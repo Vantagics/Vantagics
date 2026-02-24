@@ -9,7 +9,7 @@
 ### 1. 基本使用
 
 ```go
-import "vantagedata/i18n"
+import "vantagics/i18n"
 
 // 简单翻译
 message := i18n.T("datasource.import_success")

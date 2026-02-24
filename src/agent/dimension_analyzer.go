@@ -4,11 +4,11 @@ import (
 	"strings"
 )
 
-// DimensionAnalyzer 维度分析器
+// DimensionAnalyzer 维度分析�?
 // Responsible for dynamically adjusting analysis dimensions based on data characteristics
 // Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6
 
-// ColumnCharacteristics 列特征
+// ColumnCharacteristics 列特�?
 // Represents the characteristics of a column in a data source
 // Used by DimensionAnalyzer to determine appropriate analysis dimensions
 type ColumnCharacteristics struct {
@@ -63,12 +63,12 @@ var dateKeywords = []string{
 	"order_date", "ship_date", "delivery_date", "payment_date", "register_date",
 	"login_time", "logout_time", "last_login", "first_login",
 	// Chinese keywords
-	"日期", "时间", "年", "月", "日", "周", "星期",
+	"日期", "时间", "�?, "�?, "�?, "�?, "星期",
 	"创建时间", "更新时间", "修改时间", "删除时间",
-	"开始日期", "结束日期", "开始时间", "结束时间",
+	"开始日�?, "结束日期", "开始时�?, "结束时间",
 	"出生日期", "生日", "过期时间", "到期时间", "截止日期",
 	"订单日期", "发货日期", "交付日期", "付款日期", "注册日期",
-	"登录时间", "登出时间", "最后登录", "首次登录",
+	"登录时间", "登出时间", "最后登�?, "首次登录",
 	"年份", "月份", "季度", "时刻",
 }
 
@@ -82,11 +82,11 @@ var geographicKeywords = []string{
 	"lat", "lng", "lon", "coord", "coordinate",
 	"nation", "continent", "town", "village", "neighborhood",
 	// Chinese keywords
-	"省", "省份", "市", "城市", "区", "县", "镇", "乡", "村",
+	"�?, "省份", "�?, "城市", "�?, "�?, "�?, "�?, "�?,
 	"地区", "区域", "地址", "位置", "地点", "场所",
-	"街道", "路", "大道", "楼", "层", "室", "号",
+	"街道", "�?, "大道", "�?, "�?, "�?, "�?,
 	"邮编", "邮政编码", "经度", "纬度", "坐标",
-	"国家", "国", "洲", "大洲", "社区", "小区",
+	"国家", "�?, "�?, "大洲", "社区", "小区",
 	"门店", "店铺", "分店", "网点", "站点",
 }
 
@@ -104,14 +104,14 @@ var numericKeywords = []string{
 	"discount", "tax", "commission", "bonus", "salary", "wage",
 	// Chinese keywords
 	"金额", "数量", "价格", "总计", "合计", "总额", "总数",
-	"数目", "数值", "值", "比率", "比例", "百分比", "占比",
+	"数目", "数�?, "�?, "比率", "比例", "百分�?, "占比",
 	"成本", "费用", "收费", "付款", "收入", "利润", "亏损",
 	"销售额", "销售量", "营收", "支出", "预算", "余额",
 	"分数", "评分", "评级", "排名", "等级", "积分",
 	"重量", "身高", "宽度", "长度", "尺寸", "体积", "面积",
 	"年龄", "时长", "距离", "速度",
-	"库存", "存量", "容量", "限额", "上限", "下限", "阈值",
-	"折扣", "税", "税额", "佣金", "奖金", "工资", "薪资",
+	"库存", "存量", "容量", "限额", "上限", "下限", "阈�?,
+	"折扣", "�?, "税额", "佣金", "奖金", "工资", "薪资",
 	"单价", "均价", "总价", "原价", "现价", "售价",
 }
 
@@ -130,21 +130,21 @@ var categoricalKeywords = []string{
 	"membership", "subscription", "plan", "package", "tier",
 	// Chinese keywords
 	"类型", "类别", "分类", "种类", "品类",
-	"状态", "状况", "情况",
+	"状�?, "状况", "情况",
 	"等级", "级别", "层级", "档次",
-	"组", "组别", "分组", "群组", "群体",
+	"�?, "组别", "分组", "群组", "群体",
 	"标签", "标记", "标识",
 	"性别", "部门", "科室", "团队", "单位",
-	"品牌", "型号", "版本", "系列", "产品线",
+	"品牌", "型号", "版本", "系列", "产品�?,
 	"渠道", "来源", "媒介", "平台", "设备",
-	"优先级", "严重程度", "重要性", "紧急程度",
+	"优先�?, "严重程度", "重要�?, "紧急程�?,
 	"阶段", "步骤", "环节", "模式", "方式", "方法",
 	"行业", "领域", "专业", "方向",
 	"角色", "职位", "职称", "岗位", "职业",
 	"会员", "会员等级", "订阅", "套餐", "方案",
 }
 
-// DimensionAnalyzerImpl 维度分析器实现
+// DimensionAnalyzerImpl 维度分析器实�?
 // Analyzes data source characteristics and provides dimension recommendations
 // This is the full implementation that replaces the placeholder in intent_enhancement_service.go
 type DimensionAnalyzerImpl struct {
@@ -152,7 +152,7 @@ type DimensionAnalyzerImpl struct {
 	initialized       bool
 }
 
-// NewDimensionAnalyzer 创建维度分析器
+// NewDimensionAnalyzer 创建维度分析�?
 // Creates a new DimensionAnalyzer with the provided DataSourceService
 // Parameters:
 //   - dataSourceService: the service used to access data source information
@@ -177,7 +177,7 @@ func (d *DimensionAnalyzerImpl) Initialize() error {
 	return nil
 }
 
-// IsInitialized 检查是否已初始化
+// IsInitialized 检查是否已初始�?
 // Returns whether the dimension analyzer has been initialized
 func (d *DimensionAnalyzerImpl) IsInitialized() bool {
 	return d.initialized
@@ -297,7 +297,7 @@ func identifyColumnType(columnName string, dbType string) (dataType string, sema
 	return ColumnTypeText, SemanticTypeUnknown
 }
 
-// AnalyzeDataSource 分析数据源特征
+// AnalyzeDataSource 分析数据源特�?
 // Analyzes the characteristics of columns in a data source
 // Parameters:
 //   - dataSourceID: the ID of the data source to analyze
@@ -348,7 +348,7 @@ func (d *DimensionAnalyzerImpl) AnalyzeDataSource(dataSourceID string) ([]Column
 	return allCharacteristics, nil
 }
 
-// AnalyzeColumns 分析列特征（直接从列信息）
+// AnalyzeColumns 分析列特征（直接从列信息�?
 // Analyzes column characteristics directly from column schema information
 // This is useful when you already have column information and don't need to query the data source
 // Parameters:
@@ -537,33 +537,33 @@ func calculateCategoricalPriority(columns []string) int {
 // generateTemporalRationale generates rationale for temporal dimension recommendation
 func generateTemporalRationale(columns []string) string {
 	if len(columns) == 1 {
-		return "数据包含日期列 '" + columns[0] + "'，适合进行时间序列分析和趋势分析"
+		return "数据包含日期�?'" + columns[0] + "'，适合进行时间序列分析和趋势分�?
 	}
-	return "数据包含多个日期列 (" + strings.Join(columns, ", ") + ")，非常适合进行时间维度分析、趋势分析和周期性分析"
+	return "数据包含多个日期�?(" + strings.Join(columns, ", ") + ")，非常适合进行时间维度分析、趋势分析和周期性分�?
 }
 
 // generateStatisticalRationale generates rationale for statistical dimension recommendation
 func generateStatisticalRationale(columns []string) string {
 	if len(columns) == 1 {
-		return "数据包含数值列 '" + columns[0] + "'，适合进行统计分析和数值计算"
+		return "数据包含数值列 '" + columns[0] + "'，适合进行统计分析和数值计�?
 	}
-	return "数据包含多个数值列 (" + strings.Join(columns, ", ") + ")，适合进行统计分析、聚合计算和数值对比"
+	return "数据包含多个数值列 (" + strings.Join(columns, ", ") + ")，适合进行统计分析、聚合计算和数值对�?
 }
 
 // generateGeographicRationale generates rationale for geographic dimension recommendation
 func generateGeographicRationale(columns []string) string {
 	if len(columns) == 1 {
-		return "数据包含地理位置列 '" + columns[0] + "'，适合进行区域分析和地理分布分析"
+		return "数据包含地理位置�?'" + columns[0] + "'，适合进行区域分析和地理分布分�?
 	}
-	return "数据包含多个地理位置列 (" + strings.Join(columns, ", ") + ")，适合进行多层级区域分析和地理分布对比"
+	return "数据包含多个地理位置�?(" + strings.Join(columns, ", ") + ")，适合进行多层级区域分析和地理分布对比"
 }
 
 // generateCategoricalRationale generates rationale for categorical dimension recommendation
 func generateCategoricalRationale(columns []string) string {
 	if len(columns) == 1 {
-		return "数据包含分类列 '" + columns[0] + "'，适合进行分组对比分析"
+		return "数据包含分类�?'" + columns[0] + "'，适合进行分组对比分析"
 	}
-	return "数据包含多个分类列 (" + strings.Join(columns, ", ") + ")，适合进行多维度分组对比和交叉分析"
+	return "数据包含多个分类�?(" + strings.Join(columns, ", ") + ")，适合进行多维度分组对比和交叉分析"
 }
 
 // sortRecommendationsByPriority sorts recommendations by priority in descending order
@@ -581,7 +581,7 @@ func sortRecommendationsByPriority(recommendations []DimensionRecommendation) {
 	}
 }
 
-// BuildDimensionSection 构建维度提示词片段
+// BuildDimensionSection 构建维度提示词片�?
 // Builds a prompt section containing dimension recommendations
 // Parameters:
 //   - recommendations: the dimension recommendations to include
@@ -616,7 +616,7 @@ func (d *DimensionAnalyzerImpl) BuildDimensionSection(
 		
 		// Write recommendation header with number, dimension type, and priority
 		if language == "zh" {
-			sb.WriteString(formatInt(i+1) + ". " + dimTypeName + " (优先级: " + formatInt(rec.Priority) + ")\n")
+			sb.WriteString(formatInt(i+1) + ". " + dimTypeName + " (优先�? " + formatInt(rec.Priority) + ")\n")
 		} else {
 			sb.WriteString(formatInt(i+1) + ". " + dimTypeName + " (Priority: " + formatInt(rec.Priority) + ")\n")
 		}
@@ -624,7 +624,7 @@ func (d *DimensionAnalyzerImpl) BuildDimensionSection(
 		// Write related columns
 		columnsStr := strings.Join(rec.Columns, ", ")
 		if language == "zh" {
-			sb.WriteString("   - 相关列: " + columnsStr + "\n")
+			sb.WriteString("   - 相关�? " + columnsStr + "\n")
 		} else {
 			sb.WriteString("   - Related columns: " + columnsStr + "\n")
 		}
@@ -711,19 +711,19 @@ func getRationaleForLanguage(rec DimensionRecommendation, language string) strin
 		switch rec.DimensionType {
 		case DimensionTypeTemporal:
 			if len(rec.Columns) == 1 {
-				return "数据包含日期/时间列，适合进行趋势分析和时间序列分析"
+				return "数据包含日期/时间列，适合进行趋势分析和时间序列分�?
 			}
-			return "数据包含多个日期/时间列，非常适合进行时间维度分析、趋势分析和周期性分析"
+			return "数据包含多个日期/时间列，非常适合进行时间维度分析、趋势分析和周期性分�?
 		case DimensionTypeGeographic:
 			if len(rec.Columns) == 1 {
-				return "数据包含地理位置列，适合进行区域分析和地理分布分析"
+				return "数据包含地理位置列，适合进行区域分析和地理分布分�?
 			}
 			return "数据包含多个地理位置列，适合进行多层级区域分析和地理分布对比"
 		case DimensionTypeStatistical:
 			if len(rec.Columns) == 1 {
-				return "数据包含数值列，适合进行统计分析和数值计算"
+				return "数据包含数值列，适合进行统计分析和数值计�?
 			}
-			return "数据包含多个数值列，适合进行统计分析、聚合计算和数值对比"
+			return "数据包含多个数值列，适合进行统计分析、聚合计算和数值对�?
 		case DimensionTypeCategorical:
 			if len(rec.Columns) == 1 {
 				return "数据包含分类列，适合进行分组对比分析"

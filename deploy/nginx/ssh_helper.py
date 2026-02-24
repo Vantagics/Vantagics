@@ -31,7 +31,7 @@ def ssh_exec(cmd):
     c.cc = paramiko.SSHClient()
     c.set_missiimport paramiko, sys
 
-SERVER = "service.vantagedata.chat"
+SERVER = "service.vantagics.com"
 USER = "root"
 PASS = "sunion123"
 

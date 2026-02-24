@@ -12,7 +12,7 @@ import (
 )
 
 // QueryAndChartTool combines SQL execution + Python chart generation in a single tool call.
-// This eliminates the most common 2-step pattern: execute_sql â†’ python_executor,
+// This eliminates the most common 2-step pattern: execute_sql â†?python_executor,
 // saving 1-2 agent iterations per visualization request.
 type QueryAndChartTool struct {
 	sqlTool    *SQLExecutorTool
@@ -50,7 +50,7 @@ The tool will:
 
 **Python code requirements:**
 - The query results are pre-loaded as a pandas DataFrame named 'df'
-- Use matplotlib (plt) for charts â€” it's pre-imported
+- Use matplotlib (plt) for charts â€?it's pre-imported
 - Call plt.savefig() at the end to save the chart
 - Use plt.tight_layout() before saving
 - Set Chinese font if labels contain Chinese: plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS', 'DejaVu Sans']
@@ -66,7 +66,7 @@ The tool will:
 **When to use:**
 - User asks for a chart/visualization with data from the database
 - Any request that needs both SQL data retrieval AND a chart
-- Replaces the pattern: execute_sql â†’ python_executor`,
+- Replaces the pattern: execute_sql â†?python_executor`,
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"data_source_id": {
 				Type:     schema.String,
@@ -152,7 +152,7 @@ func (t *QueryAndChartTool) InvokableRun(ctx context.Context, argumentsInJSON st
 
 	pyResult, err := t.pythonTool.InvokableRun(ctx, string(pyInput), opts...)
 	if err != nil {
-		// Return SQL results even if chart fails â€” the data is still useful
+		// Return SQL results even if chart fails â€?the data is still useful
 		return fmt.Sprintf(`{"sql_result": %s, "chart_error": "%s", "stage": "chart"}`, sqlResult, err.Error()), nil
 	}
 

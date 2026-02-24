@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/agent"
-	"vantagedata/i18n"
+	"vantagics/agent"
+	"vantagics/i18n"
 	
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// TableSchemaInfo 表结构信息
+// TableSchemaInfo 表结构信�?
 type TableSchemaInfo struct {
 	TableName  string              `json:"table_name"`
 	Columns    []ColumnInfo        `json:"columns"`
@@ -29,7 +29,7 @@ type ColumnInfo struct {
 	Nullable bool   `json:"nullable"`
 }
 
-// SemanticOptimizationResult LLM 返回的优化结果
+// SemanticOptimizationResult LLM 返回的优化结�?
 type SemanticOptimizationResult struct {
 	Tables []TableOptimization `json:"tables"`
 }
@@ -71,8 +71,8 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 		return fmt.Errorf("data source not found: %s", sourceID)
 	}
 
-	// 发送进度事件
-	a.sendSemanticOptimizeProgress("正在分析表结构...")
+	// 发送进度事�?
+	a.sendSemanticOptimizeProgress("正在分析表结�?..")
 
 	// 2. 收集所有表的结构和样本数据
 	schemas, err := a.collectTableSchemas(sourceID)
@@ -100,7 +100,7 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 	a.sendSemanticOptimizeProgress("正在创建新数据源...")
 
 	// 4. 创建新数据源（返回新数据源和完整数据库路径）
-	// 传递 schemas 以便使用已收集的列类型信息
+	// 传�?schemas 以便使用已收集的列类型信�?
 	newSource, newDBFullPath, err := a.createOptimizedDataSource(originalSource, optimization, schemas)
 	if err != nil {
 		return fmt.Errorf("failed to create optimized data source: %w", err)
@@ -116,7 +116,7 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 
 	a.sendSemanticOptimizeProgress("完成")
 
-	// 7. 发送完成事件
+	// 7. 发送完成事�?
 	runtime.EventsEmit(a.ctx, "semantic-optimize-completed", map[string]interface{}{
 		"original_id": sourceID,
 		"new_id":      newSource.ID,
@@ -127,9 +127,9 @@ func (a *App) SemanticOptimizeDataSource(sourceID string) error {
 	return nil
 }
 
-// collectTableSchemas 收集表结构信息
+// collectTableSchemas 收集表结构信�?
 func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
-	// 获取数据源信息
+	// 获取数据源信�?
 	sources, err := a.dataSourceService.LoadDataSources()
 	if err != nil {
 		a.Log(fmt.Sprintf("[SEMANTIC] Error loading data sources: %v", err))
@@ -152,7 +152,7 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 	a.Log(fmt.Sprintf("[SEMANTIC] Data source info - ID: %s, Name: %s, Type: %s, DBPath: %s",
 		ds.ID, ds.Name, ds.Type, ds.Config.DBPath))
 
-	// 首先尝试从 analysis.schema 获取表信息
+	// 首先尝试�?analysis.schema 获取表信�?
 	if ds.Analysis != nil && len(ds.Analysis.Schema) > 0 {
 		a.Log(fmt.Sprintf("[SEMANTIC] Using analysis.schema, found %d tables", len(ds.Analysis.Schema)))
 		schemas := make([]TableSchemaInfo, 0, len(ds.Analysis.Schema))
@@ -162,7 +162,7 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 			columnInfos := make([]ColumnInfo, 0, len(tableSchema.Columns))
 			realColumns, err := a.dataSourceService.GetTableColumns(sourceID, tableSchema.TableName)
 			if err == nil && len(realColumns) > 0 {
-				// 成功获取真实列信息
+				// 成功获取真实列信�?
 				columnTypeMap := make(map[string]string)
 				for _, col := range realColumns {
 					columnTypeMap[col.Name] = col.Type
@@ -207,7 +207,7 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 		return schemas, nil
 	}
 
-	// 获取所有表名
+	// 获取所有表�?
 	a.Log(fmt.Sprintf("[SEMANTIC] Getting tables for source: %s", sourceID))
 	tables, err := a.dataSourceService.GetTables(sourceID)
 	if err != nil {
@@ -230,7 +230,7 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 	schemas := make([]TableSchemaInfo, 0, len(tables))
 
 	for _, tableName := range tables {
-		// 获取表结构
+		// 获取表结�?
 		columns, err := a.dataSourceService.GetTableColumns(sourceID, tableName)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to get columns for table %s: %v", tableName, err))
@@ -246,11 +246,11 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 			})
 		}
 
-		// 获取前两行样本数据
+		// 获取前两行样本数�?
 		sampleData, err := a.getSampleData(sourceID, tableName, 2)
 		if err != nil {
 			a.Log(fmt.Sprintf("Failed to get sample data for table %s: %v", tableName, err))
-			sampleData = []map[string]any{} // 继续处理，即使没有样本数据
+			sampleData = []map[string]any{} // 继续处理，即使没有样本数�?
 		}
 
 		schemas = append(schemas, TableSchemaInfo{
@@ -274,7 +274,7 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 	// 构建 prompt
 	prompt := a.buildSemanticOptimizationPrompt(schemas, language)
 
-	// 获取配置并创建 LLM 服务
+	// 获取配置并创�?LLM 服务
 	cfg, err := a.GetEffectiveConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config: %w", err)
@@ -294,10 +294,10 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 	// 解析 JSON 响应
 	var result SemanticOptimizationResult
 	
-	// 尝试提取 JSON（可能包含在 markdown 代码块中）
+	// 尝试提取 JSON（可能包含在 markdown 代码块中�?
 	content := response
 	
-	// 先尝试找 ```json 代码块
+	// 先尝试找 ```json 代码�?
 	if idx := strings.Index(content, "```json"); idx != -1 {
 		// 找到 ```json 后的内容
 		start := idx + 7
@@ -305,7 +305,7 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 		for start < len(content) && (content[start] == '\n' || content[start] == '\r') {
 			start++
 		}
-		// 找到结束的 ```
+		// 找到结束�?```
 		remaining := content[start:]
 		if endIdx := strings.Index(remaining, "```"); endIdx != -1 {
 			content = remaining[:endIdx]
@@ -313,7 +313,7 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 			content = remaining
 		}
 	} else if idx := strings.Index(content, "```"); idx != -1 {
-		// 找到普通 ``` 代码块
+		// 找到普�?``` 代码�?
 		start := idx + 3
 		// 跳过可能的换行符
 		for start < len(content) && (content[start] == '\n' || content[start] == '\r') {
@@ -329,12 +329,12 @@ func (a *App) generateSemanticOptimization(schemas []TableSchemaInfo, language s
 
 	content = strings.TrimSpace(content)
 	
-	// 确保内容以 { 开头（找到第一个 { 的位置）
+	// 确保内容�?{ 开头（找到第一�?{ 的位置）
 	if idx := strings.Index(content, "{"); idx > 0 {
 		content = content[idx:]
 	}
 	
-	// 确保内容以 } 结尾（找到最后一个 } 的位置）
+	// 确保内容�?} 结尾（找到最后一�?} 的位置）
 	if idx := strings.LastIndex(content, "}"); idx != -1 && idx < len(content)-1 {
 		content = content[:idx+1]
 	}
@@ -353,32 +353,32 @@ func (a *App) buildSemanticOptimizationPrompt(schemas []TableSchemaInfo, languag
 	schemasJSON, _ := json.MarshalIndent(schemas, "", "  ")
 
 	langInstruction := "Use English for field names"
-	if language == "简体中文" {
+	if language == "简体中�? {
 		langInstruction = "使用英文命名字段，但要考虑中文业务语义"
 	}
 
-	prompt := fmt.Sprintf(`# 数据源语义优化任务
+	prompt := fmt.Sprintf(`# 数据源语义优化任�?
 
-你是一个数据库设计专家。请分析以下数据表的结构和样本数据，为每个字段生成更有意义、更易理解的字段名。
+你是一个数据库设计专家。请分析以下数据表的结构和样本数据，为每个字段生成更有意义、更易理解的字段名�?
 
 ## 要求
 
-1. **字段名规范**：
-   - 使用小写字母和下划线（snake_case）
-   - 名称要简洁但有意义
-   - 避免缩写，除非是通用缩写（如 id, url, qty）
+1. **字段名规�?*�?
+   - 使用小写字母和下划线（snake_case�?
+   - 名称要简洁但有意�?
+   - 避免缩写，除非是通用缩写（如 id, url, qty�?
    - %s
 
-2. **保持数据类型**：
+2. **保持数据类型**�?
    - 不改变字段的数据类型
-   - 保持字段的可空性
+   - 保持字段的可空�?
 
-3. **考虑业务语义**：
-   - 根据样本数据推断字段的业务含义
-   - 使用业务术语而非技术术语
-   - 考虑字段之间的关联关系
+3. **考虑业务语义**�?
+   - 根据样本数据推断字段的业务含�?
+   - 使用业务术语而非技术术�?
+   - 考虑字段之间的关联关�?
 
-4. **表名优化**：
+4. **表名优化**�?
    - 如果表名不够清晰，也可以优化表名
    - 表名应该反映表的业务含义
    - 使用 snake_case 命名
@@ -394,14 +394,14 @@ func (a *App) buildSemanticOptimizationPrompt(schemas []TableSchemaInfo, languag
 {
   "tables": [
     {
-      "original_table_name": "原表名",
+      "original_table_name": "原表�?,
       "optimized_table_name": "优化后的表名",
       "description": "表的业务描述",
       "column_mappings": [
         {
           "original_name": "原字段名",
-          "optimized_name": "优化后的字段名",
-          "description": "字段的业务含义"
+          "optimized_name": "优化后的字段�?,
+          "description": "字段的业务含�?
         }
       ]
     }
@@ -410,22 +410,22 @@ func (a *App) buildSemanticOptimizationPrompt(schemas []TableSchemaInfo, languag
 
 ## 重要提示
 
-- 只返回 JSON，不要包含其他说明文字
+- 只返�?JSON，不要包含其他说明文�?
 - 确保所有原始字段都有对应的映射
 - 如果字段名已经很好，可以保持不变
-- 优化后的字段名必须是有效的 SQL 标识符
+- 优化后的字段名必须是有效�?SQL 标识�?
 
 请开始优化：`, langInstruction, string(schemasJSON))
 
 	return prompt
 }
 
-// createOptimizedDataSource 创建优化后的数据源
+// createOptimizedDataSource 创建优化后的数据�?
 func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimization *SemanticOptimizationResult, schemas []TableSchemaInfo) (*agent.DataSource, string, error) {
-	// 创建新的数据源名称
+	// 创建新的数据源名�?
 	newName := originalSource.Name + "_语义优化"
 
-	// 创建新的 DuckDB 数据库文件（返回完整路径）
+	// 创建新的 DuckDB 数据库文件（返回完整路径�?
 	newDBFullPath, err := a.dataSourceService.CreateOptimizedDatabase(originalSource, newName)
 	if err != nil {
 		return nil, "", err
@@ -438,15 +438,15 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	}
 	defer newDB.Close()
 
-	// 构建表名到 schema 的映射，用于获取列类型
+	// 构建表名�?schema 的映射，用于获取列类�?
 	schemaMap := make(map[string]TableSchemaInfo)
 	for _, schema := range schemas {
 		schemaMap[schema.TableName] = schema
 	}
 
-	// 创建优化后的表结构
+	// 创建优化后的表结�?
 	for _, tableOpt := range optimization.Tables {
-		// 从 schemas 中获取原表的列类型信息
+		// �?schemas 中获取原表的列类型信�?
 		originalSchema, hasSchema := schemaMap[tableOpt.OriginalTableName]
 		err = a.createOptimizedTable(newDB, tableOpt, originalSchema, hasSchema)
 		if err != nil {
@@ -454,7 +454,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 		}
 	}
 
-	// 从完整路径中提取相对路径（sources/{id}/data.db）
+	// 从完整路径中提取相对路径（sources/{id}/data.db�?
 	// 完整路径格式：{dataCacheDir}/sources/{id}/data.db
 	cfg, err := a.GetConfig()
 	if err != nil {
@@ -464,7 +464,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	// 计算相对路径
 	relDBPath, err := filepath.Rel(cfg.DataCacheDir, newDBFullPath)
 	if err != nil {
-		// 如果无法计算相对路径，尝试从路径中提取 sources/{id}/data.db 部分
+		// 如果无法计算相对路径，尝试从路径中提�?sources/{id}/data.db 部分
 		parts := strings.Split(filepath.ToSlash(newDBFullPath), "/")
 		for i, part := range parts {
 			if part == "sources" && i+2 < len(parts) {
@@ -479,7 +479,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 
 	a.Log(fmt.Sprintf("[SEMANTIC] New database relative path: %s", relDBPath))
 
-	// 构建新数据源的 schema 信息
+	// 构建新数据源�?schema 信息
 	newSchema := make([]agent.TableSchema, 0, len(optimization.Tables))
 	for _, tableOpt := range optimization.Tables {
 		columns := make([]string, 0, len(tableOpt.ColumnMappings))
@@ -504,7 +504,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 		summary = i18n.T("datasource.semantic_opt_summary", len(optimization.Tables))
 	}
 
-	// 注册新数据源（使用相对路径，包含 schema 信息）
+	// 注册新数据源（使用相对路径，包含 schema 信息�?
 	newSource := &agent.DataSource{
 		ID:   generateID(),
 		Name: newName,
@@ -524,22 +524,22 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 		return nil, "", fmt.Errorf("failed to save new data source: %w", err)
 	}
 
-	// 返回新数据源和完整路径（用于数据迁移）
+	// 返回新数据源和完整路径（用于数据迁移�?
 	return newSource, newDBFullPath, nil
 }
 
-// validateAndFixSQL 使用 LLM 验证和修复 SQL 语句
+// validateAndFixSQL 使用 LLM 验证和修�?SQL 语句
 func (a *App) validateAndFixSQL(sqlStmt string, tableName string) (string, error) {
 	// 由于我们已经使用双引号包裹了所有标识符，SQL 应该是正确的
-	// 直接返回原始 SQL，避免 LLM 添加额外内容导致语法错误
+	// 直接返回原始 SQL，避�?LLM 添加额外内容导致语法错误
 	a.Log(fmt.Sprintf("SQL for table %s: %s", tableName, sqlStmt))
 	return sqlStmt, nil
 }
 
-// createOptimizedTable 创建优化后的表
-// 使用已收集的 schema 信息，避免再次查询原数据库
+// createOptimizedTable 创建优化后的�?
+// 使用已收集的 schema 信息，避免再次查询原数据�?
 func (a *App) createOptimizedTable(db *sql.DB, tableOpt TableOptimization, originalSchema TableSchemaInfo, hasSchema bool) error {
-	// 构建列定义映射（从已收集的 schema 中获取类型）
+	// 构建列定义映射（从已收集�?schema 中获取类型）
 	columnTypeMap := make(map[string]string)
 	if hasSchema {
 		for _, col := range originalSchema.Columns {
@@ -554,16 +554,16 @@ func (a *App) createOptimizedTable(db *sql.DB, tableOpt TableOptimization, origi
 		if colType == "" {
 			colType = "TEXT" // 默认类型
 		}
-		// 使用双引号包裹列名，避免保留字问题
+		// 使用双引号包裹列名，避免保留字问�?
 		columnDefs = append(columnDefs, fmt.Sprintf(`"%s" %s`, mapping.OptimizedName, colType))
 	}
 
-	// 使用双引号包裹表名
+	// 使用双引号包裹表�?
 	createSQL := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS "%s" (%s)`,
 		tableOpt.OptimizedTableName,
 		strings.Join(columnDefs, ", "))
 
-	// 使用 LLM 验证和修复 SQL
+	// 使用 LLM 验证和修�?SQL
 	fixedSQL, err := a.validateAndFixSQL(createSQL, tableOpt.OptimizedTableName)
 	if err != nil {
 		a.Log("SQL validation error: " + err.Error())
@@ -575,7 +575,7 @@ func (a *App) createOptimizedTable(db *sql.DB, tableOpt TableOptimization, origi
 
 	_, err = db.Exec(fixedSQL)
 	if err != nil {
-		// 如果执行失败，记录详细错误
+		// 如果执行失败，记录详细错�?
 		return fmt.Errorf("failed to create table %s: %w\nSQL: %s", tableOpt.OptimizedTableName, err, fixedSQL)
 	}
 	return nil
@@ -598,7 +598,7 @@ func (a *App) migrateDataWithOptimization(originalSource *agent.DataSource, targ
 	}
 	defer targetDB.Close()
 
-	// 确定源数据库类型，用于正确的标识符引用
+	// 确定源数据库类型，用于正确的标识符引�?
 	sourceDBType := originalSource.Type // "mysql", "sqlite", "excel", "csv", etc.
 	
 	// 迁移每个表的数据
@@ -612,13 +612,13 @@ func (a *App) migrateDataWithOptimization(originalSource *agent.DataSource, targ
 	return nil
 }
 
-// quoteIdentifier 根据数据库类型返回正确的标识符引用
+// quoteIdentifier 根据数据库类型返回正确的标识符引�?
 func quoteIdentifier(name string, dbType string) string {
 	switch dbType {
 	case "mysql", "doris":
 		return fmt.Sprintf("`%s`", name)
 	default:
-		// DuckDB, PostgreSQL 使用双引号
+		// DuckDB, PostgreSQL 使用双引�?
 		return fmt.Sprintf(`"%s"`, name)
 	}
 }
@@ -630,13 +630,13 @@ func (a *App) migrateTableData(sourceDB, targetDB *sql.DB, tableOpt TableOptimiz
 	optimizedCols := make([]string, 0, len(tableOpt.ColumnMappings))
 
 	for _, mapping := range tableOpt.ColumnMappings {
-		// 原表列名使用源数据库的引用方式
+		// 原表列名使用源数据库的引用方�?
 		originalCols = append(originalCols, quoteIdentifier(mapping.OriginalName, sourceDBType))
 		// 新表列名使用 DuckDB 的引用方式（双引号）
 		optimizedCols = append(optimizedCols, quoteIdentifier(mapping.OptimizedName, "duckdb"))
 	}
 
-	// 查询原表数据（使用源数据库的引用方式）
+	// 查询原表数据（使用源数据库的引用方式�?
 	query := fmt.Sprintf(`SELECT %s FROM %s`,
 		strings.Join(originalCols, ", "),
 		quoteIdentifier(tableOpt.OriginalTableName, sourceDBType))
@@ -662,7 +662,7 @@ func (a *App) migrateTableData(sourceDB, targetDB *sql.DB, tableOpt TableOptimiz
 
 	a.Log(fmt.Sprintf("Insert query: %s", insertQuery))
 
-	// 开始事务
+	// 开始事�?
 	tx, err := targetDB.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -712,7 +712,7 @@ func (a *App) migrateTableData(sourceDB, targetDB *sql.DB, tableOpt TableOptimiz
 	return nil
 }
 
-// sendSemanticOptimizeProgress 发送进度事件
+// sendSemanticOptimizeProgress 发送进度事�?
 func (a *App) sendSemanticOptimizeProgress(message string) {
 	runtime.EventsEmit(a.ctx, "semantic-optimize-progress", map[string]interface{}{
 		"message": message,

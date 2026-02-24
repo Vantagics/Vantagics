@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // DefaultMaxExclusionSummaryLength is the default maximum length for exclusion summary
-// Validates: Requirements 3.3 (排除列表摘要不超过300字符)
+// Validates: Requirements 3.3 (排除列表摘要不超�?00字符)
 const DefaultMaxExclusionSummaryLength = 300
 
 // ExclusionManager 排除项管理器
 // 管理用户拒绝的意图并生成排除摘要
-// 简化自现有的 ExclusionSummarizer，专注于核心功能
+// 简化自现有�?ExclusionSummarizer，专注于核心功能
 // Validates: Requirements 3.2, 3.3
 type ExclusionManager struct {
 	maxSummaryLength int
@@ -30,15 +30,15 @@ func NewExclusionManager(maxSummaryLength int) *ExclusionManager {
 	}
 }
 
-// CategoryMergeThreshold 分类合并阈值
-// 当排除项超过此数量时，使用分类合并模式
+// CategoryMergeThreshold 分类合并阈�?
+// 当排除项超过此数量时，使用分类合并模�?
 // Validates: Requirements 3.4
 const CategoryMergeThreshold = 10
 
-// GenerateSummary 生成排除项摘要
+// GenerateSummary 生成排除项摘�?
 // 将排除项列表转换为简洁的摘要文本
 // exclusions: 被排除的意图建议列表
-// language: 语言设置 ("zh" 或 "en")
+// language: 语言设置 ("zh" �?"en")
 // Returns: 简洁的摘要文本，不超过 maxSummaryLength 字符
 // Validates: Requirements 3.2, 3.3, 3.4
 func (m *ExclusionManager) GenerateSummary(exclusions []IntentSuggestion, language string) string {
@@ -46,7 +46,7 @@ func (m *ExclusionManager) GenerateSummary(exclusions []IntentSuggestion, langua
 		return ""
 	}
 
-	// 分类排除项
+	// 分类排除�?
 	categories := m.CategorizeExclusions(exclusions)
 
 	// 根据排除项数量选择摘要模式
@@ -59,8 +59,8 @@ func (m *ExclusionManager) GenerateSummary(exclusions []IntentSuggestion, langua
 	return m.buildSummary(categories, language)
 }
 
-// CategorizeExclusions 分类排除项
-// 将排除项按分析类型分组
+// CategorizeExclusions 分类排除�?
+// 将排除项按分析类型分�?
 // Returns: map[分析类型][]具体描述
 // Validates: Requirements 3.4
 func (m *ExclusionManager) CategorizeExclusions(exclusions []IntentSuggestion) map[string][]string {
@@ -83,31 +83,31 @@ func (m *ExclusionManager) CategorizeExclusions(exclusions []IntentSuggestion) m
 	return categories
 }
 
-// GetMaxSummaryLength 获取最大摘要长度
+// GetMaxSummaryLength 获取最大摘要长�?
 func (m *ExclusionManager) GetMaxSummaryLength() int {
 	return m.maxSummaryLength
 }
 
-// detectCategory 检测排除项的分析类型
+// detectCategory 检测排除项的分析类�?
 func (m *ExclusionManager) detectCategory(title, description string) string {
 	combined := strings.ToLower(title + " " + description)
 
-	// 时间趋势分析关键词
-	timeKeywords := []string{"趋势", "时间", "月度", "季度", "年度", "周", "日", "变化", "增长", "trend", "time", "monthly", "quarterly", "yearly", "growth", "历史"}
+	// 时间趋势分析关键�?
+	timeKeywords := []string{"趋势", "时间", "月度", "季度", "年度", "�?, "�?, "变化", "增长", "trend", "time", "monthly", "quarterly", "yearly", "growth", "历史"}
 
-	// 维度分析关键词
-	dimensionKeywords := []string{"分类", "维度", "按", "分组", "类型", "地区", "产品", "客户", "部门", "category", "dimension", "group", "by", "type", "region", "product"}
+	// 维度分析关键�?
+	dimensionKeywords := []string{"分类", "维度", "�?, "分组", "类型", "地区", "产品", "客户", "部门", "category", "dimension", "group", "by", "type", "region", "product"}
 
-	// 统计分析关键词
-	statisticsKeywords := []string{"统计", "汇总", "总量", "平均", "排名", "最大", "最小", "求和", "计数", "statistics", "summary", "total", "average", "ranking", "max", "min", "sum", "count", "top"}
+	// 统计分析关键�?
+	statisticsKeywords := []string{"统计", "汇�?, "总量", "平均", "排名", "最�?, "最�?, "求和", "计数", "statistics", "summary", "total", "average", "ranking", "max", "min", "sum", "count", "top"}
 
-	// 关联分析关键词
+	// 关联分析关键�?
 	correlationKeywords := []string{"关联", "相关", "关系", "影响", "因素", "correlation", "relationship", "impact", "factor"}
 
-	// 预测分析关键词
+	// 预测分析关键�?
 	predictionKeywords := []string{"预测", "预估", "未来", "forecast", "prediction", "future", "estimate"}
 
-	// 对比分析关键词
+	// 对比分析关键�?
 	comparisonKeywords := []string{"比较", "对比", "差异", "compare", "comparison", "difference", "vs"}
 
 	switch {
@@ -116,7 +116,7 @@ func (m *ExclusionManager) detectCategory(title, description string) string {
 	case m.containsAnyKeyword(combined, dimensionKeywords):
 		return "分类维度分析"
 	case m.containsAnyKeyword(combined, statisticsKeywords):
-		return "统计汇总"
+		return "统计汇�?
 	case m.containsAnyKeyword(combined, correlationKeywords):
 		return "关联分析"
 	case m.containsAnyKeyword(combined, predictionKeywords):
@@ -128,13 +128,13 @@ func (m *ExclusionManager) detectCategory(title, description string) string {
 	}
 }
 
-// extractDetail 从标题中提取简短描述
+// extractDetail 从标题中提取简短描�?
 func (m *ExclusionManager) extractDetail(title string) string {
 	if title == "" {
 		return ""
 	}
 
-	// 限制长度为15个字符
+	// 限制长度�?5个字�?
 	runes := []rune(title)
 	if len(runes) > 15 {
 		return string(runes[:15])
@@ -170,33 +170,33 @@ func (m *ExclusionManager) buildSummary(categories map[string][]string, language
 
 	var builder strings.Builder
 
-	// 根据语言选择标题和结尾
+	// 根据语言选择标题和结�?
 	var header, footer string
 	if language == "en" {
 		header = "Excluded analysis directions:\n"
 		footer = "Please understand user intent from other perspectives."
 	} else {
 		header = "已排除的分析方向：\n"
-		footer = "请从其他角度理解用户意图。"
+		footer = "请从其他角度理解用户意图�?
 	}
 
 	builder.WriteString(header)
 
-	// 按类别构建摘要
+	// 按类别构建摘�?
 	categoryCount := 0
 	for category, details := range categories {
 		line := "- " + category
 		if len(details) > 0 {
-			// 限制每个类别最多显示3个详情
+			// 限制每个类别最多显�?个详�?
 			detailsToShow := details
 			if len(detailsToShow) > 3 {
 				detailsToShow = detailsToShow[:3]
 			}
-			line += "（" + strings.Join(detailsToShow, "、") + "）"
+			line += "�? + strings.Join(detailsToShow, "�?) + "�?
 		}
 		line += "\n"
 
-		// 检查是否会超过最大长度
+		// 检查是否会超过最大长�?
 		potentialLength := utf8.RuneCountInString(builder.String()) + utf8.RuneCountInString(line) + utf8.RuneCountInString(footer)
 		if potentialLength > m.maxSummaryLength {
 			// 添加省略提示
@@ -234,7 +234,7 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 
 	var builder strings.Builder
 
-	// 根据语言选择标题和结尾
+	// 根据语言选择标题和结�?
 	var header, footer, countFormat string
 	header = i18n.T("exclusion.header", totalCount, len(categories))
 	footer = i18n.T("exclusion.footer")
@@ -242,7 +242,7 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 
 	builder.WriteString(header)
 
-	// 按类别数量排序（从多到少）
+	// 按类别数量排序（从多到少�?
 	type categoryInfo struct {
 		name  string
 		count int
@@ -251,7 +251,7 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 	for name, details := range categories {
 		sortedCategories = append(sortedCategories, categoryInfo{name: name, count: len(details)})
 	}
-	// 简单排序：按数量降序
+	// 简单排序：按数量降�?
 	for i := 0; i < len(sortedCategories)-1; i++ {
 		for j := i + 1; j < len(sortedCategories); j++ {
 			if sortedCategories[j].count > sortedCategories[i].count {
@@ -260,11 +260,11 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 		}
 	}
 
-	// 构建分类摘要（只显示类别名和数量）
+	// 构建分类摘要（只显示类别名和数量�?
 	for _, cat := range sortedCategories {
 		line := fmt.Sprintf(countFormat, cat.name, cat.count)
 
-		// 检查是否会超过最大长度
+		// 检查是否会超过最大长�?
 		potentialLength := utf8.RuneCountInString(builder.String()) + utf8.RuneCountInString(line) + utf8.RuneCountInString(footer)
 		if potentialLength > m.maxSummaryLength {
 			// 添加省略提示
@@ -291,14 +291,14 @@ func (m *ExclusionManager) buildCategorizedSummary(categories map[string][]strin
 	return result
 }
 
-// truncateToLength 截断文本到指定长度
+// truncateToLength 截断文本到指定长�?
 func (m *ExclusionManager) truncateToLength(text string, maxLength int, footer string) string {
 	runes := []rune(text)
 	if len(runes) <= maxLength {
 		return text
 	}
 
-	// 计算可用长度（减去footer长度和换行符）
+	// 计算可用长度（减去footer长度和换行符�?
 	footerLen := utf8.RuneCountInString(footer)
 	availableLen := maxLength - footerLen - 1
 

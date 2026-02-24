@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/i18n"
+	"vantagics/i18n"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )

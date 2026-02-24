@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ type ExportableRequest struct {
 var suggestionPatterns = []string{
 	"请给出一些本数据源的分析建议",
 	"Give me some analysis suggestions for this data source",
-	"请给出一些本数据源的分析建议。",
+	"请给出一些本数据源的分析建议�?,
 	"Give me some analysis suggestions for this data source.",
 }
 
@@ -371,7 +371,7 @@ func extractStepsFromEntries(executionsMap parsedExecutionsMap, selectedRequestI
 
 
 // stepDescription returns a human-readable description for a step,
-// falling back through StepDescription → UserRequest → default label.
+// falling back through StepDescription �?UserRequest �?default label.
 func stepDescription(exec parsedExecutionRecord, stepType string) string {
 	if exec.StepDescription != "" {
 		return exec.StepDescription

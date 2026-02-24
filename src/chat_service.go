@@ -519,7 +519,7 @@ func (s *ChatService) loadThreadsInternal() ([]ChatThread, error) {
 				if err == nil {
 					var t ChatThread
 					if err := json.Unmarshal(data, &t); err == nil {
-						// Strip heavy data — this is used internally for title checks etc.
+						// Strip heavy data �?this is used internally for title checks etc.
 						for i := range t.Messages {
 							t.Messages[i].AnalysisResults = nil
 							t.Messages[i].ChartData = nil
@@ -950,7 +950,7 @@ func (s *ChatService) extractAnalysisItemsFromContent(content, threadID, message
 				if lastNewline >= 0 {
 					lineBeforeCodeBlock := strings.TrimSpace(textBefore[lastNewline+1:])
 					tableTitle = strings.TrimLeft(lineBeforeCodeBlock, "#*- ")
-					tableTitle = strings.TrimRight(tableTitle, ":：")
+					tableTitle = strings.TrimRight(tableTitle, ":�?)
 					tableTitle = strings.TrimSpace(tableTitle)
 					if strings.HasPrefix(tableTitle, "{") || strings.HasPrefix(tableTitle, "[") || strings.HasPrefix(tableTitle, "```") {
 						tableTitle = ""
@@ -1080,9 +1080,9 @@ func extractSuggestionInsightsFromContent(content string) []Insight {
 	var insights []Insight
 	lines := strings.Split(content, "\n")
 
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.、)]\*{0,2}\s*(.+)`)
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.�?]\*{0,2}\s*(.+)`)
 	listPattern := regexp.MustCompile(`^\s*[-•]\s+(.+)`)
-	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[：:\-–—]\s*(.+)`)
+	boldTitlePattern := regexp.MustCompile(`^\s*\*\*(.+?)\*\*\s*[�?\-–—]\s*(.+)`)
 	suggestionPattern := regexp.MustCompile(`(?i)(建议|suggest|recommend|next|further|深入|可以进一步|后续|下一步|洞察|insight|分析方向|可以从|希望从哪)`)
 
 	inCodeBlock := false
@@ -1119,7 +1119,7 @@ func extractSuggestionInsightsFromContent(content string) []Insight {
 				title := strings.TrimSpace(matches[1])
 				desc := strings.TrimSpace(matches[2])
 				if desc != "" {
-					suggestionText = title + "：" + desc
+					suggestionText = title + "�? + desc
 				} else {
 					suggestionText = title
 				}
@@ -1334,7 +1334,7 @@ func extractTableTitleCS(lines []string, tableStartIdx int) string {
 		}
 
 		// Check for numbered list with bold: 1. **Title**
-		boldPattern := regexp.MustCompile(`^\d*[.、)]\s*\*\*(.+?)\*\*`)
+		boldPattern := regexp.MustCompile(`^\d*[.�?]\s*\*\*(.+?)\*\*`)
 		if matches := boldPattern.FindStringSubmatch(line); len(matches) > 1 {
 			return strings.TrimSpace(matches[1])
 		}

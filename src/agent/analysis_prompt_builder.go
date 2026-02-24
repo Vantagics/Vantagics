@@ -40,7 +40,7 @@ func (b *AnalysisPromptBuilder) initDefaultTemplates() {
 	// Visualization template
 	b.templates["visualization"] = &CodeTemplate{
 		Name:        "visualization",
-		Description: "数据可视化分析模板",
+		Description: "数据可视化分析模�?,
 		Structure:   visualizationCodeTemplate,
 		Examples:    []string{visualizationExample},
 	}
@@ -75,7 +75,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	if hints != nil {
 		sb.WriteString("## Analysis Requirements\n")
 		if hints.NeedsVisualization {
-			sb.WriteString("- ⭐⭐⭐ **[MUST] Generate visualization chart** - core requirement!\n")
+			sb.WriteString("- ⭐⭐�?**[MUST] Generate visualization chart** - core requirement!\n")
 			sb.WriteString("  - Use matplotlib/seaborn to create charts\n")
 			sb.WriteString("  - Must call plt.savefig() to save chart to FILES_DIR\n")
 			sb.WriteString("  - Chart filename: chart.png\n")
@@ -94,7 +94,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 			}
 		}
 		if hints.NeedsDataExport {
-			sb.WriteString("- ⭐ **Must export data file** - use df.to_excel() to save to FILES_DIR\n")
+			sb.WriteString("- �?**Must export data file** - use df.to_excel() to save to FILES_DIR\n")
 		}
 		if len(hints.SuggestedOutputs) > 0 {
 			sb.WriteString(fmt.Sprintf("- Suggested outputs: %s\n", strings.Join(hints.SuggestedOutputs, ", ")))
@@ -105,7 +105,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 		sb.WriteString("\n")
 	} else {
 		sb.WriteString("## Analysis Requirements\n")
-		sb.WriteString("- ⭐ **Recommend generating visualization charts**\n")
+		sb.WriteString("- �?**Recommend generating visualization charts**\n")
 		sb.WriteString("- Use plt.savefig() to save chart to FILES_DIR/chart.png\n\n")
 	}
 
@@ -124,7 +124,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	sb.WriteString("## Code Requirements (strict)\n")
 	sb.WriteString("1. Code must be complete and executable without modifications\n")
 	sb.WriteString("2. Use duckdb for database, pandas for data processing\n")
-	sb.WriteString("3. **⭐⭐⭐ Charts must be saved**:\n")
+	sb.WriteString("3. **⭐⭐�?Charts must be saved**:\n")
 	sb.WriteString("   ```python\n")
 	sb.WriteString("   chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
 	sb.WriteString("   plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')\n")
@@ -249,7 +249,7 @@ plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 import os
 
-# 数据库路径和文件保存目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入�?
 DB_PATH = "{DB_PATH}"
 FILES_DIR = "{FILES_DIR}"
 
@@ -259,7 +259,7 @@ def main():
         # 确保文件目录存在
         os.makedirs(FILES_DIR, exist_ok=True)
         
-        # 1. 连接数据库
+        # 1. 连接数据�?
         conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行SQL查询
@@ -272,7 +272,7 @@ def main():
         df = conn.execute(sql).df()
         
         # 3. 数据处理
-        # ... 数据清洗、转换、计算 ...
+        # ... 数据清洗、转换、计�?...
         
         # 4. 输出结果
         print("=== 分析结果 ===")
@@ -298,7 +298,7 @@ plt.rcParams['axes.unicode_minus'] = False
 import seaborn as sns
 import os
 
-# 数据库路径和文件保存目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入�?
 DB_PATH = "{DB_PATH}"
 FILES_DIR = "{FILES_DIR}"
 
@@ -308,7 +308,7 @@ def main():
         # 确保文件目录存在
         os.makedirs(FILES_DIR, exist_ok=True)
         
-        # 1. 连接数据库
+        # 1. 连接数据�?
         conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行SQL查询
@@ -322,16 +322,16 @@ def main():
         df = conn.execute(sql).df()
         
         # 3. 数据处理
-        # ... 数据清洗、转换、计算 ...
+        # ... 数据清洗、转换、计�?...
         
         # 4. 【必须】创建可视化图表
         fig, ax = plt.subplots(figsize=(10, 6))
         
-        # 选择合适的图表类型：
-        # - 时间趋势: plt.plot() 折线图
-        # - 分类对比: plt.bar() 柱状图
+        # 选择合适的图表类型�?
+        # - 时间趋势: plt.plot() 折线�?
+        # - 分类对比: plt.bar() 柱状�?
         # - 占比分布: plt.pie() 饼图
-        # - 多维对比: 分组柱状图
+        # - 多维对比: 分组柱状�?
         
         # 示例：柱状图
         # ax.bar(df['category'], df['value'], color='steelblue')
@@ -339,13 +339,13 @@ def main():
         # 示例：折线图
         # ax.plot(df['date'], df['value'], marker='o', linewidth=2, color='steelblue')
         
-        # 示例：饼图
+        # 示例：饼�?
         # ax.pie(df['value'], labels=df['category'], autopct='%1.1f%%')
         
         # 图表美化
         ax.set_title('图表标题', fontsize=14, fontweight='bold')
-        ax.set_xlabel('X轴标签', fontsize=12)
-        ax.set_ylabel('Y轴标签', fontsize=12)
+        ax.set_xlabel('X轴标�?, fontsize=12)
+        ax.set_ylabel('Y轴标�?, fontsize=12)
         plt.xticks(rotation=45, ha='right')
         plt.tight_layout()
         
@@ -353,22 +353,22 @@ def main():
         chart_path = os.path.join(FILES_DIR, 'chart.png')
         plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')
         plt.close()
-        print(f"✅ 图表已保存: {chart_path}")
+        print(f"�?图表已保�? {chart_path}")
         
         # 6. 【可选】导出数据到Excel
         # export_path = os.path.join(FILES_DIR, 'data_export.xlsx')
         # df.to_excel(export_path, index=False, sheet_name='分析数据')
-        # print(f"✅ 数据已导出: {export_path}")
+        # print(f"�?数据已导�? {export_path}")
         
-        # 7. 输出分析结果和洞察
+        # 7. 输出分析结果和洞�?
         print("\\n=== 分析结果 ===")
         print(df.to_string(index=False))
         
         print("\\n=== 关键洞察 ===")
         # 输出数据洞察，例如：
-        # print(f"- 最高值: {df['value'].max()}")
-        # print(f"- 最低值: {df['value'].min()}")
-        # print(f"- 平均值: {df['value'].mean():.2f}")
+        # print(f"- 最高�? {df['value'].max()}")
+        # print(f"- 最低�? {df['value'].min()}")
+        # print(f"- 平均�? {df['value'].mean():.2f}")
         
     except Exception as e:
         print(f"分析错误: {e}")
@@ -391,7 +391,7 @@ plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 import os
 
-# 数据库路径和文件保存目录（运行时注入）
+# 数据库路径和文件保存目录（运行时注入�?
 DB_PATH = "{DB_PATH}"
 FILES_DIR = "{FILES_DIR}"
 
@@ -401,7 +401,7 @@ def main():
         # 确保文件目录存在
         os.makedirs(FILES_DIR, exist_ok=True)
         
-        # 1. 连接数据库
+        # 1. 连接数据�?
         conn = duckdb.connect(DB_PATH, read_only=True)
         
         # 2. 执行聚合查询
@@ -418,7 +418,7 @@ def main():
         # DuckDB directly supports pandas
         df = conn.execute(sql).df()
         
-        # 3. 计算汇总统计
+        # 3. 计算汇总统�?
         total = df['total'].sum()
         avg = df['average'].mean()
         
@@ -440,7 +440,7 @@ if __name__ == "__main__":
 `
 
 // Example code snippets
-const standardExample = `# 示例：查询销售数据
+const standardExample = `# 示例：查询销售数�?
 sql = """
 SELECT product_name, SUM(quantity) as total_qty, SUM(amount) as total_amount
 FROM orders
@@ -465,14 +465,14 @@ df = conn.execute(sql).df()
 
 plt.figure(figsize=(12, 6))
 plt.plot(df['month'], df['total'], marker='o', linewidth=2)
-plt.title('月度销售趋势', fontsize=14)
+plt.title('月度销售趋�?, fontsize=14)
 plt.xlabel('月份')
 plt.ylabel('销售额')
 plt.xticks(rotation=45)
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.savefig(os.path.join(FILES_DIR, 'chart.png'), dpi=150)
-print(f"✅ 图表已保存: {os.path.join(FILES_DIR, 'chart.png')}")
+print(f"�?图表已保�? {os.path.join(FILES_DIR, 'chart.png')}")
 `
 
 const excelExportExample = `# 示例：导出数据到Excel
@@ -488,11 +488,11 @@ df = conn.execute(sql).df()
 # 保存到Excel文件
 export_path = os.path.join(FILES_DIR, 'order_details.xlsx')
 df.to_excel(export_path, index=False, sheet_name='订单明细')
-print(f"✅ 数据已导出到Excel: {export_path}")
-print(f"共导出 {len(df)} 条记录")
+print(f"�?数据已导出到Excel: {export_path}")
+print(f"共导�?{len(df)} 条记�?)
 `
 
-const aggregationExample = `# 示例：客户分析
+const aggregationExample = `# 示例：客户分�?
 sql = """
 SELECT 
     customer_id,
@@ -505,6 +505,6 @@ HAVING order_count >= 3
 ORDER BY total_spent DESC
 """
 df = conn.execute(sql).df()
-print(f"活跃客户数: {len(df)}")
-print(f"总消费: {df['total_spent'].sum():,.2f}")
+print(f"活跃客户�? {len(df)}")
+print(f"总消�? {df['total_spent'].sum():,.2f}")
 `

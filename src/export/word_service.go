@@ -16,7 +16,7 @@ import (
 	goword "github.com/VantageDataChat/GoWord"
 	"github.com/VantageDataChat/GoWord/document"
 	"github.com/VantageDataChat/GoWord/style"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // WordExportService handles Word document generation using GoWord (pure Go)
@@ -29,7 +29,7 @@ func NewWordExportService() *WordExportService {
 
 // ExportDashboardToWord exports dashboard data to Word format
 func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, error) {
-	// Title - 使用LLM生成的标题或数据源名称生成标题
+	// Title - 使用LLM生成的标题或数据源名称生成标�?
 	reportTitle := data.GetReportTitle()
 
 	doc := goword.New()
@@ -45,7 +45,7 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 	titlePara := sec.AddTitle(reportTitle, 1)
 	titlePara.Style.Alignment = style.AlignCenter
 
-	// 数据源名称
+	// 数据源名�?
 	if data.DataSourceName != "" {
 		sec.AddText(i18n.T("export.datasource_label")+data.DataSourceName,
 			&style.FontStyle{Size: 11, Color: "475569"},
@@ -60,7 +60,7 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 	}
 
 	// Timestamp
-	sec.AddText(time.Now().Format("2006年01月02日 15:04"),
+	sec.AddText(time.Now().Format("2006�?1�?2�?15:04"),
 		&style.FontStyle{Size: 10, Color: "94A3B8"},
 		&style.ParagraphStyle{Alignment: style.AlignCenter})
 
@@ -83,7 +83,7 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 
 		// Create metrics table
 		ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-		ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
+		ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边�?
 		tbl := sec.AddTable(ts)
 
 		colWidth := contentWidth / 3
@@ -107,9 +107,9 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 			row.AddCell(colWidth, nil).AddText(metric.Value, &style.FontStyle{Size: 10, Bold: true, Color: "047857"}, nil) // emerald-700
 
 			changeColor := "64748B"
-			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "增") {
+			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "�?) {
 				changeColor = "059669" // emerald-600 更清新的绿色
-			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "减") {
+			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "�?) {
 				changeColor = "EF4444" // red-500 更柔和的红色
 			}
 			row.AddCell(colWidth, nil).AddText(metric.Change, &style.FontStyle{Size: 10, Color: changeColor}, nil)
@@ -118,7 +118,7 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 		sec.AddTextBreak(1)
 	}
 
-	// Chart images - 数据可视化
+	// Chart images - 数据可视�?
 	s.addChartImages(sec, data.ChartImages, contentWidth)
 
 	// Table data - render all tables after the report text
@@ -164,13 +164,13 @@ func (s *WordExportService) renderMarkdownContent(sec *goword.Section, content s
 			continue
 		}
 
-		// 跳过代码块内容
+		// 跳过代码块内�?
 		if inCodeBlock {
 			i++
 			continue
 		}
 
-		// 检测 markdown 表格（连续的 | 开头行）
+		// 检�?markdown 表格（连续的 | 开头行�?
 		if strings.HasPrefix(trimmed, "|") && strings.Contains(trimmed, "|") {
 			tableLines := []string{trimmed}
 			j := i + 1
@@ -215,7 +215,7 @@ func (s *WordExportService) renderMarkdownContent(sec *goword.Section, content s
 				&style.ParagraphStyle{Alignment: style.AlignCenter, SpaceBefore: 240, SpaceAfter: 120})
 		} else if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 			bulletText := strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
-			addRichTextToSection(sec, "• "+bulletText,
+			addRichTextToSection(sec, "�?"+bulletText,
 				&style.FontStyle{Size: 11, Color: "334155"},
 				&style.ParagraphStyle{Indent: 360, Hanging: 360})
 		} else if matched, numText := parseNumberedItem(trimmed); matched {
@@ -263,7 +263,7 @@ func (s *WordExportService) renderMarkdownTable(sec *goword.Section, lines []str
 	colWidth := contentWidth / maxCols
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边�?
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, maxCols)
 	for k := range tbl.Grid {
@@ -350,7 +350,7 @@ func (s *WordExportService) renderSingleTable(sec *goword.Section, tableData *Ta
 	colWidth := contentWidth / len(cols)
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边�?
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, len(cols))
 	for i := range tbl.Grid {
@@ -399,7 +399,7 @@ func parseNumberedItem(line string) (bool, string) {
 		}
 		if i > 0 {
 			rest := line[i:]
-			if strings.HasPrefix(rest, ". ") || strings.HasPrefix(rest, "、") || strings.HasPrefix(rest, ") ") {
+			if strings.HasPrefix(rest, ". ") || strings.HasPrefix(rest, "�?) || strings.HasPrefix(rest, ") ") {
 				return true, line
 			}
 		}
@@ -427,7 +427,7 @@ func stripEmojiKeycaps(text string) string {
 			}
 			if len(remaining) > 0 && remaining[0] == '\u20E3' {
 				skip++
-				// This is a keycap emoji — replace with the plain digit
+				// This is a keycap emoji �?replace with the plain digit
 				result = append(result, r)
 				i += skip
 				continue
@@ -576,7 +576,7 @@ func (s *WordExportService) addChartImages(sec *goword.Section, chartImages []st
 		&style.ParagraphStyle{SpaceBefore: 200, SpaceAfter: 100})
 
 	for i, chartImage := range chartImages {
-		// 图表子标题
+		// 图表子标�?
 		sec.AddText(i18n.T("export.chart_number", i+1, len(chartImages)),
 			&style.FontStyle{Size: 10, Color: "64748B"},
 			&style.ParagraphStyle{SpaceAfter: 60})
@@ -901,7 +901,7 @@ func (s *WordExportService) renderJsonTable(sec *goword.Section, tableData [][]s
 	colWidth := contentWidth / numCols
 
 	ts := &style.TableStyle{Width: contentWidth, Alignment: "center"}
-	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边框
+	ts.SetAllBorders("single", 4, "A7F3D0") // emerald-200 清新的边�?
 	tbl := sec.AddTable(ts)
 	tbl.Grid = make([]int, numCols)
 	for k := range tbl.Grid {

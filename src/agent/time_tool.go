@@ -18,7 +18,7 @@ type TimeTool struct {
 // TimeToolInput defines the input parameters for the time tool
 type TimeToolInput struct {
 	// Query type: "current_time", "current_date", "datetime", "weekday", "timestamp", "timezone"
-	QueryType string `json:"query_type" jsonschema:"description=Type of time query: current_time (时间), current_date (日期), datetime (日期时间), weekday (星期), timestamp (时间戳), timezone (时区)"`
+	QueryType string `json:"query_type" jsonschema:"description=Type of time query: current_time (时间), current_date (日期), datetime (日期时间), weekday (星期), timestamp (时间�?, timezone (时区)"`
 	// Optional timezone (e.g., "Asia/Shanghai", "America/New_York")
 	Timezone string `json:"timezone,omitempty" jsonschema:"description=Optional timezone name (e.g., Asia/Shanghai, America/New_York). If not specified, uses local timezone."`
 }
@@ -116,7 +116,7 @@ func (t *TimeTool) InvokableRun(ctx context.Context, argumentsInJSON string, opt
 
 	// Get weekday in both English and Chinese
 	weekdays := []string{"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"}
-	weekdaysCN := []string{"星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"}
+	weekdaysCN := []string{"星期�?, "星期一", "星期�?, "星期�?, "星期�?, "星期�?, "星期�?}
 	output.Weekday = weekdays[now.Weekday()]
 	output.WeekdayCN = weekdaysCN[now.Weekday()]
 

@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"vantagedata/agent"
-	"vantagedata/database"
+	"vantagics/agent"
+	"vantagics/database"
 )
 
-// DashboardManager 定义仪表盘管理接口
+// DashboardManager 定义仪表盘管理接�?
 type DashboardManager interface {
 	GetDashboardData() DashboardData
 	SaveLayout(config database.LayoutConfiguration) error
@@ -63,12 +63,12 @@ func (d *DashboardFacadeService) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown 关闭仪表盘门面服务
+// Shutdown 关闭仪表盘门面服�?
 func (d *DashboardFacadeService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下文
+// SetContext 设置 Wails 上下�?
 func (d *DashboardFacadeService) SetContext(ctx context.Context) {
 	d.ctx = ctx
 }
@@ -84,17 +84,17 @@ func (d *DashboardFacadeService) log(msg string) {
 
 // getDashboardTranslations 返回仪表盘翻译字符串
 func (d *DashboardFacadeService) getDashboardTranslations(lang string) map[string]string {
-	if lang == "简体中文" {
+	if lang == "简体中�? {
 		return map[string]string{
-			"Data Sources":  "数据源",
+			"Data Sources":  "数据�?,
 			"Total":         "总计",
 			"Files":         "文件",
 			"Local":         "本地",
-			"Databases":     "数据库",
-			"Connected":     "已连接",
-			"Tables":        "数据表",
-			"Analyzed":      "已分析",
-			"ConnectPrompt": "连接数据源以开始使用。",
+			"Databases":     "数据�?,
+			"Connected":     "已连�?,
+			"Tables":        "数据�?,
+			"Analyzed":      "已分�?,
+			"ConnectPrompt": "连接数据源以开始使用�?,
 			"Analyze":       "分析",
 		}
 	}
@@ -112,7 +112,7 @@ func (d *DashboardFacadeService) getDashboardTranslations(lang string) map[strin
 	}
 }
 
-// GetDashboardData 返回数据源的摘要统计和洞察信息
+// GetDashboardData 返回数据源的摘要统计和洞察信�?
 func (d *DashboardFacadeService) GetDashboardData() DashboardData {
 	if d.dataSourceService == nil {
 		return DashboardData{}
@@ -245,7 +245,7 @@ func (d *DashboardFacadeService) CheckComponentHasData(componentType string, ins
 
 // --- File Methods ---
 
-// GetFilesByCategory 按类别获取文件列表
+// GetFilesByCategory 按类别获取文件列�?
 func (d *DashboardFacadeService) GetFilesByCategory(category string) ([]database.FileInfo, error) {
 	if d.fileService == nil {
 		return nil, WrapError("dashboard", "GetFilesByCategory", fmt.Errorf("file service not initialized"))

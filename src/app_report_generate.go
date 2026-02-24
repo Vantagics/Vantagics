@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"vantagedata/export"
-	"vantagedata/i18n"
+	"vantagics/export"
+	"vantagics/i18n"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -204,7 +204,7 @@ func buildReportExportData(req ReportGenerateRequest, parsed reportParseResult) 
 	}
 
 	// Pass table data for direct rendering by the export engine.
-	// Tables are rendered separately after the LLM report text â€” the LLM is
+	// Tables are rendered separately after the LLM report text â€?the LLM is
 	// instructed NOT to include markdown tables in its output.
 	if req.TableData != nil && len(req.TableData.Columns) > 0 {
 		exportData.TableData = &export.TableData{
@@ -404,7 +404,7 @@ func stripTableDataFromInsight(insight string) string {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
-		// Track code blocks â€” remove json:table blocks entirely
+		// Track code blocks â€?remove json:table blocks entirely
 		if strings.HasPrefix(trimmed, "```") {
 			if !inCodeBlock {
 				// Starting a code block
@@ -514,8 +514,8 @@ func extractKVKeys(line string) []string {
 		content = content[2:]
 	}
 
-	// Strip label prefix (text before ï¼š or :)
-	for _, sep := range []string{"ï¼š", ": "} {
+	// Strip label prefix (text before ï¼?or :)
+	for _, sep := range []string{"ï¼?, ": "} {
 		idx := strings.Index(content, sep)
 		if idx > 0 && idx < 60 && strings.Contains(content[idx+len(sep):], "=") {
 			content = content[idx+len(sep):]
@@ -523,7 +523,7 @@ func extractKVKeys(line string) []string {
 		}
 	}
 
-	normalized := strings.ReplaceAll(content, "ï¼Œ", ",")
+	normalized := strings.ReplaceAll(content, "ï¼?, ",")
 	parts := strings.Split(normalized, ",")
 
 	var keys []string

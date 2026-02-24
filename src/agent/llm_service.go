@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 type LLMService struct {

@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"vantagedata/agent"
-	"vantagedata/agent/templates"
+	"vantagics/agent"
+	"vantagics/agent/templates"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// SkillManager 定义技能管理接口
+// SkillManager 定义技能管理接�?
 type SkillManager interface {
 	GetSkills() ([]SkillInfo, error)
 	GetEnabledSkills() ([]SkillInfo, error)
@@ -52,19 +52,19 @@ func (s *SkillFacadeService) Name() string {
 	return "skill"
 }
 
-// Initialize 初始化技能门面服务
+// Initialize 初始化技能门面服�?
 func (s *SkillFacadeService) Initialize(ctx context.Context) error {
 	s.ctx = ctx
 	s.log("SkillFacadeService initialized")
 	return nil
 }
 
-// Shutdown 关闭技能门面服务
+// Shutdown 关闭技能门面服�?
 func (s *SkillFacadeService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下文
+// SetContext 设置 Wails 上下�?
 func (s *SkillFacadeService) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
@@ -101,7 +101,7 @@ func (s *SkillFacadeService) getSkillManager() *templates.SkillManager {
 
 // --- Skill Query Methods ---
 
-// GetSkills 返回所有已加载的技能
+// GetSkills 返回所有已加载的技�?
 func (s *SkillFacadeService) GetSkills() ([]SkillInfo, error) {
 	skillManager := s.getSkillManager()
 	if skillManager == nil {
@@ -131,7 +131,7 @@ func (s *SkillFacadeService) GetSkills() ([]SkillInfo, error) {
 	return result, nil
 }
 
-// GetEnabledSkills 返回仅启用的技能
+// GetEnabledSkills 返回仅启用的技�?
 func (s *SkillFacadeService) GetEnabledSkills() ([]SkillInfo, error) {
 	skillManager := s.getSkillManager()
 	if skillManager == nil {
@@ -161,7 +161,7 @@ func (s *SkillFacadeService) GetEnabledSkills() ([]SkillInfo, error) {
 	return result, nil
 }
 
-// GetSkillCategories 返回所有技能分类
+// GetSkillCategories 返回所有技能分�?
 func (s *SkillFacadeService) GetSkillCategories() ([]string, error) {
 	skillManager := s.getSkillManager()
 	if skillManager == nil {
@@ -173,7 +173,7 @@ func (s *SkillFacadeService) GetSkillCategories() ([]string, error) {
 
 // --- Skill Mutation Methods ---
 
-// EnableSkill 启用指定技能
+// EnableSkill 启用指定技�?
 func (s *SkillFacadeService) EnableSkill(skillID string) error {
 	// Check if analysis is in progress
 	if s.chatFacadeService != nil && s.chatFacadeService.HasActiveAnalysis() {
@@ -198,7 +198,7 @@ func (s *SkillFacadeService) EnableSkill(skillID string) error {
 	return skillManager.EnableSkill(skillID)
 }
 
-// DisableSkill 禁用指定技能
+// DisableSkill 禁用指定技�?
 func (s *SkillFacadeService) DisableSkill(skillID string) error {
 	// Check if analysis is in progress
 	if s.chatFacadeService != nil && s.chatFacadeService.HasActiveAnalysis() {
@@ -245,7 +245,7 @@ func (s *SkillFacadeService) DeleteSkill(skillID string) error {
 	return WrapError("skill", "DeleteSkill", fmt.Errorf("skill service not initialized"))
 }
 
-// ReloadSkills 从磁盘重新加载所有技能
+// ReloadSkills 从磁盘重新加载所有技�?
 func (s *SkillFacadeService) ReloadSkills() error {
 	skillManager := s.getSkillManager()
 	if skillManager == nil {
@@ -257,7 +257,7 @@ func (s *SkillFacadeService) ReloadSkills() error {
 
 // --- Skill Service Methods ---
 
-// ListSkills 返回所有已安装的技能（通过 agent.SkillService）
+// ListSkills 返回所有已安装的技能（通过 agent.SkillService�?
 func (s *SkillFacadeService) ListSkills() ([]agent.Skill, error) {
 	if s.skillService == nil {
 		return nil, WrapError("skill", "ListSkills", fmt.Errorf("skill service not initialized"))
@@ -265,7 +265,7 @@ func (s *SkillFacadeService) ListSkills() ([]agent.Skill, error) {
 	return s.skillService.ListSkills()
 }
 
-// InstallSkillsFromZip 从 ZIP 文件安装技能，打开文件对话框让用户选择 ZIP 文件
+// InstallSkillsFromZip �?ZIP 文件安装技能，打开文件对话框让用户选择 ZIP 文件
 func (s *SkillFacadeService) InstallSkillsFromZip() ([]string, error) {
 	if s.skillService == nil {
 		return nil, WrapError("skill", "InstallSkillsFromZip", fmt.Errorf("skill service not initialized"))

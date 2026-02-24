@@ -10,7 +10,7 @@ import (
 )
 
 // WorkingContext captures the current UI state and analysis context
-// This enables zero-redundancy prompts like "删除这些异常点" where "这些" 
+// This enables zero-redundancy prompts like "删除这些异常�? where "这些" 
 // refers to the currently visible outliers
 type WorkingContext struct {
 	SessionID        string                 `json:"session_id"`
@@ -171,7 +171,7 @@ func (ctx *WorkingContext) FormatForPrompt() string {
 		if len(ctx.ActiveChart.DataSummary.Aggregates) > 0 {
 			result += "  - Statistics:\n"
 			for metric, value := range ctx.ActiveChart.DataSummary.Aggregates {
-				result += fmt.Sprintf("    • %s: %.2f\n", metric, value)
+				result += fmt.Sprintf("    �?%s: %.2f\n", metric, value)
 			}
 		}
 		if len(ctx.ActiveChart.DataSummary.Outliers) > 0 {
@@ -181,7 +181,7 @@ func (ctx *WorkingContext) FormatForPrompt() string {
 					result += fmt.Sprintf("    ... and %d more\n", len(ctx.ActiveChart.DataSummary.Outliers)-3)
 					break
 				}
-				result += fmt.Sprintf("    • %s: %.2f\n", outlier.Label, outlier.Value)
+				result += fmt.Sprintf("    �?%s: %.2f\n", outlier.Label, outlier.Value)
 			}
 		}
 	}

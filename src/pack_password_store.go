@@ -18,7 +18,7 @@ type PackPasswordStore struct {
 }
 
 // NewPackPasswordStore creates a new store with the default file path
-// (~/.vantagedata/pack_passwords.json).
+// (~/.vantagics/pack_passwords.json).
 func NewPackPasswordStore() (*PackPasswordStore, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

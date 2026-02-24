@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 )
 
 // LicenseClient handles license activation
@@ -37,7 +37,7 @@ type LicenseClient struct {
 }
 
 const (
-	licenseEncryptionKey = "vantagedata-license-2024"
+	licenseEncryptionKey = "vantagics-license-2024"
 	licenseDataFile      = "license.dat"
 	CreditsPerAnalysis   = 1.5
 )
@@ -209,9 +209,9 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	c.lastRefreshAt = time.Now() // Update last refresh time
 	
 	if c.log != nil {
-		trustLabel := "试用版"
+		trustLabel := "试用�?
 		if data.TrustLevel == "high" {
-			trustLabel = "正式版"
+			trustLabel = "正式�?
 		}
 		c.log(fmt.Sprintf("[LICENSE] Activation successful, expires: %s, type: %s", data.ExpiresAt, trustLabel))
 	}
@@ -219,7 +219,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	return &ActivateResult{
 		Success: true,
 		Code:    "SUCCESS",
-		Message: "激活成功",
+		Message: "激活成�?,
 		Data:    &data,
 	}, nil
 }
@@ -960,7 +960,7 @@ func (c *LicenseClient) ReportUsage() error {
 		return fmt.Errorf("not activated, cannot report usage")
 	}
 
-	// 间隔守卫：非首次上报时，距上次上报不足1小时则静默跳过
+	// 间隔守卫：非首次上报时，距上次上报不�?小时则静默跳�?
 	if !lastReport.IsZero() && time.Since(lastReport) < time.Hour {
 		if c.log != nil {
 			c.log(fmt.Sprintf("[LICENSE] ReportUsage: skipped, only %v since last report", time.Since(lastReport)))
@@ -1074,7 +1074,7 @@ func (c *LicenseClient) ShouldReportNow() bool {
 		return false
 	}
 
-	// 首次上报且有消耗
+	// 首次上报且有消�?
 	if c.lastReportAt.IsZero() {
 		return c.data.UsedCredits > 0
 	}

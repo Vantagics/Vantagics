@@ -13,7 +13,7 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // GeminiChatModel implements the Eino ChatModel interface for Google Gemini
@@ -212,7 +212,7 @@ func (m *GeminiChatModel) buildRequestBody(input []*schema.Message) map[string]i
 				"name":        tool.Name,
 				"description": tool.Desc,
 			}
-			// Convert ParamsOneOf to JSON Schema â€” ParamsOneOf fields are unexported
+			// Convert ParamsOneOf to JSON Schema â€?ParamsOneOf fields are unexported
 			// so json.Marshal produces "{}" unless we call ToJSONSchema() first
 			if tool.ParamsOneOf != nil {
 				if jsonSchema, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && jsonSchema != nil {

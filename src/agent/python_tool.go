@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"vantagedata/config"
+	"vantagics/config"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -99,7 +99,7 @@ os.makedirs(FILES_DIR, exist_ok=True)
 # Save chart
 chart_path = os.path.join(FILES_DIR, 'chart.png')
 plt.savefig(chart_path, dpi=150, bbox_inches='tight')
-print(f"✅ Chart saved: {chart_path}")
+print(f"�?Chart saved: {chart_path}")
 ` + "```" + `
 
 The tool returns stdout/stderr and will automatically detect generated files.`,
@@ -138,7 +138,7 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 		if len(input) > 500 {
 			truncated = input[:500] + "... (truncated)"
 		}
-		return fmt.Sprintf("❌ Error: Invalid input format: %v\n\nInput received (first 500 chars):\n%s\n\n💡 Please provide valid JSON with a 'code' field containing Python code.", err, truncated), nil
+		return fmt.Sprintf("�?Error: Invalid input format: %v\n\nInput received (first 500 chars):\n%s\n\n💡 Please provide valid JSON with a 'code' field containing Python code.", err, truncated), nil
 	}
 
 	// Inject FILES_DIR and SESSION_DIR into the code if it contains placeholders
@@ -170,7 +170,7 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 	in.Code = code
 
 	if t.cfg.PythonPath == "" {
-		return "❌ Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil
+		return "�?Error: Python path is not configured.\n\n💡 Please set it in Settings -> Python Environment.", nil
 	}
 
 	// Don't clear old chart files - keep all files from all user requests
@@ -180,7 +180,7 @@ func (t *PythonExecutorTool) InvokableRun(ctx context.Context, input string, opt
 	// Create temp working directory
 	workDir, err := os.MkdirTemp("", "vantagics_py_*")
 	if err != nil {
-		return fmt.Sprintf("❌ Error: Failed to create work dir: %v", err), nil
+		return fmt.Sprintf("�?Error: Failed to create work dir: %v", err), nil
 	}
 	defer os.RemoveAll(workDir)
 
@@ -210,7 +210,7 @@ os.chdir(r'%s')
 # Helper function to safely access DataFrame columns with debugging
 def safe_column_access(df, col_name, row_context=""):
     if col_name not in df.columns:
-        print(f"\n❌ ERROR: Column '{col_name}' not found in DataFrame!")
+        print(f"\n�?ERROR: Column '{col_name}' not found in DataFrame!")
         print(f"📋 Available columns: {list(df.columns)}")
         if row_context:
             print(f"🔍 Context: {row_context}")
@@ -227,18 +227,18 @@ try:
 except KeyError as e:
     # Enhanced KeyError handling for DataFrame column issues
     if "'revenue_share'" in str(e) or "'revenue_share'" in traceback.format_exc():
-        print(f"\n❌ KeyError: {e}")
+        print(f"\n�?KeyError: {e}")
         print("\n💡 FIX REQUIRED: The 'revenue_share' column was not calculated.")
         print("   Add this BEFORE trying to access it:")
         print("   total_revenue = df_cat['total_revenue'].sum()")
         print("   df_cat['revenue_share'] = (df_cat['total_revenue'] / total_revenue * 100)")
         sys.exit(1)
     else:
-        print(f"\n❌ KeyError: {e}")
+        print(f"\n�?KeyError: {e}")
         print(traceback.format_exc())
         sys.exit(1)
 except Exception as e:
-    print(f"\n❌ Error: {e}")
+    print(f"\n�?Error: {e}")
     print(traceback.format_exc())
     sys.exit(1)
 `, workDir, encodedCode)
@@ -421,7 +421,7 @@ except Exception as e:
 
 	if err != nil {
 		// Return error as content so LLM can retry
-		return fmt.Sprintf("❌ Python execution failed: %v\n\n%s\n\n💡 Please fix the code and try again.", err, output), nil
+		return fmt.Sprintf("�?Python execution failed: %v\n\n%s\n\n💡 Please fix the code and try again.", err, output), nil
 	}
 
 	return output, nil

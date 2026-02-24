@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // MemoryType enum

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"vantagedata/i18n"
+	"vantagics/i18n"
 
 	"github.com/cloudwego/eino/components/model"
 )
@@ -174,8 +174,8 @@ func (e *MemoryExtractor) extractUserRules(userQuery string) []MemoryItem {
 	
 	// Look for definition patterns
 	definitionPatterns := []string{
-		"定义为", "定义成", "是指", "指的是",
-		"规则是", "规则为", "约定",
+		"定义�?, "定义�?, "是指", "指的�?,
+		"规则�?, "规则�?, "约定",
 	}
 	
 	for _, pattern := range definitionPatterns {
@@ -225,7 +225,7 @@ func (e *MemoryExtractor) isValuableFinding(line string) bool {
 	// Indicators of valuable findings
 	valueIndicators := []string{
 		"发现", "异常", "趋势", "显示",
-		"总计", "平均", "最大", "最小",
+		"总计", "平均", "最�?, "最�?,
 		"比例", "占比", "增长", "下降",
 	}
 	
@@ -242,10 +242,10 @@ func (e *MemoryExtractor) isValuableFinding(line string) bool {
 func (e *MemoryExtractor) isSuggestion(line string) bool {
 	// Patterns that indicate suggestions
 	suggestionPatterns := []string{
-		"可以分析", "可以查看", "可以进一步",
-		"建议", "推荐", "不妨", "还可以",
-		"或者", "也可以", "尝试", "考虑",
-		"如果需要", "想要", "希望",
+		"可以分析", "可以查看", "可以进一�?,
+		"建议", "推荐", "不妨", "还可�?,
+		"或�?, "也可�?, "尝试", "考虑",
+		"如果需�?, "想要", "希望",
 	}
 	
 	for _, pattern := range suggestionPatterns {

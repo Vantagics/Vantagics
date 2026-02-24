@@ -306,7 +306,7 @@ func (w *PythonWorker) execute(code string, workDir string) (string, error) {
 		return response.Output, nil
 
 	case <-time.After(120 * time.Second):
-		// Kill the hung process â€” this also unblocks the goroutine reading from stdout
+		// Kill the hung process â€?this also unblocks the goroutine reading from stdout
 		w.ready = false
 		if w.cmd.Process != nil {
 			w.cmd.Process.Kill()

@@ -11,9 +11,9 @@ import (
 // so validation checks only the necessary tables and fields, not the entire original data source.
 //
 // Rules:
-// - Missing tables in target â†’ incompatible (blocks import)
-// - Missing columns in target â†’ warning (does not block import)
-// - Extra tables/columns in target â†’ ignored
+// - Missing tables in target â†?incompatible (blocks import)
+// - Missing columns in target â†?warning (does not block import)
+// - Extra tables/columns in target â†?ignored
 func ValidateSchema(sourceSchema []PackTableSchema, targetSchema []PackTableSchema) *SchemaValidationResult {
 	result := &SchemaValidationResult{
 		SourceTableCount: len(sourceSchema),
@@ -127,7 +127,7 @@ func (a *App) collectTargetSchemaForPack(dataSourceID string, requiredTables []P
 	for _, reqTable := range requiredTables {
 		originalName, exists := availableTableMap[strings.ToLower(reqTable.TableName)]
 		if !exists {
-			// Table doesn't exist in target â€” skip it here,
+			// Table doesn't exist in target â€?skip it here,
 			// ValidateSchema will report it as missing
 			continue
 		}

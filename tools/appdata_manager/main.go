@@ -28,7 +28,7 @@ const (
 	// encryptionKey is used to derive the AES-256 key via SHA-256.
 	// This is a static key for local data protection (not for high-security secrets).
 	// Override via APPDATA_ENCRYPTION_KEY environment variable for production use.
-	defaultEncryptionKey = "vantagedata"
+	defaultEncryptionKey = "vantagics"
 	currentVersion       = "1.0"
 )
 

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"vantagedata/agent"
+	"vantagics/agent"
 )
 
 // appDataService holds the singleton instance

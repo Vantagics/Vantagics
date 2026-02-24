@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"vantagedata/i18n"
+	"vantagics/i18n"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -43,12 +43,12 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 	// 3. Check if a replay session already exists for this datasource + qap file
 	existingThread, _ := a.chatService.FindReplaySessionByQapFile(dataSourceID, filePath)
 	if existingThread != nil {
-		a.Log(fmt.Sprintf("%s Found existing replay session %s for datasource=%s, file=%s â€” re-executing", logTagExecute, existingThread.ID, dataSourceID, filePath))
+		a.Log(fmt.Sprintf("%s Found existing replay session %s for datasource=%s, file=%s â€?re-executing", logTagExecute, existingThread.ID, dataSourceID, filePath))
 		return a.ReExecuteQuickAnalysisPack(existingThread.ID)
 	}
 
 	// 4. Create a new Replay_Session thread
-	threadTitle := fmt.Sprintf("âš¡ %s (by %s)", pack.Metadata.PackName, pack.Metadata.Author)
+	threadTitle := fmt.Sprintf("âš?%s (by %s)", pack.Metadata.PackName, pack.Metadata.Author)
 	thread, err := a.CreateChatThread(dataSourceID, threadTitle)
 	if err != nil {
 		a.Log(fmt.Sprintf("%s Error creating thread: %v", logTagExecute, err))

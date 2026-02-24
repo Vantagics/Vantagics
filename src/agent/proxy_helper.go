@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	"vantagedata/config"
+	"vantagics/config"
 )
 
 // NewProxyHTTPClient creates an HTTP client with optional proxy support.

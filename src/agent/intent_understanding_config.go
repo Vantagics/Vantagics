@@ -13,10 +13,10 @@ import (
 // Validates: Requirements 7.3, 11.2
 type IntentUnderstandingConfig struct {
 	// Enabled 是否启用意图理解
-	// 当禁用时，系统将跳过意图理解流程，直接使用用户原始请求
+	// 当禁用时，系统将跳过意图理解流程，直接使用用户原始请�?
 	Enabled bool `json:"enabled"`
 
-	// MaxSuggestions 最大建议数量
+	// MaxSuggestions 最大建议数�?
 	// 控制每次生成的意图建议数量上限，默认5
 	MaxSuggestions int `json:"max_suggestions"`
 
@@ -24,12 +24,12 @@ type IntentUnderstandingConfig struct {
 	// 上下文增强时包含的最大历史分析记录数量，默认5
 	MaxHistoryRecords int `json:"max_history_records"`
 
-	// PreferenceThreshold 偏好学习阈值
+	// PreferenceThreshold 偏好学习阈�?
 	// 用户选择次数达到此阈值后才启用偏好排序，默认3
 	PreferenceThreshold int `json:"preference_threshold"`
 
-	// MaxExclusionSummary 排除摘要最大长度
-	// 排除项摘要的最大字符数，默认300
+	// MaxExclusionSummary 排除摘要最大长�?
+	// 排除项摘要的最大字符数，默�?00
 	MaxExclusionSummary int `json:"max_exclusion_summary"`
 }
 
@@ -41,8 +41,8 @@ const (
 	DefaultMaxExclusionSummary = 300
 )
 
-// NewDefaultIntentUnderstandingConfig 返回默认的意图理解配置
-// 默认情况下启用意图理解，使用推荐的参数值
+// NewDefaultIntentUnderstandingConfig 返回默认的意图理解配�?
+// 默认情况下启用意图理解，使用推荐的参数�?
 func NewDefaultIntentUnderstandingConfig() *IntentUnderstandingConfig {
 	return &IntentUnderstandingConfig{
 		Enabled:             true,
@@ -53,21 +53,21 @@ func NewDefaultIntentUnderstandingConfig() *IntentUnderstandingConfig {
 	}
 }
 
-// NewDisabledIntentUnderstandingConfig 返回禁用意图理解的配置
-// 用于向后兼容或降级场景
+// NewDisabledIntentUnderstandingConfig 返回禁用意图理解的配�?
+// 用于向后兼容或降级场�?
 func NewDisabledIntentUnderstandingConfig() *IntentUnderstandingConfig {
 	config := NewDefaultIntentUnderstandingConfig()
 	config.Enabled = false
 	return config
 }
 
-// Validate 验证配置参数的有效性
-// 如果参数无效，将其设置为默认值
+// Validate 验证配置参数的有效�?
+// 如果参数无效，将其设置为默认�?
 // 返回是否有参数被修正
 func (c *IntentUnderstandingConfig) Validate() bool {
 	modified := false
 
-	// 验证最大建议数量 (1-10)
+	// 验证最大建议数�?(1-10)
 	if c.MaxSuggestions < 1 {
 		c.MaxSuggestions = DefaultMaxSuggestions
 		modified = true
@@ -85,7 +85,7 @@ func (c *IntentUnderstandingConfig) Validate() bool {
 		modified = true
 	}
 
-	// 验证偏好学习阈值 (1-10)
+	// 验证偏好学习阈�?(1-10)
 	if c.PreferenceThreshold < 1 {
 		c.PreferenceThreshold = DefaultPreferenceThreshold
 		modified = true
@@ -94,7 +94,7 @@ func (c *IntentUnderstandingConfig) Validate() bool {
 		modified = true
 	}
 
-	// 验证排除摘要最大长度 (50-1000)
+	// 验证排除摘要最大长�?(50-1000)
 	if c.MaxExclusionSummary < 50 {
 		c.MaxExclusionSummary = DefaultMaxExclusionSummary
 		modified = true
@@ -117,7 +117,7 @@ func (c *IntentUnderstandingConfig) Clone() *IntentUnderstandingConfig {
 	}
 }
 
-// IntentUnderstandingConfigManager 配置管理器
+// IntentUnderstandingConfigManager 配置管理�?
 // 负责配置的加载、保存和线程安全访问
 type IntentUnderstandingConfigManager struct {
 	dataDir string
@@ -125,7 +125,7 @@ type IntentUnderstandingConfigManager struct {
 	mu      sync.RWMutex
 }
 
-// NewIntentUnderstandingConfigManager 创建配置管理器
+// NewIntentUnderstandingConfigManager 创建配置管理�?
 func NewIntentUnderstandingConfigManager(dataDir string) *IntentUnderstandingConfigManager {
 	manager := &IntentUnderstandingConfigManager{
 		dataDir: dataDir,
@@ -134,7 +134,7 @@ func NewIntentUnderstandingConfigManager(dataDir string) *IntentUnderstandingCon
 
 	// 尝试加载已有配置
 	if err := manager.Load(); err != nil {
-		// 加载失败时使用默认配置，不返回错误
+		// 加载失败时使用默认配置，不返回错�?
 		manager.config = NewDefaultIntentUnderstandingConfig()
 	}
 
@@ -146,7 +146,7 @@ func (m *IntentUnderstandingConfigManager) getConfigPath() string {
 	return filepath.Join(m.dataDir, "config", "intent_understanding_config.json")
 }
 
-// Load 从文件加载配置
+// Load 从文件加载配�?
 func (m *IntentUnderstandingConfigManager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -166,14 +166,14 @@ func (m *IntentUnderstandingConfigManager) Load() error {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// 验证并修正配置
+	// 验证并修正配�?
 	config.Validate()
 	m.config = &config
 
 	return nil
 }
 
-// Save 保存配置到文件
+// Save 保存配置到文�?
 func (m *IntentUnderstandingConfigManager) Save() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -181,7 +181,7 @@ func (m *IntentUnderstandingConfigManager) Save() error {
 	return m.saveInternal()
 }
 
-// saveInternal 内部保存方法（不加锁）
+// saveInternal 内部保存方法（不加锁�?
 func (m *IntentUnderstandingConfigManager) saveInternal() error {
 	path := m.getConfigPath()
 	dir := filepath.Dir(path)
@@ -203,7 +203,7 @@ func (m *IntentUnderstandingConfigManager) saveInternal() error {
 	return nil
 }
 
-// GetConfig 获取当前配置的副本
+// GetConfig 获取当前配置的副�?
 func (m *IntentUnderstandingConfigManager) GetConfig() *IntentUnderstandingConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -228,7 +228,7 @@ func (m *IntentUnderstandingConfigManager) SetConfig(config *IntentUnderstanding
 	return m.saveInternal()
 }
 
-// IsEnabled 检查意图理解是否启用
+// IsEnabled 检查意图理解是否启�?
 func (m *IntentUnderstandingConfigManager) IsEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -236,7 +236,7 @@ func (m *IntentUnderstandingConfigManager) IsEnabled() bool {
 	return m.config.Enabled
 }
 
-// SetEnabled 设置意图理解启用状态
+// SetEnabled 设置意图理解启用状�?
 func (m *IntentUnderstandingConfigManager) SetEnabled(enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

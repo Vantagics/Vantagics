@@ -160,7 +160,7 @@ func (r *RequestRouter) ShouldUseUnifiedPath(userRequest string) bool {
 // isQuickRequest checks if the request can be answered without LLM
 func (r *RequestRouter) isQuickRequest(requestLower string) bool {
 	quickPatterns := []string{
-		"现在几点", "什么时间", "今天日期", "当前时间",
+		"现在几点", "什么时�?, "今天日期", "当前时间",
 		"what time", "current time", "today's date",
 		"你好", "hello", "hi", "帮助", "help",
 	}
@@ -178,9 +178,9 @@ func (r *RequestRouter) isConsultationRequest(requestLower string) bool {
 	// First check if it's an actual analysis request (should NOT be consultation)
 	analysisIndicators := []string{
 		"分析", "统计", "查询", "计算", "对比", "趋势", "分布", "排名",
-		"销售", "订单", "客户", "产品", "收入", "利润", "数量",
+		"销�?, "订单", "客户", "产品", "收入", "利润", "数量",
 		"analyze", "query", "calculate", "compare", "trend", "distribution",
-		"图", "表", "chart", "table", "可视化", "visualization",
+		"�?, "�?, "chart", "table", "可视�?, "visualization",
 	}
 	for _, indicator := range analysisIndicators {
 		if strings.Contains(requestLower, indicator) {
@@ -190,9 +190,9 @@ func (r *RequestRouter) isConsultationRequest(requestLower string) bool {
 	
 	// Only pure consultation patterns
 	consultPatterns := []string{
-		"可以做什么分析", "分析方向", "怎么分析",
+		"可以做什么分�?, "分析方向", "怎么分析",
 		"what analysis", "how to analyze",
-		"能做什么", "应该怎么",
+		"能做什�?, "应该怎么",
 	}
 	for _, pattern := range consultPatterns {
 		if strings.Contains(requestLower, pattern) {
@@ -207,11 +207,11 @@ func (r *RequestRouter) isConsultationRequest(requestLower string) bool {
 func (r *RequestRouter) isVisualizationRequest(requestLower string) bool {
 	// Explicit visualization patterns
 	vizPatterns := []string{
-		"图", "图表", "可视化", "趋势", "分布", "对比", "排名",
+		"�?, "图表", "可视�?, "趋势", "分布", "对比", "排名",
 		"chart", "visualization", "trend", "distribution", "comparison",
-		"柱状图", "折线图", "饼图", "散点图", "热力图",
+		"柱状�?, "折线�?, "饼图", "散点�?, "热力�?,
 		"bar chart", "line chart", "pie chart", "scatter", "heatmap",
-		"画", "绘制", "展示", "显示趋势",
+		"�?, "绘制", "展示", "显示趋势",
 	}
 	for _, pattern := range vizPatterns {
 		if strings.Contains(requestLower, pattern) {
@@ -222,9 +222,9 @@ func (r *RequestRouter) isVisualizationRequest(requestLower string) bool {
 	// Implicit visualization: analysis requests that would benefit from charts
 	// These are common analysis patterns that should produce visualizations
 	implicitVizPatterns := []string{
-		"分析", "统计", "销售", "收入", "利润", "增长",
-		"top", "前", "最", "排行", "占比", "比例",
-		"按月", "按年", "按季度", "按周", "时间",
+		"分析", "统计", "销�?, "收入", "利润", "增长",
+		"top", "�?, "最", "排行", "占比", "比例",
+		"按月", "按年", "按季�?, "按周", "时间",
 		"analysis", "sales", "revenue", "growth", "monthly", "yearly",
 	}
 	matchCount := 0
@@ -240,10 +240,10 @@ func (r *RequestRouter) isVisualizationRequest(requestLower string) bool {
 // isComplexAnalysis checks if the request requires complex analysis
 func (r *RequestRouter) isComplexAnalysis(requestLower string) bool {
 	complexPatterns := []string{
-		"分析", "预测", "相关性", "回归", "聚类", "分类",
+		"分析", "预测", "相关�?, "回归", "聚类", "分类",
 		"analysis", "predict", "correlation", "regression", "cluster",
 		"rfm", "cohort", "漏斗", "funnel", "留存", "retention",
-		"同比", "环比", "增长率", "占比",
+		"同比", "环比", "增长�?, "占比",
 	}
 	for _, pattern := range complexPatterns {
 		if strings.Contains(requestLower, pattern) {
@@ -258,15 +258,15 @@ func (r *RequestRouter) isComplexAnalysis(requestLower string) bool {
 func (r *RequestRouter) isSimpleQuery(requestLower string) bool {
 	// Simple queries typically just ask for raw data without analysis
 	simplePatterns := []string{
-		"列出", "显示所有", "查看所有", "有多少条",
+		"列出", "显示所�?, "查看所�?, "有多少条",
 		"list all", "show all", "view all", "count records",
 	}
 	
 	// Keywords that indicate analysis/visualization is needed
 	analysisKeywords := []string{
-		"分析", "趋势", "对比", "图", "预测", "统计", "汇总",
-		"排名", "top", "前", "最", "占比", "比例", "增长",
-		"按", "分组", "group", "aggregate",
+		"分析", "趋势", "对比", "�?, "预测", "统计", "汇�?,
+		"排名", "top", "�?, "最", "占比", "比例", "增长",
+		"�?, "分组", "group", "aggregate",
 		"analysis", "trend", "compare", "chart", "predict", "summary",
 	}
 	
@@ -296,13 +296,13 @@ func (r *RequestRouter) isSimpleQuery(requestLower string) bool {
 func (r *RequestRouter) GetPathDescription(path ExecutionPath) string {
 	switch path {
 	case PathQuick:
-		return "快速响应（无需LLM）"
+		return "快速响应（无需LLM�?
 	case PathSQLOnly:
 		return "SQL直接查询"
 	case PathUnified:
 		return "统一Python分析"
 	case PathMultiStep:
-		return "多步骤分析"
+		return "多步骤分�?
 	case PathConsultation:
 		return "咨询建议"
 	default:
