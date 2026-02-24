@@ -133,7 +133,7 @@ func TestProperty8_TopSalesStoresSortedCorrectly(t *testing.T) {
 
 				// Insert 1-5 purchase transactions per listing
 				numTxns := rng.Intn(5) + 1
-				txnTypes := []string{"purchase", "purchase_uses", "renew_subscription"}
+				txnTypes := []string{"purchase", "purchase_uses", "renew", "download"}
 				for k := 0; k < numTxns; k++ {
 					txnType := txnTypes[rng.Intn(len(txnTypes))]
 					amount := -(float64(rng.Intn(100) + 1)) // negative amount = purchase
@@ -184,7 +184,7 @@ func TestProperty8_TopSalesStoresSortedCorrectly(t *testing.T) {
 				FROM author_storefronts s
 				JOIN pack_listings pl ON pl.user_id = s.user_id AND pl.status = 'published'
 				JOIN credits_transactions ct ON ct.listing_id = pl.id
-					AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')
+					AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew', 'download')
 				WHERE s.id = ?`, store.StorefrontID).Scan(&actualSales)
 			if err != nil {
 				t.Logf("FAIL: failed to query actual sales for store %d: %v", store.StorefrontID, err)
@@ -374,7 +374,7 @@ func TestProperty10_TopSalesProductsSortedAndPublished(t *testing.T) {
 
 		// Insert random purchase transactions for ALL listings (both published and unpublished)
 		allIDs := append(publishedIDs, unpublishedIDs...)
-		txnTypes := []string{"purchase", "purchase_uses", "renew_subscription"}
+		txnTypes := []string{"purchase", "purchase_uses", "renew", "download"}
 		for _, packID := range allIDs {
 			numTxns := rng.Intn(5) + 1
 			for j := 0; j < numTxns; j++ {
@@ -440,7 +440,7 @@ func TestProperty10_TopSalesProductsSortedAndPublished(t *testing.T) {
 				SELECT COALESCE(SUM(ABS(ct.amount)), 0)
 				FROM credits_transactions ct
 				WHERE ct.listing_id = ?
-					AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew_subscription')`,
+					AND ct.transaction_type IN ('purchase', 'purchase_uses', 'renew', 'download')`,
 				p.ListingID).Scan(&actualSales)
 			if err != nil {
 				t.Logf("FAIL: failed to query actual sales for product %d: %v", p.ListingID, err)
@@ -687,6 +687,9 @@ func TestProperty3_DownloadURLsFromSettings(t *testing.T) {
 			return false
 		}
 
+		// Invalidate homepage cache so the new settings take effect
+		globalCache.InvalidateHomepage()
+
 		req2 := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr2 := httptest.NewRecorder()
 		handleHomepage(rr2, req2)
@@ -715,6 +718,9 @@ func TestProperty3_DownloadURLsFromSettings(t *testing.T) {
 			t.Logf("FAIL: failed to clear download_url_macos: %v", err)
 			return false
 		}
+
+		// Invalidate homepage cache so the new settings take effect
+		globalCache.InvalidateHomepage()
 
 		req3 := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr3 := httptest.NewRecorder()
@@ -1245,7 +1251,7 @@ func TestProperty11_ProductCardContainsRequiredInfo(t *testing.T) {
 
 		// Create a buyer and insert purchase transactions so the product appears in top sales
 		buyerID := createTestUserWithBalance(t, 100000)
-		txnTypes := []string{"purchase", "purchase_uses", "renew_subscription"}
+		txnTypes := []string{"purchase", "purchase_uses", "renew", "download"}
 		numTxns := rng.Intn(5) + 1
 		for j := 0; j < numTxns; j++ {
 			txnType := txnTypes[rng.Intn(len(txnTypes))]
