@@ -285,7 +285,7 @@ func NewEinoService(cfg config.Config, dsService *DataSourceService, memoryServi
 	}
 
 	// Initialize Skills Manager
-	skillsDir := filepath.Join(dsService.dataCacheDir, "..", "skills") // Skills in VantageData/skills
+	skillsDir := filepath.Join(dsService.dataCacheDir, "..", "skills") // Skills in Vantagics/skills
 	skillManager := templates.NewSkillManager(skillsDir, logger)
 	if err := skillManager.LoadSkills(); err != nil {
 		if logger != nil {

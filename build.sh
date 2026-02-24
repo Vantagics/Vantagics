@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# VantageData Build Script
-# This script helps to build the VantageData application using Wails.
+# Vantagics Build Script
+# This script helps to build the Vantagics application using Wails.
 
 set -e
 
 # Project configuration
-APP_NAME="VantageData"
+APP_NAME="Vantagics"
 SRC_DIR="src"
 BUILD_DIR="dist"
 
@@ -129,8 +129,8 @@ case $COMMAND in
             export MACOSX_DEPLOYMENT_TARGET=15.10
         fi
 
-        # Copy appdata.dat to src/agent for embedding (if exists in user's VantageData directory)
-        APPDATA_SOURCE="$HOME/VantageData/appdata.dat"
+        # Copy appdata.dat to src/agent for embedding (if exists in user's Vantagics directory)
+        APPDATA_SOURCE="$HOME/Vantagics/appdata.dat"
         APPDATA_DEST="$SRC_DIR/agent/appdata.dat"
         if [ -f "$APPDATA_SOURCE" ]; then
             echo "Embedding appdata.dat from $APPDATA_SOURCE..."
@@ -190,7 +190,7 @@ EOF
             if [ -d "$APP_BUNDLE" ]; then
                 pkgbuild --component "$APP_BUNDLE" \
                          --install-location "/Applications" \
-                         --identifier "${IDENTIFIER:-com.vantagedata.app}" \
+                         --identifier "${IDENTIFIER:-com.Vantagics.app}" \
                          --scripts "$SCRIPTS_DIR" \
                          "$PKG_OUTPUT"
                 echo "--------------------------------------------------"

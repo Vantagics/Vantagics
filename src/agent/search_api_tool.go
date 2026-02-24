@@ -193,7 +193,7 @@ func (t *SearchAPITool) searchDuckDuckGo(ctx context.Context, query string, maxR
 	}
 
 	// Add User-Agent header
-	req.Header.Set("User-Agent", "VantageData/1.0")
+	req.Header.Set("User-Agent", "Vantagics/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {

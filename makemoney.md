@@ -1,12 +1,12 @@
 # 分析包销售专家指南
 
-本指南基于 VantageData 平台的 Marketplace 系统，帮助您从零开始创建、上传、销售和交付分析包。
+本指南基于 Vantagics 平台的 Marketplace 系统，帮助您从零开始创建、上传、销售和交付分析包。
 
 ---
 
 ## 一、什么是分析包
 
-分析包（Quick Analysis Pack，.qap）是 VantageData 平台的可复用数据分析模板，包含：
+分析包（Quick Analysis Pack，.qap）是 Vantagics 平台的可复用数据分析模板，包含：
 - 数据查询逻辑
 - 分析模板
 - 可视化配置
@@ -75,7 +75,7 @@ skills/
 
 ### 3.1 上传流程
 
-1. **在 VantageData 客户端中**
+1. **在 Vantagics 客户端中**
    - 打开"分析包管理"界面
    - 右键点击要分享的分析包
    - 选择"分享到市场"

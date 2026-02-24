@@ -298,6 +298,7 @@ var enUS = map[string]string{
 	"enter_email":            "Enter email address",
 	"sn_label":               "Product Serial Number (SN)",
 	"enter_sn":               "Enter product serial number",
+	"sn_hint":                "The serial number can be found in the software About dialog",
 	"new_password":           "New Password",
 	"min_6_chars":            "At least 6 characters",
 	"confirm_password":       "Confirm Password",

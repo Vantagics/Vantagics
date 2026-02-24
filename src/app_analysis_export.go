@@ -21,7 +21,7 @@ import (
 
 // AnalysisExport represents the complete export format
 type AnalysisExport struct {
-	FileType           string             `json:"file_type"`            // "VantageData_Analysis_Export"
+	FileType           string             `json:"file_type"`            // "Vantagics_Analysis_Export"
 	FormatVersion      string             `json:"format_version"`       // "2.0"
 	Description        string             `json:"description"`          // Human-readable description
 	ExportedAt         string             `json:"exported_at"`          // RFC3339 format
@@ -128,7 +128,7 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 	
 	// 5. Build export structure
 	export := AnalysisExport{
-		FileType:           "VantageData_Analysis_Export",
+		FileType:           "Vantagics_Analysis_Export",
 		FormatVersion:      "2.0",
 		Description:        i18n.T("analysis_export.description"),
 		ExportedAt:         time.Now().Format(time.RFC3339),
@@ -149,7 +149,7 @@ func (a *App) ExportAnalysisProcess(messageID string) error {
 		Title:           i18n.T("analysis_export.dialog_title"),
 		DefaultFilename: fmt.Sprintf("analysis_%s.rbi", time.Now().Format("20060102_150405")),
 		Filters: []runtime.FileFilter{
-			{DisplayName: "VantageData Analysis", Pattern: "*.rbi"},
+			{DisplayName: "Vantagics Analysis", Pattern: "*.rbi"},
 		},
 	})
 	

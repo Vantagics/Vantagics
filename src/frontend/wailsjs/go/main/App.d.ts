@@ -25,7 +25,7 @@ export function CheckLicenseActivationFailed():Promise<boolean>;
 
 export function CheckSessionNameExists(arg1:string,arg2:string,arg3:string):Promise<boolean>;
 
-export function CheckVantageDataEnvironmentExists():Promise<boolean>;
+export function CheckVantagicsEnvironmentExists():Promise<boolean>;
 
 export function CleanupLogs():Promise<void>;
 
@@ -35,7 +35,7 @@ export function ClearThreadMessages(arg1:string):Promise<void>;
 
 export function CreateChatThread(arg1:string,arg2:string):Promise<main.ChatThread>;
 
-export function CreateVantageDataEnvironment():Promise<string>;
+export function CreateVantagicsEnvironment():Promise<string>;
 
 export function DeactivateLicense():Promise<void>;
 

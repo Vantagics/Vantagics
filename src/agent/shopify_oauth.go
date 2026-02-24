@@ -286,7 +286,7 @@ func (s *ShopifyOAuthService) sendSuccessResponse(w http.ResponseWriter) {
     <div class="container">
         <div class="icon">✅</div>
         <h1>Authorization Successful!</h1>
-        <p>You can close this window and return to VantageData.</p>
+        <p>You can close this window and return to Vantagics.</p>
     </div>
     <script>setTimeout(function() { window.close(); }, 3000);</script>
 </body>

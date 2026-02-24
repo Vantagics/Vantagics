@@ -6,7 +6,7 @@ package main
 
 const (
 	// File format identifiers
-	qapFileType      = "VantageData_QuickAnalysisPack"
+	qapFileType      = "Vantagics_QuickAnalysisPack"
 	qapFormatVersion = "1.0"
 	qapSubDir        = "qap" // sub-directory under DataCacheDir for .qap files
 
@@ -33,7 +33,7 @@ const (
 // QuickAnalysisPack represents a complete quick analysis pack with metadata, schema requirements, and executable steps.
 // The pack is serialized as JSON inside a ZIP container (.qap file).
 type QuickAnalysisPack struct {
-	FileType           string            `json:"file_type"`           // "VantageData_QuickAnalysisPack"
+	FileType           string            `json:"file_type"`           // "Vantagics_QuickAnalysisPack"
 	FormatVersion      string            `json:"format_version"`      // "1.0"
 	Metadata           PackMetadata      `json:"metadata"`
 	SchemaRequirements []PackTableSchema `json:"schema_requirements"`

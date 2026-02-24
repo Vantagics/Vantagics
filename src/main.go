@@ -134,7 +134,7 @@ func loadLanguageFromConfig() string {
 	if err != nil {
 		return getSystemLanguage()
 	}
-	configPath := filepath.Join(home, "VantageData", "config.json")
+	configPath := filepath.Join(home, "Vantagics", "config.json")
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -169,7 +169,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 	newMenu := menu.NewMenu()
 	if runtime.GOOS == "darwin" {
 		// Create custom AppMenu with Settings/Preferences for macOS
-		appMenu := newMenu.AddSubmenu("VantageData")
+		appMenu := newMenu.AddSubmenu("Vantagics")
 		appMenu.AddText(texts.About, nil, func(_ *menu.CallbackData) {
 			wailsRuntime.EventsEmit(app.ctx, "open-about")
 		})
@@ -178,7 +178,7 @@ func createApplicationMenu(app *App, language string) *menu.Menu {
 			wailsRuntime.EventsEmit(app.ctx, "open-settings")
 		})
 		appMenu.AddSeparator()
-		appMenu.AddText("Hide VantageData", keys.CmdOrCtrl("h"), func(_ *menu.CallbackData) {
+		appMenu.AddText("Hide Vantagics", keys.CmdOrCtrl("h"), func(_ *menu.CallbackData) {
 			wailsRuntime.Hide(app.ctx)
 		})
 		appMenu.AddSeparator()

@@ -44,7 +44,7 @@ func NewUsageLicenseStore() (*UsageLicenseStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
-	filePath := filepath.Join(home, ".vantagedata", "marketplace_licenses.json")
+	filePath := filepath.Join(home, ".vantagics", "marketplace_licenses.json")
 	return &UsageLicenseStore{
 		filePath: filePath,
 		licenses: make(map[int64]*UsageLicense),

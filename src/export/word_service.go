@@ -34,7 +34,7 @@ func (s *WordExportService) ExportDashboardToWord(data DashboardData) ([]byte, e
 
 	doc := goword.New()
 	doc.Properties.Title = reportTitle
-	doc.Properties.Creator = "VantageData"
+	doc.Properties.Creator = "Vantagics"
 	doc.Properties.Description = i18n.T("export.doc_description")
 
 	sec := doc.AddSection()

@@ -382,7 +382,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                         )}
                         <div>
                             <h1 className="text-xl font-bold">
-                                {mode === 'select' && (t('welcome_to_vantagedata'))}
+                                {mode === 'select' && (t('welcome_to_vantagics'))}
                                 {mode === 'commercial' && (t('commercial_mode'))}
                                 {mode === 'opensource' && (t('opensource_mode'))}
                                 {mode === 'free' && (t('free_registration'))}

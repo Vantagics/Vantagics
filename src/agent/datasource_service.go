@@ -2732,12 +2732,12 @@ func (s *DataSourceService) ExportToExcel(id string, tableNames []string, output
 
 	// 4. Add metadata
 	wb.Properties.Title = target.Name
-	wb.Properties.Creator = "VantageData"
+	wb.Properties.Creator = "Vantagics"
 	wb.Properties.Description = i18n.T("datasource.export_description", target.Name)
 	wb.Properties.Subject = i18n.T("datasource.export_subject")
 	wb.Properties.Keywords = i18n.T("excel.report_keywords")
 	wb.Properties.Category = i18n.T("excel.report_category")
-	wb.Properties.LastModifiedBy = "VantageData"
+	wb.Properties.LastModifiedBy = "Vantagics"
 
 	// 5. Save to file
 	// Ensure output path has .xlsx extension

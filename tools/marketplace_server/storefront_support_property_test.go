@@ -566,11 +566,11 @@ func TestSupportSystemProperty12_LoginURLFormat(t *testing.T) {
 
 	f := func(storefrontID int64, ticket string) bool {
 		// Build the URL using the same format as handleStorefrontSupportLogin
-		url := fmt.Sprintf("https://service.vantagedata.chat/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
+		url := fmt.Sprintf("https://service.vantagics.com/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
 			ticket, storefrontID)
 
 		// Verify the URL starts with the expected base
-		expectedBase := "https://service.vantagedata.chat/auth/ticket-login?"
+		expectedBase := "https://service.vantagics.com/auth/ticket-login?"
 		if !strings.HasPrefix(url, expectedBase) {
 			t.Logf("FAIL: URL does not start with expected base. URL=%s", url)
 			return false

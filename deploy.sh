@@ -76,9 +76,9 @@ esac
 rollback() {
     log "Starting rollback procedure..."
     
-    if [ -f "$PROJECT_ROOT/backup/vantagedata_backup.exe" ]; then
+    if [ -f "$PROJECT_ROOT/backup/vantagics_backup.exe" ]; then
         log "Restoring previous binary..."
-        cp "$PROJECT_ROOT/backup/vantagedata_backup.exe" "$BACKEND_DIR/vantagedata.exe"
+        cp "$PROJECT_ROOT/backup/vantagics_backup.exe" "$BACKEND_DIR/vantagics.exe"
         success "Binary restored from backup"
     else
         warning "No backup binary found"
@@ -121,8 +121,8 @@ mkdir -p "$PROJECT_ROOT/backup"
 if [ "$SKIP_BACKUP" = false ]; then
     log "Creating backup of current version..."
     
-    if [ -f "$BACKEND_DIR/vantagedata.exe" ]; then
-        cp "$BACKEND_DIR/vantagedata.exe" "$PROJECT_ROOT/backup/vantagedata_backup.exe"
+    if [ -f "$BACKEND_DIR/vantagics.exe" ]; then
+        cp "$BACKEND_DIR/vantagics.exe" "$PROJECT_ROOT/backup/vantagics_backup.exe"
         log "Binary backed up"
     fi
     
@@ -166,7 +166,7 @@ success "Frontend build completed"
 log "Building backend..."
 cd "$BACKEND_DIR"
 go mod tidy || error "Go module cleanup failed"
-go build -o vantagedata.exe || error "Backend build failed"
+go build -o vantagics.exe || error "Backend build failed"
 success "Backend build completed"
 
 # Database migration
@@ -198,14 +198,14 @@ esac
 log "Running post-deployment validation..."
 
 # Check if binary exists and is executable
-if [ ! -f "$BACKEND_DIR/vantagedata.exe" ]; then
+if [ ! -f "$BACKEND_DIR/vantagics.exe" ]; then
     error "Deployment failed - binary not found"
 fi
 
 # Test binary startup (quick test)
 log "Testing application startup..."
 cd "$BACKEND_DIR"
-timeout 10s ./vantagedata.exe --version >/dev/null 2>&1 || warning "Could not verify application startup"
+timeout 10s ./vantagics.exe --version >/dev/null 2>&1 || warning "Could not verify application startup"
 
 # Generate deployment report
 DEPLOY_REPORT="$PROJECT_ROOT/deployment_report_$(date +'%Y%m%d_%H%M%S').md"
@@ -234,7 +234,7 @@ cat > "$DEPLOY_REPORT" << EOF
 - [x] Post-deployment validation
 
 ## Files Modified
-- \`src/vantagedata.exe\` - Updated application binary
+- \`src/vantagics.exe\` - Updated application binary
 - \`src/frontend/dist/\` - Updated frontend assets
 - Database schema updated (if applicable)
 

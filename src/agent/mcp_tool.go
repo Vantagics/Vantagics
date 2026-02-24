@@ -176,7 +176,7 @@ func (t *MCPTool) InvokableRun(ctx context.Context, argumentsInJSON string, opts
 	// Set default headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "VantageData-Agent/1.0")
+	req.Header.Set("User-Agent", "Vantagics-Agent/1.0")
 
 	// Add custom headers
 	for key, value := range input.Headers {

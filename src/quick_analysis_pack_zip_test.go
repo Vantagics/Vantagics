@@ -9,7 +9,7 @@ import (
 func TestPackToZipAndUnpackRoundTrip_NoPassword(t *testing.T) {
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "test.qap")
-	original := []byte(`{"file_type":"VantageData_QuickAnalysisPack","format_version":"1.0"}`)
+	original := []byte(`{"file_type":"Vantagics_QuickAnalysisPack","format_version":"1.0"}`)
 
 	if err := PackToZip(original, zipPath, ""); err != nil {
 		t.Fatalf("PackToZip: %v", err)
@@ -28,7 +28,7 @@ func TestPackToZipAndUnpackRoundTrip_NoPassword(t *testing.T) {
 func TestPackToZipAndUnpackRoundTrip_WithPassword(t *testing.T) {
 	dir := t.TempDir()
 	zipPath := filepath.Join(dir, "test_enc.qap")
-	original := []byte(`{"file_type":"VantageData_QuickAnalysisPack","steps":[1,2,3]}`)
+	original := []byte(`{"file_type":"Vantagics_QuickAnalysisPack","steps":[1,2,3]}`)
 	password := "s3cret!"
 
 	if err := PackToZip(original, zipPath, password); err != nil {

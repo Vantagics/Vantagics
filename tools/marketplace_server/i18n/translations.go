@@ -303,6 +303,7 @@ var zhCN = map[string]string{
 	"enter_email":            "请输入邮箱地址",
 	"sn_label":               "产品序列号 (SN)",
 	"enter_sn":               "请输入产品序列号",
+	"sn_hint":                "序列号可以在软件关于对话框中找到",
 	"new_password":           "新密码",
 	"min_6_chars":            "至少6个字符",
 	"confirm_password":       "确认密码",

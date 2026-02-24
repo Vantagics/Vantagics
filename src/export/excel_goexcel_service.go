@@ -356,12 +356,12 @@ func writeSheetData(ws *gospreadsheet.Worksheet, tableData *TableData) {
 // setWorkbookMetadata sets common metadata on the workbook
 func setWorkbookMetadata(wb *gospreadsheet.Workbook, title string) {
 	wb.Properties.Title = title
-	wb.Properties.Creator = "VantageData"
+	wb.Properties.Creator = "Vantagics"
 	wb.Properties.Description = i18n.T("export.doc_description")
 	wb.Properties.Subject = i18n.T("excel.report_subject")
 	wb.Properties.Keywords = i18n.T("excel.report_keywords")
 	wb.Properties.Category = i18n.T("excel.report_category")
-	wb.Properties.LastModifiedBy = "VantageData"
+	wb.Properties.LastModifiedBy = "Vantagics"
 }
 
 // writeWorkbookToBytes serializes the workbook to xlsx bytes

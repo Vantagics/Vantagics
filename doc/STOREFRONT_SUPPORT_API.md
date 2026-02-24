@@ -1,6 +1,6 @@
 # 店铺客户支持系统 — 接口对接文档
 
-本文档描述 Marketplace Server（`market.vantagedata.chat`）与 Service Portal（`service.vantagedata.chat`）之间的接口约定。
+本文档描述 Marketplace Server（`market.vantagics.com`）与 Service Portal（`service.vantagics.com`）之间的接口约定。
 
 > `POST /api/auth/sn-login` 和 `GET /auth/ticket-login` 在上次桌面应用"客户服务"对接时已实现（详见 `doc/service_login.md`）。本次店铺支持系统复用 sn-login，仅需扩展 ticket-login 支持 `scope` 和 `store_id` 参数。
 
@@ -40,7 +40,7 @@ Service_Portal → Marketplace（查询店铺批准状态）
 **请求：**
 
 ```http
-POST https://service.vantagedata.chat/api/store-support/register
+POST https://service.vantagics.com/api/store-support/register
 Content-Type: application/json
 ```
 
@@ -96,7 +96,7 @@ Content-Type: application/json
 **请求：**
 
 ```http
-POST https://service.vantagedata.chat/api/store-support/update-welcome
+POST https://service.vantagics.com/api/store-support/update-welcome
 Content-Type: application/json
 ```
 
@@ -159,7 +159,7 @@ POST /api/auth/sn-login
 **URL 格式：**
 
 ```
-https://service.vantagedata.chat/auth/ticket-login?ticket={login_ticket}&scope=store&store_id={storefront_id}
+https://service.vantagics.com/auth/ticket-login?ticket={login_ticket}&scope=store&store_id={storefront_id}
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -188,7 +188,7 @@ https://service.vantagedata.chat/auth/ticket-login?ticket={login_ticket}&scope=s
 用户在市场的店铺主页点击客服图标时，Marketplace 调用 sn-login 获取 ticket 后，构造如下 URL：
 
 ```
-https://service.vantagedata.chat/auth/ticket-login?ticket={login_ticket}&scope=customer&store_id={storefront_id}&product={url_encoded_product_name}
+https://service.vantagics.com/auth/ticket-login?ticket={login_ticket}&scope=customer&store_id={storefront_id}&product={url_encoded_product_name}
 ```
 
 - 当 `scope=customer` 且 `store_id` 存在时，创建客户会话（普通用户角色）
@@ -208,13 +208,13 @@ Service Portal 在生成店铺支持模块前，应调用此接口验证店铺�
 **URL：**
 
 ```
-https://market.vantagedata.chat/api/storefront-support/check?storefront_id={id}
+https://market.vantagics.com/api/storefront-support/check?storefront_id={id}
 ```
 
 或
 
 ```
-https://market.vantagedata.chat/api/storefront-support/check?store_slug={slug}
+https://market.vantagics.com/api/storefront-support/check?store_slug={slug}
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
@@ -265,12 +265,12 @@ https://market.vantagedata.chat/api/storefront-support/check?store_slug={slug}
 
 ## 四、认证流程说明
 
-所有涉及 Auth_Token 的接口，token 均由 License_Server（`license.vantagedata.chat`）签发。
+所有涉及 Auth_Token 的接口，token 均由 License_Server（`license.vantagics.com`）签发。
 
 Marketplace 通过以下接口获取 Auth_Token：
 
 ```http
-POST https://license.vantagedata.chat/api/marketplace-auth
+POST https://license.vantagics.com/api/marketplace-auth
 Content-Type: application/json
 
 { "sn": "用户的序列号", "email": "用户绑定的邮箱" }
@@ -391,7 +391,7 @@ Content-Type: application/json
 ```json
 {
   "success": true,
-  "login_url": "https://service.vantagedata.chat/auth/ticket-login?ticket=xxx&scope=customer&store_id=123&product=vantagics-%E5%BA%97%E9%93%BA%E5%90%8D"
+  "login_url": "https://service.vantagics.com/auth/ticket-login?ticket=xxx&scope=customer&store_id=123&product=vantagics-%E5%BA%97%E9%93%BA%E5%90%8D"
 }
 ```
 

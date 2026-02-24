@@ -47,7 +47,7 @@ func NewMemoryService(cfg config.Config) *MemoryService {
 	dir := cfg.DataCacheDir
 	if dir == "" {
 		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, "VantageData")
+		dir = filepath.Join(home, "Vantagics")
 	}
 	
 	sessionsDir := filepath.Join(dir, "sessions")

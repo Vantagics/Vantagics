@@ -249,13 +249,13 @@
 ### 镜头20: [00:88-00:90]
 **场景**: 行动号召 + Logo
 **画面描述**:
-- 文字："立即访问 vantagedata.com"
+- 文字："立即访问 vantagics.com"
 - Logo + 域名持续显示
 - 画面渐暗
 - 保留Logo发光效果
 
 **AI提示词**:
-> Text "Visit vantagedata.com now", logo and URL displayed, screen fading to dark with glowing logo effect, final frame shot
+> Text "Visit vantagics.com now", logo and URL displayed, screen fading to dark with glowing logo effect, final frame shot
 
 ---
 

@@ -1,11 +1,11 @@
-# VantageData
+# Vantagics
 
 [![Go Version](https://img.shields.io/badge/Go-1.25.5-blue.svg)](https://golang.org/)
 [![Wails](https://img.shields.io/badge/Wails-2.11.0-green.svg)](https://wails.io/)
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://www.typescriptlang.org/)
 
-VantageData 是一款基于人工智能的桌面数据分析平台。用户通过自然语言对话即可完成数据查询、分析和可视化，无需编写 SQL 或代码。
+Vantagics 是一款基于人工智能的桌面数据分析平台。用户通过自然语言对话即可完成数据查询、分析和可视化，无需编写 SQL 或代码。
 
 ## ✨ 核心特性
 
@@ -113,7 +113,7 @@ VantageData 是一款基于人工智能的桌面数据分析平台。用户通�
 ### 核心模块
 
 ```
-VantageData/
+Vantagics/
 ├── src/                    # 后端 Go 代码
 │   ├── agent/             # AI Agent 核心逻辑
 │   ├── database/          # 数据库服务
@@ -143,8 +143,8 @@ VantageData/
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/VantageData.git
-cd VantageData/src
+git clone https://github.com/yourusername/Vantagics.git
+cd Vantagics/src
 
 # 安装前端依赖
 cd frontend
@@ -204,7 +204,7 @@ bash deploy_all.sh
 
 - 官网：[https://vantagics.com](https://vantagics.com)
 - 邮箱：support@vantagics.com
-- 问题反馈：[GitHub Issues](https://github.com/yourusername/VantageData/issues)
+- 问题反馈：[GitHub Issues](https://github.com/yourusername/Vantagics/issues)
 
 ---
 

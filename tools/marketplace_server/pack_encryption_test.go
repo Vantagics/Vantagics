@@ -257,7 +257,7 @@ func TestRepackZipWithEncryptedData_NoMetadata(t *testing.T) {
 
 func TestRepackZipWithEncryptedData_EndToEnd(t *testing.T) {
 	// Create a realistic QAP with JSON pack data
-	packJSON := []byte(`{"file_type":"VantageData_QuickAnalysisPack","metadata":{"author":"test"}}`)
+	packJSON := []byte(`{"file_type":"Vantagics_QuickAnalysisPack","metadata":{"author":"test"}}`)
 	metaJSON, _ := json.Marshal(map[string]string{"author": "test"})
 	originalZip := makeTestZip(t, packJSON, metaJSON)
 

@@ -269,8 +269,8 @@ const AdminHTML = `<!DOCTYPE html>
             <form id="service-portal-url-form" onsubmit="saveServicePortalURL(event)">
                 <div class="form-group">
                     <label for="service-portal-url">客服系统地址</label>
-                    <input type="url" id="service-portal-url" placeholder="https://service.vantagedata.chat" value="{{.ServicePortalURL}}" />
-                    <div class="form-hint">例如：https://service.vantagedata.chat</div>
+                    <input type="url" id="service-portal-url" placeholder="https://service.vantagics.com" value="{{.ServicePortalURL}}" />
+                    <div class="form-hint">例如：https://service.vantagics.com</div>
                 </div>
                 <button type="submit" class="btn btn-primary">保存设置</button>
             </form>

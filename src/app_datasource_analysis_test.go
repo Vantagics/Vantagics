@@ -14,7 +14,7 @@ import (
 // TestStartDataSourceAnalysis_InvalidDataSourceID tests with an invalid data source ID
 func TestStartDataSourceAnalysis_InvalidDataSourceID(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestStartDataSourceAnalysis_ServiceNotInitialized(t *testing.T) {
 // TestStartDataSourceAnalysis_LoadDataSourcesError tests error handling when LoadDataSources fails
 func TestStartDataSourceAnalysis_LoadDataSourcesError(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestStartDataSourceAnalysis_LoadDataSourcesError(t *testing.T) {
 // This test validates the thread ID format and uniqueness without requiring full Wails context
 func TestStartDataSourceAnalysis_ThreadIDGeneration(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}

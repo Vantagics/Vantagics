@@ -12,8 +12,8 @@ type PythonManager interface {
 	GetPythonEnvironments() []agent.PythonEnvironment
 	ValidatePython(path string) agent.PythonValidationResult
 	InstallPythonPackages(pythonPath string, packages []string) error
-	CreateVantageDataEnvironment() (string, error)
-	CheckVantageDataEnvironmentExists() bool
+	CreateVantagicsEnvironment() (string, error)
+	CheckVantagicsEnvironmentExists() bool
 	DiagnosePythonInstallation() map[string]interface{}
 }
 
@@ -96,20 +96,20 @@ func (s *PythonFacadeService) InstallPythonPackages(pythonPath string, packages 
 	return s.pythonService.InstallMissingPackages(pythonPath, packages)
 }
 
-// CreateVantageDataEnvironment 创建 VantageData 专用虚拟环境
-func (s *PythonFacadeService) CreateVantageDataEnvironment() (string, error) {
+// CreateVantagicsEnvironment 创建 Vantagics 专用虚拟环境
+func (s *PythonFacadeService) CreateVantagicsEnvironment() (string, error) {
 	if s.pythonService == nil {
-		return "", WrapError("python", "CreateVantageDataEnvironment", fmt.Errorf("python service not initialized"))
+		return "", WrapError("python", "CreateVantagicsEnvironment", fmt.Errorf("python service not initialized"))
 	}
-	return s.pythonService.CreateVantageDataEnvironment()
+	return s.pythonService.CreateVantagicsEnvironment()
 }
 
-// CheckVantageDataEnvironmentExists 检查 VantageData 环境是否已存在
-func (s *PythonFacadeService) CheckVantageDataEnvironmentExists() bool {
+// CheckVantagicsEnvironmentExists 检查 Vantagics 环境是否已存在
+func (s *PythonFacadeService) CheckVantagicsEnvironmentExists() bool {
 	if s.pythonService == nil {
 		return false
 	}
-	return s.pythonService.CheckVantageDataEnvironmentExists()
+	return s.pythonService.CheckVantagicsEnvironmentExists()
 }
 
 // DiagnosePythonInstallation 提供 Python 安装的详细诊断信息

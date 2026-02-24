@@ -1,5 +1,5 @@
 @echo off
-REM VantageData Build Script (Optimized for Multi-core)
+REM Vantagics Build Script (Optimized for Multi-core)
 
 REM Proxy settings (SOCKS5)
 set "HTTP_PROXY=socks5://127.0.0.1:10808"
@@ -21,7 +21,7 @@ if not exist "%GOCACHE%" mkdir "%GOCACHE%"
 set "SRC_DIR=src"
 set "DIST_DIR=dist"
 set "BUILD_DIR=src\build\bin"
-set "OUTPUT_NAME=vantagedata"
+set "OUTPUT_NAME=Vantagics"
 
 REM Parse command line arguments
 set "COMMAND=%~1"
@@ -123,9 +123,9 @@ if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
 )
 REM Copy NSIS installer
 if not defined SKIP_NSIS (
-    if exist "%BUILD_DIR%\VantageData-amd64-installer.exe" (
-        copy /y "%BUILD_DIR%\VantageData-amd64-installer.exe" "%DIST_DIR%\" >nul
-        echo NSIS installer copied to %DIST_DIR%\VantageData-amd64-installer.exe
+    if exist "%BUILD_DIR%\Vantagics-amd64-installer.exe" (
+        copy /y "%BUILD_DIR%\Vantagics-amd64-installer.exe" "%DIST_DIR%\" >nul
+        echo NSIS installer copied to %DIST_DIR%\Vantagics-amd64-installer.exe
     ) else (
         echo Warning: NSIS installer not found
     )

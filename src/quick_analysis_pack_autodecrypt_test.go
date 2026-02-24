@@ -62,7 +62,7 @@ func setupAutoDecryptTestApp(t *testing.T) (*App, string) {
 func createEncryptedQAP(t *testing.T, dir string, password string) string {
 	t.Helper()
 	pack := QuickAnalysisPack{
-		FileType:      "VantageData_QuickAnalysisPack",
+		FileType:      "Vantagics_QuickAnalysisPack",
 		FormatVersion: "1.0",
 		Metadata: PackMetadata{
 			Author:     "test-author",
@@ -127,8 +127,8 @@ func TestAutoDecrypt_StoredPasswordSuccess(t *testing.T) {
 	if result.Pack == nil {
 		t.Fatal("expected Pack to be non-nil after auto-decrypt")
 	}
-	if result.Pack.FileType != "VantageData_QuickAnalysisPack" {
-		t.Errorf("FileType: got %q, want %q", result.Pack.FileType, "VantageData_QuickAnalysisPack")
+	if result.Pack.FileType != "Vantagics_QuickAnalysisPack" {
+		t.Errorf("FileType: got %q, want %q", result.Pack.FileType, "Vantagics_QuickAnalysisPack")
 	}
 	if result.Pack.Metadata.Author != "test-author" {
 		t.Errorf("Author: got %q, want %q", result.Pack.Metadata.Author, "test-author")

@@ -1,15 +1,15 @@
-# VantageData 部署指南
+# Vantagics 部署指南
 
 ## 概述
 
-本文档描述如何部署 VantageData 的完整系统，包括桌面客户端、License 服务器和 Marketplace 服务器。
+本文档描述如何部署 Vantagics 的完整系统，包括桌面客户端、License 服务器和 Marketplace 服务器。
 
 ## 系统架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                                                                 │
-│                      VantageData 客户端                          │
+│                      Vantagics 客户端                          │
 │                    (Windows/macOS/Linux)                        │
 │                                                                 │
 └────────────┬────────────────────────────────┬───────────────────┘
@@ -323,7 +323,7 @@ cd src
 wails build -platform windows/amd64
 ```
 
-生成的安装包位于 `src/build/bin/VantageData.exe`。
+生成的安装包位于 `src/build/bin/Vantagics.exe`。
 
 ### macOS
 
@@ -332,7 +332,7 @@ cd src
 wails build -platform darwin/universal
 ```
 
-生成的应用位于 `src/build/bin/VantageData.app`。
+生成的应用位于 `src/build/bin/Vantagics.app`。
 
 ### Linux
 
@@ -341,7 +341,7 @@ cd src
 wails build -platform linux/amd64
 ```
 
-生成的可执行文件位于 `src/build/bin/VantageData`。
+生成的可执行文件位于 `src/build/bin/Vantagics`。
 
 ## 监控和维护
 

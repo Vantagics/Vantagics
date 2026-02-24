@@ -1,8 +1,8 @@
-# VantageData 产品功能特征文档
+# Vantagics 产品功能特征文档
 
 ## 一、产品概述
 
-VantageData 是一款基于人工智能的数据分析平台，采用现代化的桌面应用架构（Go + Wails 2.0 + React + TypeScript + Tailwind CSS），为用户提供智能化的数据探索、分析和可视化能力。目标平台包括 Windows 10/11、macOS 10.15+ 和 Linux。
+Vantagics 是一款基于人工智能的数据分析平台，采用现代化的桌面应用架构（Go + Wails 2.0 + React + TypeScript + Tailwind CSS），为用户提供智能化的数据探索、分析和可视化能力。目标平台包括 Windows 10/11、macOS 10.15+ 和 Linux。
 
 ---
 

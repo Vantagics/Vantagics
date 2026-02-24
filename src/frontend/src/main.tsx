@@ -38,7 +38,7 @@ if (!window.go) {
                     localCache: true,
                     language: 'English',
                     claudeHeaderStyle: 'Anthropic',
-                    dataCacheDir: '~/VantageData',
+                    dataCacheDir: '~/Vantagics',
                     pythonPath: ''
                 }),
                 SaveConfig: async () => {},
@@ -55,8 +55,8 @@ if (!window.go) {
                     error: ''
                 }),
                 InstallPythonPackages: async () => {},
-                CreateVantageDataEnvironment: async () => '/path/to/vantagedata/python',
-                CheckVantageDataEnvironmentExists: async () => false,
+                CreateVantagicsEnvironment: async () => '/path/to/vantagics/python',
+                CheckVantagicsEnvironmentExists: async () => false,
                 // Add other mocks as needed
             }
         }

@@ -40,7 +40,7 @@ func (a *App) PrepareImportAnalysis() (*AnalysisExport, error) {
 	filePath, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "导入分析过程",
 		Filters: []runtime.FileFilter{
-			{DisplayName: "VantageData Analysis", Pattern: "*.rbi"},
+			{DisplayName: "Vantagics Analysis", Pattern: "*.rbi"},
 		},
 	})
 	
@@ -59,9 +59,9 @@ func (a *App) PrepareImportAnalysis() (*AnalysisExport, error) {
 	}
 	
 	// Validate RBI format
-	if exportData.FileType != "VantageData_Analysis_Export" {
+	if exportData.FileType != "Vantagics_Analysis_Export" {
 		a.Log("[IMPORT] Invalid file format - missing RBI identifier")
-		return nil, fmt.Errorf("invalid file format: not a VantageData analysis export file")
+		return nil, fmt.Errorf("invalid file format: not a Vantagics analysis export file")
 	}
 	
 	a.Log(fmt.Sprintf("[IMPORT] Successfully parsed RBI file (format version %s)", exportData.FormatVersion))

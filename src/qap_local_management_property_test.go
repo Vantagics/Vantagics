@@ -79,7 +79,7 @@ func generateRandomPackForExport(r *rand.Rand) QuickAnalysisPack {
 	}
 
 	return QuickAnalysisPack{
-		FileType:           "VantageData_QuickAnalysisPack",
+		FileType:           "Vantagics_QuickAnalysisPack",
 		FormatVersion:      "1.0",
 		Metadata:           metadata,
 		SchemaRequirements: schemas,

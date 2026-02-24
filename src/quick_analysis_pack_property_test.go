@@ -31,7 +31,7 @@ func generateRandomString(r *rand.Rand, maxLen int) string {
 // generateRandomPack creates a random but valid QuickAnalysisPack for property testing.
 func generateRandomPack(r *rand.Rand) QuickAnalysisPack {
 	// Fixed valid values for constrained fields
-	fileType := "VantageData_QuickAnalysisPack"
+	fileType := "Vantagics_QuickAnalysisPack"
 	formatVersion := "1.0"
 
 	stepTypes := []string{"sql_query", "python_code"}

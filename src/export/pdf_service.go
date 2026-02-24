@@ -507,7 +507,7 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 func (s *PDFExportService) addFooter(m core.Maroto) {
 	m.AddRow(10,
 		col.New(12).Add(
-			text.New("由 VantageData 智能分析系统生成", props.Text{
+			text.New("由 Vantagics 智能分析系统生成", props.Text{
 				Family: fontfamily.Arial,
 				Size:   8,
 				Align:  align.Center,

@@ -5,13 +5,13 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "VantageData"
+    !define INFO_PROJECTNAME "Vantagics"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "VantageData"
+    !define INFO_COMPANYNAME "Vantagics"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "VantageData"
+    !define INFO_PRODUCTNAME "Vantagics"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "1.0.0"

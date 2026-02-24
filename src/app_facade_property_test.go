@@ -292,8 +292,8 @@ func errorReturningFacadeMethods() []facadeMethodCase {
 		{name: "InstallPythonPackages", serviceName: "pythonFacadeService", callFn: func(a *App) (error, interface{}) {
 			return callSafe(func() error { return a.InstallPythonPackages("/usr/bin/python3", []string{"numpy"}) })
 		}},
-		{name: "CreateVantageDataEnvironment", serviceName: "pythonFacadeService", callFn: func(a *App) (error, interface{}) {
-			return callSafe(func() error { _, e := a.CreateVantageDataEnvironment(); return e })
+		{name: "CreateVantagicsEnvironment", serviceName: "pythonFacadeService", callFn: func(a *App) (error, interface{}) {
+			return callSafe(func() error { _, e := a.CreateVantagicsEnvironment(); return e })
 		}},
 
 		// --- DashboardFacadeService ---

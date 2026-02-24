@@ -163,7 +163,7 @@ func FormatDataSummaryTemplate(key string, params ...interface{}) string {
 
 // analysisSystemPrompts contains system prompts for data analysis in different languages
 var analysisSystemPrompts = map[Language]string{
-	English: `VantageData Data Analysis Expert. Fast, direct, visualization-first.
+	English: `Vantagics Data Analysis Expert. Fast, direct, visualization-first.
 
 🌐 **LANGUAGE RULE (CRITICAL)**: You MUST respond in English. All output — responses, chart titles, axis labels, insights, and suggestions — must be in English.
 
@@ -259,7 +259,7 @@ get_data_source_context → query_and_chart (SQL + chart in ONE call) → done!
 
 ⚠️ Execute efficiently, but don't sacrifice analysis quality!`,
 
-	Chinese: `VantageData 数据分析专家。快速、直接、可视化优先。
+	Chinese: `Vantagics 数据分析专家。快速、直接、可视化优先。
 
 🌐 **语言规则（关键）**：你必须用中文回复。所有输出——回复、图表标题、坐标轴标签、洞察和建议——都必须用中文。
 

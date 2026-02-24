@@ -1258,7 +1258,7 @@ func (a *App) getStorageDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "VantageData"), nil
+	return filepath.Join(home, "Vantagics"), nil
 }
 
 func (a *App) getConfigPath() (string, error) {
@@ -1309,7 +1309,7 @@ func (a *App) autoDetectLocation(cfg *config.Config) {
 		ipLoc.City, ipLoc.Country, ipLoc.Latitude, ipLoc.Longitude))
 }
 
-// GetConfig loads the config from the ~/VantageData/config.json
+// GetConfig loads the config from the ~/Vantagics/config.json
 func (a *App) GetConfig() (config.Config, error) {
 	path, err := a.getConfigPath()
 	if err != nil {
@@ -1317,7 +1317,7 @@ func (a *App) GetConfig() (config.Config, error) {
 	}
 
 	home, _ := os.UserHomeDir()
-	defaultDataDir := filepath.Join(home, "VantageData")
+	defaultDataDir := filepath.Join(home, "Vantagics")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// Return default config if file doesn't exist
@@ -1518,7 +1518,7 @@ func (a *App) GetDeviceLocation() map[string]interface{} {
 	}
 }
 
-// SaveConfig saves the config to the ~/VantageData/config.json
+// SaveConfig saves the config to the ~/Vantagics/config.json
 func (a *App) SaveConfig(cfg config.Config) error {
 	// Migrate legacy web search configuration to new MCP services format
 	if cfg.WebSearchProvider != "" && cfg.WebSearchAPIKey != "" {
@@ -1685,7 +1685,7 @@ type LogStats struct {
 func (a *App) GetLogStats() (LogStats, error) {
 	cfg, _ := a.GetConfig()
 	
-	// Get stats from logger (vantagedata_*.log files)
+	// Get stats from logger (vantagics_*.log files)
 	totalSizeMB, logCount, archiveCount, err := a.logger.GetLogStats()
 	if err != nil {
 		// If logger not initialized, just count system.log
@@ -1732,7 +1732,7 @@ func (a *App) GetLogStats() (LogStats, error) {
 func (a *App) CleanupLogs() error {
 	a.Log("Starting manual log cleanup...")
 	
-	// Cleanup vantagedata_*.log files
+	// Cleanup vantagics_*.log files
 	err := a.logger.CleanupAllLogs()
 	if err != nil {
 		a.Log(fmt.Sprintf("Logger cleanup failed: %v", err))
@@ -2940,20 +2940,20 @@ func (a *App) InstallPythonPackages(pythonPath string, packages []string) error 
 	return a.pythonFacadeService.InstallPythonPackages(pythonPath, packages)
 }
 
-// CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
-func (a *App) CreateVantageDataEnvironment() (string, error) {
+// CreateVantagicsEnvironment creates a dedicated virtual environment for Vantagics
+func (a *App) CreateVantagicsEnvironment() (string, error) {
 	if a.pythonFacadeService == nil {
-		return "", WrapError("App", "CreateVantageDataEnvironment", fmt.Errorf("python facade service not initialized"))
+		return "", WrapError("App", "CreateVantagicsEnvironment", fmt.Errorf("python facade service not initialized"))
 	}
-	return a.pythonFacadeService.CreateVantageDataEnvironment()
+	return a.pythonFacadeService.CreateVantagicsEnvironment()
 }
 
-// CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
-func (a *App) CheckVantageDataEnvironmentExists() bool {
+// CheckVantagicsEnvironmentExists checks if a vantagics environment already exists
+func (a *App) CheckVantagicsEnvironmentExists() bool {
 	if a.pythonFacadeService == nil {
 		return false
 	}
-	return a.pythonFacadeService.CheckVantageDataEnvironmentExists()
+	return a.pythonFacadeService.CheckVantagicsEnvironmentExists()
 }
 
 // DiagnosePythonInstallation provides detailed diagnostic information about Python installations

@@ -730,7 +730,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                 value={config.dataCacheDir}
                                                 onChange={(e) => updateConfig({ dataCacheDir: e.target.value })}
                                                 className="flex-1 border border-slate-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                                                placeholder="~/VantageData"
+                                                placeholder="~/Vantagics"
                                                 autoCapitalize="none"
                                                 autoCorrect="off"
                                                 spellCheck={false}

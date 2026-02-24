@@ -1,4 +1,4 @@
-# VantageData Database & Storage Services
+# Vantagics Database & Storage Services
 
 This package contains services for managing application state, dashboard layouts, and file operations.
 

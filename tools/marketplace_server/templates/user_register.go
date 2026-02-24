@@ -68,6 +68,11 @@ const userRegisterHTML = `<!DOCTYPE html>
             background: #fff;
         }
         .form-group input::placeholder { color: #94a3b8; }
+        .field-hint {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
         .captcha-row { display: flex; gap: 10px; align-items: flex-end; }
         .captcha-row input { flex: 1; min-width: 0; }
         .captcha-img {
@@ -157,6 +162,7 @@ const userRegisterHTML = `<!DOCTYPE html>
         <div class="form-group">
             <label for="sn">{{index .T "sn_label"}}</label>
             <input type="text" id="sn" name="sn" required autocomplete="off" placeholder="{{index .T "enter_sn"}}" />
+            <div class="field-hint">{{index .T "sn_hint"}}</div>
         </div>
         <div class="form-group">
             <label for="password">{{index .T "new_password"}}</label>

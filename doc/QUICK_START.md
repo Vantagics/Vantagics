@@ -1,12 +1,12 @@
-# VantageData 快速开始指南
+# Vantagics 快速开始指南
 
-## 欢迎使用 VantageData
+## 欢迎使用 Vantagics
 
-VantageData 是一款基于人工智能的数据分析平台，让您通过自然语言对话即可完成数据查询、分析和可视化，无需编写 SQL 或代码。
+Vantagics 是一款基于人工智能的数据分析平台，让您通过自然语言对话即可完成数据查询、分析和可视化，无需编写 SQL 或代码。
 
 ## 第一步：选择授权模式
 
-首次启动 VantageData 时，您需要选择授权模式：
+首次启动 Vantagics 时，您需要选择授权模式：
 
 ### 商业模式（推荐）
 
@@ -236,14 +236,14 @@ VantageData 是一款基于人工智能的数据分析平台，让您通过自�
 
 **A**: 
 1. 运行"Python 安装诊断"
-2. 尝试"创建 VantageData 环境"
+2. 尝试"创建 Vantagics 环境"
 3. 确保已安装 Python 3.3+ 或 Anaconda
 
 ## 进阶功能
 
 ### 分析技能
 
-VantageData 内置专业分析技能：
+Vantagics 内置专业分析技能：
 
 **群组分析**：
 - 用户留存率分析

@@ -11,7 +11,7 @@ import (
 // newTestPack creates a QuickAnalysisPack with the given steps for testing.
 func newTestPack(steps []PackStep) QuickAnalysisPack {
 	return QuickAnalysisPack{
-		FileType:      "VantageData_QuickAnalysisPack",
+		FileType:      "Vantagics_QuickAnalysisPack",
 		FormatVersion: "1.0",
 		Metadata: PackMetadata{
 			Author:      "test-author",
@@ -350,7 +350,7 @@ func TestIntegration_CompletePackLifecycle(t *testing.T) {
 	if restored.Metadata.SourceName != "test_datasource" {
 		t.Errorf("SourceName: got %q, want %q", restored.Metadata.SourceName, "test_datasource")
 	}
-	if restored.FileType != "VantageData_QuickAnalysisPack" {
+	if restored.FileType != "Vantagics_QuickAnalysisPack" {
 		t.Errorf("FileType: got %q", restored.FileType)
 	}
 	if restored.FormatVersion != "1.0" {

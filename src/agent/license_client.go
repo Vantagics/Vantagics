@@ -87,7 +87,7 @@ func NewLicenseClient(log func(string)) *LicenseClient {
 	if err != nil {
 		configDir = "."
 	}
-	dataDir := filepath.Join(configDir, "VantageData")
+	dataDir := filepath.Join(configDir, "Vantagics")
 	
 	return &LicenseClient{
 		log:     log,
@@ -494,7 +494,7 @@ type RequestSNResponse struct {
 }
 // RequestFreeSN requests a permanent free serial number from the license server
 func (c *LicenseClient) RequestFreeSN(serverURL, email string) (*RequestSNResponse, error) {
-	// VantageData product_id is 0
+	// Vantagics product_id is 0
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"email":      email,
 		"product_id": 0,
@@ -533,7 +533,7 @@ func (c *LicenseClient) RequestFreeSN(serverURL, email string) (*RequestSNRespon
 
 // RequestOpenSourceSN requests an open source serial number from the license server
 func (c *LicenseClient) RequestOpenSourceSN(serverURL, email string) (*RequestSNResponse, error) {
-	// VantageData product_id is 0
+	// Vantagics product_id is 0
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"email":      email,
 		"product_id": 0,
@@ -572,7 +572,7 @@ func (c *LicenseClient) RequestOpenSourceSN(serverURL, email string) (*RequestSN
 
 // RequestSN requests a serial number from the license server
 func (c *LicenseClient) RequestSN(serverURL, email string) (*RequestSNResponse, error) {
-	// VantageData product_id is 0
+	// Vantagics product_id is 0
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"email":      email,
 		"product_id": 0,

@@ -23,7 +23,7 @@ func truncateStr(s string, maxLen int) string {
 // TestAnthropicToolUse verifies that the Anthropic proxy supports tool use.
 func TestAnthropicToolUse(t *testing.T) {
 	home, _ := os.UserHomeDir()
-	configPath := filepath.Join(home, "VantageData", "config.json")
+	configPath := filepath.Join(home, "Vantagics", "config.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("Failed to read config: %v", err)

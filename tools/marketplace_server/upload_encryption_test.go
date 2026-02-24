@@ -18,7 +18,7 @@ func createTestQAPFileWithMetadata(t *testing.T, author, description, sourceName
 	zw := zip.NewWriter(&buf)
 
 	content := map[string]interface{}{
-		"file_type":      "VantageData_QuickAnalysisPack",
+		"file_type":      "Vantagics_QuickAnalysisPack",
 		"format_version": "1.0",
 		"metadata": map[string]string{
 			"author":      author,

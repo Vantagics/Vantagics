@@ -2,7 +2,7 @@
 
 ## 概述
 
-VantageData 现已支持从 Snowflake 和 BigQuery 导入数据，为欧美市场用户提供企业级数据仓库集成能力。
+Vantagics 现已支持从 Snowflake 和 BigQuery 导入数据，为欧美市场用户提供企业级数据仓库集成能力。
 
 ## Snowflake 集成
 

@@ -42,8 +42,8 @@ export function CheckSessionNameExists(arg1, arg2, arg3) {
   return window['go']['main']['App']['CheckSessionNameExists'](arg1, arg2, arg3);
 }
 
-export function CheckVantageDataEnvironmentExists() {
-  return window['go']['main']['App']['CheckVantageDataEnvironmentExists']();
+export function CheckVantagicsEnvironmentExists() {
+  return window['go']['main']['App']['CheckVantagicsEnvironmentExists']();
 }
 
 export function CleanupLogs() {
@@ -62,8 +62,8 @@ export function CreateChatThread(arg1, arg2) {
   return window['go']['main']['App']['CreateChatThread'](arg1, arg2);
 }
 
-export function CreateVantageDataEnvironment() {
-  return window['go']['main']['App']['CreateVantageDataEnvironment']();
+export function CreateVantagicsEnvironment() {
+  return window['go']['main']['App']['CreateVantagicsEnvironment']();
 }
 
 export function DeactivateLicense() {

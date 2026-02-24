@@ -14,7 +14,7 @@
 - 使用 AES-256-GCM 加密存储敏感凭证
 - 支持多个电商平台（Shopify、WooCommerce、Magento 等）
 - 凭证以 Base64 编码存储
-- 加密密钥：`vantagedata`
+- 加密密钥：`vantagics`
 
 ## 编译
 
@@ -63,6 +63,6 @@ go build -o appdata_manager .
 ## 安全说明
 
 - 凭证使用 AES-256-GCM 加密
-- 密钥通过 SHA-256 从 "vantagedata" 派生
+- 密钥通过 SHA-256 从 "vantagics" 派生
 - 导出的 JSON 文件是未加密的，请妥善保管
 - 嵌入程序后，凭证无法在运行时修改

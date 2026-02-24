@@ -159,7 +159,7 @@ var chineseTranslations = map[string]string{
 	"export.invalid_format": "无效的导出格式",
 
 	// 导出文档内容
-	"export.doc_description":      "由 VantageData 智能分析系统生成",
+	"export.doc_description":      "由 Vantagics 智能分析系统生成",
 	"export.datasource_label":     "数据源: ",
 	"export.analysis_request":     "分析请求: ",
 	"export.key_metrics":          "关键指标",
@@ -171,7 +171,7 @@ var chineseTranslations = map[string]string{
 	"export.chart_number":         "图表 %d / %d",
 	"export.table_note":           "注：仅显示前 %d 行数据，共 %d 行",
 	"export.table_extracted":      "[表格数据已提取]",
-	"export.generated_by":         "由 VantageData 智能分析系统生成",
+	"export.generated_by":         "由 Vantagics 智能分析系统生成",
 
 	// 报告导出
 	"report.font_load_failed":       "无法加载中文字体",
@@ -199,7 +199,7 @@ var chineseTranslations = map[string]string{
 	"ppt.columns_truncated":         "（列数已截断）",
 	"ppt.thank_you":                 "感谢查阅",
 	"ppt.tagline":                   "数据驱动决策，智能赋能未来",
-	"ppt.footer_year":               "VantageData 智能分析系统 · %s",
+	"ppt.footer_year":               "Vantagics 智能分析系统 · %s",
 
 	// MCP服务
 	"mcp.service_not_found":    "MCP服务不存在",
@@ -394,7 +394,7 @@ var chineseTranslations = map[string]string{
 	"qap.step_python_success":         "✅ 步骤 %d (%s):\n\n> 📋 分析请求：%s\n\n```\n%s\n```",
 
 	// 分析导出
-	"analysis_export.description":     "VantageData 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
+	"analysis_export.description":     "Vantagics 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",
 	"analysis_export.dialog_title":    "导出分析过程",
 
 	// 仪表盘导出

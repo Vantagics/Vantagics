@@ -67,7 +67,7 @@ func (cs *ConfigService) Shutdown() error {
 	return nil
 }
 
-// GetStorageDir 返回存储目录路径（~/VantageData）
+// GetStorageDir 返回存储目录路径（~/Vantagics）
 func (cs *ConfigService) GetStorageDir() (string, error) {
 	cs.mu.RLock()
 	sd := cs.storageDir
@@ -80,7 +80,7 @@ func (cs *ConfigService) GetStorageDir() (string, error) {
 	if err != nil {
 		return "", WrapError("config", "GetStorageDir", err)
 	}
-	return filepath.Join(home, "VantageData"), nil
+	return filepath.Join(home, "Vantagics"), nil
 }
 
 // SetStorageDir 设置自定义存储目录（主要用于测试）
@@ -107,7 +107,7 @@ func (cs *ConfigService) GetConfig() (config.Config, error) {
 	}
 
 	home, _ := os.UserHomeDir()
-	defaultDataDir := filepath.Join(home, "VantageData")
+	defaultDataDir := filepath.Join(home, "Vantagics")
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		defaultCfg := config.Config{

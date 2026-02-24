@@ -68,7 +68,7 @@ func (s *GoPPTService) ExportDashboardToPPT(data DashboardData) ([]byte, error) 
 
 	p := ppt.New()
 	p.GetDocumentProperties().Title = reportTitle
-	p.GetDocumentProperties().Creator = "VantageData"
+	p.GetDocumentProperties().Creator = "Vantagics"
 
 	// Add title slide
 	s.addTitleSlide(p, reportTitle, data.DataSourceName, data.UserRequest)

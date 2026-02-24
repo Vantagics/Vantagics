@@ -7,7 +7,7 @@
 v1.0.0
 
 ## 作者
-VantageData Team
+Vantagics Team
 
 ## 分类
 sales_analytics

@@ -2,7 +2,7 @@
 
 ## 背景
 
-VantageData 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到客服系统（service.vantagics.com）。整体流程复用已有的 License 服务器 SN+Email 认证机制。
+Vantagics 桌面应用的"客户服务"按钮需要实现一键 SSO 登录到客服系统（service.vantagics.com）。整体流程复用已有的 License 服务器 SN+Email 认证机制。
 
 当前问题：service.vantagics.com 上的服务对 `/api/auth/sn-login` 请求返回了前端 SPA 的 HTML 页面，而非 JSON，导致客户端报错 `service portal returned HTML instead of JSON`。
 

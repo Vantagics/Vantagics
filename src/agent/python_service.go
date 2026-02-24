@@ -221,7 +221,7 @@ func (s *PythonService) ProbePythonEnvironments() []PythonEnvironment {
 	if s.dataCacheDir != "" {
 		uvPythonPath := s.GetUvEnvironmentPythonPath()
 		if uvPythonPath != "" {
-			addEnv(uvPythonPath, "uv (VantageData)")
+			addEnv(uvPythonPath, "uv (Vantagics)")
 		}
 	}
 
@@ -502,8 +502,8 @@ func (s *PythonService) InstallMissingPackages(pythonPath string, packages []str
 	return nil
 }
 
-// CreateVantageDataEnvironment creates a dedicated virtual environment for VantageData
-func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
+// CreateVantagicsEnvironment creates a dedicated virtual environment for Vantagics
+func (s *PythonService) CreateVantagicsEnvironment() (string, error) {
 	// Prefer uv if available and dataCacheDir is set
 	if s.dataCacheDir != "" && s.IsUvAvailable() {
 		return s.SetupUvEnvironment()
@@ -528,8 +528,8 @@ func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
 	switch envManager {
 	case "conda":
 		// Create conda environment
-		venvPath = "vantagedata" // conda env name
-		cmd := exec.Command("conda", "create", "-n", "vantagedata", "python", "-y")
+		venvPath = "vantagics" // conda env name
+		cmd := exec.Command("conda", "create", "-n", "vantagics", "python", "-y")
 		if runtime.GOOS == "windows" {
 			cmd.SysProcAttr = getSysProcAttr()
 		}
@@ -540,14 +540,14 @@ func (s *PythonService) CreateVantageDataEnvironment() (string, error) {
 		}
 
 		// Find the created environment's python path
-		pythonPath, err = s.getCondaEnvPythonPath("vantagedata")
+		pythonPath, err = s.getCondaEnvPythonPath("vantagics")
 		if err != nil {
 			return "", fmt.Errorf("failed to locate created conda environment: %v", err)
 		}
 
 	case "venv":
 		// Create venv environment
-		venvPath = filepath.Join(home, ".vantagedata-venv")
+		venvPath = filepath.Join(home, ".vantagics-venv")
 		cmd := exec.Command(basePython, "-m", "venv", venvPath)
 		if runtime.GOOS == "windows" {
 			cmd.SysProcAttr = getSysProcAttr()
@@ -729,7 +729,7 @@ func (s *PythonService) findBestPythonForVenv() (string, string, error) {
 	errorMsg += "3. **Verify installation**\n"
 	errorMsg += "   - Open terminal and try: python --version\n"
 	errorMsg += "   - Try: python -m venv --help\n\n"
-	errorMsg += "After installation, restart VantageData and try again."
+	errorMsg += "After installation, restart Vantagics and try again."
 
 	return "", "", fmt.Errorf("%s", errorMsg)
 }
@@ -995,8 +995,8 @@ func (s *PythonService) cleanupFailedEnvironment(envManager, envPath string) {
 	}
 }
 
-// CheckVantageDataEnvironmentExists checks if a vantagedata environment already exists
-func (s *PythonService) CheckVantageDataEnvironmentExists() bool {
+// CheckVantagicsEnvironmentExists checks if a vantagics environment already exists
+func (s *PythonService) CheckVantagicsEnvironmentExists() bool {
 	// Check uv environment first
 	if s.IsUvEnvironmentReady() {
 		return true
@@ -1004,7 +1004,7 @@ func (s *PythonService) CheckVantageDataEnvironmentExists() bool {
 	// Fallback: check legacy environments
 	envs := s.ProbePythonEnvironments()
 	for _, env := range envs {
-		if strings.Contains(strings.ToLower(env.Type), "vantagedata") {
+		if strings.Contains(strings.ToLower(env.Type), "vantagics") {
 			return true
 		}
 	}

@@ -48,7 +48,7 @@ const mockPackInfo = {
 
 const makePackResult = (overrides: any = {}) => ({
     pack: {
-        file_type: 'VantageData_QuickAnalysisPack',
+        file_type: 'Vantagics_QuickAnalysisPack',
         format_version: '1.0',
         metadata: {
             author: 'Alice',

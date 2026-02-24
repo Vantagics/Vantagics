@@ -321,17 +321,17 @@
 ### Shot 20: [00:88-00:90]
 **Scene**: Call to action + Logo
 **Visual Description**:
-- Text: "Visit vantagedata.com now"
+- Text: "Visit vantagics.com now"
 - Logo + domain continuously displayed
 - Screen gradually darkens
 - Logo glow effect preserved
 
 **AI Prompt**:
-> Text "Visit vantagedata.com now", logo and URL displayed, screen fading to dark with glowing logo effect, final frame shot
+> Text "Visit vantagics.com now", logo and URL displayed, screen fading to dark with glowing logo effect, final frame shot
 
 **Voiceover**:
 > "Start your data journey today."
-> "Vantagedata.com"
+> "vantagics.com"
 
 ---
 
@@ -387,7 +387,7 @@
 | 00:83 | Experts earn. Users save. |
 | 00:85 | That's the Vantagics promise. |
 | 00:89 | Start your data journey today. |
-| 00:90 | Vantagedata.com |
+| 00:90 | vantagics.com |
 
 ---
 

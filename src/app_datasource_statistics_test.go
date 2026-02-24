@@ -12,7 +12,7 @@ import (
 // TestGetDataSourceStatistics_EmptyList tests with no data sources
 func TestGetDataSourceStatistics_EmptyList(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestGetDataSourceStatistics_EmptyList(t *testing.T) {
 // TestGetDataSourceStatistics_SingleDataSource tests with one data source
 func TestGetDataSourceStatistics_SingleDataSource(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGetDataSourceStatistics_SingleDataSource(t *testing.T) {
 // TestGetDataSourceStatistics_MultipleSameType tests with multiple data sources of same type
 func TestGetDataSourceStatistics_MultipleSameType(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestGetDataSourceStatistics_MultipleSameType(t *testing.T) {
 // TestGetDataSourceStatistics_MultipleDifferentTypes tests with multiple data sources of different types
 func TestGetDataSourceStatistics_MultipleDifferentTypes(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestGetDataSourceStatistics_ServiceNotInitialized(t *testing.T) {
 // TestGetDataSourceStatistics_LoadDataSourcesError tests error handling when LoadDataSources fails
 func TestGetDataSourceStatistics_LoadDataSourcesError(t *testing.T) {
 	// Create temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "vantagedata-test-*")
+	tmpDir, err := os.MkdirTemp("", "vantagics_test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}

@@ -24,7 +24,7 @@ func NewPackPasswordStore() (*PackPasswordStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
-	fp := filepath.Join(home, ".vantagedata", "pack_passwords.json")
+	fp := filepath.Join(home, ".vantagics", "pack_passwords.json")
 	return &PackPasswordStore{
 		filePath:  fp,
 		passwords: make(map[string]string),

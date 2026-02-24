@@ -474,7 +474,7 @@ const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
 
                     {/* Copyright */}
                     <p className="text-center text-xs text-slate-400 pt-1">
-                        © 2026 VantageData
+                        © 2026 Vantagics
                     </p>
 
                     {/* Website Link */}

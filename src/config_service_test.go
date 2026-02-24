@@ -62,7 +62,7 @@ func TestConfigService_GetStorageDir_Default(t *testing.T) {
 		t.Fatalf("GetStorageDir failed: %v", err)
 	}
 	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, "VantageData")
+	expected := filepath.Join(home, "Vantagics")
 	if dir != expected {
 		t.Errorf("expected %q, got %q", expected, dir)
 	}

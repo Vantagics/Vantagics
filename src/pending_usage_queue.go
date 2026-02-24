@@ -33,7 +33,7 @@ func NewPendingUsageQueue() (*PendingUsageQueue, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
-	filePath := filepath.Join(home, ".vantagedata", "pending_usage_reports.json")
+	filePath := filepath.Join(home, ".vantagics", "pending_usage_reports.json")
 	return &PendingUsageQueue{
 		filePath: filePath,
 		records:  []PendingUsageRecord{},
