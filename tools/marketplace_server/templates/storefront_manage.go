@@ -2069,6 +2069,17 @@ function renderSectionList() {
         html += '<div class="section-item-name">' + typeIcon + ' ' + typeName + '</div>';
         html += '<div class="section-item-type">' + sec.type + '</div>';
 
+        // Hero layout setting
+        if (sec.type === 'hero') {
+            var heroLayout = (sec.settings && sec.settings.hero_layout) || 'default';
+            html += '<div style="margin-top:6px;display:flex;align-items:center;gap:6px;">';
+            html += '<span style="font-size:12px;color:#64748b;">布局:</span>';
+            html += '<select class="section-columns-select" onchange="updateHeroLayout(' + idx + ', this.value)">';
+            html += '<option value="default"' + (heroLayout === 'default' ? ' selected' : '') + '>Logo 在左，推荐在右</option>';
+            html += '<option value="reversed"' + (heroLayout === 'reversed' ? ' selected' : '') + '>推荐在左，Logo 在右</option>';
+            html += '</select></div>';
+        }
+
         // Pack grid columns setting
         if (sec.type === 'pack_grid') {
             var cols = (sec.settings && sec.settings.columns) || 2;
@@ -2149,6 +2160,12 @@ function updatePackGridColumns(idx, val) {
     if (cols < 1 || cols > 3) cols = 2;
     if (!_layoutSections[idx].settings) _layoutSections[idx].settings = {};
     _layoutSections[idx].settings.columns = cols;
+}
+
+function updateHeroLayout(idx, val) {
+    if (idx < 0 || idx >= _layoutSections.length) return;
+    if (!_layoutSections[idx].settings) _layoutSections[idx].settings = {};
+    _layoutSections[idx].settings.hero_layout = val;
 }
 
 function updateBannerText(idx, val) {

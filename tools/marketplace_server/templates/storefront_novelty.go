@@ -42,6 +42,7 @@ body::after{content:'';position:fixed;bottom:-100px;left:-60px;width:400px;heigh
 .store-hero::after{content:'';position:absolute;bottom:-60px;left:20%;width:200px;height:200px;border-radius:50%;border:1.5px solid rgba(212,180,90,0.1);pointer-events:none;}
 .hero-glow{position:absolute;top:20px;right:60px;width:180px;height:180px;border-radius:50%;background:radial-gradient(circle,rgba(212,180,90,0.15) 0%,transparent 70%);pointer-events:none;}
 .store-hero-inner{position:relative;z-index:1;display:flex;gap:36px;align-items:stretch;}
+.store-hero-inner.hero-reversed{flex-direction:row-reverse;}
 .store-profile{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-width:220px;flex-shrink:0;}
 .store-avatar-ring{width:120px;height:120px;border-radius:50%;padding:4px;margin-bottom:16px;background:linear-gradient(135deg,var(--g300),var(--g500),var(--g300));box-shadow:0 4px 20px rgba(184,148,58,0.2);}
 .store-avatar{width:100%;height:100%;border-radius:50%;overflow:hidden;background:#fff;}
@@ -126,7 +127,7 @@ const novP2 = `.store-featured{flex:1;min-width:0;display:flex;flex-direction:co
 const novP3 = `<div class="page">
 <nav class="nav"><a class="logo-link" href="/"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
 <div class="nav-actions">{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div></nav>
-<div class="store-hero"><div class="hero-glow"></div><div class="store-hero-inner">
+<div class="store-hero"><div class="hero-glow"></div><div class="store-hero-inner{{if eq .HeroLayout "reversed"}} hero-reversed{{end}}">
 <div class="store-profile"><div class="store-avatar-ring"><div class="store-avatar">{{if .Storefront.HasLogo}}<img src="/store/{{.Storefront.StoreSlug}}/logo" alt="{{.Storefront.StoreName}}">{{else}}<div class="store-avatar-letter">{{firstChar .Storefront.StoreName}}</div>{{end}}</div></div>
 <h1 class="store-name">{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}</h1>
 <p class="store-desc">{{if .Storefront.Description}}{{.Storefront.Description}}{{else}}该作者暂未设置小铺描述{{end}}</p>

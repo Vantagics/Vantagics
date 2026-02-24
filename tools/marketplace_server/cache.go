@@ -54,6 +54,7 @@ type StorefrontPublicData struct {
 	ThemeCSS        string                      // 主题样式 CSS
 	PackGridColumns int                         // 分析包网格列数
 	BannerData      map[int]CustomBannerSettings // 自定义横幅数据
+	HeroLayout      string                      // hero 区块布局: "default" 或 "reversed"
 }
 
 // PackDetailPublicData 分析包详情页公共数据（缓存对象）

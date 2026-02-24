@@ -842,6 +842,7 @@ type StorefrontPageData struct {
 	ThemeCSS            string
 	PackGridColumns     int
 	BannerData          map[int]CustomBannerSettings
+	HeroLayout          string // "default" or "reversed"
 	IsPreviewMode       bool
 	CustomProducts      []CustomProduct
 }
@@ -863,6 +864,39 @@ type StorefrontManageData struct {
 	CustomProducts         []CustomProduct // Custom products for this storefront (non-deleted)
 	DecorationFee          string // Current decoration fee setting for display
 	DecorationFeeMax       string // Maximum decoration fee limit
+	SupportStatus          string              // 支持系统状态: "none", "pending", "approved", "disabled"
+	SupportRequest         *SupportRequestInfo // 开通请求详情（如有）
+	TotalSales             float64             // 累计销售额
+	SupportThreshold       float64             // 开通门槛（10000）
+	SupportDisableReason   string              // 禁用原因（如有）
+}
+
+// SupportRequestInfo 店铺支持系统开通请求信息（用于小铺管理页面）
+type SupportRequestInfo struct {
+	ID             int64
+	StorefrontID   int64
+	SoftwareName   string
+	StoreName      string
+	WelcomeMessage string
+	Status         string
+	DisableReason  string
+	CreatedAt      string
+	ReviewedAt     string
+}
+
+// AdminSupportRequestInfo 管理后台店铺支持请求信息（含 JSON tag）
+type AdminSupportRequestInfo struct {
+	ID            int64   `json:"id"`
+	StorefrontID  int64   `json:"storefront_id"`
+	StoreName     string  `json:"store_name"`
+	Username      string  `json:"username"`
+	SoftwareName  string  `json:"software_name"`
+	TotalSales    float64 `json:"total_sales"`
+	Status        string  `json:"status"`
+	DisableReason string  `json:"disable_reason,omitempty"`
+	CreatedAt     string  `json:"created_at"`
+	ReviewedAt    string  `json:"reviewed_at,omitempty"`
+	ReviewedBy    string  `json:"reviewed_by,omitempty"`
 }
 
 // CustomProduct 自定义商品
@@ -3613,7 +3647,258 @@ func initDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to create custom_product_orders table: %w", err)
 	}
 
+	// Create storefront_support_requests table
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS storefront_support_requests (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			storefront_id INTEGER NOT NULL,
+			user_id INTEGER NOT NULL,
+			software_name TEXT NOT NULL DEFAULT 'vantagics',
+			store_name TEXT NOT NULL DEFAULT '',
+			welcome_message TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'pending',
+			reviewed_by INTEGER,
+			reviewed_at DATETIME,
+			disable_reason TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (storefront_id) REFERENCES author_storefronts(id),
+			FOREIGN KEY (user_id) REFERENCES users(id),
+			FOREIGN KEY (reviewed_by) REFERENCES admin_credentials(id)
+		)
+	`); err != nil {
+		database.Close()
+		return nil, fmt.Errorf("failed to create storefront_support_requests table: %w", err)
+	}
+	database.Exec("CREATE INDEX IF NOT EXISTS idx_support_requests_storefront ON storefront_support_requests(storefront_id)")
+	database.Exec("CREATE INDEX IF NOT EXISTS idx_support_requests_status ON storefront_support_requests(status)")
+
 	return database, nil
+}
+
+// --- Storefront Support helpers ---
+
+// computeStorefrontTotalSales computes the total sales for a storefront.
+// It queries credits_transactions for all purchase transactions related to the storefront's packs.
+// Returns the sum of absolute values of purchase amounts (which are negative in the DB).
+func computeStorefrontTotalSales(storefrontID int64) (float64, error) {
+	var totalSales float64
+	err := db.QueryRow(`
+		SELECT COALESCE(SUM(ABS(ct.amount)), 0)
+		FROM credits_transactions ct
+		JOIN pack_listings pl ON ct.listing_id = pl.id
+		JOIN storefront_packs sp ON sp.pack_listing_id = pl.id
+		WHERE sp.storefront_id = ?
+		  AND ct.transaction_type = 'purchase'
+		  AND ct.amount < 0
+	`, storefrontID).Scan(&totalSales)
+	if err != nil {
+		return 0, err
+	}
+	return totalSales, nil
+}
+
+// getStorefrontSupportStatus queries the latest support request status for a storefront.
+// Returns "none" if no record exists, otherwise returns the status ("pending"/"approved"/"disabled").
+func getStorefrontSupportStatus(storefrontID int64) (string, error) {
+	var status string
+	err := db.QueryRow(`SELECT status FROM storefront_support_requests WHERE storefront_id = ? ORDER BY id DESC LIMIT 1`, storefrontID).Scan(&status)
+	if err == sql.ErrNoRows {
+		return "none", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+// servicePortalURL returns the Service Portal base URL from environment variable.
+var servicePortalURL = func() string {
+	if u := os.Getenv("SERVICE_PORTAL_URL"); u != "" {
+		return u
+	}
+	return "https://service.vantagics.com"
+}()
+
+// handleStorefrontSupportApply handles POST /user/storefront/support/apply.
+// It validates eligibility, authenticates with License_Server, registers with Service_Portal,
+// and creates a storefront_support_requests record with status='pending'.
+func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+
+	// Step 1: Get user ID from X-User-ID header (set by userAuth middleware)
+	userIDStr := r.Header.Get("X-User-ID")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusUnauthorized, map[string]interface{}{"success": false, "error": "未登录"})
+		return
+	}
+
+	// Step 2: Query user's storefront
+	var storefrontID int64
+	var storeName, description string
+	err = db.QueryRow(
+		"SELECT id, store_name, COALESCE(description, '') FROM author_storefronts WHERE user_id = ?", userID,
+	).Scan(&storefrontID, &storeName, &description)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先创建小铺"})
+		return
+	}
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to query storefront for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	// Step 3: Verify Total_Sales >= 10000
+	totalSales, err := computeStorefrontTotalSales(storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to compute total sales for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+	if totalSales < 10000 {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "累计销售额未达到开通门槛"})
+		return
+	}
+
+	// Step 4: Check if there's already a pending/approved request
+	var existingStatus string
+	err = db.QueryRow(
+		"SELECT status FROM storefront_support_requests WHERE storefront_id = ? AND status IN ('pending', 'approved') LIMIT 1",
+		storefrontID,
+	).Scan(&existingStatus)
+	if err == nil {
+		jsonResponse(w, http.StatusConflict, map[string]interface{}{"success": false, "error": "已存在有效的开通请求"})
+		return
+	}
+	if err != sql.ErrNoRows {
+		log.Printf("[SUPPORT-APPLY] failed to check existing requests for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	// Step 5: Query user's SN (auth_id) and Email
+	var sn, email string
+	err = db.QueryRow(
+		"SELECT COALESCE(auth_id, ''), COALESCE(email, '') FROM users WHERE id = ?", userID,
+	).Scan(&sn, &email)
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to query user %d: %v", userID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+	if sn == "" || email == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
+		return
+	}
+
+	// Step 6: Get Auth_Token from License_Server
+	lsURL := getSetting("license_server_url")
+	if lsURL == "" {
+		lsURL = licenseServerURL
+	}
+	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to marshal auth request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	authURL := lsURL + "/api/marketplace-auth"
+	authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to contact license server at %s: %v", authURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
+		return
+	}
+	defer authResp.Body.Close()
+
+	authRespBody, err := io.ReadAll(authResp.Body)
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to read license server response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
+		return
+	}
+
+	var authResult struct {
+		Success bool   `json:"success"`
+		Token   string `json:"token"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+		log.Printf("[SUPPORT-APPLY] license server auth failed for user %d: resp=%s err=%v", userID, string(authRespBody), err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
+		return
+	}
+
+	// Step 7: Prepare welcome_message (use default if description is empty)
+	welcomeMessage := description
+	if welcomeMessage == "" {
+		welcomeMessage = fmt.Sprintf("欢迎来到 %s 的客户支持", storeName)
+	}
+
+	// Step 8: Send registration request to Service_Portal
+	spURL := getSetting("service_portal_url")
+	if spURL == "" {
+		spURL = servicePortalURL
+	}
+	regReqBody, err := json.Marshal(map[string]string{
+		"token":           authResult.Token,
+		"software_name":   "vantagics",
+		"store_name":      storeName,
+		"welcome_message": welcomeMessage,
+	})
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to marshal register request: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	regURL := spURL + "/api/store-support/register"
+	regResp, err := http.Post(regURL, "application/json", bytes.NewReader(regReqBody))
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to contact service portal at %s: %v", regURL, err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统注册失败，请稍后重试"})
+		return
+	}
+	defer regResp.Body.Close()
+
+	regRespBody, err := io.ReadAll(regResp.Body)
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to read service portal response: %v", err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统注册失败，请稍后重试"})
+		return
+	}
+
+	var regResult struct {
+		Success bool   `json:"success"`
+		Message string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(regRespBody, &regResult); err != nil || !regResult.Success {
+		log.Printf("[SUPPORT-APPLY] service portal registration failed for storefront %d: resp=%s err=%v", storefrontID, string(regRespBody), err)
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统注册失败，请稍后重试"})
+		return
+	}
+
+	// Step 9: Create storefront_support_requests record with status='pending'
+	_, err = db.Exec(`
+		INSERT INTO storefront_support_requests (storefront_id, user_id, software_name, store_name, welcome_message, status, created_at, updated_at)
+		VALUES (?, ?, 'vantagics', ?, ?, 'pending', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, storefrontID, userID, storeName, welcomeMessage)
+	if err != nil {
+		log.Printf("[SUPPORT-APPLY] failed to create support request for storefront %d: %v", storefrontID, err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"status":  "pending",
+	})
 }
 
 // --- Email Wallet helpers ---
@@ -4526,6 +4811,20 @@ func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*
 		}
 	}
 
+	// Extract hero layout setting (default or reversed)
+	heroLayout := "default"
+	for _, section := range layoutConfig.Sections {
+		if section.Type == "hero" && len(section.Settings) > 0 {
+			var hs struct {
+				Layout string `json:"hero_layout"`
+			}
+			if err := json.Unmarshal(section.Settings, &hs); err == nil && hs.Layout == "reversed" {
+				heroLayout = "reversed"
+			}
+			break
+		}
+	}
+
 	// Resolve theme
 	theme := "default"
 	if themeRaw.Valid && themeRaw.String != "" {
@@ -4682,6 +4981,7 @@ func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*
 		ThemeCSS:        themeCSS,
 		PackGridColumns: packGridColumns,
 		BannerData:      bannerData,
+		HeroLayout:      heroLayout,
 	}, nil
 }
 
@@ -4782,6 +5082,7 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 		ThemeCSS:           publicData.ThemeCSS,
 		PackGridColumns:    publicData.PackGridColumns,
 		BannerData:         publicData.BannerData,
+		HeroLayout:         publicData.HeroLayout,
 		IsPreviewMode:      isPreviewMode,
 		CustomProducts:     publicData.CustomProducts,
 	}

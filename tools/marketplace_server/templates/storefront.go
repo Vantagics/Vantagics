@@ -131,6 +131,9 @@ const storefrontHTML = `<!DOCTYPE html>
             position: relative; z-index: 1;
             display: flex; gap: 36px; align-items: stretch;
         }
+        .store-hero-inner.hero-reversed {
+            flex-direction: row-reverse;
+        }
         .store-profile {
             display: flex; flex-direction: column; align-items: center;
             justify-content: center; text-align: center;
@@ -554,7 +557,7 @@ const storefrontHTML = `<!DOCTYPE html>
     {{if eq $section.Type "hero"}}
     <!-- Store Hero -->
     <div class="store-hero" data-section-type="{{.Type}}">
-        <div class="store-hero-inner">
+        <div class="store-hero-inner{{if eq $.HeroLayout "reversed"}} hero-reversed{{end}}">
             <div class="store-profile">
                 <div class="store-avatar">
                     {{if $.Storefront.HasLogo}}
