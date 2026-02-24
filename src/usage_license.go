@@ -94,7 +94,7 @@ func (s *UsageLicenseStore) Save() error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(s.filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
@@ -111,7 +111,7 @@ func (s *UsageLicenseStore) Save() error {
 		return fmt.Errorf("failed to marshal license data: %w", err)
 	}
 
-	if err := os.WriteFile(s.filePath, data, 0644); err != nil {
+	if err := os.WriteFile(s.filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write license file: %w", err)
 	}
 	return nil

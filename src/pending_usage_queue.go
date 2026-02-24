@@ -73,7 +73,7 @@ func (q *PendingUsageQueue) Load() error {
 // saveLocked writes the current queue to disk. Caller must hold q.mu.
 func (q *PendingUsageQueue) saveLocked() error {
 	dir := filepath.Dir(q.filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
@@ -86,7 +86,7 @@ func (q *PendingUsageQueue) saveLocked() error {
 		return fmt.Errorf("failed to marshal pending usage data: %w", err)
 	}
 
-	if err := os.WriteFile(q.filePath, data, 0644); err != nil {
+	if err := os.WriteFile(q.filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write pending usage file: %w", err)
 	}
 	return nil

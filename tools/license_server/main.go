@@ -32,6 +32,7 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 	"license_server/templates"
 )
@@ -42,26 +43,27 @@ const (
 	defaultAdminPassword    = "sunion123"
 )
 
-// hashAdminPassword hashes a password using SHA-256 with a random salt.
-// Format: hex(salt):hex(sha256(salt+password))
+// hashAdminPassword hashes a password using bcrypt (cost 12).
+// Format: bcrypt:<bcrypt_hash>
 func hashAdminPassword(password string) string {
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		// Fallback: use timestamp-based salt (should never happen)
-		salt = []byte(fmt.Sprintf("%016x", time.Now().UnixNano()))
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		log.Fatalf("[FATAL] bcrypt.GenerateFromPassword failed: %v", err)
 	}
-	h := sha256.New()
-	h.Write(salt)
-	h.Write([]byte(password))
-	return hex.EncodeToString(salt) + ":" + hex.EncodeToString(h.Sum(nil))
+	return "bcrypt:" + string(hash)
 }
 
 // checkAdminPassword verifies a password against a stored hash.
-// Supports both salted SHA-256 (new format: hex_salt:hex_hash) and plaintext (legacy).
+// Supports bcrypt (new format: bcrypt:<hash>), salted SHA-256 (legacy: hex_salt:hex_hash), and plaintext (legacy).
 func checkAdminPassword(password, stored string) bool {
+	// New bcrypt format
+	if strings.HasPrefix(stored, "bcrypt:") {
+		hash := strings.TrimPrefix(stored, "bcrypt:")
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
+	}
+	// Legacy salted SHA-256 format
 	parts := strings.SplitN(stored, ":", 2)
 	if len(parts) == 2 && len(parts[0]) == 32 && len(parts[1]) == 64 {
-		// New salted SHA-256 format
 		salt, err := hex.DecodeString(parts[0])
 		if err != nil {
 			return false
@@ -1214,15 +1216,28 @@ func startManageServer() {
 	mux.HandleFunc("/api/email-history", authMiddleware(handleEmailHistory))
 	mux.HandleFunc("/api/email-history/", authMiddleware(handleEmailHistoryDetail))
 
+	// Wrap mux with security headers
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		if useSSL {
+			w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		}
+		mux.ServeHTTP(w, r)
+	})
+
 	addr := fmt.Sprintf(":%d", managePort)
 	if useSSL && sslCert != "" && sslKey != "" {
 		log.Printf("Management server starting on %s (HTTPS)", addr)
-		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, mux); err != nil && err != http.ErrServerClosed {
+		if err := http.ListenAndServeTLS(addr, sslCert, sslKey, handler); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Management server failed: %v", err)
 		}
 	} else {
 		log.Printf("Management server starting on %s (HTTP)", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil && err != http.ErrServerClosed {
+		if err := http.ListenAndServe(addr, handler); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Management server failed: %v", err)
 		}
 	}
@@ -2954,6 +2969,16 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !checkAdminPassword(req.OldPassword, getSetting("admin_password")) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "旧密码错误"})
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码长度不能少于6位"})
+		return
+	}
+	if len(req.NewPassword) > 72 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码长度不能超过72位"})
 		return
 	}
 	setSetting("admin_password", hashAdminPassword(req.NewPassword))
@@ -5996,6 +6021,9 @@ func handleBackupRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	
+	// Limit request body to 100MB to prevent DoS
+	r.Body = http.MaxBytesReader(w, r.Body, 100*1024*1024)
 	
 	var req struct {
 		Type string     `json:"type"` // "full" or "incremental"

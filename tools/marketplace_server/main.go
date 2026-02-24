@@ -50,6 +50,14 @@ var db *sql.DB
 // Global cache instance
 var globalCache *Cache
 
+// externalHTTPClient is a shared HTTP client with a reasonable timeout for
+// outbound requests to License Server and Service Portal. Using a shared
+// client enables connection reuse and prevents goroutine leaks from
+// requests that hang indefinitely.
+var externalHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
+
 // Session store (in-memory)
 var (
 	sessions   = make(map[string]sessionEntry) // sessionID -> entry
@@ -3709,9 +3717,8 @@ func computeStorefrontTotalSales(storefrontID int64) (float64, error) {
 		SELECT COALESCE(SUM(ABS(ct.amount)), 0)
 		FROM credits_transactions ct
 		JOIN pack_listings pl ON ct.listing_id = pl.id
-		JOIN author_storefronts ast ON ast.user_id = pl.user_id
-		WHERE ast.id = ?
-		  AND ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
+		JOIN storefront_packs sp ON sp.pack_listing_id = pl.id AND sp.storefront_id = ?
+		WHERE ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
 		  AND ct.amount < 0
 	`, storefrontID).Scan(&totalSales)
 	if err != nil {
@@ -3785,7 +3792,7 @@ func syncSupportWelcomeMessage(storefrontID int64, newDescription string) {
 	}
 
 	updateURL := spURL + "/api/store-support/update-welcome"
-	resp, err := http.Post(updateURL, "application/json", bytes.NewReader(reqBody))
+	resp, err := externalHTTPClient.Post(updateURL, "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("[SUPPORT-WELCOME-SYNC] failed to contact service portal at %s for storefront %d: %v", updateURL, storefrontID, err)
 		return
@@ -3805,6 +3812,122 @@ var servicePortalURL = func() string {
 	}
 	return "https://service.vantagics.com"
 }()
+
+// authenticateUserViaSN tries all SNs associated with the given email to obtain
+// an auth token from the License Server. Returns the token on success, or an
+// error message string on failure.
+func authenticateUserViaSN(email string, logPrefix string) (authToken string, errMsg string) {
+	var allSNs []string
+	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
+	if snErr == nil {
+		defer snRows.Close()
+		for snRows.Next() {
+			var s string
+			if snRows.Scan(&s) == nil && s != "" {
+				allSNs = append(allSNs, s)
+			}
+		}
+		if err := snRows.Err(); err != nil {
+			log.Printf("[%s] snRows iteration error: %v", logPrefix, err)
+		}
+	}
+	if len(allSNs) == 0 {
+		return "", "请先激活 License 并绑定 Email"
+	}
+
+	lsURL := getSetting("license_server_url")
+	if lsURL == "" {
+		lsURL = licenseServerURL
+	}
+	authURL := lsURL + "/api/marketplace-auth"
+
+	var lastAuthErr string
+	for _, sn := range allSNs {
+		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+		if err != nil {
+			continue
+		}
+		authResp, err := externalHTTPClient.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+		if err != nil {
+			log.Printf("[%s] failed to contact license server with SN %s: %v", logPrefix, sn, err)
+			lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			continue
+		}
+		authRespBody, err := io.ReadAll(authResp.Body)
+		authResp.Body.Close()
+		if err != nil {
+			lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			continue
+		}
+		var authResult struct {
+			Success bool   `json:"success"`
+			Token   string `json:"token"`
+			Message string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+			log.Printf("[%s] license server auth failed for SN %s: resp=%s", logPrefix, sn, string(authRespBody))
+			if authResult.Message != "" {
+				lastAuthErr = authResult.Message
+			} else {
+				lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			}
+			continue
+		}
+		log.Printf("[%s] license server auth success with SN %s", logPrefix, sn)
+		return authResult.Token, ""
+	}
+	return "", lastAuthErr
+}
+
+// getServicePortalLoginTicket obtains a login_ticket from the Service Portal
+// using the given auth token. Returns the ticket on success, or an error message.
+func getServicePortalLoginTicket(authToken, logPrefix string) (ticket string, errMsg string) {
+	spURL := getSetting("service_portal_url")
+	if spURL == "" {
+		spURL = servicePortalURL
+	}
+	loginReqBody, err := json.Marshal(map[string]string{"token": authToken})
+	if err != nil {
+		log.Printf("[%s] failed to marshal login request: %v", logPrefix, err)
+		return "", "internal_error"
+	}
+
+	loginURL := spURL + "/api/auth/sn-login"
+	loginResp, err := externalHTTPClient.Post(loginURL, "application/json", bytes.NewReader(loginReqBody))
+	if err != nil {
+		log.Printf("[%s] failed to contact service portal at %s: %v", logPrefix, loginURL, err)
+		return "", "客服系统登录失败，请稍后重试"
+	}
+	defer loginResp.Body.Close()
+
+	loginRespBody, err := io.ReadAll(loginResp.Body)
+	if err != nil {
+		log.Printf("[%s] failed to read service portal response: %v", logPrefix, err)
+		return "", "客服系统登录失败，请稍后重试"
+	}
+
+	var loginResult struct {
+		Success     bool   `json:"success"`
+		LoginTicket string `json:"login_ticket"`
+		Message     string `json:"message,omitempty"`
+	}
+	if err := json.Unmarshal(loginRespBody, &loginResult); err != nil || !loginResult.Success || loginResult.LoginTicket == "" {
+		log.Printf("[%s] service portal login failed: resp=%s err=%v", logPrefix, string(loginRespBody), err)
+		return "", "客服系统登录失败，请稍后重试"
+	}
+	return loginResult.LoginTicket, ""
+}
+
+// getUserEmailForAuth retrieves the email for the given user ID. Returns empty
+// string and an error message if not found.
+func getUserEmailForAuth(userID int64, logPrefix string) (email string, errMsg string) {
+	err := db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	if err != nil || email == "" {
+		log.Printf("[%s] failed to query email for user %d: %v", logPrefix, userID, err)
+		return "", "请先绑定 Email"
+	}
+	return email, ""
+}
 
 // handleStorefrontSupportApply handles POST /user/storefront/support/apply.
 // It validates eligibility, authenticates with License_Server, registers with Service_Portal,
@@ -3867,79 +3990,20 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 5: Query user's SN (auth_id) and Email
-	// For users with multiple SNs (sub-accounts), try all SNs for this email
-	var email string
-	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
-	if err != nil || email == "" {
-		log.Printf("[SUPPORT-APPLY] failed to query email for user %d: %v", userID, err)
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
+	// Step 5: Query user's Email and authenticate via SN
+	email, emailErr := getUserEmailForAuth(userID, "SUPPORT-APPLY")
+	if emailErr != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": emailErr})
 		return
 	}
 
-	// Collect all SNs for this email
-	var allSNs []string
-	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
-	if snErr == nil {
-		defer snRows.Close()
-		for snRows.Next() {
-			var s string
-			if snRows.Scan(&s) == nil && s != "" {
-				allSNs = append(allSNs, s)
-			}
+	authToken, authErr := authenticateUserViaSN(email, "SUPPORT-APPLY")
+	if authErr != "" {
+		if authErr == "请先激活 License 并绑定 Email" {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": authErr})
+		} else {
+			jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": authErr})
 		}
-	}
-	if len(allSNs) == 0 {
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
-		return
-	}
-
-	// Step 6: Get Auth_Token from License_Server (try all SNs for this email)
-	lsURL := getSetting("license_server_url")
-	if lsURL == "" {
-		lsURL = licenseServerURL
-	}
-	authURL := lsURL + "/api/marketplace-auth"
-
-	var authToken string
-	var lastAuthErr string
-	for _, sn := range allSNs {
-		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
-		if err != nil {
-			continue
-		}
-		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
-		if err != nil {
-			log.Printf("[SUPPORT-APPLY] failed to contact license server at %s with SN %s: %v", authURL, sn, err)
-			lastAuthErr = "认证服务暂时不可用，请稍后重试"
-			continue
-		}
-		authRespBody, err := io.ReadAll(authResp.Body)
-		authResp.Body.Close()
-		if err != nil {
-			lastAuthErr = "认证服务暂时不可用，请稍后重试"
-			continue
-		}
-		var authResult struct {
-			Success bool   `json:"success"`
-			Token   string `json:"token"`
-			Message string `json:"message,omitempty"`
-		}
-		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
-			log.Printf("[SUPPORT-APPLY] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
-			if authResult.Message != "" {
-				lastAuthErr = authResult.Message
-			} else {
-				lastAuthErr = "认证服务暂时不可用，请稍后重试"
-			}
-			continue
-		}
-		authToken = authResult.Token
-		log.Printf("[SUPPORT-APPLY] license server auth success for user %d with SN %s", userID, sn)
-		break
-	}
-	if authToken == "" {
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
 		return
 	}
 
@@ -3972,7 +4036,7 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	regURL := spURL + "/api/store-support/register"
-	regResp, err := http.Post(regURL, "application/json", bytes.NewReader(regReqBody))
+	regResp, err := externalHTTPClient.Post(regURL, "application/json", bytes.NewReader(regReqBody))
 	if err != nil {
 		log.Printf("[SUPPORT-APPLY] failed to contact service portal at %s: %v", regURL, err)
 		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统注册失败，请稍后重试"})
@@ -4058,122 +4122,37 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Query user's Email and all SNs
-	var email string
-	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
-	if err != nil || email == "" {
-		log.Printf("[SUPPORT-LOGIN] failed to query email for user %d: %v", userID, err)
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
+	// Step 4: Authenticate via SN
+	email, emailErr := getUserEmailForAuth(userID, "SUPPORT-LOGIN")
+	if emailErr != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": emailErr})
 		return
 	}
 
-	var allSNs []string
-	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
-	if snErr == nil {
-		defer snRows.Close()
-		for snRows.Next() {
-			var s string
-			if snRows.Scan(&s) == nil && s != "" {
-				allSNs = append(allSNs, s)
-			}
+	authToken, authErr := authenticateUserViaSN(email, "SUPPORT-LOGIN")
+	if authErr != "" {
+		if authErr == "请先激活 License 并绑定 Email" {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": authErr})
+		} else {
+			jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": authErr})
 		}
-	}
-	if len(allSNs) == 0 {
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
 		return
 	}
 
-	// Step 5: Get Auth_Token from License_Server (try all SNs)
-	lsURL := getSetting("license_server_url")
-	if lsURL == "" {
-		lsURL = licenseServerURL
-	}
-	authURL := lsURL + "/api/marketplace-auth"
-
-	var authToken string
-	var lastAuthErr string
-	for _, sn := range allSNs {
-		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
-		if err != nil {
-			continue
-		}
-		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
-		if err != nil {
-			log.Printf("[SUPPORT-LOGIN] failed to contact license server with SN %s: %v", sn, err)
-			lastAuthErr = "认证失败，请稍后重试"
-			continue
-		}
-		authRespBody, err := io.ReadAll(authResp.Body)
-		authResp.Body.Close()
-		if err != nil {
-			lastAuthErr = "认证失败，请稍后重试"
-			continue
-		}
-		var authResult struct {
-			Success bool   `json:"success"`
-			Token   string `json:"token"`
-			Message string `json:"message,omitempty"`
-		}
-		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
-			log.Printf("[SUPPORT-LOGIN] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
-			if authResult.Message != "" {
-				lastAuthErr = authResult.Message
-			} else {
-				lastAuthErr = "认证失败，请稍后重试"
-			}
-			continue
-		}
-		authToken = authResult.Token
-		log.Printf("[SUPPORT-LOGIN] license server auth success for user %d with SN %s", userID, sn)
-		break
-	}
-	if authToken == "" {
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
+	// Step 5: Get login_ticket from Service_Portal
+	loginTicket, ticketErr := getServicePortalLoginTicket(authToken, "SUPPORT-LOGIN")
+	if ticketErr != "" {
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": ticketErr})
 		return
 	}
 
-	// Step 6: Get login_ticket from Service_Portal
+	// Step 6: Build and return login URL
 	spURL := getSetting("service_portal_url")
 	if spURL == "" {
 		spURL = servicePortalURL
 	}
-	loginReqBody, err := json.Marshal(map[string]string{"token": authToken})
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to marshal login request: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
-		return
-	}
-
-	loginURL := spURL + "/api/auth/sn-login"
-	loginResp, err := http.Post(loginURL, "application/json", bytes.NewReader(loginReqBody))
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to contact service portal at %s: %v", loginURL, err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-	defer loginResp.Body.Close()
-
-	loginRespBody, err := io.ReadAll(loginResp.Body)
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to read service portal response: %v", err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-
-	var loginResult struct {
-		Success     bool   `json:"success"`
-		LoginTicket string `json:"login_ticket"`
-		Message     string `json:"message,omitempty"`
-	}
-	if err := json.Unmarshal(loginRespBody, &loginResult); err != nil || !loginResult.Success || loginResult.LoginTicket == "" {
-		log.Printf("[SUPPORT-LOGIN] service portal login failed for user %d: resp=%s err=%v", userID, string(loginRespBody), err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-
-	// Step 7: Build and return login URL
 	ticketLoginURL := fmt.Sprintf("%s/auth/ticket-login?ticket=%s&scope=store&store_id=%d",
-		spURL, loginResult.LoginTicket, storefrontID)
+		spURL, loginTicket, storefrontID)
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
@@ -4770,124 +4749,38 @@ func handleCustomerSupportLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 5: Get user's email and SNs for authentication
-	var email string
-	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
-	if err != nil || email == "" {
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to query email for user %d: %v", userID, err)
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
+	// Step 5: Authenticate via SN and get login ticket
+	email, emailErr := getUserEmailForAuth(userID, "CUSTOMER-SUPPORT-LOGIN")
+	if emailErr != "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": emailErr})
 		return
 	}
 
-	var allSNs []string
-	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
-	if snErr == nil {
-		defer snRows.Close()
-		for snRows.Next() {
-			var s string
-			if snRows.Scan(&s) == nil && s != "" {
-				allSNs = append(allSNs, s)
-			}
+	authToken, authErr := authenticateUserViaSN(email, "CUSTOMER-SUPPORT-LOGIN")
+	if authErr != "" {
+		if authErr == "请先激活 License 并绑定 Email" {
+			jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": authErr})
+		} else {
+			jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": authErr})
 		}
-	}
-	if len(allSNs) == 0 {
-		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
 		return
 	}
 
-	// Step 6: Get Auth_Token from License_Server
-	lsURL := getSetting("license_server_url")
-	if lsURL == "" {
-		lsURL = licenseServerURL
-	}
-	authURL := lsURL + "/api/marketplace-auth"
-
-	var authToken string
-	var lastAuthErr string
-	for _, sn := range allSNs {
-		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
-		if err != nil {
-			continue
-		}
-		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
-		if err != nil {
-			log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to contact license server with SN %s: %v", sn, err)
-			lastAuthErr = "认证失败，请稍后重试"
-			continue
-		}
-		authRespBody, err := io.ReadAll(authResp.Body)
-		authResp.Body.Close()
-		if err != nil {
-			lastAuthErr = "认证失败，请稍后重试"
-			continue
-		}
-		var authResult struct {
-			Success bool   `json:"success"`
-			Token   string `json:"token"`
-			Message string `json:"message,omitempty"`
-		}
-		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
-			log.Printf("[CUSTOMER-SUPPORT-LOGIN] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
-			if authResult.Message != "" {
-				lastAuthErr = authResult.Message
-			} else {
-				lastAuthErr = "认证失败，请稍后重试"
-			}
-			continue
-		}
-		authToken = authResult.Token
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] license server auth success for user %d with SN %s", userID, sn)
-		break
-	}
-	if authToken == "" {
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
+	loginTicket, ticketErr := getServicePortalLoginTicket(authToken, "CUSTOMER-SUPPORT-LOGIN")
+	if ticketErr != "" {
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": ticketErr})
 		return
 	}
 
-	// Step 7: Get login_ticket from Service_Portal
+	// Step 6: Build login URL with scope=customer, store_id, and product switch info
+	// Product name format: "SoftwareName-StoreName"
 	spURL := getSetting("service_portal_url")
 	if spURL == "" {
 		spURL = servicePortalURL
 	}
-	loginReqBody, err := json.Marshal(map[string]string{"token": authToken})
-	if err != nil {
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to marshal login request: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
-		return
-	}
-
-	loginURL := spURL + "/api/auth/sn-login"
-	loginResp, err := http.Post(loginURL, "application/json", bytes.NewReader(loginReqBody))
-	if err != nil {
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to contact service portal at %s: %v", loginURL, err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-	defer loginResp.Body.Close()
-
-	loginRespBody, err := io.ReadAll(loginResp.Body)
-	if err != nil {
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] failed to read service portal response: %v", err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-
-	var loginResult struct {
-		Success     bool   `json:"success"`
-		LoginTicket string `json:"login_ticket"`
-		Message     string `json:"message,omitempty"`
-	}
-	if err := json.Unmarshal(loginRespBody, &loginResult); err != nil || !loginResult.Success || loginResult.LoginTicket == "" {
-		log.Printf("[CUSTOMER-SUPPORT-LOGIN] service portal login failed for user %d: resp=%s err=%v", userID, string(loginRespBody), err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "客服系统登录失败，请稍后重试"})
-		return
-	}
-
-	// Step 8: Build login URL with scope=customer, store_id, and product switch info
-	// Product name format: "SoftwareName-StoreName"
 	productName := softwareName + "-" + storeName
 	ticketLoginURL := fmt.Sprintf("%s/auth/ticket-login?ticket=%s&scope=customer&store_id=%d&product=%s",
-		spURL, loginResult.LoginTicket, req.StorefrontID, url.QueryEscape(productName))
+		spURL, loginTicket, req.StorefrontID, url.QueryEscape(productName))
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
@@ -9310,7 +9203,7 @@ func handleUserRegister(w http.ResponseWriter, r *http.Request) {
 		lsURL = licenseServerURL
 	}
 	authURL := lsURL + "/api/marketplace-auth"
-	httpResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+	httpResp, err := externalHTTPClient.Post(authURL, "application/json", bytes.NewReader(authReqBody))
 	if err != nil {
 		log.Printf("[USER-REGISTER] failed to contact license server at %s: %v", authURL, err)
 		renderError(i18n.T(lang, "license_server_error"))
@@ -10605,7 +10498,7 @@ func handleSNLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	verifyURL := licenseServerURL + "/api/marketplace-verify"
-	httpResp, err := http.Post(verifyURL, "application/json", bytes.NewReader(verifyReqBody))
+	httpResp, err := externalHTTPClient.Post(verifyURL, "application/json", bytes.NewReader(verifyReqBody))
 	if err != nil {
 		log.Printf("Failed to contact license server at %s: %v", verifyURL, err)
 		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{
@@ -18005,6 +17898,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
 }
