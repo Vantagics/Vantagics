@@ -139,7 +139,7 @@ Marketplace 在店铺主点击"进入客服后台"时调用，获取一次性 lo
 
 ```json
 POST /api/auth/sn-login
-{ "license_token": "eyJhbGciOiJIUzI1NiIs..." }
+{ "token": "eyJhbGciOiJIUzI1NiIs..." }
 ```
 
 **响应：**
@@ -319,7 +319,7 @@ Service Portal 验证 token 时需与 License_Server 使用相同的签发密钥
 店铺主 → Marketplace: POST /user/storefront/support/apply
 Marketplace → License_Server: POST /api/marketplace-auth {sn, email}
 License_Server → Marketplace: {token}
-Marketplace → Service_Portal: POST /api/store-support/register {token, software_name, store_name, welcome_message}
+Marketplace → Service_Portal: POST /api/store-support/register {token, software_name, store_name, welcome_message, parent_product_id}
 Service_Portal → Marketplace: {success: true}
 Marketplace: 创建 storefront_support_requests 记录 (status=pending)
 ```
@@ -330,7 +330,7 @@ Marketplace: 创建 storefront_support_requests 记录 (status=pending)
 店铺主 → Marketplace: POST /user/storefront/support/login
 Marketplace → License_Server: POST /api/marketplace-auth {sn, email}
 License_Server → Marketplace: {token}
-Marketplace → Service_Portal: POST /api/auth/sn-login {license_token}  ← 已有接口
+Marketplace → Service_Portal: POST /api/auth/sn-login {token}  ← 已有接口
 Service_Portal → Marketplace: {login_ticket}
 Marketplace → 店铺主: {login_url}
 店铺主浏览器: 新标签页打开 /auth/ticket-login?ticket=xxx&scope=store&store_id=123
