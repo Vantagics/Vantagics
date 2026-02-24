@@ -3698,7 +3698,8 @@ func initDB(dbPath string) (*sql.DB, error) {
 // --- Storefront Support helpers ---
 
 // computeStorefrontTotalSales computes the total sales for a storefront.
-// It queries credits_transactions for all purchase transactions related to the storefront's packs.
+// It queries credits_transactions for all purchase-related transactions of the storefront owner's packs.
+// This includes packs sold both through the storefront and directly on the marketplace.
 // Returns the sum of absolute values of purchase amounts (which are negative in the DB).
 func computeStorefrontTotalSales(storefrontID int64) (float64, error) {
 	var totalSales float64
@@ -3706,9 +3707,9 @@ func computeStorefrontTotalSales(storefrontID int64) (float64, error) {
 		SELECT COALESCE(SUM(ABS(ct.amount)), 0)
 		FROM credits_transactions ct
 		JOIN pack_listings pl ON ct.listing_id = pl.id
-		JOIN storefront_packs sp ON sp.pack_listing_id = pl.id
-		WHERE sp.storefront_id = ?
-		  AND ct.transaction_type = 'purchase'
+		JOIN author_storefronts ast ON ast.user_id = pl.user_id
+		WHERE ast.id = ?
+		  AND ct.transaction_type IN ('purchase', 'download', 'purchase_uses', 'renew')
 		  AND ct.amount < 0
 	`, storefrontID).Scan(&totalSales)
 	if err != nil {
@@ -5835,6 +5836,7 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/user/login", http.StatusFound)
 		return
 	}
+	log.Printf("[STOREFRONT-SETTINGS] loading page for userID=%d", userID)
 
 	// Query existing storefront record for this user
 	var storefront StorefrontInfo
@@ -6052,8 +6054,12 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 
 	// Query custom_products_enabled for this storefront
 	var cpEnabled int
-	_ = db.QueryRow("SELECT COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE id = ?", storefront.ID).Scan(&cpEnabled)
+	cpErr := db.QueryRow("SELECT COALESCE(custom_products_enabled, 0) FROM author_storefronts WHERE id = ?", storefront.ID).Scan(&cpEnabled)
+	if cpErr != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to query custom_products_enabled for storefront %d: %v", storefront.ID, cpErr)
+	}
 	customProductsEnabled := cpEnabled == 1
+	log.Printf("[STOREFRONT-SETTINGS] storefront %d custom_products_enabled=%d (bool=%v)", storefront.ID, cpEnabled, customProductsEnabled)
 
 	// Query custom products (non-deleted) for this storefront if enabled
 	var customProducts []CustomProduct
@@ -8117,7 +8123,7 @@ func getAdminRole(adminID int64) string {
 }
 
 // allPermissions is the complete list of assignable permission keys.
-var allPermissions = []string{"categories", "marketplace", "accounts", "authors", "review", "settings", "customers", "sales", "notifications", "billing"}
+var allPermissions = []string{"categories", "marketplace", "accounts", "authors", "review", "settings", "customers", "sales", "notifications", "billing", "storefront_support"}
 
 // getAdminPermissions returns the permission list for the given admin ID.
 // id=1 always gets all permissions. Others get what's stored in the DB.
