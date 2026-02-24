@@ -3866,56 +3866,78 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 5: Query user's SN (auth_id) and Email
-	var sn, email string
-	err = db.QueryRow(
-		"SELECT COALESCE(auth_id, ''), COALESCE(email, '') FROM users WHERE id = ?", userID,
-	).Scan(&sn, &email)
-	if err != nil {
-		log.Printf("[SUPPORT-APPLY] failed to query user %d: %v", userID, err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+	// For users with multiple SNs (sub-accounts), try all SNs for this email
+	var email string
+	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	if err != nil || email == "" {
+		log.Printf("[SUPPORT-APPLY] failed to query email for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
 		return
 	}
-	if sn == "" || email == "" {
+
+	// Collect all SNs for this email
+	var allSNs []string
+	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
+	if snErr == nil {
+		defer snRows.Close()
+		for snRows.Next() {
+			var s string
+			if snRows.Scan(&s) == nil && s != "" {
+				allSNs = append(allSNs, s)
+			}
+		}
+	}
+	if len(allSNs) == 0 {
 		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
 		return
 	}
 
-	// Step 6: Get Auth_Token from License_Server
+	// Step 6: Get Auth_Token from License_Server (try all SNs for this email)
 	lsURL := getSetting("license_server_url")
 	if lsURL == "" {
 		lsURL = licenseServerURL
 	}
-	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
-	if err != nil {
-		log.Printf("[SUPPORT-APPLY] failed to marshal auth request: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
-		return
-	}
-
 	authURL := lsURL + "/api/marketplace-auth"
-	authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
-	if err != nil {
-		log.Printf("[SUPPORT-APPLY] failed to contact license server at %s: %v", authURL, err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
-		return
-	}
-	defer authResp.Body.Close()
 
-	authRespBody, err := io.ReadAll(authResp.Body)
-	if err != nil {
-		log.Printf("[SUPPORT-APPLY] failed to read license server response: %v", err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
-		return
+	var authToken string
+	var lastAuthErr string
+	for _, sn := range allSNs {
+		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+		if err != nil {
+			continue
+		}
+		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+		if err != nil {
+			log.Printf("[SUPPORT-APPLY] failed to contact license server at %s with SN %s: %v", authURL, sn, err)
+			lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			continue
+		}
+		authRespBody, err := io.ReadAll(authResp.Body)
+		authResp.Body.Close()
+		if err != nil {
+			lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			continue
+		}
+		var authResult struct {
+			Success bool   `json:"success"`
+			Token   string `json:"token"`
+			Message string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+			log.Printf("[SUPPORT-APPLY] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
+			if authResult.Message != "" {
+				lastAuthErr = authResult.Message
+			} else {
+				lastAuthErr = "认证服务暂时不可用，请稍后重试"
+			}
+			continue
+		}
+		authToken = authResult.Token
+		log.Printf("[SUPPORT-APPLY] license server auth success for user %d with SN %s", userID, sn)
+		break
 	}
-
-	var authResult struct {
-		Success bool   `json:"success"`
-		Token   string `json:"token"`
-		Message string `json:"message,omitempty"`
-	}
-	if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
-		log.Printf("[SUPPORT-APPLY] license server auth failed for user %d: resp=%s err=%v", userID, string(authRespBody), err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证服务暂时不可用，请稍后重试"})
+	if authToken == "" {
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
 		return
 	}
 
@@ -3931,7 +3953,7 @@ func handleStorefrontSupportApply(w http.ResponseWriter, r *http.Request) {
 		spURL = servicePortalURL
 	}
 	regReqBody, err := json.Marshal(map[string]string{
-		"token":           authResult.Token,
+		"token":           authToken,
 		"software_name":   "vantagics",
 		"store_name":      storeName,
 		"welcome_message": welcomeMessage,
@@ -4029,57 +4051,77 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Query user's SN (auth_id) and Email
-	var sn, email string
-	err = db.QueryRow(
-		"SELECT COALESCE(auth_id, ''), COALESCE(email, '') FROM users WHERE id = ?", userID,
-	).Scan(&sn, &email)
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to query user %d: %v", userID, err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
+	// Step 4: Query user's Email and all SNs
+	var email string
+	err = db.QueryRow("SELECT COALESCE(email, '') FROM users WHERE id = ?", userID).Scan(&email)
+	if err != nil || email == "" {
+		log.Printf("[SUPPORT-LOGIN] failed to query email for user %d: %v", userID, err)
+		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先绑定 Email"})
 		return
 	}
-	if sn == "" || email == "" {
+
+	var allSNs []string
+	snRows, snErr := db.Query("SELECT COALESCE(auth_id, '') FROM users WHERE email = ? AND auth_type = 'sn' AND COALESCE(auth_id, '') != ''", email)
+	if snErr == nil {
+		defer snRows.Close()
+		for snRows.Next() {
+			var s string
+			if snRows.Scan(&s) == nil && s != "" {
+				allSNs = append(allSNs, s)
+			}
+		}
+	}
+	if len(allSNs) == 0 {
 		jsonResponse(w, http.StatusBadRequest, map[string]interface{}{"success": false, "error": "请先激活 License 并绑定 Email"})
 		return
 	}
 
-	// Step 5: Get Auth_Token from License_Server
+	// Step 5: Get Auth_Token from License_Server (try all SNs)
 	lsURL := getSetting("license_server_url")
 	if lsURL == "" {
 		lsURL = licenseServerURL
 	}
-	authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to marshal auth request: %v", err)
-		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
-		return
-	}
-
 	authURL := lsURL + "/api/marketplace-auth"
-	authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to contact license server at %s: %v", authURL, err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
-		return
-	}
-	defer authResp.Body.Close()
 
-	authRespBody, err := io.ReadAll(authResp.Body)
-	if err != nil {
-		log.Printf("[SUPPORT-LOGIN] failed to read license server response: %v", err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
-		return
+	var authToken string
+	var lastAuthErr string
+	for _, sn := range allSNs {
+		authReqBody, err := json.Marshal(map[string]string{"sn": sn, "email": email})
+		if err != nil {
+			continue
+		}
+		authResp, err := http.Post(authURL, "application/json", bytes.NewReader(authReqBody))
+		if err != nil {
+			log.Printf("[SUPPORT-LOGIN] failed to contact license server with SN %s: %v", sn, err)
+			lastAuthErr = "认证失败，请稍后重试"
+			continue
+		}
+		authRespBody, err := io.ReadAll(authResp.Body)
+		authResp.Body.Close()
+		if err != nil {
+			lastAuthErr = "认证失败，请稍后重试"
+			continue
+		}
+		var authResult struct {
+			Success bool   `json:"success"`
+			Token   string `json:"token"`
+			Message string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
+			log.Printf("[SUPPORT-LOGIN] license server auth failed for user %d SN %s: resp=%s", userID, sn, string(authRespBody))
+			if authResult.Message != "" {
+				lastAuthErr = authResult.Message
+			} else {
+				lastAuthErr = "认证失败，请稍后重试"
+			}
+			continue
+		}
+		authToken = authResult.Token
+		log.Printf("[SUPPORT-LOGIN] license server auth success for user %d with SN %s", userID, sn)
+		break
 	}
-
-	var authResult struct {
-		Success bool   `json:"success"`
-		Token   string `json:"token"`
-		Message string `json:"message,omitempty"`
-	}
-	if err := json.Unmarshal(authRespBody, &authResult); err != nil || !authResult.Success || authResult.Token == "" {
-		log.Printf("[SUPPORT-LOGIN] license server auth failed for user %d: resp=%s err=%v", userID, string(authRespBody), err)
-		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": "认证失败，请稍后重试"})
+	if authToken == "" {
+		jsonResponse(w, http.StatusBadGateway, map[string]interface{}{"success": false, "error": lastAuthErr})
 		return
 	}
 
@@ -4088,7 +4130,7 @@ func handleStorefrontSupportLogin(w http.ResponseWriter, r *http.Request) {
 	if spURL == "" {
 		spURL = servicePortalURL
 	}
-	loginReqBody, err := json.Marshal(map[string]string{"license_token": authResult.Token})
+	loginReqBody, err := json.Marshal(map[string]string{"license_token": authToken})
 	if err != nil {
 		log.Printf("[SUPPORT-LOGIN] failed to marshal login request: %v", err)
 		jsonResponse(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "internal_error"})
@@ -15939,10 +15981,14 @@ func handleAdminAccountList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 3.5: Load storefront data (storefront_id, custom_products_enabled) for authors
+	// Use the storefront associated with the lowest user_id per email (matching login behavior)
 	sfRows, sfErr := db.Query(`
 		SELECT u.email, ast.id, COALESCE(ast.custom_products_enabled, 0)
 		FROM author_storefronts ast
 		JOIN users u ON u.id = ast.user_id
+		INNER JOIN (
+			SELECT email, MIN(id) as min_user_id FROM users GROUP BY email
+		) first_user ON u.id = first_user.min_user_id AND u.email = first_user.email
 	`)
 	if sfErr == nil {
 		defer sfRows.Close()
