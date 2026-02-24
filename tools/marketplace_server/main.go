@@ -3723,6 +3723,70 @@ func getStorefrontSupportStatus(storefrontID int64) (string, error) {
 	return status, nil
 }
 
+// syncSupportWelcomeMessage syncs the storefront description to the support system welcome message.
+// It updates the storefront_support_requests table's welcome_message field.
+// When newDescription is empty, it uses the default welcome message "欢迎来到 {store_name} 的客户支持".
+// Only sends an update to Service_Portal when the support system status is 'approved'.
+// This is a background sync operation — errors are logged but do not fail the caller.
+func syncSupportWelcomeMessage(storefrontID int64, newDescription string) {
+	// Step 1: Compute welcome_message
+	welcomeMessage := newDescription
+	if welcomeMessage == "" {
+		var storeName string
+		err := db.QueryRow(`SELECT store_name FROM author_storefronts WHERE id = ?`, storefrontID).Scan(&storeName)
+		if err != nil {
+			log.Printf("[SUPPORT-WELCOME-SYNC] failed to query store_name for storefront %d: %v", storefrontID, err)
+			return
+		}
+		welcomeMessage = fmt.Sprintf("欢迎来到 %s 的客户支持", storeName)
+	}
+
+	// Step 2: Update welcome_message in storefront_support_requests (latest record)
+	_, err := db.Exec(`UPDATE storefront_support_requests SET welcome_message = ?, updated_at = CURRENT_TIMESTAMP WHERE storefront_id = ? AND id = (SELECT id FROM storefront_support_requests WHERE storefront_id = ? ORDER BY id DESC LIMIT 1)`,
+		welcomeMessage, storefrontID, storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-WELCOME-SYNC] failed to update welcome_message for storefront %d: %v", storefrontID, err)
+		return
+	}
+
+	// Step 3: Check if status is 'approved' — only then send update to Service_Portal
+	status, err := getStorefrontSupportStatus(storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-WELCOME-SYNC] failed to get support status for storefront %d: %v", storefrontID, err)
+		return
+	}
+	if status != "approved" {
+		return
+	}
+
+	// Step 4: Send welcome message update to Service_Portal
+	spURL := getSetting("service_portal_url")
+	if spURL == "" {
+		spURL = servicePortalURL
+	}
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"storefront_id":   storefrontID,
+		"welcome_message": welcomeMessage,
+	})
+	if err != nil {
+		log.Printf("[SUPPORT-WELCOME-SYNC] failed to marshal update request for storefront %d: %v", storefrontID, err)
+		return
+	}
+
+	updateURL := spURL + "/api/store-support/update-welcome"
+	resp, err := http.Post(updateURL, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		log.Printf("[SUPPORT-WELCOME-SYNC] failed to contact service portal at %s for storefront %d: %v", updateURL, storefrontID, err)
+		return
+	}
+	defer resp.Body.Close()
+	io.ReadAll(resp.Body) // drain response body
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[SUPPORT-WELCOME-SYNC] service portal returned status %d for storefront %d welcome update", resp.StatusCode, storefrontID)
+	}
+}
+
 // servicePortalURL returns the Service Portal base URL from environment variable.
 var servicePortalURL = func() string {
 	if u := os.Getenv("SERVICE_PORTAL_URL"); u != "" {
@@ -4294,6 +4358,117 @@ func handleAdminStorefrontSupportReApprove(w http.ResponseWriter, r *http.Reques
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleStorefrontSupportStatus returns the support system status for a storefront.
+// GET /api/storefront-support/status?storefront_id=xxx
+// Returns: {"status": "none"/"pending"/"approved"/"disabled"}
+func handleStorefrontSupportStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	storefrontIDStr := r.URL.Query().Get("storefront_id")
+	if storefrontIDStr == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "storefront_id is required"})
+		return
+	}
+
+	storefrontID, err := strconv.ParseInt(storefrontIDStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid storefront_id"})
+		return
+	}
+
+	// Verify storefront exists
+	var exists int
+	err = db.QueryRow("SELECT COUNT(*) FROM author_storefronts WHERE id = ?", storefrontID).Scan(&exists)
+	if err != nil || exists == 0 {
+		jsonResponse(w, http.StatusNotFound, map[string]string{"error": "storefront not found"})
+		return
+	}
+
+	status, err := getStorefrontSupportStatus(storefrontID)
+	if err != nil {
+		log.Printf("[SUPPORT-STATUS] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]string{"status": status})
+}
+
+// handleStorefrontSupportCheck returns the support system approval info for a storefront.
+// GET /api/storefront-support/check?storefront_id=xxx or store_slug=xxx
+// Approved: {"approved": true, "store_name": "...", "welcome_message": "...", "software_name": "..."}
+// Not approved: {"approved": false, "status": "..."}
+func handleStorefrontSupportCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		jsonResponse(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	storefrontIDStr := r.URL.Query().Get("storefront_id")
+	storeSlug := r.URL.Query().Get("store_slug")
+
+	if storefrontIDStr == "" && storeSlug == "" {
+		jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "storefront_id or store_slug is required"})
+		return
+	}
+
+	var storefrontID int64
+	if storefrontIDStr != "" {
+		var err error
+		storefrontID, err = strconv.ParseInt(storefrontIDStr, 10, 64)
+		if err != nil {
+			jsonResponse(w, http.StatusBadRequest, map[string]string{"error": "invalid storefront_id"})
+			return
+		}
+		// Verify storefront exists
+		var exists int
+		err = db.QueryRow("SELECT COUNT(*) FROM author_storefronts WHERE id = ?", storefrontID).Scan(&exists)
+		if err != nil || exists == 0 {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "storefront not found"})
+			return
+		}
+	} else {
+		// Look up by store_slug
+		err := db.QueryRow("SELECT id FROM author_storefronts WHERE store_slug = ?", storeSlug).Scan(&storefrontID)
+		if err == sql.ErrNoRows {
+			jsonResponse(w, http.StatusNotFound, map[string]string{"error": "storefront not found"})
+			return
+		}
+		if err != nil {
+			log.Printf("[SUPPORT-CHECK] query storefront by slug error: %v", err)
+			jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	}
+
+	// Query the latest support request for this storefront
+	var status, storeName, welcomeMessage, softwareName string
+	err := db.QueryRow(`SELECT status, store_name, welcome_message, software_name FROM storefront_support_requests WHERE storefront_id = ? ORDER BY id DESC LIMIT 1`, storefrontID).Scan(&status, &storeName, &welcomeMessage, &softwareName)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"approved": false, "status": "none"})
+		return
+	}
+	if err != nil {
+		log.Printf("[SUPPORT-CHECK] query error: %v", err)
+		jsonResponse(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	if status == "approved" {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"approved":        true,
+			"store_name":      storeName,
+			"welcome_message": welcomeMessage,
+			"software_name":   softwareName,
+		})
+	} else {
+		jsonResponse(w, http.StatusOK, map[string]interface{}{"approved": false, "status": status})
+	}
 }
 
 // --- Email Wallet helpers ---
@@ -5129,6 +5304,10 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 		handleStorefrontNotifyHistory(w, r)
 	case path == "/notify/detail" && r.Method == http.MethodGet:
 		handleStorefrontNotifyDetail(w, r)
+	case path == "/support/apply" && r.Method == http.MethodPost:
+		handleStorefrontSupportApply(w, r)
+	case path == "/support/login" && r.Method == http.MethodPost:
+		handleStorefrontSupportLogin(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -5795,6 +5974,51 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		decorationFeeMax = "1000"
 	}
 
+	// Compute support system status data
+	var supportTotalSales float64
+	var supportStatus string
+	var supportDisableReason string
+	var supportRequest *SupportRequestInfo
+
+	totalSalesVal, tsErr := computeStorefrontTotalSales(storefront.ID)
+	if tsErr != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to compute total sales for storefront %d: %v", storefront.ID, tsErr)
+	} else {
+		supportTotalSales = totalSalesVal
+	}
+
+	statusVal, ssErr := getStorefrontSupportStatus(storefront.ID)
+	if ssErr != nil {
+		log.Printf("[STOREFRONT-SETTINGS] failed to get support status for storefront %d: %v", storefront.ID, ssErr)
+		supportStatus = "none"
+	} else {
+		supportStatus = statusVal
+	}
+
+	// If there's a support request, query its details
+	if supportStatus != "none" {
+		var req SupportRequestInfo
+		var disableReason sql.NullString
+		var reviewedAt sql.NullString
+		err = db.QueryRow(`SELECT id, storefront_id, software_name, store_name, welcome_message, status, disable_reason, created_at, reviewed_at
+			FROM storefront_support_requests WHERE storefront_id = ? ORDER BY id DESC LIMIT 1`, storefront.ID).Scan(
+			&req.ID, &req.StorefrontID, &req.SoftwareName, &req.StoreName, &req.WelcomeMessage,
+			&req.Status, &disableReason, &req.CreatedAt, &reviewedAt,
+		)
+		if err != nil {
+			log.Printf("[STOREFRONT-SETTINGS] failed to query support request for storefront %d: %v", storefront.ID, err)
+		} else {
+			if disableReason.Valid {
+				req.DisableReason = disableReason.String
+				supportDisableReason = disableReason.String
+			}
+			if reviewedAt.Valid {
+				req.ReviewedAt = reviewedAt.String
+			}
+			supportRequest = &req
+		}
+	}
+
 	data := StorefrontManageData{
 		Storefront:            storefront,
 		AuthorPacks:           authorPacks,
@@ -5811,6 +6035,11 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 		CustomProducts:        customProducts,
 		DecorationFee:         decorationFee,
 		DecorationFeeMax:      decorationFeeMax,
+		SupportStatus:         supportStatus,
+		SupportRequest:        supportRequest,
+		TotalSales:            supportTotalSales,
+		SupportThreshold:      10000,
+		SupportDisableReason:  supportDisableReason,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -5864,6 +6093,12 @@ func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
 	var slug string
 	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
 		globalCache.InvalidateStorefront(slug)
+	}
+
+	// Sync welcome message to support system when description is updated
+	var storefrontID int64
+	if err := db.QueryRow("SELECT id FROM author_storefronts WHERE user_id = ?", userID).Scan(&storefrontID); err == nil {
+		go syncSupportWelcomeMessage(storefrontID, description)
 	}
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
@@ -17464,6 +17699,16 @@ func main() {
 	// Decoration billing details API routes (permission-based)
 	http.HandleFunc("/admin/api/billing/decoration/export", permissionAuth("billing")(handleDecorationBillingExport))
 	http.HandleFunc("/admin/api/billing/decoration", permissionAuth("billing")(handleDecorationBillingList))
+
+	// Storefront support management API routes (permission-based)
+	http.HandleFunc("/admin/api/storefront-support/list", permissionAuth("storefront_support")(handleAdminStorefrontSupportList))
+	http.HandleFunc("/admin/api/storefront-support/approve", permissionAuth("storefront_support")(handleAdminStorefrontSupportApprove))
+	http.HandleFunc("/admin/api/storefront-support/disable", permissionAuth("storefront_support")(handleAdminStorefrontSupportDisable))
+	http.HandleFunc("/admin/api/storefront-support/re-approve", permissionAuth("storefront_support")(handleAdminStorefrontSupportReApprove))
+
+	// Storefront support external query API routes (public)
+	http.HandleFunc("/api/storefront-support/status", handleStorefrontSupportStatus)
+	http.HandleFunc("/api/storefront-support/check", handleStorefrontSupportCheck)
 
 	// Custom products admin routes (permission-based)
 	http.HandleFunc("/api/admin/pending-custom-products", permissionAuth("review")(handleAdminPendingCustomProducts))

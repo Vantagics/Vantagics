@@ -653,6 +653,48 @@ const storefrontManageHTML = `<!DOCTYPE html>
             </div>
             <div id="layoutSaveMsg" class="msg" style="margin-top:12px;"></div>
         </div>
+
+        <!-- Customer Support Section -->
+        <div class="card">
+            <div class="card-title"><span class="icon">🎧</span> 客户支持</div>
+            {{if lt .TotalSales .SupportThreshold}}
+            <!-- 未达标 -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span class="tag" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;">未达标</span>
+            </div>
+            <div style="font-size:13px;color:#64748b;line-height:1.7;">
+                累计销售额达到 {{printf "%.0f" .SupportThreshold}} Credits 后可申请开通客户支持系统
+            </div>
+            <div style="font-size:12px;color:#94a3b8;margin-top:8px;">
+                当前累计销售额：{{printf "%.0f" .TotalSales}} / {{printf "%.0f" .SupportThreshold}} Credits
+            </div>
+            {{else if eq .SupportStatus "none"}}
+            <!-- 未开通 -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span class="tag" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;">未开通</span>
+            </div>
+            <div style="font-size:13px;color:#64748b;margin-bottom:14px;">您的店铺已达到开通门槛，可申请开通客户支持系统</div>
+            <button class="btn btn-indigo" id="supportApplyBtn" onclick="applySupportSystem()">🎧 申请开通客户支持</button>
+            {{else if eq .SupportStatus "pending"}}
+            <!-- 审批中 -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span class="tag" style="background:#fef3c7;color:#d97706;border:1px solid #fde68a;">审批中</span>
+            </div>
+            <div style="font-size:13px;color:#64748b;">您的开通请求正在等待管理员审批</div>
+            {{else if eq .SupportStatus "approved"}}
+            <!-- 已开通 -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span class="tag" style="background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;">已开通</span>
+            </div>
+            <button class="btn btn-green" id="supportLoginBtn" onclick="loginSupportSystem()">🚀 进入客服后台</button>
+            {{else if eq .SupportStatus "disabled"}}
+            <!-- 已禁用 -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <span class="tag" style="background:#fee2e2;color:#dc2626;border:1px solid #fecaca;">已禁用</span>
+            </div>
+            <div style="font-size:13px;color:#dc2626;">禁用原因：{{.SupportDisableReason}}</div>
+            {{end}}
+        </div>
     </div>
 
     <!-- Theme Selector -->
@@ -2420,6 +2462,45 @@ function saveCustomProductOrder() {
         if (d.ok) { showMsg('ok', '排序已保存'); }
         else { showMsg('err', d.error || '保存失败'); }
     }).catch(function() { showMsg('err', '网络错误'); });
+}
+
+/* ===== Customer Support: Apply ===== */
+function applySupportSystem() {
+    var btn = document.getElementById('supportApplyBtn');
+    if (btn) btn.disabled = true;
+    fetch('/user/storefront/support/apply', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            showMsg('ok', '开通请求已提交，等待管理员审批');
+            setTimeout(function() { location.reload(); }, 1500);
+        } else {
+            showMsg('err', d.error || '申请失败');
+            if (btn) btn.disabled = false;
+        }
+    }).catch(function() {
+        showMsg('err', '网络错误');
+        if (btn) btn.disabled = false;
+    });
+}
+
+/* ===== Customer Support: Login ===== */
+function loginSupportSystem() {
+    var btn = document.getElementById('supportLoginBtn');
+    if (btn) btn.disabled = true;
+    fetch('/user/storefront/support/login', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success && d.login_url) {
+            window.open(d.login_url, '_blank');
+        } else {
+            showMsg('err', d.error || '登录失败');
+        }
+        if (btn) btn.disabled = false;
+    }).catch(function() {
+        showMsg('err', '网络错误');
+        if (btn) btn.disabled = false;
+    });
 }
 </script>
 ` + I18nJS + `

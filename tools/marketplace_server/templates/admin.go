@@ -115,6 +115,7 @@ const AdminHTML = `<!DOCTYPE html>
         <a href="#featured" data-perm="settings" onclick="showSection('featured')" style="display:none;"><span class="nav-icon">⭐</span><span data-i18n="featured_stores_mgmt">明星店铺</span></a>
         <a href="#sales" data-perm="sales" onclick="showSection('sales')" style="display:none;"><span class="nav-icon">📊</span><span data-i18n="sales_mgmt">销售管理</span></a>
         <a href="#billing" data-perm="billing" onclick="showSection('billing')" style="display:none;"><span class="nav-icon">💳</span><span data-i18n="billing_mgmt">收费管理</span></a>
+        <a href="#storefront-support" data-perm="storefront_support" onclick="showSection('storefront-support')" style="display:none;"><span class="nav-icon">🛎️</span><span data-i18n="storefront_support_mgmt">店铺支持</span></a>
         <a href="#admins" data-perm="admin_manage" onclick="showSection('admins')" style="display:none;"><span class="nav-icon">🔑</span><span data-i18n="admin_mgmt">管理员管理</span></a>
         <div class="nav-divider"></div>
         <a href="#profile" onclick="showSection('profile')"><span class="nav-icon">👤</span><span data-i18n="edit_profile">修改资料</span></a>
@@ -837,6 +838,67 @@ const AdminHTML = `<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- Storefront Support Management Section -->
+    <div id="section-storefront-support" style="display:none;">
+        <div class="card">
+            <div class="card-header">
+                <h2>🛎️ 店铺支持管理</h2>
+                <button class="btn btn-secondary" onclick="loadStorefrontSupport()">↻ 刷新</button>
+            </div>
+            <!-- Status filter tabs -->
+            <div class="wd-tabs">
+                <button class="wd-tab active" onclick="switchSupportStatusFilter('', this)">全部</button>
+                <button class="wd-tab" onclick="switchSupportStatusFilter('pending', this)">待审批</button>
+                <button class="wd-tab" onclick="switchSupportStatusFilter('approved', this)">已批准</button>
+                <button class="wd-tab" onclick="switchSupportStatusFilter('disabled', this)">已禁用</button>
+            </div>
+            <!-- Search -->
+            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+                <input type="text" id="support-search" placeholder="搜索店铺名称或用户名..." style="padding:7px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;width:260px;" onkeydown="if(event.key==='Enter')loadStorefrontSupport()" />
+                <button class="btn btn-primary btn-sm" onclick="loadStorefrontSupport()">搜索</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>店铺名称</th>
+                        <th>店铺主用户名</th>
+                        <th>软件名称</th>
+                        <th>累计销售额</th>
+                        <th>申请时间</th>
+                        <th>当前状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="support-list"></tbody>
+            </table>
+            <!-- Pagination -->
+            <div id="support-pagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;">
+                <div id="support-page-info" style="font-size:13px;color:#6b7280;"></div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <button class="btn btn-secondary btn-sm" id="support-prev-btn" onclick="supportGoPage(supportCurrentPage-1)" disabled>‹ 上一页</button>
+                    <span id="support-page-nums" style="display:flex;gap:4px;"></span>
+                    <button class="btn btn-secondary btn-sm" id="support-next-btn" onclick="supportGoPage(supportCurrentPage+1)" disabled>下一页 ›</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Storefront Support Disable Reason Modal -->
+    <div id="support-disable-modal" class="modal-overlay">
+        <div class="modal">
+            <h3>禁用店铺支持</h3>
+            <input type="hidden" id="support-disable-request-id" value="" />
+            <div class="form-group">
+                <label for="support-disable-reason">禁用原因（必填）</label>
+                <textarea id="support-disable-reason" placeholder="请输入禁用原因"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="hideSupportDisableModal()">取消</button>
+                <button class="btn btn-danger" onclick="submitSupportDisable()">确认禁用</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Profile Section (all admins) -->
     <div id="section-profile" style="display:none;">
         <div class="profile-grid">
@@ -1053,8 +1115,8 @@ function isSuperAdmin() { return adminID === 1; }
 function showSection(name) {
     // Map old section names to new unified accounts section
     if (name === 'authors' || name === 'customers') name = 'accounts';
-    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'featured', 'sales', 'billing'];
-    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), featured: window._i18n("featured_stores_mgmt","明星店铺"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理") };
+    var sections = ['categories', 'marketplace', 'accounts', 'settings', 'admins', 'review', 'profile', 'notifications', 'withdrawals', 'featured', 'sales', 'billing', 'storefront-support'];
+    var titles = { categories: window._i18n("category_mgmt","分类管理"), marketplace: window._i18n("marketplace_mgmt","市场管理"), accounts: window._i18n("account_mgmt","账号管理"), settings: window._i18n("system_settings","系统设置"), admins: window._i18n("admin_mgmt","管理员管理"), review: window._i18n("review_mgmt","审核管理"), profile: window._i18n("edit_profile","修改资料"), notifications: window._i18n("notification_mgmt","消息管理"), withdrawals: window._i18n("withdraw_mgmt","提现管理"), featured: window._i18n("featured_stores_mgmt","明星店铺"), sales: window._i18n("sales_mgmt","销售管理"), billing: window._i18n("billing_mgmt","收费管理"), 'storefront-support': window._i18n("storefront_support_mgmt","店铺支持") };
     for (var i = 0; i < sections.length; i++) {
         var el = document.getElementById('section-' + sections[i]);
         if (el) el.style.display = sections[i] === name ? '' : 'none';
@@ -1076,6 +1138,7 @@ function showSection(name) {
     if (name === 'billing') loadBillingData(1);
     if (name === 'featured') loadFeaturedStorefronts();
     if (name === 'settings') { loadSMTPConfig(); loadPayPalConfig(); }
+    if (name === 'storefront-support') loadStorefrontSupport();
 }
 
 function showMsg(text, isError) {
@@ -2842,9 +2905,172 @@ document.addEventListener('click', function(e) {
     }
 });
 
+/* ===== Storefront Support Management ===== */
+var supportCurrentPage = 1;
+var supportTotalPages = 1;
+var supportStatusFilter = '';
+
+function switchSupportStatusFilter(status, btn) {
+    supportStatusFilter = status;
+    var tabs = document.querySelectorAll('#section-storefront-support .wd-tab');
+    for (var i = 0; i < tabs.length; i++) { tabs[i].classList.remove('active'); }
+    btn.classList.add('active');
+    loadStorefrontSupport(1);
+}
+
+function loadStorefrontSupport(page) {
+    if (typeof page !== 'number' || page < 1) page = 1;
+    supportCurrentPage = page;
+    var search = (document.getElementById('support-search') || {}).value || '';
+    var params = ['page=' + page];
+    if (supportStatusFilter) params.push('status=' + encodeURIComponent(supportStatusFilter));
+    if (search.trim()) params.push('search=' + encodeURIComponent(search.trim()));
+    apiFetch('/admin/api/storefront-support/list?' + params.join('&'))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        var records = data.requests || [];
+        var total = data.total || 0;
+        var pageSize = data.page_size || 20;
+        supportCurrentPage = data.page || 1;
+        supportTotalPages = Math.ceil(total / pageSize) || 1;
+        var tbody = document.getElementById('support-list');
+        if (records.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:32px;">暂无店铺支持请求</td></tr>';
+        } else {
+            tbody.innerHTML = records.map(function(r) {
+                var statusBadge = '';
+                if (r.status === 'pending') statusBadge = '<span class="badge" style="background:#fef3c7;color:#92400e;">待审批</span>';
+                else if (r.status === 'approved') statusBadge = '<span class="badge" style="background:#d1fae5;color:#065f46;">已批准</span>';
+                else if (r.status === 'disabled') statusBadge = '<span class="badge" style="background:#fee2e2;color:#991b1b;">已禁用</span>';
+                var actions = '';
+                if (r.status === 'pending') {
+                    actions = '<button class="btn btn-primary btn-sm" onclick="approveSupport(' + r.id + ')">批准</button> <button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button>';
+                } else if (r.status === 'approved') {
+                    actions = '<button class="btn btn-danger btn-sm" onclick="showSupportDisableModal(' + r.id + ')">禁用</button>';
+                } else if (r.status === 'disabled') {
+                    actions = '<button class="btn btn-primary btn-sm" onclick="reApproveSupport(' + r.id + ')">重新批准</button>';
+                }
+                return '<tr>' +
+                    '<td>' + escHtml(r.store_name || '-') + '</td>' +
+                    '<td>' + escHtml(r.username || '-') + '</td>' +
+                    '<td>' + escHtml(r.software_name || '-') + '</td>' +
+                    '<td>' + (r.total_sales || 0) + '</td>' +
+                    '<td>' + (r.created_at || '-') + '</td>' +
+                    '<td>' + statusBadge + '</td>' +
+                    '<td class="actions">' + actions + '</td>' +
+                    '</tr>';
+            }).join('');
+        }
+        renderSupportPagination(total, pageSize);
+    }).catch(function() { showMsg('加载店铺支持请求失败', true); });
+}
+
+function renderSupportPagination(total, pageSize) {
+    var pageInfo = document.getElementById('support-page-info');
+    var prevBtn = document.getElementById('support-prev-btn');
+    var nextBtn = document.getElementById('support-next-btn');
+    var pageNums = document.getElementById('support-page-nums');
+    if (total === 0) {
+        pageInfo.textContent = '';
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
+        pageNums.innerHTML = '';
+        return;
+    }
+    var start = (supportCurrentPage - 1) * pageSize + 1;
+    var end = Math.min(supportCurrentPage * pageSize, total);
+    pageInfo.textContent = '显示 ' + start + '-' + end + ' 条，共 ' + total + ' 条';
+    prevBtn.disabled = supportCurrentPage <= 1;
+    nextBtn.disabled = supportCurrentPage >= supportTotalPages;
+    var html = '';
+    var lo = Math.max(1, supportCurrentPage - 3);
+    var hi = Math.min(supportTotalPages, supportCurrentPage + 3);
+    if (lo > 1) html += '<button class="btn btn-secondary btn-sm" onclick="supportGoPage(1)" style="min-width:32px;">1</button>';
+    if (lo > 2) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    for (var p = lo; p <= hi; p++) {
+        if (p === supportCurrentPage) {
+            html += '<button class="btn btn-primary btn-sm" style="min-width:32px;" disabled>' + p + '</button>';
+        } else {
+            html += '<button class="btn btn-secondary btn-sm" onclick="supportGoPage(' + p + ')" style="min-width:32px;">' + p + '</button>';
+        }
+    }
+    if (hi < supportTotalPages - 1) html += '<span style="color:#9ca3af;padding:0 4px;">…</span>';
+    if (hi < supportTotalPages) html += '<button class="btn btn-secondary btn-sm" onclick="supportGoPage(' + supportTotalPages + ')" style="min-width:32px;">' + supportTotalPages + '</button>';
+    pageNums.innerHTML = html;
+}
+
+function supportGoPage(page) {
+    if (page < 1 || page > supportTotalPages) return;
+    loadStorefrontSupport(page);
+}
+
+function approveSupport(requestId) {
+    if (!confirm('确定批准该店铺支持请求？')) return;
+    apiFetch('/admin/api/storefront-support/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'ok' || data.ok) {
+            showMsg('已批准');
+            loadStorefrontSupport(supportCurrentPage);
+        } else {
+            showMsg(data.error || '操作失败', true);
+        }
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
+function showSupportDisableModal(requestId) {
+    document.getElementById('support-disable-request-id').value = requestId;
+    document.getElementById('support-disable-reason').value = '';
+    document.getElementById('support-disable-modal').classList.add('show');
+}
+
+function hideSupportDisableModal() {
+    document.getElementById('support-disable-modal').classList.remove('show');
+}
+
+function submitSupportDisable() {
+    var requestId = parseInt(document.getElementById('support-disable-request-id').value, 10);
+    var reason = document.getElementById('support-disable-reason').value.trim();
+    if (!reason) {
+        showMsg('请填写禁用原因', true);
+        return;
+    }
+    apiFetch('/admin/api/storefront-support/disable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId, reason: reason })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'ok' || data.ok) {
+            hideSupportDisableModal();
+            showMsg('已禁用');
+            loadStorefrontSupport(supportCurrentPage);
+        } else {
+            showMsg(data.error || '操作失败', true);
+        }
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
+function reApproveSupport(requestId) {
+    if (!confirm('确定重新批准该店铺支持请求？')) return;
+    apiFetch('/admin/api/storefront-support/re-approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: requestId })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.status === 'ok' || data.ok) {
+            showMsg('已重新批准');
+            loadStorefrontSupport(supportCurrentPage);
+        } else {
+            showMsg(data.error || '操作失败', true);
+        }
+    }).catch(function() { showMsg('请求失败', true); });
+}
+
 // Init: show first available section based on permissions
 (function initDefaultSection() {
-    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'featured', 'sales', 'billing'];
+    var order = ['categories', 'marketplace', 'accounts', 'review', 'settings', 'notifications', 'featured', 'sales', 'billing', 'storefront-support'];
     for (var i = 0; i < order.length; i++) {
         if (hasPerm(order[i])) {
             showSection(order[i]);
