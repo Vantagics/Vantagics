@@ -8446,7 +8446,14 @@ func userAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("user_session")
 		if err != nil || !isValidUserSession(cookie.Value) {
-			http.Redirect(w, r, "/user/login", http.StatusFound)
+			loginURL := "/user/login"
+			if r.Method == http.MethodGet {
+				requestURI := r.URL.RequestURI()
+				if requestURI != "" && requestURI != "/" && requestURI != "/user/login" {
+					loginURL = "/user/login?redirect=" + url.QueryEscape(requestURI)
+				}
+			}
+			http.Redirect(w, r, loginURL, http.StatusFound)
 			return
 		}
 		userID := getUserSessionUserID(cookie.Value)
@@ -9108,7 +9115,7 @@ func handleUserLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, makeSessionCookie("user_session", sid, 86400))
 
 	// Redirect to the original page if redirect parameter is a valid internal path
-	if strings.HasPrefix(redirect, "/pack/") || strings.HasPrefix(redirect, "/store/") {
+	if strings.HasPrefix(redirect, "/pack/") || strings.HasPrefix(redirect, "/store/") || strings.HasPrefix(redirect, "/user/") {
 		http.Redirect(w, r, redirect, http.StatusFound)
 		return
 	}
