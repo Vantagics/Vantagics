@@ -15,6 +15,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto/v2 v2.3.3
+	github.com/leanovate/gopter v0.2.11
 	github.com/marcboeker/go-duckdb v1.7.0
 	github.com/shakinm/xlsReader v0.9.12
 	github.com/snowflakedb/gosnowflake v1.7.2

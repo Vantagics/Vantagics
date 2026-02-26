@@ -74,10 +74,11 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 	})
 
 	// 6. Execute all steps
-	a.executeStepLoop(thread.ID, dataSourceID, pack.ExecutableSteps, logTagExecute)
+	summary := a.executeStepLoop(thread.ID, dataSourceID, pack.ExecutableSteps, logTagExecute)
 
-	// 7. Emit completion
-	a.emitCompletion(thread.ID, len(pack.ExecutableSteps), i18n.T("qap.execution_complete", len(pack.ExecutableSteps)))
+	// 7. Emit completion with execution summary
+	completionText := a.buildCompletionText("qap.execution_complete", summary)
+	a.emitCompletion(thread.ID, len(pack.ExecutableSteps), completionText)
 
 	a.Log(fmt.Sprintf("%s Execution completed successfully", logTagExecute))
 
@@ -136,13 +137,21 @@ func (a *App) ReExecuteQuickAnalysisPack(threadID string) error {
 		a.Log(fmt.Sprintf("%s Error clearing messages: %v", logTagReexec, err))
 		return fmt.Errorf("failed to clear messages: %w", err)
 	}
+
+	// Clear EventAggregator cache and flushed items to avoid mixing old and new results
+	if a.eventAggregator != nil {
+		a.eventAggregator.Clear(threadID)
+		a.eventAggregator.ClearFlushedItems(threadID)
+	}
+
 	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
 
 	// 5. Execute all steps
-	a.executeStepLoop(threadID, thread.DataSourceID, pack.ExecutableSteps, logTagReexec)
+	summary := a.executeStepLoop(threadID, thread.DataSourceID, pack.ExecutableSteps, logTagReexec)
 
-	// 6. Emit completion
-	a.emitCompletion(threadID, len(pack.ExecutableSteps), i18n.T("qap.reexecution_complete", len(pack.ExecutableSteps)))
+	// 6. Emit completion with execution summary
+	completionText := a.buildCompletionText("qap.reexecution_complete", summary)
+	a.emitCompletion(threadID, len(pack.ExecutableSteps), completionText)
 
 	a.Log(fmt.Sprintf("%s Re-execution completed successfully", logTagReexec))
 
@@ -176,13 +185,41 @@ func (a *App) preCheckPackExecution(pack *QuickAnalysisPack, logTag string) erro
 
 // executeStepLoop runs all pack steps sequentially, handling dependency checks,
 // progress events, and per-step dispatch.
-func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, logTag string) {
+// StepExecutionSummary holds the execution statistics for a pack run.
+type StepExecutionSummary struct {
+	Total     int
+	Succeeded int
+	Failed    int
+	Skipped   int
+}
+
+func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, logTag string) StepExecutionSummary {
 	totalSteps := len(steps)
-	stepResults := make(map[int]interface{})
+	stepResults := make(map[int]interface{}, totalSteps) // Pre-allocate with capacity
 
 	cfg, _ := a.GetConfig()
 	sessionDir := filepath.Join(cfg.DataCacheDir, "sessions", threadID)
-	os.MkdirAll(sessionDir, 0755)
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		a.Log(fmt.Sprintf("%s Failed to create session directory: %v", logTag, err))
+	}
+
+	// Scan existing image files in sessionDir before executing any steps,
+	// so that detectAndSendPythonChartFiles only sends newly generated files.
+	existingFiles := make(map[string]bool)
+	if entries, err := os.ReadDir(sessionDir); err == nil {
+		imageExts := map[string]bool{".png": true, ".jpg": true, ".jpeg": true}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				ext := strings.ToLower(filepath.Ext(entry.Name()))
+				if imageExts[ext] {
+					existingFiles[entry.Name()] = true
+				}
+			}
+		}
+		a.Log(fmt.Sprintf("%s Found %d existing image files in session directory", logTag, len(existingFiles)))
+	}
+
+	summary := StepExecutionSummary{Total: totalSteps}
 
 	for i, step := range steps {
 		a.Log(fmt.Sprintf("%s Executing step %d/%d: %s (%s)", logTag, i+1, totalSteps, step.Description, step.StepType))
@@ -190,6 +227,7 @@ func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, l
 		// Check if any dependency step failed
 		if a.hasDependencyFailure(step, stepResults, logTag) {
 			a.emitSkipMessage(threadID, step)
+			summary.Skipped++
 			continue
 		}
 
@@ -208,14 +246,26 @@ func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, l
 		case stepTypeSQL:
 			a.executePackSQLStep(threadID, messageID, step, stepResults, dataSourceID)
 		case stepTypePython:
-			a.executePackPythonStep(threadID, messageID, step, stepResults, sessionDir)
+			a.executePackPythonStep(threadID, messageID, step, stepResults, sessionDir, existingFiles)
+		default:
+			a.Log(fmt.Sprintf("%s Unknown step type: %s, skipping", logTag, step.StepType))
+			summary.Skipped++
+			continue
+		}
+
+		// A step is successful if its result was stored in stepResults
+		if _, ok := stepResults[step.StepID]; ok {
+			summary.Succeeded++
+		} else {
+			summary.Failed++
 		}
 
 		runtime.EventsEmit(a.ctx, "thread-updated", threadID)
 		time.Sleep(100 * time.Millisecond)
 	}
-}
 
+	return summary
+}
 // hasDependencyFailure checks if any dependency step failed (result not in stepResults).
 func (a *App) hasDependencyFailure(step PackStep, stepResults map[int]interface{}, logTag string) bool {
 	for _, depID := range step.DependsOn {
@@ -238,6 +288,16 @@ func (a *App) emitSkipMessage(threadID string, step PackStep) {
 	a.chatService.AddMessage(threadID, skipMsg)
 	runtime.EventsEmit(a.ctx, "thread-updated", threadID)
 	time.Sleep(100 * time.Millisecond)
+}
+
+// buildCompletionText generates a completion message that includes an execution summary.
+func (a *App) buildCompletionText(i18nKey string, summary StepExecutionSummary) string {
+	base := i18n.T(i18nKey, summary.Total)
+	if summary.Failed == 0 && summary.Skipped == 0 {
+		return base
+	}
+	detail := i18n.T("qap.execution_summary", summary.Succeeded, summary.Failed, summary.Skipped)
+	return base + "\n\n" + detail
 }
 
 // emitCompletion sends the completion message, flushes results, and emits the qap-complete event.

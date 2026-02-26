@@ -863,7 +863,7 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 			timingInfo := fmt.Sprintf(i18n.T("analysis.timing"), minutes, seconds)
 			resp = resp + timingInfo
 		}
-		c.log(fmt.Sprintf("[TIMING] Chat completed in: %d�d�(%v)", minutes, seconds, chatDuration))
+		c.log(fmt.Sprintf("[TIMING] Chat completed in: %dm%ds (%v)", minutes, seconds, chatDuration))
 	}
 
 	if threadID != "" && cfg.DetailedLog {
@@ -974,7 +974,7 @@ func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, re
 	if !strings.Contains(resp, i18n.T("analysis.timing_check")) {
 		timingInfo := fmt.Sprintf(i18n.T("analysis.timing"), minutes, seconds)
 		resp = resp + timingInfo
-		c.log(fmt.Sprintf("[TIMING] Analysis completed in: %d�d�(%v)", minutes, seconds, analysisDuration))
+		c.log(fmt.Sprintf("[TIMING] Analysis completed in: %dm%ds (%v)", minutes, seconds, analysisDuration))
 	}
 
 	if cfg.DetailedLog {

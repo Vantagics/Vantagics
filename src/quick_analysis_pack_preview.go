@@ -226,9 +226,9 @@ func (a *App) mergePythonTrajectorySteps(steps *[]PackStep, executionsMap parsed
 		if seenCode[s.Code] {
 			continue
 		}
-		// If the Python step has a UserRequest, only include it if it matches a selected request.
-		// If it has no UserRequest (trajectory-only), include it as a best-effort.
-		if s.UserRequest != "" && !selectedUserRequests[s.UserRequest] {
+		// For query_and_chart steps, UserRequest temporarily holds the paired SQL query
+		// (not the actual user request), so skip the user request filter for these steps.
+		if s.SourceTool != "query_and_chart" && s.UserRequest != "" && !selectedUserRequests[s.UserRequest] {
 			continue
 		}
 		*steps = append(*steps, s)
@@ -243,8 +243,9 @@ func (a *App) mergePythonTrajectorySteps(steps *[]PackStep, executionsMap parsed
 // buildAndSavePack handles the common export logic: ECharts attachment, schema collection,
 // metadata assembly, JSON marshaling, and ZIP packaging.
 func (a *App) buildAndSavePack(thread *ChatThread, steps []PackStep, packName, author, password string) (string, error) {
-	// Attach ECharts configs from assistant messages
+	// Attach ECharts configs from assistant messages, then supplement from persisted analysis results
 	a.attachEChartsFromMessages(thread, steps)
+	a.attachEChartsFromAnalysisResults(thread.ID, steps)
 
 	// Collect and filter schema to only referenced tables
 	fullSchema, err := a.collectFullSchema(thread.DataSourceID)

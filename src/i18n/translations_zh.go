@@ -386,12 +386,13 @@ var chineseTranslations = map[string]string{
 	"qap.step_skipped":                "⏭️ 步骤 %d (%s) 已跳过：依赖的前置步骤执行失�",
 	"qap.execution_complete":          "�分析技能包执行完成！共执行�%d 个步骤�",
 	"qap.reexecution_complete":        "�分析技能包重新执行完成！共执行�%d 个步骤�",
+	"qap.execution_summary":           "📊 执行摘要：成功 %d 个，失败 %d 个，跳过 %d 个。",
 	"qap.step_sql_error":              "�步骤 %d (%s) 执行失败�v\n\n> 📋 分析请求�s\n\n```sql\n%s\n```",
-	"qap.step_sql_success_full":       "�步骤 %d (%s):\n\n> 📋 分析请求�s\n\n```json:table\n%s\n```",
-	"qap.step_sql_success_truncated":  "�步骤 %d (%s) (�%d 行，显示�20 �:\n\n> 📋 分析请求�s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_full":       "✅ 步骤 %d (%s) — 共 %d 行:\n\n> 📋 分析请求: %s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_truncated":  "✅ 步骤 %d (%s) — 共 %d 行 (显示前 20 行):\n\n> 📋 分析请求: %s\n\n```json:table\n%s\n```",
 	"qap.step_python_no_env":          "�步骤 %d (%s) 执行失败：Python 环境未配置\n\n> 📋 分析请求�s\n\n```python\n%s\n```",
 	"qap.step_python_error":           "�步骤 %d (%s) 执行失败�v\n\n> 📋 分析请求�s\n\n```python\n%s\n```",
-	"qap.step_python_success":         "�步骤 %d (%s):\n\n> 📋 分析请求�s\n\n```\n%s\n```",
+	"qap.step_python_success":         "�步骤 %d (%s):\n\n> 📋 分析请求�s\n\n%s",
 
 	// 分析导出
 	"analysis_export.description":     "Vantagics 分析过程导出文件 - 包含可执行的 SQL/Python 步骤",

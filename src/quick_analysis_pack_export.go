@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -95,7 +96,12 @@ func (a *App) collectSessionSteps(threadID string) ([]PackStep, error) {
 			}
 		}
 
-		allSteps := append(sqlSteps, dedupedPythonSteps...)
+		// For query_and_chart Python steps, find their paired SQL step and insert
+		// them right after it. Also remove any wrapped Python step from executions
+		// that corresponds to the same query_and_chart call (the wrapped code contains
+		// DataFrame injection and should be replaced by the raw chart code).
+		allSteps := a.mergeWithQueryAndChartPairing(sqlSteps, dedupedPythonSteps)
+
 		// Re-number step IDs and rebuild dependencies
 		renumberSteps(allSteps)
 		a.Log(fmt.Sprintf("[QAP-EXPORT] Total merged steps: %d", len(allSteps)))
@@ -105,6 +111,97 @@ func (a *App) collectSessionSteps(threadID string) ([]PackStep, error) {
 	// Strategy 3: Fall back to full trajectory parsing if both above yield nothing
 	a.Log("[QAP-EXPORT] No steps from executions.json or trajectory Python, trying full trajectory")
 	return a.collectStepsFromTrajectory(threadID)
+}
+
+// mergeWithQueryAndChartPairing merges SQL steps from executions with Python steps from
+// trajectory, properly interleaving query_and_chart Python steps right after their paired
+// SQL steps. For query_and_chart Python steps, the UserRequest field temporarily holds the
+// paired SQL query for matching. This field is cleared after pairing.
+func (a *App) mergeWithQueryAndChartPairing(execSteps []PackStep, trajectoryPythonSteps []PackStep) []PackStep {
+	// Separate query_and_chart Python steps from regular Python steps
+	var qacPythonSteps []PackStep
+	var regularPythonSteps []PackStep
+	for _, s := range trajectoryPythonSteps {
+		if s.SourceTool == "query_and_chart" {
+			qacPythonSteps = append(qacPythonSteps, s)
+		} else {
+			regularPythonSteps = append(regularPythonSteps, s)
+		}
+	}
+
+	if len(qacPythonSteps) == 0 {
+		// No query_and_chart steps, simple append
+		return append(execSteps, regularPythonSteps...)
+	}
+
+	// Build a set of SQL queries from query_and_chart for identifying paired SQL steps
+	// and removing wrapped Python steps from executions
+	qacSQLQueries := make(map[string]bool)
+	for _, s := range qacPythonSteps {
+		if s.UserRequest != "" {
+			qacSQLQueries[s.UserRequest] = true
+		}
+	}
+
+	// Filter execSteps: remove wrapped Python steps that correspond to query_and_chart calls.
+	// These wrapped steps contain DataFrame injection code and should be replaced by the raw
+	// chart code from trajectory. We identify them by checking if the Python code contains
+	// the base64-encoded SQL query from a query_and_chart call.
+	var filteredExecSteps []PackStep
+	for _, s := range execSteps {
+		if s.StepType == stepTypePython && s.SourceTool == "" {
+			// Check if this is a wrapped query_and_chart Python step by looking for
+			// the DataFrame injection preamble
+			if strings.Contains(s.Code, "# Load SQL query results into DataFrame") &&
+				strings.Contains(s.Code, "base64.b64decode") {
+				a.Log(fmt.Sprintf("[QAP-EXPORT] Removing wrapped query_and_chart Python step: %s", truncStr(s.Description, 60)))
+				continue
+			}
+		}
+		filteredExecSteps = append(filteredExecSteps, s)
+	}
+
+	// Now interleave: insert each query_and_chart Python step right after its paired SQL step
+	var result []PackStep
+	usedQACSteps := make(map[int]bool)
+
+	for _, s := range filteredExecSteps {
+		result = append(result, s)
+
+		// After each SQL step, check if any query_and_chart Python step pairs with it
+		if s.StepType == stepTypeSQL {
+			for i, qac := range qacPythonSteps {
+				if usedQACSteps[i] {
+					continue
+				}
+				// Match by SQL query stored in UserRequest
+				if qac.UserRequest == s.Code {
+					// Clear the temporary UserRequest field (it was only used for matching)
+					qac.UserRequest = ""
+					// Set SourceTool on the SQL step too
+					result[len(result)-1].SourceTool = "query_and_chart"
+					result = append(result, qac)
+					usedQACSteps[i] = true
+					a.Log(fmt.Sprintf("[QAP-EXPORT] Paired query_and_chart Python step with SQL step: %s", truncStr(s.Description, 60)))
+					break
+				}
+			}
+		}
+	}
+
+	// Append any unmatched query_and_chart Python steps at the end
+	for i, qac := range qacPythonSteps {
+		if !usedQACSteps[i] {
+			qac.UserRequest = "" // Clear temporary field
+			result = append(result, qac)
+			a.Log(fmt.Sprintf("[QAP-EXPORT] Appended unmatched query_and_chart Python step: %s", truncStr(qac.Description, 60)))
+		}
+	}
+
+	// Append regular Python steps at the end
+	result = append(result, regularPythonSteps...)
+
+	return result
 }
 
 // collectPythonStepsFromTrajectory extracts only Python/chart steps from trajectory files,
@@ -207,6 +304,7 @@ func (a *App) collectPythonStepsFromTrajectory(threadID string) ([]PackStep, err
 				// Only extract chart_code (SQL is from executions.json)
 				chartCode, _ := args["chart_code"].(string)
 				chartTitle, _ := args["chart_title"].(string)
+				query, _ := args["query"].(string)
 				if chartCode != "" {
 					if seenCode["chart:"+chartCode] {
 						continue
@@ -218,13 +316,19 @@ func (a *App) collectPythonStepsFromTrajectory(threadID string) ([]PackStep, err
 					} else {
 						desc = desc + " (Chart)"
 					}
-					steps = append(steps, PackStep{
+					step := PackStep{
 						StepID:      stepID,
 						StepType:    stepTypePython,
 						Code:        chartCode,
 						Description: desc,
 						SourceTool:  "query_and_chart",
-					})
+					}
+					// Store paired SQL query in UserRequest temporarily for merge pairing.
+					// This will be cleared during mergeWithQueryAndChartPairing.
+					if query != "" {
+						step.UserRequest = query
+					}
+					steps = append(steps, step)
 					stepID++
 				}
 			}
@@ -706,4 +810,120 @@ func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 		totalCharts += len(g.configs)
 	}
 	a.Log(fmt.Sprintf("[QAP-EXPORT] Attached %d ECharts configs from %d message groups to steps", totalCharts, len(groups)))
+}
+
+// attachEChartsFromAnalysisResults supplements ECharts configs from persisted
+// AnalysisResultItem data. This is called AFTER attachEChartsFromMessages so
+// that any configs already extracted from message text are present in the steps.
+// New configs found in analysisResults are deduplicated against existing ones
+// (based on compacted JSON comparison) before being appended.
+func (a *App) attachEChartsFromAnalysisResults(threadID string, steps []PackStep) {
+	if len(steps) == 0 {
+		return
+	}
+
+	thread, err := a.chatService.LoadThread(threadID)
+	if err != nil {
+		a.Log(fmt.Sprintf("%s Failed to load thread for analysis results ECharts extraction: %v", logTagExport, err))
+		return
+	}
+
+	if len(thread.Messages) == 0 {
+		return
+	}
+
+	// Collect echarts configs from analysisResults, grouped by message order.
+	// We iterate messages in order and collect groups of echarts JSON strings.
+	type echartsGroup struct {
+		configs []string
+	}
+	var groups []echartsGroup
+
+	for _, msg := range thread.Messages {
+		if len(msg.AnalysisResults) == 0 {
+			continue
+		}
+
+		var configs []string
+		for _, item := range msg.AnalysisResults {
+			if item.Type != "echarts" {
+				continue
+			}
+
+			// Extract the JSON string from the Data field.
+			// Data can be a string directly or may need marshaling.
+			chartJSON := ""
+			switch v := item.Data.(type) {
+			case string:
+				chartJSON = strings.TrimSpace(v)
+			default:
+				// If Data is a map or other type, marshal it to JSON
+				raw, err := json.Marshal(v)
+				if err != nil {
+					a.Log(fmt.Sprintf("%s Failed to marshal echarts data from analysis results: %v", logTagExport, err))
+					continue
+				}
+				chartJSON = string(raw)
+			}
+
+			if chartJSON == "" {
+				continue
+			}
+
+			if !json.Valid([]byte(chartJSON)) {
+				a.Log(fmt.Sprintf("%s Skipping invalid ECharts JSON from analysis results in message %s", logTagExport, msg.ID))
+				continue
+			}
+
+			configs = append(configs, chartJSON)
+		}
+
+		if len(configs) > 0 {
+			groups = append(groups, echartsGroup{configs: configs})
+		}
+	}
+
+	if len(groups) == 0 {
+		return
+	}
+
+	// Associate groups with steps in order (same pattern as attachEChartsFromMessages).
+	// Deduplicate against configs already present on each step.
+	totalAdded := 0
+	for i, group := range groups {
+		stepIdx := i
+		if stepIdx >= len(steps) {
+			stepIdx = len(steps) - 1
+		}
+
+		// Build a set of compacted JSON for existing configs on this step for dedup
+		existingSet := make(map[string]bool, len(steps[stepIdx].EChartsConfigs))
+		for _, existing := range steps[stepIdx].EChartsConfigs {
+			compacted := compactJSONString(existing)
+			existingSet[compacted] = true
+		}
+
+		for _, cfg := range group.configs {
+			compacted := compactJSONString(cfg)
+			if existingSet[compacted] {
+				continue // duplicate, skip
+			}
+			existingSet[compacted] = true
+			steps[stepIdx].EChartsConfigs = append(steps[stepIdx].EChartsConfigs, cfg)
+			totalAdded++
+		}
+	}
+
+	a.Log(fmt.Sprintf("%s Attached %d additional ECharts configs from analysis results (%d groups)", logTagExport, totalAdded, len(groups)))
+}
+
+// compactJSONString returns a compacted (whitespace-removed) version of a JSON
+// string for comparison purposes. If the input is not valid JSON, it returns
+// the trimmed original string.
+func compactJSONString(s string) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(s)); err != nil {
+		return strings.TrimSpace(s)
+	}
+	return buf.String()
 }

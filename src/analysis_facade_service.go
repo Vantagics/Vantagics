@@ -598,7 +598,7 @@ func (s *AnalysisFacadeService) ExtractMetricsFromAnalysis(threadID string, mess
 5. 最多提�个最重要的业务指�
 6. 优先提取：总量、增长率、平均值、比率、金额、数量等核心业务指标
 7. 数值要准确，来源于分析内容
-8. 单位要合适（如：个�%、元�、次/年、天等）
+8. 单位要合适（如：个、%%、元、次/年、天等）
 9. 指标名称要简洁明�
 10. 不要提取非数值型的描述性内�
 

@@ -57,19 +57,19 @@ func (a *App) executePackSQLStep(threadID string, messageID string, step PackSte
 	a.Log(fmt.Sprintf("%s SQL step %d code:\n%s", logTagExecute, step.StepID, step.Code))
 	result, err := a.dataSourceService.ExecuteSQL(dataSourceID, step.Code)
 	if err != nil {
-		errMsg := i18n.T("qap.step_execution_failed", step.StepID, err)
+		errMsg := i18n.T("qap.step_sql_error", step.StepID, step.Description, err, userRequest, step.Code)
 		a.Log(fmt.Sprintf("%s SQL Error: %s", logTagExecute, errMsg))
 
 		errorChatMsg := ChatMessage{
 			ID:        messageID,
 			Role:      "assistant",
-			Content:   i18n.T("qap.step_sql_error", step.StepID, step.Description, err, userRequest, step.Code),
+			Content:   errMsg,
 			Timestamp: time.Now().Unix(),
 		}
 		a.chatService.AddMessage(threadID, errorChatMsg)
 
 		if a.eventAggregator != nil {
-			a.eventAggregator.EmitError(threadID, "", errMsg)
+			a.eventAggregator.EmitErrorWithCode(threadID, "", "SQL_ERROR", errMsg)
 		}
 		return
 	}
@@ -82,7 +82,7 @@ func (a *App) executePackSQLStep(threadID string, messageID string, step PackSte
 
 	// Add success message with results (truncate large result sets for chat display)
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")
-	chatContent := i18n.T("qap.step_sql_success_full", step.StepID, step.Description, userRequest, string(resultJSON))
+	chatContent := i18n.T("qap.step_sql_success_full", step.StepID, step.Description, len(result), userRequest, string(resultJSON))
 	if len(chatContent) > 50000 {
 		previewJSON, _ := json.MarshalIndent(result[:min(len(result), 20)], "", "  ")
 		chatContent = i18n.T("qap.step_sql_success_truncated", step.StepID, step.Description, len(result), userRequest, string(previewJSON))
@@ -99,27 +99,34 @@ func (a *App) executePackSQLStep(threadID string, messageID string, step PackSte
 	if a.eventAggregator != nil {
 		var analysisResults []AnalysisResultItem
 
+		// Add table result to EventAggregator
 		a.eventAggregator.AddItem(threadID, messageID, "", "table", result, map[string]interface{}{
 			"sessionId":        threadID,
 			"messageId":        messageID,
 			"timestamp":        time.Now().UnixMilli(),
 			"step_description": stepLabel,
 		})
+		
+		// Store table result for persistence
 		analysisResults = append(analysisResults, AnalysisResultItem{
 			Type: "table",
 			Data: result,
 			Metadata: map[string]interface{}{
 				"sessionId":        threadID,
 				"messageId":        messageID,
+				"timestamp":        time.Now().UnixMilli(),
 				"step_description": stepLabel,
 			},
 		})
 
+		// Add ECharts configs from step (must be after table for correct ordering)
 		echartsResults := a.emitStepEChartsConfigs(threadID, messageID, step)
 		analysisResults = append(analysisResults, echartsResults...)
 
+		// Flush results to dashboard
 		a.eventAggregator.FlushNow(threadID, false)
 
+		// Persist analysis results to database
 		if err := a.chatService.SaveAnalysisResults(threadID, messageID, analysisResults); err != nil {
 			a.Log(fmt.Sprintf("%s Failed to save SQL analysis results for step %d: %v", logTagExecute, step.StepID, err))
 		}
@@ -170,7 +177,7 @@ func (a *App) logSQLResultDiagnostics(stepID int, result []map[string]interface{
 // executePackPythonStep executes a single Python step from the pack.
 // It tries the EinoService Python pool first (same as normal analysis), then falls back to auto-detected Python.
 // On failure, an error message is logged and emitted.
-func (a *App) executePackPythonStep(threadID string, messageID string, step PackStep, stepResults map[int]interface{}, workDir string) {
+func (a *App) executePackPythonStep(threadID string, messageID string, step PackStep, stepResults map[int]interface{}, workDir string, existingFiles map[string]bool) {
 	stepLabel := getStepLabel(step)
 	userRequest := getStepUserRequest(step)
 
@@ -214,7 +221,7 @@ func (a *App) executePackPythonStep(threadID string, messageID string, step Pack
 			a.chatService.AddMessage(threadID, errorChatMsg)
 
 			if a.eventAggregator != nil {
-				a.eventAggregator.EmitError(threadID, "", errMsg)
+				a.eventAggregator.EmitErrorWithCode(threadID, "", "PYTHON_NOT_CONFIGURED", errMsg)
 			}
 			return
 		}
@@ -237,7 +244,7 @@ func (a *App) executePackPythonStep(threadID string, messageID string, step Pack
 		a.chatService.AddMessage(threadID, errorChatMsg)
 
 		if a.eventAggregator != nil {
-			a.eventAggregator.EmitError(threadID, "", errMsg)
+			a.eventAggregator.EmitErrorWithCode(threadID, "", "PYTHON_ERROR", errMsg)
 		}
 		return
 	}
@@ -248,7 +255,7 @@ func (a *App) executePackPythonStep(threadID string, messageID string, step Pack
 	successMsg := ChatMessage{
 		ID:        messageID,
 		Role:      "assistant",
-		Content:   i18n.T("qap.step_python_success", step.StepID, step.Description, userRequest, output),
+		Content:   i18n.T("qap.step_python_success", step.StepID, step.Description, userRequest, formatPythonOutputForMessage(output)),
 		Timestamp: time.Now().Unix(),
 	}
 	a.chatService.AddMessage(threadID, successMsg)
@@ -257,20 +264,23 @@ func (a *App) executePackPythonStep(threadID string, messageID string, step Pack
 	if a.eventAggregator != nil {
 		var analysisResults []AnalysisResultItem
 
-		imageResults := a.detectAndSendPythonChartFiles(threadID, messageID, workDir, stepLabel)
+		// Detect and send image files (must check existingFiles to avoid duplicates)
+		imageResults := a.detectAndSendPythonChartFiles(threadID, messageID, workDir, stepLabel, existingFiles)
 		analysisResults = append(analysisResults, imageResults...)
 
+		// Detect and send ECharts from Python stdout
 		echartsResults := a.detectAndSendPythonECharts(threadID, messageID, output, stepLabel)
 		analysisResults = append(analysisResults, echartsResults...)
 
+		// Send stored ECharts configs from step metadata
 		storedEchartsResults := a.emitStepEChartsConfigs(threadID, messageID, step)
 		analysisResults = append(analysisResults, storedEchartsResults...)
 
+		// Flush results to dashboard if any were collected
 		if len(analysisResults) > 0 {
 			a.eventAggregator.FlushNow(threadID, false)
-		}
-
-		if len(analysisResults) > 0 {
+			
+			// Persist analysis results to database
 			if err := a.chatService.SaveAnalysisResults(threadID, messageID, analysisResults); err != nil {
 				a.Log(fmt.Sprintf("%s Failed to save analysis results for step %d: %v", logTagExecute, step.StepID, err))
 			}
@@ -284,9 +294,12 @@ func (a *App) executePackPythonStep(threadID string, messageID string, step Pack
 
 // detectAndSendPythonChartFiles scans the workDir for newly generated image files
 // and sends them to the EventAggregator for dashboard display.
-func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string, stepDescription string) []AnalysisResultItem {
+// The existingFiles map is used to filter out files that existed before this step,
+// ensuring only newly generated charts are sent.
+func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string, stepDescription string, existingFiles map[string]bool) []AnalysisResultItem {
 	entries, err := os.ReadDir(workDir)
 	if err != nil {
+		a.Log(fmt.Sprintf("%s Failed to read workDir %s: %v", logTagExecute, workDir, err))
 		return nil
 	}
 
@@ -302,6 +315,12 @@ func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string,
 			continue
 		}
 
+		// Skip files that existed before this step executed
+		if existingFiles != nil && existingFiles[entry.Name()] {
+			a.Log(fmt.Sprintf("%s Skipping existing file: %s", logTagExecute, entry.Name()))
+			continue
+		}
+
 		filePath := filepath.Join(workDir, entry.Name())
 		imageData, err := os.ReadFile(filePath)
 		if err != nil {
@@ -310,6 +329,8 @@ func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string,
 		}
 
 		base64Data := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageData)
+		
+		// Add to EventAggregator
 		a.eventAggregator.AddItem(threadID, messageID, "", "image", base64Data, map[string]interface{}{
 			"sessionId":        threadID,
 			"messageId":        messageID,
@@ -317,10 +338,15 @@ func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string,
 			"fileName":         entry.Name(),
 			"step_description": stepDescription,
 		})
+		
+		// Store for persistence
 		results = append(results, AnalysisResultItem{
 			Type: "image",
 			Data: base64Data,
 			Metadata: map[string]interface{}{
+				"sessionId":        threadID,
+				"messageId":        messageID,
+				"timestamp":        time.Now().UnixMilli(),
 				"fileName":         entry.Name(),
 				"step_description": stepDescription,
 			},
@@ -331,15 +357,40 @@ func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string,
 	return results
 }
 
+
+// formatPythonOutputForMessage formats Python execution output for the assistant
+// chat message. If the output contains chart references (json:echarts blocks or
+// inline images), it is included as-is so the frontend can render them properly.
+// Plain text output is wrapped in a code block for readability. This ensures
+// chart reference formatting is consistent with the original analysis flow.
+func formatPythonOutputForMessage(output string) string {
+	if output == "" {
+		return ""
+	}
+	hasECharts := strings.Contains(output, "json:echarts")
+	hasImage := strings.Contains(output, "![Chart](") || strings.Contains(output, "![chart](") || strings.Contains(output, "data:image/")
+	if hasECharts || hasImage {
+		return output
+	}
+	return "```\n" + output + "\n```"
+}
+
 // detectAndSendPythonECharts parses Python stdout for ECharts JSON blocks
 // marked with ```json:echarts ... ``` or bare json:echarts markers,
 // sends them via EventAggregator, and returns analysis result items.
+// Invalid JSON configs are skipped with a warning log.
 func (a *App) detectAndSendPythonECharts(threadID, messageID, output string, stepDescription string) []AnalysisResultItem {
+	if output == "" {
+		return nil
+	}
+
 	var results []AnalysisResultItem
 
+	// Pattern 1: Backtick-wrapped ECharts blocks
 	reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 	matches := reECharts.FindAllStringSubmatch(output, -1)
 
+	// Pattern 2: Bare json:echarts markers (no backticks)
 	reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\s*\\n(?:---|###)|\\s*$)")
 	matches = append(matches, reEChartsNoBT.FindAllStringSubmatch(output, -1)...)
 
@@ -352,21 +403,28 @@ func (a *App) detectAndSendPythonECharts(threadID, messageID, output string, ste
 			continue
 		}
 
+		// Validate JSON before sending
 		if !json.Valid([]byte(chartData)) {
 			a.Log(fmt.Sprintf("%s Skipping invalid ECharts JSON in Python output (match #%d)", logTagExecute, i+1))
 			continue
 		}
 
+		// Add to EventAggregator
 		a.eventAggregator.AddItem(threadID, messageID, "", "echarts", chartData, map[string]interface{}{
 			"sessionId":        threadID,
 			"messageId":        messageID,
 			"timestamp":        time.Now().UnixMilli(),
 			"step_description": stepDescription,
 		})
+		
+		// Store for persistence
 		results = append(results, AnalysisResultItem{
 			Type: "echarts",
 			Data: chartData,
 			Metadata: map[string]interface{}{
+				"sessionId":        threadID,
+				"messageId":        messageID,
+				"timestamp":        time.Now().UnixMilli(),
 				"step_description": stepDescription,
 			},
 		})
@@ -394,26 +452,27 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# Load SQL query results into DataFrame (injected by QAP executor)
+# Load SQL query results into DataFrame
 _sql_result = json.loads(base64.b64decode("%s").decode("utf-8"))
 if isinstance(_sql_result, list):
     df = pd.DataFrame(_sql_result)
-elif isinstance(_sql_result, dict):
-    if "rows" in _sql_result and _sql_result["rows"]:
-        df = pd.DataFrame(_sql_result["rows"])
-    elif "data" in _sql_result:
-        df = pd.DataFrame(_sql_result["data"])
-    else:
-        df = pd.DataFrame()
+elif "rows" in _sql_result and _sql_result["rows"]:
+    df = pd.DataFrame(_sql_result["rows"])
+elif "data" in _sql_result:
+    df = pd.DataFrame(_sql_result["data"])
 else:
     df = pd.DataFrame()
 
 print(f"DataFrame loaded: {len(df)} rows, {len(df.columns)} columns")
+if len(df) > 0:
+    print(f"Columns: {list(df.columns)}")
+    print(df.head(3).to_string())
 
-# Chart code from analysis pack
+# User chart code
 %s
 `, encoded, chartCode)
 }
+
 
 // emitStepEChartsConfigs sends stored ECharts configs from a step to the EventAggregator.
 // These configs were extracted from the original LLM response during export.
@@ -439,6 +498,9 @@ func (a *App) emitStepEChartsConfigs(threadID, messageID string, step PackStep) 
 			Type: "echarts",
 			Data: chartJSON,
 			Metadata: map[string]interface{}{
+				"sessionId":        threadID,
+				"messageId":        messageID,
+				"timestamp":        time.Now().UnixMilli(),
 				"step_description": stepLabel,
 			},
 		})

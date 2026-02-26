@@ -273,6 +273,7 @@ type EventAggregator struct {
 	flushDelay   time.Duration            // delay before flushing (default 50ms)
 	logger       func(string)             // optional logger function for debug logging
 	maxFlushedAge time.Duration           // max age for flushed items before cleanup (default 30 minutes)
+	disableEmit  bool                     // when true, skip runtime.EventsEmit calls (for testing)
 }
 
 // pendingBatch holds items waiting to be flushed
@@ -299,6 +300,24 @@ func NewEventAggregator(ctx context.Context) *EventAggregator {
 	// Start background cleanup goroutine
 	go ea.cleanupLoop(ctx)
 	
+	return ea
+}
+
+// NewTestEventAggregator creates an EventAggregator suitable for unit tests.
+// It disables wails runtime.EventsEmit calls that require a valid Wails context.
+func NewTestEventAggregator() *EventAggregator {
+	ctx := context.Background()
+	ea := &EventAggregator{
+		ctx:           ctx,
+		pendingItems:  make(map[string]*pendingBatch),
+		flushedItems:  make(map[string][]AnalysisResultItem),
+		flushedTimes:  make(map[string]time.Time),
+		flushTimers:   make(map[string]*time.Timer),
+		flushDelay:    50 * time.Millisecond,
+		logger:        nil,
+		maxFlushedAge: 30 * time.Minute,
+		disableEmit:   true,
+	}
 	return ea
 }
 
@@ -664,7 +683,9 @@ func (ea *EventAggregator) flushAndReturn(sessionID string, isComplete bool) []A
 	ea.mutex.Unlock()
 	
 	// Emit the event
-	runtime.EventsEmit(ea.ctx, "analysis-result-update", payload)
+	if !ea.disableEmit {
+		runtime.EventsEmit(ea.ctx, "analysis-result-update", payload)
+	}
 	
 	ea.logf("[EVENT-AGG] Emitted 'analysis-result-update' event with %d items", len(items))
 	
@@ -690,13 +711,18 @@ func (ea *EventAggregator) Clear(sessionID string) {
 	delete(ea.flushedTimes, sessionID)
 	
 	// Emit clear event
-	runtime.EventsEmit(ea.ctx, "analysis-result-clear", map[string]interface{}{
-		"sessionId": sessionID,
-	})
+	if !ea.disableEmit {
+		runtime.EventsEmit(ea.ctx, "analysis-result-clear", map[string]interface{}{
+			"sessionId": sessionID,
+		})
+	}
 }
 
 // SetLoading emits a loading state event
 func (ea *EventAggregator) SetLoading(sessionID string, loading bool, requestID string) {
+	if ea.disableEmit {
+		return
+	}
 	runtime.EventsEmit(ea.ctx, "analysis-result-loading", map[string]interface{}{
 		"sessionId": sessionID,
 		"loading":   loading,
@@ -717,17 +743,19 @@ func (ea *EventAggregator) EmitErrorWithCode(sessionID, requestID, errorCode, er
 	ea.logf("[EVENT-AGG] Emitting error: code=%s, message=%s, suggestions=%d", 
 		errorCode, errorInfo.Message, len(errorInfo.RecoverySuggestions))
 	
-	runtime.EventsEmit(ea.ctx, "analysis-error", map[string]interface{}{
-		"sessionId":           sessionID,
-		"threadId":            sessionID, // Also include threadId for compatibility
-		"requestId":           requestID,
-		"code":                errorInfo.Code,
-		"error":               errorInfo.Message,
-		"message":             errorInfo.Message, // Also include message for compatibility
-		"details":             errorInfo.Details,
-		"recoverySuggestions": errorInfo.RecoverySuggestions,
-		"timestamp":           errorInfo.Timestamp,
-	})
+	if !ea.disableEmit {
+		runtime.EventsEmit(ea.ctx, "analysis-error", map[string]interface{}{
+			"sessionId":           sessionID,
+			"threadId":            sessionID, // Also include threadId for compatibility
+			"requestId":           requestID,
+			"code":                errorInfo.Code,
+			"error":               errorInfo.Message,
+			"message":             errorInfo.Message, // Also include message for compatibility
+			"details":             errorInfo.Details,
+			"recoverySuggestions": errorInfo.RecoverySuggestions,
+			"timestamp":           errorInfo.Timestamp,
+		})
+	}
 }
 
 // EmitErrorWithDetails emits an error event with detailed information including technical details
@@ -738,17 +766,19 @@ func (ea *EventAggregator) EmitErrorWithDetails(sessionID, requestID, errorCode,
 	ea.logf("[EVENT-AGG] Emitting error with details: code=%s, message=%s, details=%s, suggestions=%d", 
 		errorCode, errorInfo.Message, details, len(errorInfo.RecoverySuggestions))
 	
-	runtime.EventsEmit(ea.ctx, "analysis-error", map[string]interface{}{
-		"sessionId":           sessionID,
-		"threadId":            sessionID,
-		"requestId":           requestID,
-		"code":                errorInfo.Code,
-		"error":               errorInfo.Message,
-		"message":             errorInfo.Message,
-		"details":             errorInfo.Details,
-		"recoverySuggestions": errorInfo.RecoverySuggestions,
-		"timestamp":           errorInfo.Timestamp,
-	})
+	if !ea.disableEmit {
+		runtime.EventsEmit(ea.ctx, "analysis-error", map[string]interface{}{
+			"sessionId":           sessionID,
+			"threadId":            sessionID,
+			"requestId":           requestID,
+			"code":                errorInfo.Code,
+			"error":               errorInfo.Message,
+			"message":             errorInfo.Message,
+			"details":             errorInfo.Details,
+			"recoverySuggestions": errorInfo.RecoverySuggestions,
+			"timestamp":           errorInfo.Timestamp,
+		})
+	}
 }
 
 // EmitTimeout emits a timeout error event with recovery suggestions
@@ -763,15 +793,17 @@ func (ea *EventAggregator) EmitCancelled(sessionID, requestID string) {
 	// Create error info for cancellation
 	errorInfo := createErrorInfo(ErrorCodeAnalysisCancelled, i18n.T("error.analysis_cancelled"), "")
 	
-	runtime.EventsEmit(ea.ctx, "analysis-cancelled", map[string]interface{}{
-		"sessionId":           sessionID,
-		"threadId":            sessionID,
-		"requestId":           requestID,
-		"code":                errorInfo.Code,
-		"message":             errorInfo.Message,
-		"recoverySuggestions": errorInfo.RecoverySuggestions,
-		"timestamp":           errorInfo.Timestamp,
-	})
+	if !ea.disableEmit {
+		runtime.EventsEmit(ea.ctx, "analysis-cancelled", map[string]interface{}{
+			"sessionId":           sessionID,
+			"threadId":            sessionID,
+			"requestId":           requestID,
+			"code":                errorInfo.Code,
+			"message":             errorInfo.Message,
+			"recoverySuggestions": errorInfo.RecoverySuggestions,
+			"timestamp":           errorInfo.Timestamp,
+		})
+	}
 }
 
 // EmitDashboardUpdate adds items to the aggregator (new unified event system only)

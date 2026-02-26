@@ -386,12 +386,13 @@ var englishTranslations = map[string]string{
 	"qap.step_skipped":                "⏭️ Step %d (%s) skipped: dependent step failed",
 	"qap.execution_complete":          "�Quick analysis pack execution complete! Executed %d steps in total.",
 	"qap.reexecution_complete":        "�Quick analysis pack re-execution complete! Executed %d steps in total.",
+	"qap.execution_summary":           "📊 Execution summary: %d succeeded, %d failed, %d skipped.",
 	"qap.step_sql_error":              "�Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```sql\n%s\n```",
-	"qap.step_sql_success_full":       "�Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
-	"qap.step_sql_success_truncated":  "�Step %d (%s) (%d rows, showing first 20):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_full":       "�Step %d (%s) — %d rows returned:\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
+	"qap.step_sql_success_truncated":  "�Step %d (%s) — %d rows returned (showing first 20):\n\n> 📋 Analysis request: %s\n\n```json:table\n%s\n```",
 	"qap.step_python_no_env":          "�Step %d (%s) execution failed: Python environment not configured\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
 	"qap.step_python_error":           "�Step %d (%s) execution failed: %v\n\n> 📋 Analysis request: %s\n\n```python\n%s\n```",
-	"qap.step_python_success":         "�Step %d (%s):\n\n> 📋 Analysis request: %s\n\n```\n%s\n```",
+	"qap.step_python_success":         "�Step %d (%s):\n\n> 📋 Analysis request: %s\n\n%s",
 
 	// Analysis Export
 	"analysis_export.description":     "Vantagics analysis export file - contains executable SQL/Python steps",
