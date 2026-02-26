@@ -25,7 +25,7 @@ const packDetailHTML = `<!DOCTYPE html>
         .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
         .nav>div{display:flex;align-items:center;gap:8px}
         .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
-        .logo-mark{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:18px;box-shadow:0 2px 8px rgba(99,102,241,0.25)}
+        .logo-mark{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 2px 8px rgba(99,102,241,0.25)}
         .logo-text{font-size:15px;font-weight:700;color:#1e293b;letter-spacing:-0.2px}
         .nav-link{padding:7px 16px;font-size:13px;font-weight:500;color:#64748b;background:#fff;border:1px solid #e2e8f0;border-radius:8px;text-decoration:none;transition:all .2s}
         .nav-link:hover{color:#1e293b;border-color:#cbd5e1;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
@@ -100,7 +100,7 @@ const packDetailHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="logo" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div>{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="dlButtons"></span>{{end}}{{if .StoreSlug}}<a class="nav-store" href="/store/{{.StoreSlug}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> <span data-i18n="visit_store">{{if .StoreName}}{{.StoreName}}{{else}}访问店铺{{end}}</span></a>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
     {{if .Error}}

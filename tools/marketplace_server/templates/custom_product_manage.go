@@ -25,9 +25,10 @@ const customProductManageHTML = `<!DOCTYPE html>
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            font-size: 18px; box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
+        .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
         .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; }
         .nav-link {
             padding: 7px 16px; font-size: 13px; font-weight: 500; color: #64748b;
@@ -92,7 +93,7 @@ const customProductManageHTML = `<!DOCTYPE html>
 <div class="page">
     <div class="nav">
         <a href="/" class="logo-link">
-            <div class="logo-mark">📦</div>
+            <div class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
             <span class="logo-text">分析技能包市场</span>
         </a>
         <a href="/user/storefront/" class="nav-link">← 返回小铺管理</a>

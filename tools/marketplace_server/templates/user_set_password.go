@@ -110,7 +110,7 @@ const userSetPasswordHTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="auth-card">
-    <div class="logo">📦</div>
+    <div class="logo"><img src="/marketplace-logo.png" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
     <h1>{{index .T "set_password_title"}}</h1>
     <p class="subtitle">{{index .T "set_password_subtitle"}}</p>
     <div class="info-box">{{index .T "account_email"}}：{{.Email}}</div>

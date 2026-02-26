@@ -34,9 +34,10 @@ const storefrontManageHTML = `<!DOCTYPE html>
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            font-size: 18px; box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
+        .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
         .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; letter-spacing: -0.2px; }
         .nav-link {
             padding: 7px 16px; font-size: 13px; font-weight: 500; color: #64748b;
@@ -518,7 +519,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
 <div class="page">
     <!-- Navigation -->
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div style="display:flex;gap:8px;">
             <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank" data-i18n="sm_view_store">🔗 查看小铺</a>
             <a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>
@@ -2564,9 +2565,10 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            font-size: 18px; box-shadow: 0 2px 8px rgba(99,102,241,0.25);
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.25);
         }
+        .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
         .logo-text { font-size: 15px; font-weight: 700; color: #1e293b; }
         .nav-link {
             padding: 7px 16px; font-size: 13px; font-weight: 500; color: #64748b;
@@ -2644,7 +2646,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark">📦</span><span class="logo-text">分析技能包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text">分析技能包市场</span></a>
         <a class="nav-link" href="/user/storefront/">← 返回小铺管理</a>
     </nav>
 

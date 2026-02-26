@@ -32,8 +32,8 @@ body::after{content:'';position:fixed;bottom:-100px;left:-60px;width:400px;heigh
 .page{max-width:1000px;margin:0 auto;padding:20px 24px 48px;position:relative;z-index:1;}
 .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;padding:0 2px;}
 .logo-link{display:flex;align-items:center;gap:10px;text-decoration:none;}
-.logo-mark{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--g400),var(--g600));box-shadow:0 2px 8px rgba(184,148,58,0.3);}
-.logo-mark svg{width:20px;height:20px;}.logo-text{font-size:15px;font-weight:700;color:var(--tp);letter-spacing:-0.3px;}
+.logo-mark{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 2px 8px rgba(184,148,58,0.3);}
+.logo-mark img{width:100%;height:100%;object-fit:cover;}.logo-text{font-size:15px;font-weight:700;color:var(--tp);letter-spacing:-0.3px;}
 .nav-actions{display:flex;align-items:center;gap:12px;}
 .nav-link{padding:8px 18px;font-size:13px;font-weight:600;color:var(--g600);background:var(--cbg);border:1px solid var(--cb);border-radius:10px;text-decoration:none;transition:all .2s;backdrop-filter:blur(8px);}
 .nav-link:hover{background:#fff;border-color:var(--g300);box-shadow:0 2px 8px rgba(184,148,58,0.1);}
@@ -125,7 +125,7 @@ const novP2 = `.store-featured{flex:1;min-width:0;display:flex;flex-direction:co
 </style></head><body>
 `
 const novP3 = `<div class="page">
-<nav class="nav"><a class="logo-link" href="/"><span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+<nav class="nav"><a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
 <div class="nav-actions">{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="sfDlBtn"></span>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div></nav>
 <div class="store-hero"><div class="hero-glow"></div><div class="store-hero-inner{{if eq .HeroLayout "reversed"}} hero-reversed{{end}}">
 <div class="store-profile"><div class="store-avatar-ring"><div class="store-avatar">{{if .Storefront.HasLogo}}<img src="/store/{{.Storefront.StoreSlug}}/logo" alt="{{.Storefront.StoreName}}">{{else}}<div class="store-avatar-letter">{{firstChar .Storefront.StoreName}}</div>{{end}}</div></div>

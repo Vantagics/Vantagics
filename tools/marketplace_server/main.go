@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -46,6 +47,9 @@ import (
 
 // Global database connection
 var db *sql.DB
+
+//go:embed logo.png
+var marketplaceLogo []byte
 
 // Global cache instance
 var globalCache *Cache
@@ -18023,6 +18027,13 @@ func main() {
 	// i18n routes
 	http.HandleFunc("/api/translations", handleTranslationsAPI)
 	http.HandleFunc("/set-lang", handleSetLang)
+
+	// Marketplace logo
+	http.HandleFunc("/marketplace-logo.png", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Write(marketplaceLogo)
+	})
 
 	// Auth routes
 	http.HandleFunc("/api/auth/sn-login", handleSNLogin)

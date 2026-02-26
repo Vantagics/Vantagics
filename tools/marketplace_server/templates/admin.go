@@ -101,7 +101,7 @@ const AdminHTML = `<!DOCTYPE html>
 <!-- Sidebar -->
 <aside class="sidebar">
     <div class="sidebar-brand">
-        <h1>📦 <span data-i18n="market_admin">市场管理</span></h1>
+        <h1><img src="/marketplace-logo.png" alt="" style="width:24px;height:24px;border-radius:6px;vertical-align:middle;"> <span data-i18n="market_admin">市场管理</span></h1>
         <span>Marketplace Admin</span>
     </div>
     <nav class="sidebar-nav">
