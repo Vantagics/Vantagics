@@ -86,26 +86,31 @@ const I18nJS = `
     enBtn.style.cssText = 'padding:3px 10px;border-radius:6px;text-decoration:none;font-weight:500;transition:all 0.2s;' + (_lang === 'en-US' ? 'background:#6366f1;color:#fff;' : 'color:#64748b;');
     switcher.appendChild(zhBtn);
     switcher.appendChild(enBtn);
-    // Insert after the site name / logo text in the nav bar
-    var target = document.querySelector('.logo-text[data-i18n="site_name"]')
-               || document.querySelector('.logo-text')
-               || document.querySelector('.logo-brand');
-    if (target) {
-      target.parentNode.insertBefore(switcher, target.nextSibling);
+    // Insert into nav alongside download buttons (not inside logo-brand which has vertical layout)
+    // 1. Homepage: append into .nav-center (after .hero-buttons)
+    var navCenter = document.querySelector('.nav-center');
+    if (navCenter) {
+      navCenter.appendChild(switcher);
     } else {
-      // Admin panel: insert into topbar next to user info
-      var topbarUser = document.querySelector('.topbar-user');
-      if (topbarUser) {
-        switcher.style.marginLeft = '0';
-        switcher.style.marginRight = '12px';
-        topbarUser.insertBefore(switcher, topbarUser.firstChild);
+      // 2. Storefront pages: insert after #sfDlBtn inside .nav-actions
+      var sfDl = document.getElementById('sfDlBtn');
+      if (sfDl) {
+        sfDl.parentNode.insertBefore(switcher, sfDl.nextSibling);
       } else {
-        // Fallback: prepend to nav-actions or nav-center
-        var navActions = document.querySelector('.nav-actions') || document.querySelector('.nav-center');
-        if (navActions) {
-          navActions.insertBefore(switcher, navActions.firstChild);
+        // 3. Admin panel: insert into topbar next to user info
+        var topbarUser = document.querySelector('.topbar-user');
+        if (topbarUser) {
+          switcher.style.marginLeft = '0';
+          switcher.style.marginRight = '12px';
+          topbarUser.insertBefore(switcher, topbarUser.firstChild);
         } else {
-          document.body.appendChild(switcher);
+          // 4. Fallback: prepend to nav-actions
+          var navActions = document.querySelector('.nav-actions');
+          if (navActions) {
+            navActions.insertBefore(switcher, navActions.firstChild);
+          } else {
+            document.body.appendChild(switcher);
+          }
         }
       }
     }

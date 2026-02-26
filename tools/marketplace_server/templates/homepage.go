@@ -69,7 +69,17 @@ const homepageHTML = `<!DOCTYPE html>
         /* ── Nav (inside hero) ── */
         .nav {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 14px 0;
+            padding: 16px 0 14px;
+        }
+        .hero-banner {
+            display: flex; align-items: center; justify-content: center; gap: 16px;
+            padding: 0 0 20px; flex-wrap: wrap;
+        }
+        .hero-tagline {
+            font-size: 13px; font-weight: 500; color: #94a3b8; letter-spacing: 0.2px;
+        }
+        .hero-subtitle {
+            font-size: 13px; color: #64748b; font-weight: 500;
         }
         .nav-center {
             display: flex; align-items: center; gap: 12px; flex: 1;
@@ -77,9 +87,6 @@ const homepageHTML = `<!DOCTYPE html>
         }
         .logo-link {
             display: flex; align-items: center; gap: 10px; text-decoration: none;
-        }
-        .logo-brand {
-            display: flex; flex-direction: column;
         }
         .logo-mark {
             width: 36px; height: 36px; border-radius: 10px;
@@ -97,7 +104,6 @@ const homepageHTML = `<!DOCTYPE html>
         }
         .nav-link:hover { background: #fff; border-color: #c7d2fe; box-shadow: 0 2px 8px rgba(99,102,241,0.1); }
 
-        .hero-desc { font-size: 11px; color: #64748b; white-space: nowrap; font-weight: 400; }
         .hero-sep { width: 1px; height: 20px; background: #cbd5e1; flex-shrink: 0; }
         .hero-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
         .dl-btn {
@@ -279,6 +285,8 @@ const homepageHTML = `<!DOCTYPE html>
             .nav-center { flex-wrap: wrap; justify-content: center; }
             .hero-sep { display: none; }
             .hero-buttons { justify-content: center; }
+            .hero-banner { padding: 0 0 16px; }
+            .hero-tagline { font-size: 18px; }
             .card-grid { grid-template-columns: 1fr; }
         }
     </style>
@@ -293,10 +301,7 @@ const homepageHTML = `<!DOCTYPE html>
                 <span class="logo-mark">
                     <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                 </span>
-                <div class="logo-brand">
-                    <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
-                    <span class="hero-desc" data-i18n="homepage.hero_desc">站在专家肩上，洞察业务秘密</span>
-                </div>
+                <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
             </a>
             <div class="nav-center">
                 {{if or .DownloadURLWindows .DownloadURLMacOS}}
@@ -326,6 +331,9 @@ const homepageHTML = `<!DOCTYPE html>
                 {{end}}
             </div>
         </nav>
+        <div class="hero-banner">
+            <span class="hero-tagline" data-i18n="homepage.hero_desc">站在专家肩上，洞察业务秘密</span>
+        </div>
     </div>
 
     <!-- Featured Stores Section (7.3) -->
