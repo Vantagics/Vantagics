@@ -23,6 +23,7 @@ const packDetailHTML = `<!DOCTYPE html>
         body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8f9fc;min-height:100vh;color:#1e293b;-webkit-font-smoothing:antialiased}
         .page{max-width:720px;margin:0 auto;padding:24px 20px 36px}
         .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+        .nav>div{display:flex;align-items:center;gap:8px}
         .logo{display:flex;align-items:center;gap:10px;text-decoration:none}
         .logo-mark{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:18px;box-shadow:0 2px 8px rgba(99,102,241,0.25)}
         .logo-text{font-size:15px;font-weight:700;color:#1e293b;letter-spacing:-0.2px}
@@ -46,14 +47,13 @@ const packDetailHTML = `<!DOCTYPE html>
         .pack-title{font-size:24px;font-weight:800;line-height:1.25;letter-spacing:-0.5px;margin-bottom:6px;color:#0f172a}
         .pack-author{display:flex;align-items:center;gap:6px;font-size:13px;color:#64748b;font-weight:500}
         .pack-author svg{opacity:.5}
-        .dl-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
         .hero-desc{margin-top:12px;padding:10px 14px;background:rgba(255,255,255,0.55);border-radius:8px;border:1px solid rgba(226,232,240,0.5);overflow:hidden}
         .hero-desc-text{font-size:13px;color:#475569;line-height:1.6;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-        .dl-btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;text-decoration:none;transition:all .25s;border:1px solid #e2e8f0;background:#fff;color:#475569}
+        .dl-btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all .25s;border:1px solid #e2e8f0;background:#fff;color:#475569}
         .dl-btn:hover{background:#f8fafc;border-color:#cbd5e1;box-shadow:0 2px 8px rgba(0,0,0,0.06);transform:translateY(-1px)}
-        .dl-btn svg{width:18px;height:18px;flex-shrink:0}
+        .dl-btn svg{width:16px;height:16px;flex-shrink:0}
         .dl-btn-primary{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(99,102,241,0.2)}
-        .dl-btn-primary:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);color:#fff}
+        .dl-btn-primary:hover{background:linear-gradient(135deg,#4f46e5,#3730a3);box-shadow:0 4px 16px rgba(99,102,241,0.35);color:#fff}
         .action-bar{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
         .price{font-size:26px;font-weight:800;letter-spacing:-0.5px;color:#6366f1}
         .price-free{color:#16a34a}
@@ -88,6 +88,9 @@ const packDetailHTML = `<!DOCTYPE html>
         .err-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:48px 24px;text-align:center}
         .err-icon{font-size:48px;margin-bottom:16px}
         .err-text{font-size:15px;color:#64748b;line-height:1.6}
+        .nav-store{padding:7px 16px;font-size:13px;font-weight:500;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;text-decoration:none;transition:all .2s;display:inline-flex;align-items:center;gap:5px}
+        .nav-store:hover{background:#e0e7ff;border-color:#a5b4fc;box-shadow:0 1px 3px rgba(99,102,241,0.12)}
+        .nav-store svg{width:14px;height:14px}
         .foot{text-align:center;margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0}
         .foot-text{font-size:11px;color:#94a3b8}
         .foot-text a{color:#6366f1;text-decoration:none}
@@ -98,7 +101,7 @@ const packDetailHTML = `<!DOCTYPE html>
 <div class="page">
     <nav class="nav">
         <a class="logo" href="/"><span class="logo-mark">📦</span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
-        <div>{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
+        <div>{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="dlButtons"></span>{{end}}{{if .StoreSlug}}<a class="nav-store" href="/store/{{.StoreSlug}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> <span data-i18n="visit_store">{{if .StoreName}}{{.StoreName}}{{else}}访问店铺{{end}}</span></a>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
     {{if .Error}}
     <div class="err-card"><div class="err-icon">😔</div><p class="err-text">{{.Error}}</p><a class="nav-link" href="/" style="margin-top:16px;display:inline-block" data-i18n="back_to_home">返回首页</a></div>
@@ -111,7 +114,6 @@ const packDetailHTML = `<!DOCTYPE html>
         </div>
         <h1 class="pack-title">{{.PackName}}</h1>
         <p class="pack-author"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.AuthorName}}</p>
-        <div class="dl-buttons" id="dlButtons"></div>
         {{if .PackDescription}}<div class="hero-desc"><span class="hero-desc-text">{{.PackDescription}}</span></div>{{end}}
         </div>
         <div class="hero-right">
@@ -170,12 +172,12 @@ var dlURLWindows="{{.DownloadURLWindows}}",dlURLMacOS="{{.DownloadURLMacOS}}";
     function mkBtn(url,svg,i18nKey,label,primary){return '<a class="dl-btn'+(primary?' dl-btn-primary':'')+'" href="'+esc(url)+'" target="_blank" rel="noopener">'+svg+' <span data-i18n="'+i18nKey+'">'+label+'</span></a>';}
     var html='';
     if(isWin){
-        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_vantagics_windows','下载Vantagics Windows版',true);
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download','下载',true);
     } else if(isMac){
-        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_vantagics_macos','下载Vantagics macOS版',true);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download','下载',true);
     } else {
-        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download_vantagics_windows','下载Vantagics Windows版',false);
-        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download_vantagics_macos','下载Vantagics macOS版',false);
+        if(dlURLWindows) html+=mkBtn(dlURLWindows,winSVG,'download','下载',false);
+        if(dlURLMacOS) html+=mkBtn(dlURLMacOS,macSVG,'download','下载',false);
     }
     c.innerHTML=html;
 })();

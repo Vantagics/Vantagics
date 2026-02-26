@@ -21,13 +21,13 @@ type AnalysisPath struct {
 }
 
 // PathStep represents a single step in the analysis journey
-// Following the Phenomenon �?Action �?Conclusion pattern
+// Following the Phenomenon �Action �Conclusion pattern
 type PathStep struct {
 	StepID      string     `json:"step_id"`
 	Timestamp   int64      `json:"timestamp"`
-	Phenomenon  string     `json:"phenomenon"`   // What was observed: "5月销量下�?0%"
+	Phenomenon  string     `json:"phenomenon"`   // What was observed: "5月销量下�0%"
 	Action      string     `json:"action"`       // What was done: "对比去年同期数据"
-	Conclusion  string     `json:"conclusion"`   // What was found: "北方区缺货导�?
+	Conclusion  string     `json:"conclusion"`   // What was found: "北方区缺货导�"
 	Evidence    []Evidence `json:"evidence"`     // Supporting evidence (charts, queries)
 	UserQuery   string     `json:"user_query"`   // Original user question
 	AIResponse  string     `json:"ai_response"`  // AI's response
@@ -146,7 +146,7 @@ func (m *AnalysisPathManager) GetPath(sessionID string) *AnalysisPath {
 // GenerateStoryline creates a narrative summary of the analysis path
 func (path *AnalysisPath) GenerateStoryline() string {
 	if path == nil || len(path.Steps) == 0 {
-		return "分析尚未开始�?
+		return "分析尚未开始�"
 	}
 
 	var story strings.Builder
@@ -182,7 +182,7 @@ func (path *AnalysisPath) GenerateStoryline() string {
 	if len(path.Findings) > 0 {
 		story.WriteString("## 重要发现\n\n")
 		for _, finding := range path.Findings {
-			importance := strings.Repeat("�?, finding.Importance)
+			importance := strings.Repeat("�", finding.Importance)
 			story.WriteString(fmt.Sprintf("- %s %s\n", importance, finding.Content))
 		}
 	}
@@ -222,7 +222,7 @@ func ExtractStepFromInteraction(userQuery, aiResponse string, sqlQueries []strin
 	for _, chart := range charts {
 		step.Evidence = append(step.Evidence, Evidence{
 			Type:        "chart",
-			Description: "可视化图�?,
+			Description: "可视化图�",
 			Data:        chart,
 		})
 	}
@@ -235,7 +235,7 @@ func ExtractStepFromInteraction(userQuery, aiResponse string, sqlQueries []strin
 func extractPhenomenon(response string) string {
 	// Look for patterns indicating observations
 	phenomenonKeywords := []string{
-		"发现", "观察�?, "显示", "表明", "数据显示",
+		"发现", "观察�", "显示", "表明", "数据显示",
 		"结果显示", "分析发现", "可以看到",
 	}
 	
@@ -263,7 +263,7 @@ func summarizeAction(userQuery string) string {
 func extractConclusion(response string) string {
 	// Look for conclusion patterns
 	conclusionKeywords := []string{
-		"因此", "所�?, "结论", "综上", "总结",
+		"因此", "所�", "结论", "综上", "总结",
 		"说明", "表明", "证明", "可见",
 	}
 	

@@ -30,7 +30,7 @@ func NewPDFExportService() *PDFExportService {
 // DashboardData represents dashboard export data
 type DashboardData struct {
 	UserRequest    string
-	DataSourceName string // 数据源名�?
+	DataSourceName string // 数据源名�
 	ReportTitle    string // LLM生成的报告标题（可选，为空时使用默认标题）
 	Metrics        []MetricData
 	Insights       []string
@@ -154,11 +154,11 @@ func (s *PDFExportService) addHeader(m core.Maroto, title string, dataSourceName
 		),
 	)
 
-	// 数据源名�?
+	// 数据源名�
 	if dataSourceName != "" {
 		m.AddRow(8,
 			col.New(12).Add(
-				text.New(fmt.Sprintf("数据�? %s", dataSourceName), props.Text{
+				text.New(fmt.Sprintf("数据� %s", dataSourceName), props.Text{
 					Family: fontfamily.Arial,
 					Size:   11,
 					Align:  align.Center,
@@ -339,7 +339,7 @@ func (s *PDFExportService) parseMarkdownForMaroto(line string) (string, fontstyl
 	// Check for list items
 	trimmed := strings.TrimLeft(line, " \t")
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-		text = "�?" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
+		text = "�" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
 	}
 	
 	// Strip inline bold markers (**text** or __text__)
@@ -375,7 +375,7 @@ func (s *PDFExportService) stripMarkdownBoldMaroto(text string) string {
 func (s *PDFExportService) addCharts(m core.Maroto, chartImages []string) {
 	m.AddRow(8,
 		col.New(12).Add(
-			text.New("数据可视�?, props.Text{
+			text.New("数据可视�", props.Text{
 				Family: fontfamily.Arial,
 				Size:   12,
 				Style:  fontstyle.Bold,
@@ -444,19 +444,19 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 	// Calculate column width
 	colWidth := 12 / len(tableData.Columns)
 
-	// Add table header - 增大字体和行�?
+	// Add table header - 增大字体和行�
 	headerCols := []core.Col{}
 	for _, column := range tableData.Columns {
 		headerCols = append(headerCols, col.New(colWidth).Add(
 			text.New(column.Title, props.Text{
 				Family: fontfamily.Arial,
-				Size:   9, // �?增加�?
+				Size:   9, // �增加�
 				Style:  fontstyle.Bold,
 				Align:  align.Center,
 			}),
 		))
 	}
-	m.AddRow(9, headerCols...) // �?增加�?
+	m.AddRow(9, headerCols...) // �增加�
 
 	// Add table rows (limit to 50 rows for PDF)
 	maxRows := 50
@@ -468,7 +468,7 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 		dataCols := []core.Col{}
 		for i := 0; i < len(tableData.Columns) && i < len(rowData); i++ {
 			cellValue := fmt.Sprintf("%v", rowData[i])
-			// 根据列宽动态调整截断长�?
+			// 根据列宽动态调整截断长�
 			maxLen := 35 / len(tableData.Columns)
 			if maxLen < 15 {
 				maxLen = 15
@@ -479,19 +479,19 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 			dataCols = append(dataCols, col.New(colWidth).Add(
 				text.New(cellValue, props.Text{
 					Family: fontfamily.Arial,
-					Size:   8, // �?增加�?
+					Size:   8, // �增加�
 					Align:  align.Left,
 				}),
 			))
 		}
-		m.AddRow(7, dataCols...) // �?增加�?
+		m.AddRow(7, dataCols...) // �增加�
 	}
 
 	// Add note if data was truncated
 	if len(tableData.Data) > maxRows {
 		m.AddRow(6,
 			col.New(12).Add(
-				text.New(fmt.Sprintf("注：仅显示前%d行数�?, maxRows), props.Text{
+				text.New(fmt.Sprintf("注：仅显示前%d行数�", maxRows), props.Text{
 					Family: fontfamily.Arial,
 					Size:   7,
 					Style:  fontstyle.Italic,
@@ -507,7 +507,7 @@ func (s *PDFExportService) addTable(m core.Maroto, tableData *TableData) {
 func (s *PDFExportService) addFooter(m core.Maroto) {
 	m.AddRow(10,
 		col.New(12).Add(
-			text.New("�?Vantagics 智能分析系统生成", props.Text{
+			text.New("�Vantagics 智能分析系统生成", props.Text{
 				Family: fontfamily.Arial,
 				Size:   8,
 				Align:  align.Center,

@@ -12,7 +12,7 @@ import (
 	"vantagics/i18n"
 )
 
-// LicenseManager 定义许可证管理接�?
+// LicenseManager 定义许可证管理接�
 type LicenseManager interface {
 	ActivateLicense(serverURL, sn string) (*ActivationResult, error)
 	DeactivateLicense() error
@@ -31,7 +31,7 @@ type LicenseManager interface {
 	HasActiveAnalysis() bool
 }
 
-// LicenseFacadeService 许可证服务门面，封装所有许可证相关的业务逻辑和并发状�?
+// LicenseFacadeService 许可证服务门面，封装所有许可证相关的业务逻辑和并发状�
 type LicenseFacadeService struct {
 	ctx            context.Context
 	configProvider ConfigProvider
@@ -41,7 +41,7 @@ type LicenseFacadeService struct {
 	// License client for activation
 	licenseClient *agent.LicenseClient
 
-	// 并发状态（�?App 迁移过来�?
+	// 并发状态（�App 迁移过来�
 	licenseActivationFailed bool
 	licenseActivationError  string
 	mu                      sync.RWMutex
@@ -76,23 +76,23 @@ func (l *LicenseFacadeService) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown 关闭许可证门面服�?
+// Shutdown 关闭许可证门面服�
 func (l *LicenseFacadeService) Shutdown() error {
 	l.log("LicenseFacadeService shutdown")
 	return nil
 }
 
-// SetContext 设置 Wails 上下�?
+// SetContext 设置 Wails 上下�
 func (l *LicenseFacadeService) SetContext(ctx context.Context) {
 	l.ctx = ctx
 }
 
-// SetChatFacadeService 注入聊天门面服务依赖（用�?HasActiveAnalysis 检查）
+// SetChatFacadeService 注入聊天门面服务依赖（用�HasActiveAnalysis 检查）
 func (l *LicenseFacadeService) SetChatFacadeService(cfs *ChatFacadeService) {
 	l.chatFacadeService = cfs
 }
 
-// SetReinitializeServicesFn 注入服务重新初始化回�?
+// SetReinitializeServicesFn 注入服务重新初始化回�
 func (l *LicenseFacadeService) SetReinitializeServicesFn(fn func(cfg config.Config)) {
 	l.reinitializeServicesFn = fn
 }
@@ -157,7 +157,7 @@ func (l *LicenseFacadeService) ActivateLicense(serverURL, sn string) (*Activatio
 	return &ActivationResult{
 		Success:   true,
 		Code:      "SUCCESS",
-		Message:   "激活成�?,
+		Message:   "激活成�",
 		ExpiresAt: result.Data.ExpiresAt,
 	}, nil
 }
@@ -311,7 +311,7 @@ func (l *LicenseFacadeService) LoadSavedActivation(sn string) (*ActivationResult
 	return &ActivationResult{
 		Success:   true,
 		Code:      "SUCCESS",
-		Message:   "从本地加载激活数据成�?,
+		Message:   "从本地加载激活数据成�",
 		ExpiresAt: data.ExpiresAt,
 	}, nil
 }
@@ -360,8 +360,8 @@ func (l *LicenseFacadeService) DeactivateLicense() error {
 	// Check if there are active analysis sessions
 	if l.HasActiveAnalysis() {
 		cfg, _ := l.configProvider.GetConfig()
-		if cfg.Language == "简体中�? {
-			return fmt.Errorf("当前有正在进行的分析任务，无法切换模�?)
+		if cfg.Language == "简体中�" {
+			return fmt.Errorf("当前有正在进行的分析任务，无法切换模�")
 		}
 		return fmt.Errorf("cannot switch mode while analysis is in progress")
 	}
@@ -468,13 +468,13 @@ func (l *LicenseFacadeService) RefreshLicense() (*ActivationResult, error) {
 			var message string
 			switch result.Code {
 			case "INVALID_SN":
-				message = "序列号无效，已切换到开源软件模式。请使用您自己的 LLM API 配置�?
+				message = "序列号无效，已切换到开源软件模式。请使用您自己的 LLM API 配置�"
 			case "SN_EXPIRED":
-				message = "序列号已过期，已切换到开源软件模式。请使用您自己的 LLM API 配置�?
+				message = "序列号已过期，已切换到开源软件模式。请使用您自己的 LLM API 配置�"
 			case "SN_DISABLED":
-				message = "序列号已被禁用，已切换到开源软件模式。请使用您自己的 LLM API 配置�?
+				message = "序列号已被禁用，已切换到开源软件模式。请使用您自己的 LLM API 配置�"
 			default:
-				message = "授权已失效，已切换到开源软件模式。请使用您自己的 LLM API 配置�?
+				message = "授权已失效，已切换到开源软件模式。请使用您自己的 LLM API 配置�"
 			}
 
 			return &ActivationResult{

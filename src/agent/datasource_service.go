@@ -84,7 +84,7 @@ func quoteIdent(name string, isMySQL bool) string {
 // sanitizeValueForJSON converts DuckDB-specific Go types into JSON-safe primitives.
 // go-duckdb may return types such as duckdb.Decimal (*big.Int inside), *big.Int (HUGEINT),
 // duckdb.Interval, duckdb.Map (map[any]any), int8/int16/int32, uint8-uint64,
-// float32, and float64 with NaN/Inf �?none of which survive json.Marshal cleanly.
+// float32, and float64 with NaN/Inf �none of which survive json.Marshal cleanly.
 func sanitizeValueForJSON(v interface{}) interface{} {
 	return sanitizeValueForJSONDepth(v, 0)
 }
@@ -422,7 +422,7 @@ func (s *DataSourceService) inferColumnType(val string) string {
 	if val == "" {
 		return "TEXT"
 	}
-	// Check for date-like patterns first �?they must stay as TEXT
+	// Check for date-like patterns first �they must stay as TEXT
 	if datePatterns.MatchString(val) {
 		return "TEXT"
 	}
@@ -1125,7 +1125,7 @@ func (s *DataSourceService) processSheet(db *sql.DB, tableName string, rows [][]
 		if !dateColumnNamePattern.MatchString(colName) {
 			continue
 		}
-		// Column name suggests date �?check if most numeric values are in Excel date serial range.
+		// Column name suggests date �check if most numeric values are in Excel date serial range.
 		// Use a threshold (>=80%) instead of requiring ALL values, because some cells may contain
 		// outlier or corrupted values that shouldn't prevent the entire column from being converted.
 		dateLikeCount := 0
@@ -1383,7 +1383,7 @@ func (s *DataSourceService) importXLSX(name string, filePath string, headerGen f
 						strRow[colIdx] = cell.GetStringValue()
 					}
 				} else if cell.IsNumber() && dateColumns[colIdx] {
-					// Numeric cell in a column known to contain date-typed cells �?
+					// Numeric cell in a column known to contain date-typed cells �
 					// likely an Excel date serial number
 					if v, err := cell.GetNumericValue(); err == nil {
 						if ds, ok := excelSerialToDate(v); ok {
@@ -1559,7 +1559,7 @@ func toUTF8(s string) string {
 	if utf8.ValidString(s) {
 		return s
 	}
-	// Create a fresh decoder each call �?Decoder is stateful and not safe to reuse.
+	// Create a fresh decoder each call �Decoder is stateful and not safe to reuse.
 	decoded, err := charmap.Windows1252.NewDecoder().String(s)
 	if err != nil {
 		return strings.ToValidUTF8(s, "\uFFFD")
@@ -1722,7 +1722,7 @@ func (s *DataSourceService) ImportCSV(name string, path string, headerGen func(s
 		// Strategy:
 		// - No header: must use processSheet so LLM can infer field names via headerGen
 		// - Has header: use DuckDB native read_csv_auto (much faster), with all_varchar=true
-		//   to prevent DuckDB from misinterpreting dates/numbers (e.g. "2147/7/1" �?integer)
+		//   to prevent DuckDB from misinterpreting dates/numbers (e.g. "2147/7/1" �integer)
 		imported := false
 
 		if hasHeader {
@@ -1886,7 +1886,7 @@ func (s *DataSourceService) GetDataSourceTables(id string) ([]string, error) {
 // This is much faster than calling GetDataSourceTables + GetDataSourceTableColumns per table,
 // because it opens the database connection only once.
 func (s *DataSourceService) GetTablesWithColumns(id string) (map[string][]string, error) {
-	// Check cache first �?if all tables have columns cached, return immediately
+	// Check cache first �if all tables have columns cached, return immediately
 	if cache := s.getSchemaFromCache(id); cache != nil && len(cache.Tables) > 0 {
 		allCached := true
 		for _, t := range cache.Tables {
@@ -2021,7 +2021,7 @@ func (s *DataSourceService) GetDataSourceTableData(id string, tableName string, 
 		return nil, err
 	}
 
-	// Only cache small sample requests (�?0 rows) to avoid memory bloat
+	// Only cache small sample requests (�0 rows) to avoid memory bloat
 	const sampleCacheLimit = 10
 	useCache := limit > 0 && limit <= sampleCacheLimit
 
@@ -3425,12 +3425,12 @@ func (s *DataSourceService) DeleteTable(id string, tableName string) error {
 	return nil
 }
 
-// GetTables 获取数据源的所有表名（别名方法�?
+// GetTables 获取数据源的所有表名（别名方法�
 func (s *DataSourceService) GetTables(id string) ([]string, error) {
 	return s.GetDataSourceTables(id)
 }
 
-// GetTableColumns 获取表的列信�?
+// GetTableColumns 获取表的列信�
 func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]ColumnSchema, error) {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -3490,7 +3490,7 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	// Query column information
 	var rows *sql.Rows
 	if isLocalDuckDB {
-		// Local data sources are opened via DuckDB driver �?use information_schema
+		// Local data sources are opened via DuckDB driver �use information_schema
 		rows, err = db.Query(
 			"SELECT column_name, data_type, CASE WHEN is_nullable = 'YES' THEN 1 ELSE 0 END AS nullable "+
 				"FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position", tableName)
@@ -3548,19 +3548,19 @@ func (s *DataSourceService) GetTableColumns(id string, tableName string) ([]Colu
 	return columns, nil
 }
 
-// ColumnSchema 列结构信�?
+// ColumnSchema 列结构信�
 type ColumnSchema struct {
 	Name     string
 	Type     string
 	Nullable bool
 }
 
-// ExecuteQuery 执行查询并返回结�?
+// ExecuteQuery 执行查询并返回结�
 func (s *DataSourceService) ExecuteQuery(id string, query string) ([]map[string]any, error) {
 	return s.ExecuteSQL(id, query)
 }
 
-// GetConnection 获取数据库连�?
+// GetConnection 获取数据库连�
 func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -3605,10 +3605,10 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 	return db, nil
 }
 
-// CreateOptimizedDatabase 创建优化后的数据库文�?
+// CreateOptimizedDatabase 创建优化后的数据库文�
 // 返回新数据库的完整路径和相对路径（用于存储在 DBPath 中）
 func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, newName string) (string, error) {
-	// 生成新的数据�?ID
+	// 生成新的数据�ID
 	id := uuid.New().String()
 	
 	// 创建数据源目录：sources/{id}
@@ -3618,7 +3618,7 @@ func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, 
 		return "", fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// 数据库文件名�?data.duckdb
+	// 数据库文件名�data.duckdb
 	dbName := "data.duckdb"
 	absDBPath := filepath.Join(absDBDir, dbName)
 
@@ -3634,7 +3634,7 @@ func (s *DataSourceService) CreateOptimizedDatabase(originalSource *DataSource, 
 	return absDBPath, nil
 }
 
-// SaveDataSource 保存单个数据�?
+// SaveDataSource 保存单个数据�
 func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
 	sources, err := s.LoadDataSources()
 	if err != nil {
@@ -3658,9 +3658,9 @@ func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
 	return s.SaveDataSources(sources)
 }
 
-// sanitizeFilename 清理文件�?
+// sanitizeFilename 清理文件�
 func sanitizeFilename(name string) string {
-	// 移除或替换不安全的字�?
+	// 移除或替换不安全的字�
 	name = strings.ReplaceAll(name, "/", "_")
 	name = strings.ReplaceAll(name, "\\", "_")
 	name = strings.ReplaceAll(name, ":", "_")

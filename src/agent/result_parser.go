@@ -135,7 +135,7 @@ func (p *ResultParser) ParseOutput(output string, sessionDir string) *ExecutionR
 func (p *ResultParser) hasError(output string) bool {
 	errorPatterns := []string{
 		"Error:", "错误:", "Exception:", "Traceback",
-		"数据库错�?, "分析错误", "查询结果为空",
+		"数据库错�", "分析错误", "查询结果为空",
 		"duckdb.Error", "sqlite3.Error", "pandas.errors",
 	}
 	outputLower := strings.ToLower(output)

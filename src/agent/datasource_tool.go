@@ -55,7 +55,7 @@ Returns:
 
 **Usage Tips:**
 - For databases with >5 tables, specify table_names to get details for relevant tables only
-- Results are cached per session ‚Ä?no penalty for calling again
+- Results are cached per session ÔøΩno penalty for calling again
 - If you already called this tool, do NOT call it again for the same data source
 - Max 2 calls per analysis session
 
@@ -71,7 +71,7 @@ Returns:
 			},
 			"table_names": {
 				Type:     schema.Array,
-				Desc:     "Optional list of specific table names to inspect (max 5). Omit to get all tables (if ‚â?) or table list (if >5).",
+				Desc:     "Optional list of specific table names to inspect (max 5). Omit to get all tables (if ‚â§5) or table list (if >5).",
 				Required: false,
 			},
 		}),
@@ -296,13 +296,13 @@ func (t *DataSourceContextTool) detectRelationships(dataSourceID string, tables 
 				// Check if reference table exists (singular or plural)
 				if tableSet[refTable] {
 					relationships = append(relationships,
-						fmt.Sprintf("%s.%s ‚Ü?%s.id (FK)", tableName, col, refTable))
+						fmt.Sprintf("%s.%s ÔøΩ%s.id (FK)", tableName, col, refTable))
 				} else if tableSet[refTable+"s"] {
 					relationships = append(relationships,
-						fmt.Sprintf("%s.%s ‚Ü?%ss.id (FK)", tableName, col, refTable))
+						fmt.Sprintf("%s.%s ÔøΩ%ss.id (FK)", tableName, col, refTable))
 				} else if tableSet[refTable+"es"] {
 					relationships = append(relationships,
-						fmt.Sprintf("%s.%s ‚Ü?%ses.id (FK)", tableName, col, refTable))
+						fmt.Sprintf("%s.%s ÔøΩ%ses.id (FK)", tableName, col, refTable))
 				}
 			}
 		}
@@ -359,26 +359,26 @@ func (t *DataSourceContextTool) getSQLDialectHints(dbType string) string {
 	case "duckdb":
 		return `
 ‚ö†Ô∏è SQL Dialect: DuckDB (Local Storage) - Use these syntax rules:
-‚Ä?Date functions: YEAR(date_col), MONTH(date_col), DAY(date_col) are natively supported
-‚Ä?Date format: strftime(date_col, '%Y-%m') or format(date_col, 'yyyy-mm')
-‚Ä?String concat: CONCAT(col1, ' ', col2) or col1 || ' ' || col2
-‚Ä?Window functions: Fully supported (ROW_NUMBER, RANK, etc.)
-‚Ä?Most MySQL and PostgreSQL functions are supported natively
-‚Ä?SUBSTR(str, start, len) or SUBSTRING(str, start, len)
-‚Ä?Current date: now(), today(), current_date
-‚Ä?CAST(col AS INTEGER/DOUBLE/VARCHAR) for type conversion
+ÔøΩDate functions: YEAR(date_col), MONTH(date_col), DAY(date_col) are natively supported
+ÔøΩDate format: strftime(date_col, '%Y-%m') or format(date_col, 'yyyy-mm')
+ÔøΩString concat: CONCAT(col1, ' ', col2) or col1 || ' ' || col2
+ÔøΩWindow functions: Fully supported (ROW_NUMBER, RANK, etc.)
+ÔøΩMost MySQL and PostgreSQL functions are supported natively
+ÔøΩSUBSTR(str, start, len) or SUBSTRING(str, start, len)
+ÔøΩCurrent date: now(), today(), current_date
+ÔøΩCAST(col AS INTEGER/DOUBLE/VARCHAR) for type conversion
 `
 	case "mysql", "doris":
 		return `
 ‚ö†Ô∏è SQL Dialect: MySQL/Doris - Use these syntax rules:
-‚Ä?Date functions: YEAR(date_col), MONTH(date_col), DAY(date_col)
-‚Ä?Date format: DATE_FORMAT(date_col, '%Y-%m') for YYYY-MM format
-‚Ä?String concat: CONCAT(col1, ' ', col2)
-‚Ä?IFNULL(a, b) or COALESCE(a, b)
-‚Ä?SUBSTRING(str, start, len) for substring
-‚Ä?Current date: NOW(), CURDATE()
-‚Ä?CAST(col AS SIGNED/DECIMAL/CHAR) for type conversion
-‚Ä?GROUP_CONCAT() for aggregating strings
+ÔøΩDate functions: YEAR(date_col), MONTH(date_col), DAY(date_col)
+ÔøΩDate format: DATE_FORMAT(date_col, '%Y-%m') for YYYY-MM format
+ÔøΩString concat: CONCAT(col1, ' ', col2)
+ÔøΩIFNULL(a, b) or COALESCE(a, b)
+ÔøΩSUBSTRING(str, start, len) for substring
+ÔøΩCurrent date: NOW(), CURDATE()
+ÔøΩCAST(col AS SIGNED/DECIMAL/CHAR) for type conversion
+ÔøΩGROUP_CONCAT() for aggregating strings
 `
 	default:
 		return ""

@@ -21,7 +21,6 @@ require (
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/text v0.34.0
-	pgregory.net/rapid v1.2.0
 )
 
 require (

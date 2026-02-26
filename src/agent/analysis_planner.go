@@ -15,20 +15,20 @@ type RequestType string
 
 const (
 	RequestTypeTrivial          RequestType = "trivial"            // 无需工具调用
-	RequestTypeSimple           RequestType = "simple"             // 1次工具调�?
+	RequestTypeSimple           RequestType = "simple"             // 1次工具调�
 	RequestTypeDataQuery        RequestType = "data_query"         // 数据查询
-	RequestTypeVisualization    RequestType = "visualization"      // 可视�?
+	RequestTypeVisualization    RequestType = "visualization"      // 可视�
 	RequestTypeCalculation      RequestType = "calculation"        // 计算
 	RequestTypeWebSearch        RequestType = "web_search"         // 网络搜索
 	RequestTypeConsultation     RequestType = "consultation"       // 咨询建议
-	RequestTypeMultiStepAnalysis RequestType = "multi_step_analysis" // 多步骤分�?
+	RequestTypeMultiStepAnalysis RequestType = "multi_step_analysis" // 多步骤分�
 )
 
 // SchemaLevel represents the detail level of schema information
 type SchemaLevel string
 
 const (
-	SchemaLevelBasic    SchemaLevel = "basic"    // 只有表名和描�?
+	SchemaLevelBasic    SchemaLevel = "basic"    // 只有表名和描�
 	SchemaLevelDetailed SchemaLevel = "detailed" // 完整字段信息
 )
 
@@ -36,11 +36,11 @@ const (
 var ConsultationPatterns = []string{
 	"建议",
 	"分析方向",
-	"可以做什么分�?,
+	"可以做什么分�",
 	"分析思路",
 	"怎么分析",
 	"分析维度",
-	"有什么洞�?,
+	"有什么洞�",
 	"suggest",
 	"recommendation",
 	"what analysis",
@@ -52,7 +52,7 @@ var MultiStepPatterns = []string{
 	"全面分析",
 	"深入分析",
 	"综合分析",
-	"多维度分�?,
+	"多维度分�",
 	"详细分析",
 	"complete analysis",
 	"comprehensive analysis",
@@ -181,10 +181,10 @@ func (p *AnalysisPlanner) PlanAnalysis(ctx context.Context, userQuery string, da
 
 ## Quick Path Detection
 These can use python_executor directly without data source:
-- Time/date queries �?datetime module
-- Math calculations �?direct computation
-- Unit conversions �?direct conversion
-- Random numbers/UUID �?random/uuid module
+- Time/date queries �datetime module
+- Math calculations �direct computation
+- Unit conversions �direct conversion
+- Random numbers/UUID �random/uuid module
 
 ## Output Format (JSON)
 {
@@ -260,13 +260,13 @@ func (p *AnalysisPlanner) detectQuickPath(query string) *AnalysisPlan {
 
 	// Time/Date queries
 	if containsAny(queryLower, []string{"时间", "日期", "几点", "今天", "现在", "当前时间", "what time", "current time", "today", "date"}) &&
-		!containsAny(queryLower, []string{"订单", "销�?, "数据", "查询", "统计", "分析"}) {
+		!containsAny(queryLower, []string{"订单", "销�", "数据", "查询", "统计", "分析"}) {
 		return &AnalysisPlan{
 			TaskType:     "calculation",
 			Complexity:   "simple",
 			IsQuickPath:  true,
 			QuickPathCode: `import datetime
-print(datetime.datetime.now().strftime("%Y�?m�?d�?%H:%M:%S"))`,
+print(datetime.datetime.now().strftime("%Y�m�d�%H:%M:%S"))`,
 			NeedsPython:  true,
 			OutputFormat: "text",
 			EstimatedCalls: 1,
@@ -277,8 +277,8 @@ print(datetime.datetime.now().strftime("%Y�?m�?d�?%H:%M:%S"))`,
 	}
 
 	// Simple math calculations
-	if containsAny(queryLower, []string{"计算", "等于多少", "�?, "�?, "�?, "�?, "平方", "开�?, "calculate", "compute"}) &&
-		!containsAny(queryLower, []string{"订单", "销�?, "数据", "查询", "统计"}) {
+	if containsAny(queryLower, []string{"计算", "等于多少", "�", "�", "�", "�", "平方", "开�", "calculate", "compute"}) &&
+		!containsAny(queryLower, []string{"订单", "销�", "数据", "查询", "统计"}) {
 		return &AnalysisPlan{
 			TaskType:     "calculation",
 			Complexity:   "simple",
@@ -287,13 +287,13 @@ print(datetime.datetime.now().strftime("%Y�?m�?d�?%H:%M:%S"))`,
 			OutputFormat: "text",
 			EstimatedCalls: 1,
 			Steps: []PlanStep{
-				{StepNum: 1, Tool: "python_executor", Purpose: "执行计算", Input: "数学表达�?},
+				{StepNum: 1, Tool: "python_executor", Purpose: "执行计算", Input: "数学表达式"},
 			},
 		}
 	}
 
 	// UUID generation
-	if containsAny(queryLower, []string{"uuid", "随机�?, "random"}) {
+	if containsAny(queryLower, []string{"uuid", "随机�", "random"}) {
 		code := ""
 		if strings.Contains(queryLower, "uuid") {
 			code = `import uuid
@@ -311,7 +311,7 @@ print(random.randint(1, 100))`
 			OutputFormat: "text",
 			EstimatedCalls: 1,
 			Steps: []PlanStep{
-				{StepNum: 1, Tool: "python_executor", Purpose: "生成随机�?, Input: "random/uuid代码"},
+				{StepNum: 1, Tool: "python_executor", Purpose: "生成随机�", Input: "random/uuid代码"},
 			},
 		}
 	}
@@ -338,7 +338,7 @@ func (p *AnalysisPlanner) createConsultationPlan() *AnalysisPlan {
 			{
 				StepNum:     1,
 				Tool:        "get_data_source_context",
-				Purpose:     "获取数据源基本信�?,
+				Purpose:     "获取数据源基本信�",
 				Input:       "data_source_id",
 				SchemaLevel: string(SchemaLevelBasic),
 			},
@@ -390,7 +390,7 @@ func (p *AnalysisPlanner) createMultiStepPlan() *AnalysisPlan {
 			{
 				StepNum:     4,
 				Tool:        "python_executor",
-				Purpose:     "生成可视化结�?,
+				Purpose:     "生成可视化结�",
 				Input:       "Python code",
 				DependsOn:   []int{3},
 			},
@@ -404,7 +404,7 @@ func (p *AnalysisPlanner) createFallbackPlan(query string) *AnalysisPlan {
 	queryLower := strings.ToLower(query)
 
 	// Check if this is a simple count/list query (no visualization needed)
-	simpleQueryPatterns := []string{"有多�?, "总数", "计数", "列出所�?, "显示所�?}
+	simpleQueryPatterns := []string{"有多少", "总数", "计数", "列出所有", "显示所有"}
 	isSimpleQuery := false
 	for _, pattern := range simpleQueryPatterns {
 		if strings.Contains(queryLower, pattern) {
@@ -416,9 +416,9 @@ func (p *AnalysisPlanner) createFallbackPlan(query string) *AnalysisPlan {
 	// Detect if visualization is likely needed (more inclusive)
 	// Most analysis requests benefit from visualization
 	vizKeywords := []string{
-		"�?, "chart", "可视�?, "趋势", "分布", "对比", "visualization",
-		"分析", "统计", "销�?, "收入", "利润", "增长",
-		"按月", "按年", "时间", "周期", "排名", "top", "�?,
+		"�", "chart", "可视�", "趋势", "分布", "对比", "visualization",
+		"分析", "统计", "销�", "收入", "利润", "增长",
+		"按月", "按年", "时间", "周期", "排名", "top", "�",
 		"analysis", "sales", "revenue", "growth", "monthly", "yearly",
 	}
 	needsChart := false
@@ -478,7 +478,7 @@ func (p *AnalysisPlanner) createFallbackPlan(query string) *AnalysisPlan {
 		plan.Steps = append(plan.Steps, PlanStep{
 			StepNum:   3,
 			Tool:      "python_executor",
-			Purpose:   "生成可视化图�?,
+			Purpose:   "生成可视化图�",
 			Input:     "matplotlib/seaborn代码",
 			DependsOn: []int{2},
 		})
@@ -498,7 +498,7 @@ func (p *AnalysisPlanner) FormatPlanForPrompt(plan *AnalysisPlan) string {
 	sb.WriteString(fmt.Sprintf("Type: %s | Complexity: %s | Estimated calls: %d\n", plan.TaskType, plan.Complexity, plan.EstimatedCalls))
 
 	if plan.IsQuickPath && plan.QuickPathCode != "" {
-		sb.WriteString("�?Quick path: execute the following code directly\n")
+		sb.WriteString("�Quick path: execute the following code directly\n")
 		sb.WriteString("```python\n")
 		sb.WriteString(plan.QuickPathCode)
 		sb.WriteString("\n```\n")

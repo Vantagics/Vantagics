@@ -102,7 +102,7 @@ type PurchasedPackInfo struct {
 	CreatedAt       string `json:"created_at"`
 }
 
-// ReportPackUsageResponse 服务器上报响�?
+// ReportPackUsageResponse 服务器上报响�
 type ReportPackUsageResponse struct {
 	Success        bool `json:"success"`
 	UsedCount      int  `json:"used_count"`

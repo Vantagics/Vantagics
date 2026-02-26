@@ -17,7 +17,7 @@ type PythonManager interface {
 	DiagnosePythonInstallation() map[string]interface{}
 }
 
-// PythonFacadeService Python 环境服务门面，封装所�?Python 相关的业务逻辑
+// PythonFacadeService Python 环境服务门面，封装所�Python 相关的业务逻辑
 type PythonFacadeService struct {
 	ctx           context.Context
 	pythonService *agent.PythonService
@@ -40,7 +40,7 @@ func (s *PythonFacadeService) Name() string {
 	return "python"
 }
 
-// Initialize 初始�?Python 门面服务
+// Initialize 初始�Python 门面服务
 func (s *PythonFacadeService) Initialize(ctx context.Context) error {
 	s.ctx = ctx
 	s.log("PythonFacadeService initialized")
@@ -52,7 +52,7 @@ func (s *PythonFacadeService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下�?
+// SetContext 设置 Wails 上下�
 func (s *PythonFacadeService) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
@@ -71,7 +71,7 @@ func (s *PythonFacadeService) log(msg string) {
 
 // --- Python Environment Methods ---
 
-// GetPythonEnvironments 返回检测到�?Python 环境列表
+// GetPythonEnvironments 返回检测到�Python 环境列表
 func (s *PythonFacadeService) GetPythonEnvironments() []agent.PythonEnvironment {
 	if s.pythonService == nil {
 		s.log("[PYTHON] python service not available")
@@ -80,7 +80,7 @@ func (s *PythonFacadeService) GetPythonEnvironments() []agent.PythonEnvironment 
 	return s.pythonService.ProbePythonEnvironments()
 }
 
-// ValidatePython 验证指定路径�?Python 环境
+// ValidatePython 验证指定路径�Python 环境
 func (s *PythonFacadeService) ValidatePython(path string) agent.PythonValidationResult {
 	if s.pythonService == nil {
 		return agent.PythonValidationResult{Valid: false, Version: "", MissingPackages: []string{}}
@@ -88,7 +88,7 @@ func (s *PythonFacadeService) ValidatePython(path string) agent.PythonValidation
 	return s.pythonService.ValidatePythonEnvironment(path)
 }
 
-// InstallPythonPackages 为指�?Python 环境安装缺失的包
+// InstallPythonPackages 为指�Python 环境安装缺失的包
 func (s *PythonFacadeService) InstallPythonPackages(pythonPath string, packages []string) error {
 	if s.pythonService == nil {
 		return WrapError("python", "InstallPythonPackages", fmt.Errorf("python service not initialized"))
@@ -104,7 +104,7 @@ func (s *PythonFacadeService) CreateVantagicsEnvironment() (string, error) {
 	return s.pythonService.CreateVantagicsEnvironment()
 }
 
-// CheckVantagicsEnvironmentExists 检�?Vantagics 环境是否已存�?
+// CheckVantagicsEnvironmentExists 检�Vantagics 环境是否已存�
 func (s *PythonFacadeService) CheckVantagicsEnvironmentExists() bool {
 	if s.pythonService == nil {
 		return false
@@ -112,7 +112,7 @@ func (s *PythonFacadeService) CheckVantagicsEnvironmentExists() bool {
 	return s.pythonService.CheckVantagicsEnvironmentExists()
 }
 
-// DiagnosePythonInstallation 提供 Python 安装的详细诊断信�?
+// DiagnosePythonInstallation 提供 Python 安装的详细诊断信�
 func (s *PythonFacadeService) DiagnosePythonInstallation() map[string]interface{} {
 	if s.pythonService == nil {
 		return map[string]interface{}{"error": "python service not initialized"}
@@ -120,7 +120,7 @@ func (s *PythonFacadeService) DiagnosePythonInstallation() map[string]interface{
 	return s.pythonService.DiagnosePythonInstallation()
 }
 
-// SetupUvEnvironment 创建 uv 虚拟环境并安装必要的�?
+// SetupUvEnvironment 创建 uv 虚拟环境并安装必要的�
 func (s *PythonFacadeService) SetupUvEnvironment() (string, error) {
 	if s.pythonService == nil {
 		return "", WrapError("python", "SetupUvEnvironment", fmt.Errorf("python service not initialized"))
@@ -135,7 +135,7 @@ func (s *PythonFacadeService) SetupUvEnvironment() (string, error) {
 	return pythonPath, nil
 }
 
-// GetUvEnvironmentStatus 获取 uv 环境状�?
+// GetUvEnvironmentStatus 获取 uv 环境状�
 func (s *PythonFacadeService) GetUvEnvironmentStatus() agent.UvEnvironmentStatus {
 	if s.pythonService == nil {
 		return agent.UvEnvironmentStatus{}

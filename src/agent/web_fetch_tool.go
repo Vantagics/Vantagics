@@ -106,14 +106,14 @@ The tool returns structured content including:
 - Metadata
 
 **Limitations:**
-- Static HTML only ‚Ä?JavaScript-rendered content may not be available
+- Static HTML only ÔøΩJavaScript-rendered content may not be available
 - Max content: 10KB main text, 50 links, 20 images, 10 tables
 - Requires full URL starting with http:// or https://
 
 **Do NOT use this tool to:**
-- ‚ù?Guess URLs without searching first
-- ‚ù?Fetch internal database data (use execute_sql instead)
-- ‚ù?Download files (use export_data instead)`
+- ÔøΩGuess URLs without searching first
+- ÔøΩFetch internal database data (use execute_sql instead)
+- ÔøΩDownload files (use export_data instead)`
 
 	return &schema.ToolInfo{
 		Name: "web_fetch",

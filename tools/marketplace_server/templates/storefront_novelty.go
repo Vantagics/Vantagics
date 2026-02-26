@@ -78,7 +78,7 @@ const novP2 = `.store-featured{flex:1;min-width:0;display:flex;flex-direction:co
 .sf-dl-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;font-size:12px;font-weight:600;text-decoration:none;transition:all .25s;border:1px solid var(--cb);background:var(--cbg);color:var(--g600);backdrop-filter:blur(8px);}
 .sf-dl-btn:hover{background:rgba(255,255,255,0.85);border-color:var(--g300);box-shadow:0 4px 16px rgba(184,148,58,0.15);transform:translateY(-1px);color:var(--g600);}
 .sf-dl-btn-primary{background:linear-gradient(135deg,var(--g400),var(--g600));color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(184,148,58,0.25);}
-.sf-dl-btn-primary:hover{background:linear-gradient(135deg,var(--g500),var(--g700));box-shadow:0 4px 16px rgba(184,148,58,0.35);color:#fff;}.sf-dl-btn svg{width:16px;height:16px;flex-shrink:0;}
+.sf-dl-btn-primary:hover{background:linear-gradient(135deg,var(--g600),var(--g700));box-shadow:0 4px 16px rgba(184,148,58,0.35);color:#fff;}.sf-dl-btn svg{width:16px;height:16px;flex-shrink:0;}
 .filter-bar{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
 .filter-group{display:flex;gap:4px;background:var(--cbg);border:1px solid var(--cb);border-radius:12px;padding:3px;box-shadow:var(--cs);}
 .filter-btn{padding:7px 16px;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--ts);transition:all 0.2s;text-decoration:none;display:inline-block;}
@@ -187,15 +187,15 @@ const novSupportFloat = `{{if .SupportApproved}}
 .support-float {
     position: fixed; bottom: 32px; right: 32px; z-index: 999;
     width: 56px; height: 56px; border-radius: 50%;
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-    box-shadow: 0 4px 16px rgba(34,197,94,0.4), 0 2px 6px rgba(0,0,0,0.1);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    box-shadow: 0 4px 16px rgba(99,102,241,0.4), 0 2px 6px rgba(0,0,0,0.1);
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; transition: all 0.3s ease;
     text-decoration: none;
 }
 .support-float:hover {
     transform: translateY(-3px) scale(1.05);
-    box-shadow: 0 8px 24px rgba(34,197,94,0.5), 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 0 8px 24px rgba(99,102,241,0.5), 0 4px 12px rgba(0,0,0,0.15);
 }
 .support-float svg { width: 28px; height: 28px; color: #fff; }
 .support-float-label {
@@ -210,19 +210,86 @@ const novSupportFloat = `{{if .SupportApproved}}
     border: 6px solid transparent; border-left-color: #1e293b; border-right: none;
 }
 .support-float:hover .support-float-label { opacity: 1; }
+.support-dialog-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+    z-index: 10000; align-items: center; justify-content: center;
+}
+.support-dialog-overlay.show { display: flex; }
+.support-dialog {
+    position: relative; width: 90%; max-width: 800px; height: 80vh;
+    background: #fff; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.2), 0 8px 24px rgba(0,0,0,0.1);
+    display: flex; flex-direction: column;
+    animation: supportDialogIn 0.25s ease-out;
+}
+@keyframes supportDialogIn {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.support-dialog-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff; flex-shrink: 0;
+}
+.support-dialog-title {
+    font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+}
+.support-dialog-title svg { width: 20px; height: 20px; }
+.support-dialog-actions { display: flex; align-items: center; gap: 6px; }
+.support-dialog-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: none;
+    background: rgba(255,255,255,0.2); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s; font-size: 16px;
+}
+.support-dialog-btn:hover { background: rgba(255,255,255,0.35); }
+.support-dialog-body { flex: 1; position: relative; background: #f8f9fc; }
+.support-dialog-body iframe {
+    width: 100%; height: 100%; border: none; display: block;
+}
+.support-dialog-loading {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: #f8f9fc; color: #64748b; font-size: 14px; font-weight: 500;
+}
+.support-dialog-loading.hidden { display: none; }
 @media (max-width: 640px) {
     .support-float { bottom: 20px; right: 20px; width: 48px; height: 48px; }
     .support-float svg { width: 24px; height: 24px; }
     .support-float-label { display: none; }
+    .support-dialog { width: 96%; height: 88vh; border-radius: 12px; }
+    .support-dialog-header { padding: 12px 16px; }
 }
 </style>
-<div class="support-float" onclick="enterCustomerSupport()" title="客户支持">
+<div class="support-float" onclick="enterCustomerSupport()" title="客户支持" data-i18n-title="customer_support">
     <span class="support-float-label" data-i18n="customer_support">客户支持</span>
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12a8.25 8.25 0 1116.5 0v2.25a2.25 2.25 0 01-2.25 2.25h-.75a1.5 1.5 0 01-1.5-1.5v-3a1.5 1.5 0 011.5-1.5h.75c.17 0 .336.019.497.055A6.75 6.75 0 0012 5.25a6.75 6.75 0 00-5.997 5.305c.16-.036.327-.055.497-.055h.75a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H6.5a2.25 2.25 0 01-2.25-2.25V12z" />
     </svg>
 </div>
+<div class="support-dialog-overlay" id="supportOverlay">
+    <div class="support-dialog">
+        <div class="support-dialog-header">
+            <div class="support-dialog-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12a8.25 8.25 0 1116.5 0v2.25a2.25 2.25 0 01-2.25 2.25h-.75a1.5 1.5 0 01-1.5-1.5v-3a1.5 1.5 0 011.5-1.5h.75c.17 0 .336.019.497.055A6.75 6.75 0 0012 5.25a6.75 6.75 0 00-5.997 5.305c.16-.036.327-.055.497-.055h.75a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H6.5a2.25 2.25 0 01-2.25-2.25V12z"/></svg>
+                <span data-i18n="customer_support">客户支持</span>
+            </div>
+            <div class="support-dialog-actions">
+                <button class="support-dialog-btn" onclick="openSupportExternal()" title="在新窗口打开">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </button>
+                <button class="support-dialog-btn" onclick="closeSupportDialog()" title="关闭">&times;</button>
+            </div>
+        </div>
+        <div class="support-dialog-body">
+            <div class="support-dialog-loading" id="supportLoading" data-i18n="loading_support">正在连接客服系统...</div>
+            <iframe id="supportIframe" sandbox="allow-same-origin allow-scripts allow-forms allow-popups" allow="clipboard-write"></iframe>
+        </div>
+    </div>
+</div>
 <script>
+var _supportLoginUrl = '';
 function enterCustomerSupport() {
     var isLoggedIn = {{if .IsLoggedIn}}true{{else}}false{{end}};
     var storefrontID = {{.Storefront.ID}};
@@ -231,22 +298,57 @@ function enterCustomerSupport() {
         window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
         return;
     }
+    var overlay = document.getElementById('supportOverlay');
+    var iframe = document.getElementById('supportIframe');
+    var loading = document.getElementById('supportLoading');
+    overlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    loading.classList.remove('hidden');
+    iframe.src = '';
     fetch('/api/storefront-support/customer-login', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({storefront_id: storefrontID})
     }).then(function(r){ return r.json(); }).then(function(d){
         if (d.success && d.login_url) {
-            window.open(d.login_url, '_blank');
+            _supportLoginUrl = d.login_url;
+            iframe.onload = function(){ loading.classList.add('hidden'); };
+            iframe.src = d.login_url;
         } else if (d.need_login) {
+            closeSupportDialog();
             window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
         } else {
+            closeSupportDialog();
             alert(d.error || (window._i18n ? window._i18n('support_login_failed', '进入客服系统失败') : '进入客服系统失败'));
         }
     }).catch(function(){
+        closeSupportDialog();
         alert(window._i18n ? window._i18n('network_error', '网络错误') : '网络错误');
     });
 }
+function closeSupportDialog() {
+    var overlay = document.getElementById('supportOverlay');
+    var iframe = document.getElementById('supportIframe');
+    overlay.classList.remove('show');
+    document.body.style.overflow = '';
+    iframe.src = '';
+    _supportLoginUrl = '';
+}
+function openSupportExternal() {
+    if (_supportLoginUrl) {
+        window.open(_supportLoginUrl, '_blank');
+        closeSupportDialog();
+    }
+}
+document.getElementById('supportOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeSupportDialog();
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var overlay = document.getElementById('supportOverlay');
+        if (overlay && overlay.classList.contains('show')) closeSupportDialog();
+    }
+});
 (function(){
     var params = new URLSearchParams(window.location.search);
     if (params.get('support') === '1') {

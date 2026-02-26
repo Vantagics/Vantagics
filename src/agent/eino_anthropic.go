@@ -142,7 +142,7 @@ func (m *AnthropicChatModel) Generate(ctx context.Context, input []*schema.Messa
 				"name":        tool.Name,
 				"description": tool.Desc,
 			}
-			// Convert ParamsOneOf to JSON Schema â€?ParamsOneOf fields are unexported
+			// Convert ParamsOneOf to JSON Schema ï¿½ParamsOneOf fields are unexported
 			// so json.Marshal produces "{}" unless we call ToJSONSchema() first
 			if tool.ParamsOneOf != nil {
 				if jsonSchema, err := tool.ParamsOneOf.ToJSONSchema(); err == nil && jsonSchema != nil {

@@ -51,10 +51,10 @@ type IntentSuggestion struct {
 	Query       string `json:"query"`       // Actual query/analysis request to execute
 }
 
-// IsValid 检查意图建议是否有�?
-// 验证所有必需字段都非�?
+// IsValid 检查意图建议是否有�
+// 验证所有必需字段都非�
 // Returns true if all required fields (ID, Title, Description, Icon, Query) are non-empty
-// Validates: Requirements 1.2 (意图建议结构完整�?
+// Validates: Requirements 1.2 (意图建议结构完整�
 func (s *IntentSuggestion) IsValid() bool {
 	return s.ID != "" &&
 		s.Title != "" &&
@@ -266,13 +266,13 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 			Type:          runtime.QuestionDialog,
 			Title:         title,
 			Message:       message,
-			Buttons:       []string{noButton, yesButton}, // 取消按钮在前，退出按钮在�?
+			Buttons:       []string{noButton, yesButton}, // 取消按钮在前，退出按钮在�
 			DefaultButton: noButton,
 			CancelButton:  noButton,
 		})
 
 		if err != nil {
-			// 如果对话框出错，阻止关闭以保护用户数�?
+			// 如果对话框出错，阻止关闭以保护用户数�
 			a.Log(fmt.Sprintf("[CLOSE-DIALOG] Error showing dialog: %v", err))
 			return true
 		}
@@ -291,7 +291,7 @@ func (a *App) onBeforeClose(ctx context.Context) (prevent bool) {
 		a.Log("[CLOSE-DIALOG] Preventing application close")
 		return true // 阻止关闭 (user clicked Cancel/No or closed dialog)
 	}
-	return false // 没有分析任务，允许关�?
+	return false // 没有分析任务，允许关�
 }
 
 // shutdown is called when the application is closing to clean up resources
@@ -478,9 +478,9 @@ func (a *App) startup(ctx context.Context) {
 				} else {
 					trustLevel := a.licenseClient.GetTrustLevel()
 					refreshInterval := a.licenseClient.GetRefreshInterval()
-					trustLabel := "试用�?
+					trustLabel := "试用�"
 					if trustLevel == "high" {
-						trustLabel = "正式�?
+						trustLabel = "正式�"
 					}
 					a.Log(fmt.Sprintf("[STARTUP] License valid (%s, refresh every %d days)", trustLabel, refreshInterval))
 				}
@@ -556,7 +556,7 @@ func (a *App) startup(ctx context.Context) {
 
 		// === CREATE AND REGISTER SERVICES WITH ServiceRegistry ===
 		// Services are registered in dependency order:
-		// ConfigService �?basic services �?business services
+		// ConfigService �basic services �business services
 		// Requirements: 2.1, 2.2, 2.4
 
 		// 1. Register ConfigService (critical - already created in NewApp)
@@ -890,8 +890,8 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 
 				// Skip if it's just a prompt or question back to user
 				lowerContent := strings.ToLower(content)
-				if strings.HasPrefix(lowerContent, "�?) ||
-					strings.HasPrefix(lowerContent, "�?) ||
+				if strings.HasPrefix(lowerContent, "�") ||
+					strings.HasPrefix(lowerContent, "�") ||
 					strings.HasPrefix(lowerContent, "what") ||
 					strings.HasPrefix(lowerContent, "how") ||
 					strings.HasPrefix(lowerContent, "could you") ||
@@ -913,7 +913,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 				// Try to find first complete paragraph or sentence
 				if idx := strings.Index(content, "\n\n"); idx > 0 && idx < 500 {
 					summary = content[:idx]
-				} else if idx := strings.Index(content, "�?); idx > 0 && idx < 500 {
+				} else if idx := strings.Index(content, "�"); idx > 0 && idx < 500 {
 					summary = content[:idx+3] // Include the period (3 bytes in UTF-8)
 				} else if idx := strings.Index(content, ". "); idx > 0 && idx < 500 {
 					summary = content[:idx+1]
@@ -937,7 +937,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 					mediumTerm = append(mediumTerm, fmt.Sprintf("  ... and %d more questions", len(userQuestions)-5))
 					break
 				}
-				mediumTerm = append(mediumTerm, fmt.Sprintf("  �?%s", q))
+				mediumTerm = append(mediumTerm, fmt.Sprintf("  �%s", q))
 			}
 		}
 
@@ -948,7 +948,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 					mediumTerm = append(mediumTerm, fmt.Sprintf("  ... and %d more findings", len(assistantFindings)-3))
 					break
 				}
-				mediumTerm = append(mediumTerm, fmt.Sprintf("  �?%s", f))
+				mediumTerm = append(mediumTerm, fmt.Sprintf("  �%s", f))
 			}
 		}
 	}
@@ -961,7 +961,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 	if a.memoryService != nil {
 		_, _, _, sessionMedium := a.memoryService.GetMemories(threadID)
 		if len(sessionMedium) > 0 {
-			mediumTerm = append([]string{"📚 AI 自动生成的对话摘�?"}, mediumTerm...)
+			mediumTerm = append([]string{"📚 AI 自动生成的对话摘�"}, mediumTerm...)
 			for _, mem := range sessionMedium {
 				mediumTerm = append(mediumTerm, fmt.Sprintf("  📝 %s", mem))
 			}
@@ -1023,7 +1023,7 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		if len(mentionedTables) > 5 {
 			mentionedTables = mentionedTables[:5]
 		}
-		longTerm = append(longTerm, fmt.Sprintf("📊 涉及数据�? %s", strings.Join(mentionedTables, ", ")))
+		longTerm = append(longTerm, fmt.Sprintf("📊 涉及数据� %s", strings.Join(mentionedTables, ", ")))
 	}
 
 	// Extract the main analysis topic from first user message
@@ -1057,14 +1057,14 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 
 		// Add a header if we have persistent memories
 		if len(globalDataSources) > 0 || len(globalGoals) > 0 || len(sessionLong) > 0 {
-			longTerm = append([]string{"🗄�?持久化知识库:"}, longTerm...)
+			longTerm = append([]string{"🗄�持久化知识库:"}, longTerm...)
 		}
 
 		// Global data sources (cross-session knowledge)
 		if len(globalDataSources) > 0 {
-			longTerm = append(longTerm, "\n📊 全局数据�?")
+			longTerm = append(longTerm, "\n📊 全局数据�")
 			for _, mem := range globalDataSources {
-				longTerm = append(longTerm, fmt.Sprintf("  �?%s", mem))
+				longTerm = append(longTerm, fmt.Sprintf("  �%s", mem))
 			}
 		}
 
@@ -1072,29 +1072,29 @@ func (a *App) GetAgentMemory(threadID string) (AgentMemoryView, error) {
 		if len(globalGoals) > 0 {
 			longTerm = append(longTerm, "\n🎯 全局目标:")
 			for _, mem := range globalGoals {
-				longTerm = append(longTerm, fmt.Sprintf("  �?%s", mem))
+				longTerm = append(longTerm, fmt.Sprintf("  �%s", mem))
 			}
 		}
 
 		// Session long-term (persistent facts for this session)
 		if len(sessionLong) > 0 {
-			longTerm = append(longTerm, "\n📌 会话持久化事�?")
+			longTerm = append(longTerm, "\n📌 会话持久化事�")
 			for _, mem := range sessionLong {
-				longTerm = append(longTerm, fmt.Sprintf("  �?%s", mem))
+				longTerm = append(longTerm, fmt.Sprintf("  �%s", mem))
 			}
 		}
 	}
 
 	// If nothing substantive found, show a meaningful message
 	if len(longTerm) == 0 {
-		longTerm = append(longTerm, "暂无提取到的持久化知识�?)
+		longTerm = append(longTerm, "暂无提取到的持久化知识�")
 		longTerm = append(longTerm, "")
 		longTerm = append(longTerm, "💡 长期记忆会自动从以下内容中提取：")
-		longTerm = append(longTerm, "  �?数据源架构（表名、字段名�?)
-		longTerm = append(longTerm, "  �?业务规则和定�?)
-		longTerm = append(longTerm, "  �?数据特征（枚举值、状态类型）")
+		longTerm = append(longTerm, "  �数据源架构（表名、字段名�")
+		longTerm = append(longTerm, "  �业务规则和定�")
+		longTerm = append(longTerm, "  �数据特征（枚举值、状态类型）")
 		longTerm = append(longTerm, "")
-		longTerm = append(longTerm, "继续对话和分析后，系统将自动提取和保存这些知识�?)
+		longTerm = append(longTerm, "继续对话和分析后，系统将自动提取和保存这些知识�")
 	}
 
 	return AgentMemoryView{
@@ -1756,7 +1756,7 @@ func (a *App) CleanupLogs() error {
 // updateWindowTitle updates the window title based on language
 func (a *App) updateWindowTitle(language string) {
 	var title string
-	if language == "简体中�? {
+	if language == "简体中�" {
 		title = "万策"
 	} else {
 		title = "Vantagics"
@@ -1977,7 +1977,7 @@ func (a *App) GetDashboardData() DashboardData {
 }
 
 func (a *App) getLangPrompt(cfg config.Config) string {
-	if cfg.Language == "简体中�? {
+	if cfg.Language == "简体中�" {
 		return "Simplified Chinese"
 	}
 	return "English"
@@ -2108,10 +2108,10 @@ func (a *App) detectWebSearchNeed(message string) bool {
 	searchKeywords := []string{
 		// Chinese keywords
 		"天气", "气温", "温度", "下雨", "下雪", "晴天", "阴天",
-		"新闻", "最�?, "今天", "现在", "实时", "当前",
-		"股票", "股价", "汇率", "价格", "多少�?,
-		"搜索", "查询", "查一�?, "帮我�?, "帮我�?,
-		"网上", "网络", "互联�?,
+		"新闻", "最�", "今天", "现在", "实时", "当前",
+		"股票", "股价", "汇率", "价格", "多少�",
+		"搜索", "查询", "查一�", "帮我�", "帮我�",
+		"网上", "网络", "互联�",
 		// English keywords
 		"weather", "temperature", "rain", "snow", "sunny", "cloudy",
 		"news", "latest", "today", "now", "current", "real-time",
@@ -2133,7 +2133,7 @@ func (a *App) detectWebSearchNeed(message string) bool {
 // formatToolResultsForUser formats raw tool results into a user-friendly message
 func (a *App) formatToolResultsForUser(results []string, langPrompt string) string {
 	if len(results) == 0 {
-		return "抱歉，未能获取到有效信息�?
+		return "抱歉，未能获取到有效信息�"
 	}
 
 	var formatted strings.Builder
@@ -2331,74 +2331,74 @@ func (a *App) runFreeChatWithTools(ctx context.Context, userMessage, historyCont
 🔧 AVAILABLE TOOLS:
 %s
 
-�?CRITICAL: TOOL SELECTION RULES
+�CRITICAL: TOOL SELECTION RULES
 
-🌤�?WEATHER �?web_fetch with wttr.in (NOT web_search!)
-   - "天气怎样?" �?get_device_location �?web_fetch("https://wttr.in/{city}?format=3")
-   - "北京天气" �?web_fetch("https://wttr.in/Beijing?format=3")
+🌤�WEATHER �web_fetch with wttr.in (NOT web_search!)
+   - "天气怎样?" �get_device_location �web_fetch("https://wttr.in/{city}?format=3")
+   - "北京天气" �web_fetch("https://wttr.in/Beijing?format=3")
 
-✈️ FLIGHTS/机票 �?web_search (MUST use web_search, NOT web_fetch!)
-   - "去成都的机票" �?get_device_location �?web_search("{出发城市} �?成都 机票")
-   - "北京到上海航�? �?web_search("北京 �?上海 航班 机票")
-   - "flights to Tokyo" �?web_search("flights to Tokyo from {city}")
+✈️ FLIGHTS/机票 �web_search (MUST use web_search, NOT web_fetch!)
+   - "去成都的机票" �get_device_location �web_search("{出发城市} �成都 机票")
+   - "北京到上海航� �web_search("北京 �上海 航班 机票")
+   - "flights to Tokyo" �web_search("flights to Tokyo from {city}")
 
-📰 NEWS/新闻 �?web_search
-   - "最新新�? �?web_search("今日新闻 头条")
+📰 NEWS/新闻 �web_search
+   - "最新新� �web_search("今日新闻 头条")
 
-📈 STOCKS/股票 �?web_search
-   - "苹果股价" �?web_search("苹果股票价格 AAPL")
+📈 STOCKS/股票 �web_search
+   - "苹果股价" �web_search("苹果股票价格 AAPL")
 
-💱 EXCHANGE/汇率 �?web_search
-   - "美元汇率" �?web_search("美元 人民�?汇率")
+💱 EXCHANGE/汇率 �web_search
+   - "美元汇率" �web_search("美元 人民�汇率")
 
-🏨 HOTELS/酒店 �?web_search
-   - "附近酒店" �?get_device_location �?web_search("{city} 酒店推荐")
+🏨 HOTELS/酒店 �web_search
+   - "附近酒店" �get_device_location �web_search("{city} 酒店推荐")
 
-�?TIME/时间 �?get_local_time (NO internet needed!)
-   - "现在几点?" �?get_local_time(query_type="current_time")
+�TIME/时间 �get_local_time (NO internet needed!)
+   - "现在几点?" �get_local_time(query_type="current_time")
 
-📍 LOCATION/位置 �?get_device_location
-   - "我在�?" �?get_device_location()
+📍 LOCATION/位置 �get_device_location
+   - "我在�" �get_device_location()
 
 🚨 CRITICAL RULES:
 1. ⚠️ web_fetch is ONLY for:
    - Weather via wttr.in API
    - Reading full content from URLs found in web_search results
 2. ⚠️ web_fetch CANNOT be used for flights, stocks, news, hotels - these sites need JavaScript!
-3. �?For flights/stocks/news/hotels �?ALWAYS use web_search first!
+3. �For flights/stocks/news/hotels �ALWAYS use web_search first!
 4. NEVER say "I cannot search" - YOU HAVE web_search!
 5. NEVER tell user to visit websites - get the info yourself!
 
 📋 WORKFLOW EXAMPLES:
 
 Example 1: "天气怎样?" / "今天几度?"
-�?Step 1: get_device_location (get city)
-�?Step 2: web_fetch(url="https://wttr.in/{city}?format=3")
-�?Step 3: Analyze and answer
+�Step 1: get_device_location (get city)
+�Step 2: web_fetch(url="https://wttr.in/{city}?format=3")
+�Step 3: Analyze and answer
 
-Example 2: "去成都的机票" / "今天还有去成都的机票�?"
-�?Step 1: get_device_location (get departure city, e.g., "San Jose")
-�?Step 2: web_search("San Jose �?成都 机票 航班") �?MUST use web_search!
-�?Step 3: Summarize flight options from search results
+Example 2: "去成都的机票" / "今天还有去成都的机票�"
+�Step 1: get_device_location (get departure city, e.g., "San Jose")
+�Step 2: web_search("San Jose �成都 机票 航班") �MUST use web_search!
+�Step 3: Summarize flight options from search results
 
-Example 3: "北京到上海航�?
-�?Step 1: web_search("北京 �?上海 航班 机票 今天")
-�?Step 2: Summarize flight options
+Example 3: "北京到上海航�"
+�Step 1: web_search("北京 �上海 航班 机票 今天")
+�Step 2: Summarize flight options
 
 Example 4: "苹果股价"
-�?Step 1: web_search("苹果股票价格 AAPL 实时")
-�?Step 2: Report stock price from results
+�Step 1: web_search("苹果股票价格 AAPL 实时")
+�Step 2: Report stock price from results
 
-Example 5: "最新新�?
-�?Step 1: web_search("今日新闻 头条 最�?)
-�?Step 2: Summarize top news
+Example 5: "最新新�"
+�Step 1: web_search("今日新闻 头条 最�")
+�Step 2: Summarize top news
 
 🎯 SUMMARY:
-- Weather �?web_fetch with wttr.in
-- Flights/Stocks/News/Hotels �?web_search (NEVER web_fetch!)
-- Time �?get_local_time
-- Location �?get_device_location
-- Data analysis �?start_datasource_analysis
+- Weather �web_fetch with wttr.in
+- Flights/Stocks/News/Hotels �web_search (NEVER web_fetch!)
+- Time �get_local_time
+- Location �get_device_location
+- Data analysis �start_datasource_analysis
 
 📊 DATA ANALYSIS (HIGHEST PRIORITY):
 🚨 CRITICAL: When user mentions "分析", "analyze", "analysis", or any word meaning "analyze" in ANY language, 
@@ -2414,17 +2414,17 @@ MANDATORY WORKFLOW:
 6. If no data sources exist, tell the user to add a data source first
 
 🚨 AFTER CALLING start action: The analysis will be launched in a NEW dedicated analysis session automatically.
-Your response MUST be VERY SHORT, e.g. "正在为您启动�?Bookshop 的分析，请稍候�? or "Starting analysis for Bookshop, please wait."
+Your response MUST be VERY SHORT, e.g. "正在为您启动�Bookshop 的分析，请稍候� or "Starting analysis for Bookshop, please wait."
 Do NOT describe what the analysis will do. Do NOT list analysis steps. Do NOT explain the process.
-The dedicated analysis session will handle everything �?just confirm it's starting and STOP.
+The dedicated analysis session will handle everything �just confirm it's starting and STOP.
 
 Examples:
-- "分析bookshop2" �?list �?match "Bookshop2" �?start analysis
-- "我想分析销售数�? �?list �?find matching one �?start analysis  
-- "analyze user data" �?list �?find matching one �?start analysis
-- "帮我看看bookshop2" �?list �?match "Bookshop2" �?start analysis
+- "分析bookshop2" �list �match "Bookshop2" �start analysis
+- "我想分析销售数� �list �find matching one �start analysis  
+- "analyze user data" �list �find matching one �start analysis
+- "帮我看看bookshop2" �list �match "Bookshop2" �start analysis
 
-⚠️ NEVER respond with generic text like "请提供更多信�? when user says "分析xxx". ALWAYS call the tool first!
+⚠️ NEVER respond with generic text like "请提供更多信� when user says "分析xxx". ALWAYS call the tool first!
 
 Please respond in %s.`, toolDescriptions.String(), langPrompt)
 	} else {
@@ -2434,10 +2434,10 @@ Please respond in %s.`, toolDescriptions.String(), langPrompt)
 ⚠️ IMPORTANT: No search API is configured. You CANNOT search the web for real-time information.
 
 CRITICAL RULES:
-1. For TIME/DATE questions �?Use get_local_time tool (instant, accurate!)
-2. For LOCATION questions �?Use get_device_location tool
-3. For WEATHER questions �?Use web_fetch with wttr.in API (FREE, works without search API!)
-4. For other real-time info (news, stocks, flights, etc.) �?Politely explain search API is needed
+1. For TIME/DATE questions �Use get_local_time tool (instant, accurate!)
+2. For LOCATION questions �Use get_device_location tool
+3. For WEATHER questions �Use web_fetch with wttr.in API (FREE, works without search API!)
+4. For other real-time info (news, stocks, flights, etc.) �Politely explain search API is needed
 5. ⚠️ DO NOT try to use web_fetch for flights, stocks, news - these sites require JavaScript and won't work!
 
 Available tools:
@@ -2445,40 +2445,40 @@ Available tools:
 
 === WHAT YOU CAN DO (NO SEARCH API NEEDED) ===
 
-�?TIME/DATE: Use get_local_time
-   - "现在几点?" �?get_local_time(query_type="current_time")
-   - "今天星期�?" �?get_local_time(query_type="weekday")
-   - "今天几号?" �?get_local_time(query_type="current_date")
+�TIME/DATE: Use get_local_time
+   - "现在几点?" �get_local_time(query_type="current_time")
+   - "今天星期�" �get_local_time(query_type="weekday")
+   - "今天几号?" �get_local_time(query_type="current_date")
 
-�?LOCATION: Use get_device_location
-   - "我在�?" �?get_device_location()
+�LOCATION: Use get_device_location
+   - "我在�" �get_device_location()
 
-�?WEATHER: Use web_fetch with wttr.in (FREE API - plain text, no JavaScript!)
+�WEATHER: Use web_fetch with wttr.in (FREE API - plain text, no JavaScript!)
    WORKFLOW:
-   1. get_device_location �?get city
+   1. get_device_location �get city
    2. If unavailable, use Beijing as default
    3. web_fetch(url="https://wttr.in/{city}?format=3")
    
    Examples:
-   - "天气怎样?" �?get_device_location, then web_fetch("https://wttr.in/{city}?format=3")
-   - "北京天气" �?web_fetch("https://wttr.in/Beijing?format=3")
-   - "上海今天几度?" �?web_fetch("https://wttr.in/Shanghai?format=3")
+   - "天气怎样?" �get_device_location, then web_fetch("https://wttr.in/{city}?format=3")
+   - "北京天气" �web_fetch("https://wttr.in/Beijing?format=3")
+   - "上海今天几度?" �web_fetch("https://wttr.in/Shanghai?format=3")
 
 === WHAT YOU CANNOT DO (NEEDS SEARCH API) ===
 
-�?The following queries require a search API to be configured:
-   - 航班/Flights: "北京到上海的航班", "明天飞深�?, "去成都的机票"
-   - 股票/Stocks: "苹果股价", "茅台股票多少�?
-   - 新闻/News: "最新新�?, "今天有什么新�?
+�The following queries require a search API to be configured:
+   - 航班/Flights: "北京到上海的航班", "明天飞深�", "去成都的机票"
+   - 股票/Stocks: "苹果股价", "茅台股票多少�"
+   - 新闻/News: "最新新�", "今天有什么新�"
    - 酒店/Hotels: "附近酒店", "三亚酒店推荐"
-   - 比赛/Sports: "今天有什么比�?, "NBA比分"
+   - 比赛/Sports: "今天有什么比�", "NBA比分"
    - 汇率/Exchange: "美元汇率", "人民币兑日元"
 
 ⚠️ DO NOT try to use web_fetch for these queries! Most flight/stock/news websites require JavaScript to render content, and web_fetch can only read static HTML.
 
 When user asks for flights, stocks, news, etc., respond like this:
-- Chinese: "抱歉，查询航�?股票/新闻等实时信息需要配置搜索引擎。请在「设置」→「搜索API」中启用 Serper �?UAPI Pro 后再试。目前我只能帮您查询天气、时间和位置信息�?
-- English: "Sorry, querying flights/stocks/news requires a search API. Please enable Serper or UAPI Pro in Settings �?Search API. Currently I can only help with weather, time, and location queries."
+- Chinese: "抱歉，查询航�股票/新闻等实时信息需要配置搜索引擎。请在「设置」→「搜索API」中启用 Serper �UAPI Pro 后再试。目前我只能帮您查询天气、时间和位置信息�"
+- English: "Sorry, querying flights/stocks/news requires a search API. Please enable Serper or UAPI Pro in Settings �Search API. Currently I can only help with weather, time, and location queries."
 
 === DATA ANALYSIS (ALWAYS AVAILABLE - HIGHEST PRIORITY) ===
 
@@ -2495,16 +2495,16 @@ MANDATORY WORKFLOW:
 6. If no data sources exist, tell the user to add a data source first
 
 🚨 AFTER CALLING start action: The analysis will be launched in a NEW dedicated analysis session automatically.
-Your response MUST be VERY SHORT, e.g. "正在为您启动�?Bookshop 的分析，请稍候�? or "Starting analysis for Bookshop, please wait."
+Your response MUST be VERY SHORT, e.g. "正在为您启动�Bookshop 的分析，请稍候� or "Starting analysis for Bookshop, please wait."
 Do NOT describe what the analysis will do. Do NOT list analysis steps. Do NOT explain the process.
-The dedicated analysis session will handle everything �?just confirm it's starting and STOP.
+The dedicated analysis session will handle everything �just confirm it's starting and STOP.
 
 Examples:
-- "分析bookshop2" �?list �?match "Bookshop2" �?start analysis
-- "我想分析销售数�? �?list �?find matching one �?start analysis
-- "analyze user data" �?list �?find matching one �?start analysis
+- "分析bookshop2" �list �match "Bookshop2" �start analysis
+- "我想分析销售数� �list �find matching one �start analysis
+- "analyze user data" �list �find matching one �start analysis
 
-⚠️ NEVER respond with generic text like "请提供更多信�? when user says "分析xxx". ALWAYS call the tool first!
+⚠️ NEVER respond with generic text like "请提供更多信� when user says "分析xxx". ALWAYS call the tool first!
 
 Please respond in %s.`, toolDescriptions.String(), langPrompt)
 	}
@@ -2671,7 +2671,7 @@ Please respond in %s.`, toolDescriptions.String(), langPrompt)
 					if streamErr == nil {
 						finalResponse.WriteString(streamResp)
 					} else {
-						errorMsg := "抱歉，处理请求时遇到问题。请稍后重试�?
+						errorMsg := "抱歉，处理请求时遇到问题。请稍后重试�"
 						onChunk(errorMsg)
 						finalResponse.WriteString(errorMsg)
 					}
@@ -2697,7 +2697,7 @@ Please respond in %s.`, toolDescriptions.String(), langPrompt)
 						finalResponse.WriteString(summary)
 					}
 				} else {
-					errorMsg := "抱歉，无法生成回复。请尝试重新提问�?
+					errorMsg := "抱歉，无法生成回复。请尝试重新提问�"
 					onChunk(errorMsg)
 					finalResponse.WriteString(errorMsg)
 				}
@@ -3964,7 +3964,7 @@ func (a *App) ShowStepResultOnDashboard(threadID string, messageID string) error
 	return a.analysisFacadeService.ShowStepResultOnDashboard(threadID, messageID)
 }
 
-// ShowAllSessionResults 将整个会话的所有分析结果一次性推送到仪表盘�?
+// ShowAllSessionResults 将整个会话的所有分析结果一次性推送到仪表盘�
 func (a *App) ShowAllSessionResults(threadID string) error {
 	if a.analysisFacadeService == nil {
 		return WrapError("App", "ShowAllSessionResults", fmt.Errorf("analysis facade service not initialized"))
@@ -3974,7 +3974,7 @@ func (a *App) ShowAllSessionResults(threadID string) error {
 
 // Pre-compiled regexes for extractStepDescriptionFromContent
 var (
-	reAnalysisRequestLine = regexp.MustCompile(`📋 分析请求�?.+)`)
+	reAnalysisRequestLine = regexp.MustCompile(`📋 分析请求[：:](.+)`)
 	reStepHeader          = regexp.MustCompile(`步骤\s+\d+\s+\(([^)]+)\)`)
 )
 
@@ -3982,20 +3982,20 @@ var (
 var (
 	reTablePattern   = regexp.MustCompile(`(?i)(?:table|from|join)\s+["\x60]?(\w+)["\x60]?`)
 	reInsightPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`(?i)(?:发现|found|shows?|indicates?|suggests?|reveals?)[�?\s]+(.{20,100})`),
-		regexp.MustCompile(`(?i)(?:结论|conclusion|result|总结)[�?\s]+(.{20,100})`),
-		regexp.MustCompile(`(?i)(?:趋势|trend|pattern|规律)[�?\s]+(.{20,100})`),
+		regexp.MustCompile(`(?i)(?:发现|found|shows?|indicates?|suggests?|reveals?)[:：\s]+(.{20,100})`),
+		regexp.MustCompile(`(?i)(?:结论|conclusion|result|总结)[�\s]+(.{20,100})`),
+		regexp.MustCompile(`(?i)(?:趋势|trend|pattern|规律)[�\s]+(.{20,100})`),
 	}
 	reNumPattern      = regexp.MustCompile(`(\d+(?:\.\d+)?%|\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?\s*(?:万|亿|million|billion|k|M|B))`)
-	reBoldListItem    = regexp.MustCompile(`^\d*[.�?]\s*\*\*(.+?)\*\*`)
+	reBoldListItem    = regexp.MustCompile(`^\d*[.�]\s*\*\*(.+?)\*\*`)
 	reTrailingComma   = regexp.MustCompile(`,(\s*[}\]])`)
 )
 
 
 // extractStepDescriptionFromContent extracts step description from message content.
-// It first tries to extract from "📋 分析请求�? line, then falls back to step header "步骤 N (描述)".
+// It first tries to extract from "📋 分析请求� line, then falls back to step header "步骤 N (描述)".
 func extractStepDescriptionFromContent(content string) string {
-	// First try to extract from "📋 分析请求�? line
+	// First try to extract from "📋 分析请求� line
 	matches := reAnalysisRequestLine.FindStringSubmatch(content)
 	if len(matches) > 1 {
 		return strings.TrimSpace(matches[1])

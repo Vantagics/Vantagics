@@ -52,7 +52,7 @@ Actions:
 - "start": Start a new analysis session for a specific data source. Requires data_source_id.
 
 Examples of user intent that should trigger this tool:
-- "分析销售数�? / "帮我分析一下销售数�? / "analyze sales data"
+- "分析销售数� / "帮我分析一下销售数� / "analyze sales data"
 - "我想看看用户行为数据" / "look at user behavior data"
 - "有哪些数据源" / "what data sources are available"
 - "分析一下xxx" where xxx is a data source name`,

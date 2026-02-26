@@ -15,7 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// DataSourceManager 定义数据源管理接�?
+// DataSourceManager 定义数据源管理接�
 type DataSourceManager interface {
 	GetDataSources() ([]agent.DataSource, error)
 	AddDataSource(name, driverType string, config map[string]string) (*agent.DataSource, error)
@@ -97,7 +97,7 @@ func (d *DataSourceFacadeService) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Shutdown 关闭数据源门面服�?
+// Shutdown 关闭数据源门面服�
 func (d *DataSourceFacadeService) Shutdown() error {
 	// Cancel any active Shopify OAuth
 	d.shopifyOAuthMutex.Lock()
@@ -473,7 +473,7 @@ func (d *DataSourceFacadeService) StartDataSourceAnalysis(dataSourceID string) (
 
 	threadID := thread.ID
 
-	prompt := fmt.Sprintf("请分析数据源 '%s' (%s)，提供数据概览、关键指标和洞察�?,
+	prompt := fmt.Sprintf("请分析数据源 '%s' (%s)，提供数据概览、关键指标和洞察�",
 		targetDS.Name, targetDS.Type)
 
 	userMessageID := fmt.Sprintf("ds-msg-%d", time.Now().UnixNano())
@@ -819,7 +819,7 @@ func (d *DataSourceFacadeService) parseSuggestionsToInsights(llmResponse, dataSo
 	var insights []Insight
 	lines := strings.Split(llmResponse, "\n")
 
-	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.�?]\*{0,2}\s*(.+)`)
+	numberPattern := regexp.MustCompile(`^\s*\*{0,2}(\d+)[.�]\*{0,2}\s*(.+)`)
 	listPattern := regexp.MustCompile(`^\s*[-*•]\s+(.+)`)
 
 	for _, line := range lines {
@@ -859,7 +859,7 @@ func (d *DataSourceFacadeService) log(msg string) {
 
 // getLangPrompt returns the language prompt string based on config
 func getLangPrompt(cfg config.Config) string {
-	if cfg.Language == "简体中�? {
+	if cfg.Language == "简体中�" {
 		return "Simplified Chinese"
 	}
 	return "English"

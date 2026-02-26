@@ -8,18 +8,18 @@ import (
 
 // ToolRouterResult 路由结果
 type ToolRouterResult struct {
-	NeedsTools     bool     // 是否需要使用工�?
-	SuggestedTools []string // 建议使用的工具列�?
-	Confidence     float64  // 置信�?0-1
+	NeedsTools     bool     // 是否需要使用工�
+	SuggestedTools []string // 建议使用的工具列�
+	Confidence     float64  // 置信�0-1
 	Reason         string   // 路由原因
 }
 
-// ToolRouter 智能工具路由�?
-// 使用多种非LLM方法判断用户请求是否需要使用工�?
+// ToolRouter 智能工具路由�
+// 使用多种非LLM方法判断用户请求是否需要使用工�
 type ToolRouter struct {
 	logFunc func(string)
 
-	// 预编译的正则表达�?
+	// 预编译的正则表达�
 	timePatterns     []*regexp.Regexp
 	locationPatterns []*regexp.Regexp
 	searchPatterns   []*regexp.Regexp
@@ -27,7 +27,7 @@ type ToolRouter struct {
 	analysisPatterns []*regexp.Regexp
 }
 
-// NewToolRouter 创建新的工具路由�?
+// NewToolRouter 创建新的工具路由�
 func NewToolRouter(logFunc func(string)) *ToolRouter {
 	router := &ToolRouter{
 		logFunc: logFunc,
@@ -80,17 +80,17 @@ func (r *ToolRouter) compilePatterns() {
 	// 需要网络搜索的模式
 	r.searchPatterns = compilePatterns([]string{
 		// 天气相关 - 更宽泛的匹配
-		`(?i)天气`,           // 任何包含"天气"的查�?
-		`(?i)�?*下雨`,
-		`(?i)�?*下雪`,
-		`(?i)气温`,           // 任何包含"气温"的查�?
-		`(?i)温度`,           // 任何包含"温度"的查�?
+		`(?i)天气`,           // 任何包含"天气"的查�
+		`(?i)�*下雨`,
+		`(?i)�*下雪`,
+		`(?i)气温`,           // 任何包含"气温"的查�
+		`(?i)温度`,           // 任何包含"温度"的查�
 		`(?i)几度`,           // "今天几度"
-		`(?i)多少度`,         // "现在多少�?
+		`(?i)多少度`,         // "现在多少�"
 		`(?i)weather`,
 		`(?i)forecast`,
 		// 新闻/实时信息
-		`(?i)新闻`,           // 任何包含"新闻"的查�?
+		`(?i)新闻`,           // 任何包含"新闻"的查�
 		`(?i)头条`,
 		`(?i)latest\s+news`,
 		`(?i)recent\s+news`,
@@ -103,15 +103,15 @@ func (r *ToolRouter) compilePatterns() {
 		`(?i)stock`,
 		`(?i)exchange\s+rate`,
 		`(?i)price`,
-		// 航班/交�?
+		// 航班/交�
 		`(?i)航班`,
 		`(?i)机票`,
-		`(?i)�?*到`,
-		`(?i)�?*的航班`,
-		`(?i)�?*的机票`,     // "去成都的机票"
-		`(?i)�?*机票`,       // "去成都机�?
-		`(?i)�?*机票`,       // "到成都机�?
-		`(?i).*�?*`,         // "飞成�?
+		`(?i)�*到`,
+		`(?i)�*的航班`,
+		`(?i)�*的机票`,     // "去成都的机票"
+		`(?i)�*机票`,       // "去成都机�"
+		`(?i)�*机票`,       // "到成都机�"
+		`(?i).*�*`,         // "飞成�"
 		`(?i)flight`,
 		`(?i)flights?\s+to`,
 		// 酒店/住宿
@@ -139,7 +139,7 @@ func (r *ToolRouter) compilePatterns() {
 
 	// 数据分析相关模式
 	r.analysisPatterns = compilePatterns([]string{
-		`(?i)分析`,            // 任何包含"分析"的消�?
+		`(?i)分析`,            // 任何包含"分析"的消�
 		`(?i)看看.*数据`,
 		`(?i)数据源`,
 		`(?i)有哪些数据`,
@@ -149,16 +149,16 @@ func (r *ToolRouter) compilePatterns() {
 		`(?i)dataset`,
 	})
 
-	// 疑问句模式（用于辅助判断�?
+	// 疑问句模式（用于辅助判断�
 	r.questionPatterns = compilePatterns([]string{
-		`(?i)^(什么|哪|谁|怎么|为什么|多少|几|是否|能否|可以|有没�?`,
-		`(?i)(什么|哪|谁|怎么|为什么|多少|�?\??\s*$`,
+		`(?i)^(什么|哪|谁|怎么|为什么|多少|几|是否|能否|可以|有没�`,
+		`(?i)(什么|哪|谁|怎么|为什么|多少|�\??\s*$`,
 		`(?i)^(what|where|who|when|why|how|which|is|are|can|could|do|does|did)`,
 		`(?i)\?$`,
 	})
 }
 
-// compilePatterns 编译正则表达式列�?
+// compilePatterns 编译正则表达式列�
 func compilePatterns(patterns []string) []*regexp.Regexp {
 	compiled := make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {
@@ -169,7 +169,7 @@ func compilePatterns(patterns []string) []*regexp.Regexp {
 	return compiled
 }
 
-// Route 路由用户请求，判断是否需要使用工�?
+// Route 路由用户请求，判断是否需要使用工�
 func (r *ToolRouter) Route(message string) ToolRouterResult {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -180,7 +180,7 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 	var reasons []string
 	totalScore := 0.0
 
-	// 1. 检查时间相关模�?
+	// 1. 检查时间相关模�
 	if r.matchesAny(message, r.timePatterns) {
 		suggestedTools = append(suggestedTools, "get_local_time")
 		reasons = append(reasons, "time_pattern")
@@ -188,7 +188,7 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 		r.log("[TOOL-ROUTER] Matched time pattern")
 	}
 
-	// 2. 检查位置相关模�?
+	// 2. 检查位置相关模�
 	if r.matchesAny(message, r.locationPatterns) {
 		suggestedTools = append(suggestedTools, "get_device_location")
 		reasons = append(reasons, "location_pattern")
@@ -196,7 +196,7 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 		r.log("[TOOL-ROUTER] Matched location pattern")
 	}
 
-	// 3. 检查搜索相关模�?
+	// 3. 检查搜索相关模�
 	if r.matchesAny(message, r.searchPatterns) {
 		suggestedTools = append(suggestedTools, "web_search")
 		reasons = append(reasons, "search_pattern")
@@ -204,7 +204,7 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 		r.log("[TOOL-ROUTER] Matched search pattern")
 	}
 
-	// 3.5 检查数据分析相关模�?
+	// 3.5 检查数据分析相关模�
 	if r.matchesAny(message, r.analysisPatterns) {
 		suggestedTools = append(suggestedTools, "start_datasource_analysis")
 		reasons = append(reasons, "analysis_pattern")
@@ -225,7 +225,7 @@ func (r *ToolRouter) Route(message string) ToolRouterResult {
 		r.log("[TOOL-ROUTER] Semantic analysis: score=%.2f, reason=%s", semanticScore, semanticReason)
 	}
 
-	// 5. 疑问句检测（辅助判断�?
+	// 5. 疑问句检测（辅助判断�
 	if r.matchesAny(message, r.questionPatterns) {
 		// 疑问句增加一点分数，但不单独触发工具使用
 		if totalScore > 0 {
@@ -262,9 +262,9 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 	// Lowercase once for all Contains checks below
 	msgLower := strings.ToLower(message)
 
-	// 检测实时性需�?
+	// 检测实时性需�
 	realtimeIndicators := []string{
-		"现在", "当前", "今天", "此刻", "目前", "实时", "最�?,
+		"现在", "当前", "今天", "此刻", "目前", "实时", "最�",
 		"now", "current", "today", "right now", "at the moment", "latest", "recent",
 	}
 	for _, indicator := range realtimeIndicators {
@@ -275,7 +275,7 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		}
 	}
 
-	// 检测地理位置相关词�?
+	// 检测地理位置相关词�
 	geoIndicators := []string{
 		"这里", "这儿", "本地", "附近", "周边", "当地",
 		"here", "local", "nearby", "around",
@@ -289,9 +289,9 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		}
 	}
 
-	// 检测外部信息需�?
+	// 检测外部信息需�
 	externalInfoIndicators := []string{
-		"�?, "�?, "�?, "看看", "告诉�?,
+		"�", "�", "�", "看看", "告诉�",
 		"search", "find", "look", "tell me", "show me",
 	}
 	externalInfoTopics := []string{
@@ -322,8 +322,8 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		reasons = append(reasons, "external_info_need")
 	}
 
-	// 检�?�?+"位置/地点"组合
-	if strings.Contains(msgLower, "�?) {
+	// 检��+"位置/地点"组合
+	if strings.Contains(msgLower, "�") {
 		locationWords := []string{"在哪", "位置", "地方", "城市", "国家", "地址"}
 		for _, word := range locationWords {
 			if strings.Contains(msgLower, word) {
@@ -335,7 +335,7 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 		}
 	}
 
-	// 检测导�?下载需�?
+	// 检测导�下载需�
 	exportIndicators := []string{
 		"导出", "下载", "保存", "生成报告", "生成文件",
 		"export", "download", "save as", "generate report",
@@ -357,7 +357,7 @@ func (r *ToolRouter) analyzeSemanticFeatures(message string) (float64, []string,
 	return score, tools, strings.Join(reasons, "+")
 }
 
-// matchesAny 检查消息是否匹配任意一个模�?
+// matchesAny 检查消息是否匹配任意一个模�
 func (r *ToolRouter) matchesAny(message string, patterns []*regexp.Regexp) bool {
 	for _, pattern := range patterns {
 		if pattern.MatchString(message) {

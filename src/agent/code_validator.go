@@ -144,7 +144,7 @@ func (v *CodeValidator) ValidateCode(code string) *ValidationResult {
 	// Check for database connection cleanup
 	if strings.Contains(code, "duckdb.connect") || strings.Contains(code, "sqlite3.connect") || strings.Contains(code, "conn =") {
 		if !strings.Contains(code, "conn.close()") && !strings.Contains(code, "finally:") {
-			result.Warnings = append(result.Warnings, "代码可能缺少数据库连接清�?)
+			result.Warnings = append(result.Warnings, "代码可能缺少数据库连接清理")
 		}
 	}
 

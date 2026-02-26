@@ -226,6 +226,7 @@ type HomepageData struct {
 	DefaultLang        string
 	DownloadURLWindows string
 	DownloadURLMacOS   string
+	ServicePortalURL   string
 	FeaturedStores     []HomepageStoreInfo
 	TopSalesStores     []HomepageStoreInfo
 	TopDownloadsStores []HomepageStoreInfo
@@ -778,12 +779,19 @@ func handleHomepage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Assemble template data (merge cached public data with per-user fields)
+	// Get service portal URL for anonymous customer support
+	homepageSPURL := getSetting("service_portal_url")
+	if homepageSPURL == "" {
+		homepageSPURL = servicePortalURL
+	}
+
 	data := HomepageData{
 		UserID:               userID,
 		DisplayName:          displayName,
 		DefaultLang:          publicData.DefaultLang,
 		DownloadURLWindows:   publicData.DownloadURLWindows,
 		DownloadURLMacOS:     publicData.DownloadURLMacOS,
+		ServicePortalURL:     homepageSPURL,
 		FeaturedStores:       publicData.FeaturedStores,
 		TopSalesStores:       publicData.TopSalesStores,
 		TopDownloadsStores:   publicData.TopDownloadsStores,
@@ -11322,12 +11330,14 @@ func queryPackDetailPublicData(shareToken string, listingID int64) (*PackDetailP
 	err := db.QueryRow(`
 		SELECT pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
 		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
-		       COALESCE(c.name, '')
+		       COALESCE(c.name, ''),
+		       COALESCE(s.store_slug, ''), COALESCE(s.store_name, '')
 		FROM pack_listings pl
 		LEFT JOIN categories c ON pl.category_id = c.id
+		LEFT JOIN author_storefronts s ON s.user_id = pl.user_id
 		WHERE pl.id = ? AND pl.status = 'published'`,
 		listingID,
-	).Scan(&pd.PackName, &pd.PackDesc, &pd.SourceName, &pd.AuthorName, &pd.ShareMode, &pd.CreditsPrice, &pd.DownloadCount, &pd.CategoryName)
+	).Scan(&pd.PackName, &pd.PackDesc, &pd.SourceName, &pd.AuthorName, &pd.ShareMode, &pd.CreditsPrice, &pd.DownloadCount, &pd.CategoryName, &pd.StoreSlug, &pd.StoreName)
 	if err != nil {
 		return nil, err
 	}
@@ -11374,6 +11384,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 				"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 				"DownloadURLWindows": getSetting("download_url_windows"),
 				"DownloadURLMacOS":   getSetting("download_url_macos"),
+				"StoreSlug":    "",
+				"StoreName":    "",
 			}); err != nil {
 				log.Printf("[PACK-DETAIL] template execute error: %v", err)
 			}
@@ -11410,6 +11422,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 					"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 					"DownloadURLWindows": getSetting("download_url_windows"),
 					"DownloadURLMacOS":   getSetting("download_url_macos"),
+					"StoreSlug":    "",
+					"StoreName":    "",
 				}); err != nil {
 					log.Printf("[PACK-DETAIL] template execute error: %v", err)
 				}
@@ -11461,6 +11475,8 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 		"MonthOptions":    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
 		"DownloadURLWindows": getSetting("download_url_windows"),
 		"DownloadURLMacOS":   getSetting("download_url_macos"),
+		"StoreSlug":       packDetail.StoreSlug,
+		"StoreName":       packDetail.StoreName,
 	}); err != nil {
 		log.Printf("[PACK-DETAIL] template execute error: %v", err)
 	}
@@ -17905,12 +17921,28 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
+
+		// Build CSP: allow frame-src for the configured service portal URL
+		csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+		spURL := getSetting("service_portal_url")
+		if spURL == "" {
+			spURL = servicePortalURL
+		}
+		if spURL != "" {
+			// Extract origin (scheme + host) from the full URL
+			if parsed, err := url.Parse(spURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+				csp += "; frame-src 'self' " + parsed.Scheme + "://" + parsed.Host
+			}
+		}
+		csp += "; frame-ancestors 'none'"
+		w.Header().Set("Content-Security-Policy", csp)
+
 		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
 }
+
 
 func main() {
 	port := flag.Int("port", 8088, "Server port")

@@ -49,7 +49,7 @@ func (s *ConnectionTestService) Name() string {
 	return "connectionTest"
 }
 
-// Initialize 初始化连接测试服�?
+// Initialize 初始化连接测试服�
 func (s *ConnectionTestService) Initialize(ctx context.Context) error {
 	s.ctx = ctx
 	s.log("ConnectionTestService initialized")
@@ -61,7 +61,7 @@ func (s *ConnectionTestService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下�?
+// SetContext 设置 Wails 上下�
 func (s *ConnectionTestService) SetContext(ctx context.Context) {
 	s.ctx = ctx
 }
@@ -209,11 +209,11 @@ func (s *ConnectionTestService) TestSearchTools(engineURL string) ConnectionResu
 	// Get user's language preference
 	cfg, _ := s.configProvider.GetConfig()
 	lang := cfg.Language
-	isChinese := lang == "简体中�?
+	isChinese := lang == "简体中�"
 
 	msg := "Search tools test is deprecated. Please use Search API configuration instead."
 	if isChinese {
-		msg = "搜索工具测试已弃用。请改用搜索API配置�?
+		msg = "搜索工具测试已弃用。请改用搜索API配置�"
 	}
 
 	return ConnectionResult{

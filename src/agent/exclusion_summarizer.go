@@ -76,7 +76,7 @@ func (s *ExclusionSummarizer) GetMaxLength() int {
 // Requirements:
 // - 6.2: Preserve core semantic features (analysis type, target dimensions, key topics)
 // - 6.3: Merge similar exclusions into one summary description
-// - 6.4: Control summary length (�?00 characters)
+// - 6.4: Control summary length (�00 characters)
 func (s *ExclusionSummarizer) SummarizeExclusions(exclusions []ExclusionIntentSuggestion) string {
 	if len(exclusions) == 0 {
 		return ""
@@ -135,9 +135,9 @@ func (s *ExclusionSummarizer) extractCategoryAndDetail(excl ExclusionIntentSugge
 	desc := excl.Description
 
 	// Keywords for categorization
-	timeKeywords := []string{"趋势", "时间", "月度", "季度", "年度", "�?, "�?, "对比", "变化", "增长", "trend", "time", "monthly", "quarterly", "yearly", "growth"}
-	dimensionKeywords := []string{"分类", "维度", "�?, "分组", "类型", "地区", "产品", "客户", "部门", "category", "dimension", "group", "by", "type", "region", "product"}
-	statisticsKeywords := []string{"统计", "汇�?, "总量", "平均", "排名", "最�?, "最�?, "求和", "计数", "statistics", "summary", "total", "average", "ranking", "max", "min", "sum", "count"}
+	timeKeywords := []string{"趋势", "时间", "月度", "季度", "年度", "�", "�", "对比", "变化", "增长", "trend", "time", "monthly", "quarterly", "yearly", "growth"}
+	dimensionKeywords := []string{"分类", "维度", "�", "分组", "类型", "地区", "产品", "客户", "部门", "category", "dimension", "group", "by", "type", "region", "product"}
+	statisticsKeywords := []string{"统计", "汇�", "总量", "平均", "排名", "最�", "最�", "求和", "计数", "statistics", "summary", "total", "average", "ranking", "max", "min", "sum", "count"}
 	correlationKeywords := []string{"关联", "相关", "关系", "影响", "因素", "correlation", "relationship", "impact", "factor"}
 	predictionKeywords := []string{"预测", "预估", "未来", "forecast", "prediction", "future", "estimate"}
 	comparisonKeywords := []string{"比较", "对比", "差异", "compare", "comparison", "difference", "vs"}
@@ -153,7 +153,7 @@ func (s *ExclusionSummarizer) extractCategoryAndDetail(excl ExclusionIntentSugge
 		category = "分类维度分析"
 		detail = s.extractDetail(title, desc)
 	case s.containsAnyKeyword(combined, statisticsKeywords):
-		category = "统计汇�?
+		category = "统计汇�"
 		detail = s.extractDetail(title, desc)
 	case s.containsAnyKeyword(combined, correlationKeywords):
 		category = "关联分析"
@@ -265,7 +265,7 @@ func (s *ExclusionSummarizer) buildSummary(categories []analysisCategory) string
 			if lastNewline > 50 {
 				truncated = truncated[:lastNewline]
 			}
-			result = truncated + "\n请从其他角度理解用户意图�?
+			result = truncated + "\n请从其他角度理解用户意图�"
 		}
 	}
 

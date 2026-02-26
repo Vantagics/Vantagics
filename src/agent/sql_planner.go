@@ -240,7 +240,7 @@ func (p *SQLPlanner) FormatSchemaForLLM(schema *SchemaInfo) string {
 	if len(schema.Relationships) > 0 {
 		sb.WriteString("### Detected Relationships (for JOIN)\n")
 		for _, rel := range schema.Relationships {
-			sb.WriteString(fmt.Sprintf("- %s.%s â†?%s.%s (%s)\n",
+			sb.WriteString(fmt.Sprintf("- %s.%s ï¿½%s.%s (%s)\n",
 				rel.FromTable, rel.FromColumn, rel.ToTable, rel.ToColumn, rel.Type))
 		}
 		sb.WriteString("\n")

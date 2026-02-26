@@ -9,7 +9,7 @@ import (
 // DashboardExportData represents the data structure for dashboard export
 type DashboardExportData struct {
 	UserRequest    string            `json:"userRequest"`
-	DataSourceName string            `json:"dataSourceName"` // 数据源名�?
+	DataSourceName string            `json:"dataSourceName"` // 数据源名�
 	MessageID      string            `json:"messageId"`      // 分析请求ID
 	Metrics        []DashboardMetric `json:"metrics"`
 	Insights       []string          `json:"insights"`
@@ -62,7 +62,7 @@ type SlidePreview struct {
 func generateExportFilename(dataSourceName string, messageID string, extension string) string {
 	timestamp := time.Now().Format("20060102_150405")
 
-	// 清理数据源名称，移除不合法的文件名字�?
+	// 清理数据源名称，移除不合法的文件名字�
 	cleanDataSourceName := strings.Map(func(r rune) rune {
 		if r == ':' || r == '\\' || r == '/' || r == '?' || r == '*' || r == '"' || r == '<' || r == '>' || r == '|' {
 			return '_'
@@ -70,18 +70,18 @@ func generateExportFilename(dataSourceName string, messageID string, extension s
 		return r
 	}, dataSourceName)
 
-	// 限制数据源名称长�?
+	// 限制数据源名称长�
 	if len([]rune(cleanDataSourceName)) > 30 {
 		cleanDataSourceName = string([]rune(cleanDataSourceName)[:30])
 	}
 
-	// 截取messageID的前8�?
+	// 截取messageID的前8�
 	shortMessageID := messageID
 	if len(messageID) > 8 {
 		shortMessageID = messageID[:8]
 	}
 
-	// 构建文件�?
+	// 构建文件�
 	var filename string
 	if cleanDataSourceName != "" && shortMessageID != "" {
 		filename = fmt.Sprintf("%s_%s_%s.%s", cleanDataSourceName, shortMessageID, timestamp, extension)

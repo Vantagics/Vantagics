@@ -25,9 +25,9 @@ func (t *TrendTemplate) Description() string {
 
 func (t *TrendTemplate) Keywords() []string {
 	return []string{
-		"trend", "趋势", "sales trend", "销售趋�?,
+		"trend", "趋势", "sales trend", "销售趋势",
 		"revenue trend", "营收趋势",
-		"monthly sales", "月度销�?,
+		"monthly sales", "月度销售",
 		"yearly growth", "年度增长",
 		"time series", "时间序列",
 	}

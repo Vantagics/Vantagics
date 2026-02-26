@@ -563,6 +563,138 @@ const homepageHTML = `<!DOCTYPE html>
     </div>
     {{end}}
 
+    <!-- Floating Customer Support Icon (anonymous) -->
+    {{if .ServicePortalURL}}
+    <style>
+    .hp-support-float {
+        position: fixed; bottom: 32px; right: 32px; z-index: 999;
+        width: 56px; height: 56px; border-radius: 50%;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        box-shadow: 0 4px 16px rgba(99,102,241,0.4), 0 2px 6px rgba(0,0,0,0.1);
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; transition: all 0.3s ease; text-decoration: none;
+    }
+    .hp-support-float:hover {
+        transform: translateY(-3px) scale(1.05);
+        box-shadow: 0 8px 24px rgba(99,102,241,0.5), 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .hp-support-float svg { width: 28px; height: 28px; color: #fff; }
+    .hp-support-float-label {
+        position: absolute; right: 64px; top: 50%; transform: translateY(-50%);
+        background: #1e293b; color: #fff; padding: 6px 14px; border-radius: 8px;
+        font-size: 13px; font-weight: 600; white-space: nowrap;
+        opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .hp-support-float-label::after {
+        content: ''; position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+        border: 6px solid transparent; border-left-color: #1e293b; border-right: none;
+    }
+    .hp-support-float:hover .hp-support-float-label { opacity: 1; }
+    .hp-support-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
+        z-index: 10000; align-items: center; justify-content: center;
+    }
+    .hp-support-overlay.show { display: flex; }
+    .hp-support-dialog {
+        position: relative; width: 90%; max-width: 800px; height: 80vh;
+        background: #fff; border-radius: 16px; overflow: hidden;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.2), 0 8px 24px rgba(0,0,0,0.1);
+        display: flex; flex-direction: column;
+        animation: hpSupportIn 0.25s ease-out;
+    }
+    @keyframes hpSupportIn {
+        from { opacity: 0; transform: scale(0.95) translateY(10px); }
+        to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .hp-support-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 20px; background: linear-gradient(135deg, #6366f1, #4f46e5);
+        color: #fff; flex-shrink: 0;
+    }
+    .hp-support-title {
+        font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .hp-support-title svg { width: 20px; height: 20px; }
+    .hp-support-actions { display: flex; align-items: center; gap: 6px; }
+    .hp-support-btn {
+        width: 32px; height: 32px; border-radius: 8px; border: none;
+        background: rgba(255,255,255,0.2); color: #fff; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        transition: background 0.2s; font-size: 16px;
+    }
+    .hp-support-btn:hover { background: rgba(255,255,255,0.35); }
+    .hp-support-body { flex: 1; position: relative; background: #f8f9fc; }
+    .hp-support-body iframe { width: 100%; height: 100%; border: none; display: block; }
+    .hp-support-loading {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        display: flex; align-items: center; justify-content: center;
+        background: #f8f9fc; color: #64748b; font-size: 14px; font-weight: 500;
+    }
+    .hp-support-loading.hidden { display: none; }
+    @media (max-width: 640px) {
+        .hp-support-float { bottom: 20px; right: 20px; width: 48px; height: 48px; }
+        .hp-support-float svg { width: 24px; height: 24px; }
+        .hp-support-float-label { display: none; }
+        .hp-support-dialog { width: 96%; height: 88vh; border-radius: 12px; }
+        .hp-support-header { padding: 12px 16px; }
+    }
+    </style>
+    <div class="hp-support-float" onclick="openHpSupport()" title="客户支持" data-i18n-title="customer_support">
+        <span class="hp-support-float-label" data-i18n="customer_support">客户支持</span>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12a8.25 8.25 0 1116.5 0v2.25a2.25 2.25 0 01-2.25 2.25h-.75a1.5 1.5 0 01-1.5-1.5v-3a1.5 1.5 0 011.5-1.5h.75c.17 0 .336.019.497.055A6.75 6.75 0 0012 5.25a6.75 6.75 0 00-5.997 5.305c.16-.036.327-.055.497-.055h.75a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H6.5a2.25 2.25 0 01-2.25-2.25V12z" />
+        </svg>
+    </div>
+    <div class="hp-support-overlay" id="hpSupportOverlay">
+        <div class="hp-support-dialog">
+            <div class="hp-support-header">
+                <div class="hp-support-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12a8.25 8.25 0 1116.5 0v2.25a2.25 2.25 0 01-2.25 2.25h-.75a1.5 1.5 0 01-1.5-1.5v-3a1.5 1.5 0 011.5-1.5h.75c.17 0 .336.019.497.055A6.75 6.75 0 0012 5.25a6.75 6.75 0 00-5.997 5.305c.16-.036.327-.055.497-.055h.75a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5H6.5a2.25 2.25 0 01-2.25-2.25V12z"/></svg>
+                    <span data-i18n="customer_support">客户支持</span>
+                </div>
+                <div class="hp-support-actions">
+                    <button class="hp-support-btn" onclick="openHpSupportExternal()" title="在新窗口打开">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    </button>
+                    <button class="hp-support-btn" onclick="closeHpSupport()" title="关闭">&times;</button>
+                </div>
+            </div>
+            <div class="hp-support-body">
+                <div class="hp-support-loading" id="hpSupportLoading" data-i18n="loading_support">正在连接客服系统...</div>
+                <iframe id="hpSupportIframe" sandbox="allow-same-origin allow-scripts allow-forms allow-popups" allow="clipboard-write"></iframe>
+            </div>
+        </div>
+    </div>
+    <script>
+    var _hpSupportURL = '{{.ServicePortalURL}}/#anonymous';
+    function openHpSupport() {
+        var overlay = document.getElementById('hpSupportOverlay');
+        var iframe = document.getElementById('hpSupportIframe');
+        var loading = document.getElementById('hpSupportLoading');
+        overlay.classList.add('show');
+        document.body.style.overflow = 'hidden';
+        loading.classList.remove('hidden');
+        iframe.onload = function(){ loading.classList.add('hidden'); };
+        iframe.src = _hpSupportURL;
+    }
+    function closeHpSupport() {
+        var overlay = document.getElementById('hpSupportOverlay');
+        var iframe = document.getElementById('hpSupportIframe');
+        overlay.classList.remove('show');
+        document.body.style.overflow = '';
+        iframe.src = '';
+    }
+    function openHpSupportExternal() {
+        window.open(_hpSupportURL, '_blank');
+    }
+    document.getElementById('hpSupportOverlay').addEventListener('click', function(e) {
+        if (e.target === this) closeHpSupport();
+    });
+    </script>
+    {{end}}
+
     <!-- Footer (7.7) -->
     <footer class="footer">
         <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> <span data-i18n="site_name">分析技能包市场</span></p>

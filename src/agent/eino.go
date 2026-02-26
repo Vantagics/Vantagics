@@ -468,7 +468,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 	if s.conversationContextManager != nil && threadID != "" && lastUserMessage != "" {
 		s.conversationContextManager.UpdateFromUserMessage(threadID, lastUserMessage)
 		
-		// Resolve references in user message (e.g., "å¤©æ°”" -> "åŒ—äº¬çš„å¤©æ°?)
+		// Resolve references in user message (e.g., "å¤©æ°”" -> "åŒ—äº¬çš„å¤©ï¿½")
 		resolvedMessage := s.conversationContextManager.ResolveReferences(threadID, lastUserMessage)
 		if resolvedMessage != lastUserMessage {
 			if s.Logger != nil {
@@ -1188,7 +1188,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		// ðŸ”´ CRITICAL: Remove duplicate messages before processing
 		input = deduplicateMessages(input)
 
-		// âš?EARLY WARNINGS: Encourage completion before hitting limits
+		// ï¿½EARLY WARNINGS: Encourage completion before hitting limits
 		// Dynamic warnings based on maxSteps and estimated complexity
 		// Warnings at ~60%, ~70%, ~80% of max iterations (maxSteps/2 since each round = 2 steps)
 		maxIter := maxSteps / 2
@@ -1206,7 +1206,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		if iterationCount == warningStep1 {
 			warningMsg := &schema.Message{
 				Role:    schema.User,
-				Content: "âš?Too many steps used. Wrap up the analysis soon, use at most 2 more tool calls.",
+				Content: "ï¿½Too many steps used. Wrap up the analysis soon, use at most 2 more tool calls.",
 			}
 			input = append(input, warningMsg)
 			if s.Logger != nil {
@@ -1332,7 +1332,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 			if mapping, ok := ToolProgressMapping[toolName]; ok {
 				emitProgressWithHeartbeat(mapping.Stage, mapping.Progress, mapping.Message, 0, 0)
 				if s.Logger != nil {
-					s.Logger(fmt.Sprintf("[PROGRESS] %s â†?%s (%s)", toolName, mapping.Stage, mapping.Message))
+					s.Logger(fmt.Sprintf("[PROGRESS] %s ï¿½%s (%s)", toolName, mapping.Stage, mapping.Message))
 				}
 			} else {
 				emitProgressWithHeartbeat(StageAnalysis, 50, "progress.ai_processing", 0, 0)
@@ -1397,21 +1397,21 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 
 				if toolName == "execute_sql" {
 					if strings.Contains(errStr, "no such column") || strings.Contains(errStr, "Unknown column") {
-						helpMsg = fmt.Sprintf("â?SQL Column Error: %v\n\n", err)
+						helpMsg = fmt.Sprintf("ï¿½SQL Column Error: %v\n\n", err)
 						helpMsg += "ðŸ”§ REQUIRED ACTION:\n"
 						helpMsg += "1. Call get_data_source_context to see actual column names\n"
 						helpMsg += "2. If using subquery, ensure ALL columns needed by outer query are in subquery's SELECT\n"
 						helpMsg += "3. Rewrite and execute the corrected query"
 					} else if strings.Contains(errStr, "syntax error") {
-						helpMsg = fmt.Sprintf("â?SQL Syntax Error: %v\n\n", err)
+						helpMsg = fmt.Sprintf("ï¿½SQL Syntax Error: %v\n\n", err)
 						helpMsg += "ðŸ”§ For DuckDB, use: strftime('%Y',col) not YEAR(), col1||col2 not CONCAT()"
 					} else {
-						helpMsg = fmt.Sprintf("â?SQL Error: %v\n\nðŸ”§ Please fix and retry.", err)
+						helpMsg = fmt.Sprintf("ï¿½SQL Error: %v\n\nðŸ”§ Please fix and retry.", err)
 					}
 				} else if toolName == "python_executor" {
-					helpMsg = fmt.Sprintf("â?Python Error: %v\n\nðŸ”§ Please fix the code and retry.", err)
+					helpMsg = fmt.Sprintf("ï¿½Python Error: %v\n\nðŸ”§ Please fix the code and retry.", err)
 				} else {
-					helpMsg = fmt.Sprintf("â?Tool Error: %v\n\nðŸ”§ Please fix and retry.", err)
+					helpMsg = fmt.Sprintf("ï¿½Tool Error: %v\n\nðŸ”§ Please fix and retry.", err)
 				}
 
 				errorMsgs = append(errorMsgs, &schema.Message{
@@ -1619,7 +1619,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		for _, svc := range s.cfg.MCPServices {
 			if svc.Enabled && svc.Tested {
 				availableServices = append(availableServices, 
-					fmt.Sprintf("  â€?%s: %s", svc.Name, svc.Description))
+					fmt.Sprintf("  ï¿½%s: %s", svc.Name, svc.Description))
 			}
 		}
 		
@@ -1816,7 +1816,7 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 							}
 							
 							if err == nil && s.Logger != nil {
-								s.Logger(fmt.Sprintf("[MEMORY] âœ?Stored [%s] %s: %s", 
+								s.Logger(fmt.Sprintf("[MEMORY] ï¿½Stored [%s] %s: %s", 
 									mem.Tier,
 									mem.Category,
 									mem.Content))
@@ -1885,20 +1885,20 @@ func detectResponseLanguage(userMessage string) string {
 	japaneseRatio := float64(japaneseCount) / float64(totalCount)
 
 	if chineseRatio > 0.3 {
-		// User is writing in Chinese â€?no extra directive needed,
+		// User is writing in Chinese ï¿½no extra directive needed,
 		// Chinese-tuned models naturally respond in Chinese
 		return ""
 	}
 
 	if japaneseRatio > 0.1 {
-		return "\n\nðŸš¨ **RESPONSE LANGUAGE: You MUST respond in Japanese (æ—¥æœ¬èª?.** The user's message is in Japanese. All output must be in Japanese. Do NOT use Chinese."
+		return "\n\nðŸš¨ **RESPONSE LANGUAGE: You MUST respond in Japanese (æ—¥æœ¬ï¿½.** The user's message is in Japanese. All output must be in Japanese. Do NOT use Chinese."
 	}
 
 	// User is writing in a non-CJK language (likely English).
 	// Add a strong directive at the end of the system prompt to override
 	// the model's Chinese default. Position matters: end-of-prompt has
 	// the strongest influence on generation.
-	return "\n\nðŸš¨ **RESPONSE LANGUAGE: You MUST respond in English.** The user's message is in English. All text output â€?analysis, insights, suggestions, chart titles, labels â€?must be in English. Do NOT use Chinese."
+	return "\n\nðŸš¨ **RESPONSE LANGUAGE: You MUST respond in English.** The user's message is in English. All text output ï¿½analysis, insights, suggestions, chart titles, labels ï¿½must be in English. Do NOT use Chinese."
 }
 
 func buildAnalysisSystemPrompt() string {

@@ -41,7 +41,7 @@ func (d *Dialect) ListTablesQuery() string {
 }
 
 // DescribeColumnsQuery returns the SQL to describe columns for a table.
-// For DuckDB, the returned query uses a ? placeholder â€?caller must pass
+// For DuckDB, the returned query uses a ? placeholder ï¿½caller must pass
 // tableName as a query parameter: db.Query(sql, tableName).
 // For SQLite/MySQL, the table name is quoted directly in the SQL string.
 func (d *Dialect) DescribeColumnsQuery(tableName string) string {

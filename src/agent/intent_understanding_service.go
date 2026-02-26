@@ -7,11 +7,11 @@ import (
 )
 
 // IntentUnderstandingService 意图理解服务
-// 简化后的主服务，协�?个核心组件：
+// 简化后的主服务，协�个核心组件：
 // - IntentGenerator: 意图生成器，负责调用LLM生成意图建议
-// - ContextProvider: 上下文提供器，整合数据源信息和历史记�?
-// - ExclusionManager: 排除项管理器，管理用户拒绝的意图并生成排除提�?
-// - IntentRanker: 意图排序器，根据用户偏好对建议进行排�?
+// - ContextProvider: 上下文提供器，整合数据源信息和历史记�
+// - ExclusionManager: 排除项管理器，管理用户拒绝的意图并生成排除提�
+// - IntentRanker: 意图排序器，根据用户偏好对建议进行排�
 // Validates: Requirements 7.1, 7.3
 type IntentUnderstandingService struct {
 	generator       *IntentGenerator
@@ -27,10 +27,10 @@ type IntentUnderstandingService struct {
 // 初始化所有核心组件并加载配置
 // Parameters:
 //   - dataDir: 数据目录路径，用于存储配置和偏好数据
-//   - dataSourceService: 数据源服务，用于获取数据源信�?
-//   - logger: 日志函数，用于记录服务运行日�?
+//   - dataSourceService: 数据源服务，用于获取数据源信�
+//   - logger: 日志函数，用于记录服务运行日�
 //
-// Returns: 初始化后�?IntentUnderstandingService 实例
+// Returns: 初始化后�IntentUnderstandingService 实例
 // Validates: Requirements 7.1, 7.3
 func NewIntentUnderstandingService(
 	dataDir string,
@@ -63,12 +63,12 @@ func NewIntentUnderstandingService(
 	exclusionMgr := NewExclusionManager(config.MaxExclusionSummary)
 	logger("[INTENT-SERVICE] Created ExclusionManager")
 
-	// 创建意图排序�?
+	// 创建意图排序�
 	// Validates: Requirements 5.1, 5.2
 	ranker := NewIntentRanker(dataDir, config.PreferenceThreshold)
 	logger("[INTENT-SERVICE] Created IntentRanker")
 
-	// 创建意图生成�?
+	// 创建意图生成�
 	// Validates: Requirements 1.3
 	generator := NewIntentGenerator(contextProvider, exclusionMgr, logger)
 	logger("[INTENT-SERVICE] Created IntentGenerator")
@@ -96,7 +96,7 @@ func (s *IntentUnderstandingService) log(msg string) {
 
 // GetConfig 获取配置
 // 返回当前配置的副本，线程安全
-// Returns: 当前配置的副�?
+// Returns: 当前配置的副�
 // Validates: Requirements 7.3
 func (s *IntentUnderstandingService) GetConfig() *IntentUnderstandingConfig {
 	s.mu.RLock()
@@ -110,7 +110,7 @@ func (s *IntentUnderstandingService) GetConfig() *IntentUnderstandingConfig {
 // Parameters:
 //   - config: 新的配置
 //
-// Returns: 保存失败时返回错�?
+// Returns: 保存失败时返回错�
 // Validates: Requirements 7.3
 func (s *IntentUnderstandingService) SetConfig(config *IntentUnderstandingConfig) error {
 	s.mu.Lock()
@@ -129,7 +129,7 @@ func (s *IntentUnderstandingService) SetConfig(config *IntentUnderstandingConfig
 		return err
 	}
 
-	// 更新排序器阈�?
+	// 更新排序器阈�
 	if s.ranker != nil {
 		s.ranker.SetThreshold(config.PreferenceThreshold)
 	}
@@ -138,7 +138,7 @@ func (s *IntentUnderstandingService) SetConfig(config *IntentUnderstandingConfig
 	return nil
 }
 
-// IsEnabled 检查意图理解是否启�?
+// IsEnabled 检查意图理解是否启�
 // Returns: 是否启用意图理解
 // Validates: Requirements 7.3
 func (s *IntentUnderstandingService) IsEnabled() bool {
@@ -148,11 +148,11 @@ func (s *IntentUnderstandingService) IsEnabled() bool {
 	return s.configManager.IsEnabled()
 }
 
-// SetEnabled 设置意图理解启用状�?
+// SetEnabled 设置意图理解启用状�
 // Parameters:
 //   - enabled: 是否启用
 //
-// Returns: 保存失败时返回错�?
+// Returns: 保存失败时返回错�
 // Validates: Requirements 7.3
 func (s *IntentUnderstandingService) SetEnabled(enabled bool) error {
 	s.mu.Lock()
@@ -172,14 +172,14 @@ func (s *IntentUnderstandingService) SetEnabled(enabled bool) error {
 // GenerateSuggestions 生成意图建议
 // 主入口方法，整合所有组件功能：
 // 1. 获取数据源上下文
-// 2. 生成排除项摘�?
+// 2. 生成排除项摘�
 // 3. 调用LLM生成意图建议
 // 4. 根据用户偏好排序
 //
 // Parameters:
 //   - ctx: 上下文，用于取消操作
 //   - threadID: 会话ID
-//   - userMessage: 用户的原始请求消�?
+//   - userMessage: 用户的原始请求消�
 //   - dataSourceID: 数据源ID
 //   - language: 语言设置 ("zh" 中文, "en" 英文)
 //   - exclusions: 已排除的意图建议列表
@@ -203,7 +203,7 @@ func (s *IntentUnderstandingService) GenerateSuggestions(
 	config := s.configManager.GetConfig()
 	s.mu.RUnlock()
 
-	// 检查是否启�?
+	// 检查是否启�
 	if !config.Enabled {
 		s.log("[INTENT-SERVICE] Intent understanding is disabled")
 		return nil, fmt.Errorf("intent understanding is disabled")
@@ -226,7 +226,7 @@ func (s *IntentUnderstandingService) GenerateSuggestions(
 		}
 	}
 
-	// 2. 生成排除项摘�?
+	// 2. 生成排除项摘�
 	// Validates: Requirements 3.2, 3.3
 	exclusionSummary := ""
 	if len(exclusions) > 0 {
@@ -266,9 +266,9 @@ func (s *IntentUnderstandingService) GenerateSuggestions(
 //
 // Parameters:
 //   - dataSourceID: 数据源ID
-//   - selectedIntent: 用户选择的意图建�?
+//   - selectedIntent: 用户选择的意图建�
 //
-// Returns: 保存失败时返回错�?
+// Returns: 保存失败时返回错�
 // Validates: Requirements 5.1, 5.2
 func (s *IntentUnderstandingService) RecordSelection(
 	dataSourceID string,
@@ -287,30 +287,30 @@ func (s *IntentUnderstandingService) RecordSelection(
 }
 
 // GetContextProvider 获取上下文提供器
-// 用于外部访问上下文功�?
+// 用于外部访问上下文功�
 func (s *IntentUnderstandingService) GetContextProvider() *ContextProvider {
 	return s.contextProvider
 }
 
 // GetExclusionManager 获取排除项管理器
-// 用于外部访问排除项功�?
+// 用于外部访问排除项功�
 func (s *IntentUnderstandingService) GetExclusionManager() *ExclusionManager {
 	return s.exclusionMgr
 }
 
-// GetIntentRanker 获取意图排序�?
+// GetIntentRanker 获取意图排序�
 // 用于外部访问排序功能
 func (s *IntentUnderstandingService) GetIntentRanker() *IntentRanker {
 	return s.ranker
 }
 
-// GetIntentGenerator 获取意图生成�?
+// GetIntentGenerator 获取意图生成�
 // 用于外部访问生成功能
 func (s *IntentUnderstandingService) GetIntentGenerator() *IntentGenerator {
 	return s.generator
 }
 
-// Initialize 初始化服�?
+// Initialize 初始化服�
 // 加载历史记录等初始化操作
 // Returns: 初始化失败时返回错误
 // Validates: Requirements 7.2
@@ -319,7 +319,7 @@ func (s *IntentUnderstandingService) Initialize() error {
 
 	var initErrors []error
 
-	// 初始化上下文提供�?
+	// 初始化上下文提供�
 	if s.contextProvider != nil {
 		if err := s.contextProvider.Initialize(); err != nil {
 			s.log(fmt.Sprintf("[INTENT-SERVICE] Context provider init failed: %v", err))
@@ -327,7 +327,7 @@ func (s *IntentUnderstandingService) Initialize() error {
 		}
 	}
 
-	// 如果所有组件都失败，返回错�?
+	// 如果所有组件都失败，返回错�
 	if len(initErrors) > 0 {
 		s.log("[INTENT-SERVICE] Some components failed to initialize, running in degraded mode")
 	}
@@ -337,12 +337,12 @@ func (s *IntentUnderstandingService) Initialize() error {
 }
 
 // AddAnalysisRecord 添加分析记录
-// 将分析记录添加到历史记录中，用于上下文增�?
+// 将分析记录添加到历史记录中，用于上下文增�
 //
 // Parameters:
 //   - record: 分析记录
 //
-// Returns: 保存失败时返回错�?
+// Returns: 保存失败时返回错�
 func (s *IntentUnderstandingService) AddAnalysisRecord(record AnalysisRecord) error {
 	if s.contextProvider == nil {
 		return fmt.Errorf("context provider not initialized")

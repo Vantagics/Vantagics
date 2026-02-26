@@ -188,7 +188,7 @@ Before writing code, describe your implementation logic step by step:
 5. Break down into clear steps (max 5 steps)
 
 ## Critical Constraints
-- Code must be â‰?0 lines (Python executor limit)
+- Code must be ï¿½0 lines (Python executor limit)
 - If task is complex, break into multiple parts
 - Each part must be independently executable
 
@@ -314,7 +314,7 @@ Visualization: %s
 %s
 
 ## Critical Rules
-1. Code must be â‰?0 lines (STRICT LIMIT)
+1. Code must be ï¿½0 lines (STRICT LIMIT)
 2. ONLY use libraries from: %s
 3. If loading data from SQL result, use this template:
 %s
@@ -423,7 +423,7 @@ func (p *PythonPlanner) ValidateAndCorrectCode(ctx context.Context, code string,
    - Data types and conversions
    - Syntax errors (indentation, parentheses, quotes)
 3. Output the CORRECTED code only
-4. Code must still be â‰?0 lines
+4. Code must still be ï¿½0 lines
 
 ## Output Format
 Output ONLY the corrected Python code, wrapped in python code block:

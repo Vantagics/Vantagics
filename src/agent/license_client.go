@@ -209,9 +209,9 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	c.lastRefreshAt = time.Now() // Update last refresh time
 	
 	if c.log != nil {
-		trustLabel := "试用�?
+		trustLabel := "试用版"
 		if data.TrustLevel == "high" {
-			trustLabel = "正式�?
+			trustLabel = "正式版"
 		}
 		c.log(fmt.Sprintf("[LICENSE] Activation successful, expires: %s, type: %s", data.ExpiresAt, trustLabel))
 	}
@@ -219,7 +219,7 @@ func (c *LicenseClient) Activate(serverURL, sn string) (*ActivateResult, error) 
 	return &ActivateResult{
 		Success: true,
 		Code:    "SUCCESS",
-		Message: "激活成�?,
+		Message: "激活成功",
 		Data:    &data,
 	}, nil
 }

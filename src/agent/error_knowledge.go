@@ -143,7 +143,7 @@ func (ek *ErrorKnowledge) RecordError(errorType, errorMsg, context, solution str
 	ek.save()
 
 	if ek.logger != nil {
-		ek.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Recorded: %s â†?%s (success: %v)",
+		ek.logger(fmt.Sprintf("[ERROR-KNOWLEDGE] Recorded: %s ï¿½%s (success: %v)",
 			errorType, truncateString(solution, 50), successful))
 	}
 }
@@ -294,7 +294,7 @@ func (ek *ErrorKnowledge) GetErrorSummary() string {
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("ðŸ“Š Error Knowledge Base: %d records\n", len(ek.records)))
-	sb.WriteString(fmt.Sprintf("âœ?Successfully resolved: %d (%.0f%%)\n", successCount, float64(successCount)/float64(len(ek.records))*100))
+	sb.WriteString(fmt.Sprintf("ï¿½Successfully resolved: %d (%.0f%%)\n", successCount, float64(successCount)/float64(len(ek.records))*100))
 	sb.WriteString("By type:\n")
 	for t, c := range typeCounts {
 		sb.WriteString(fmt.Sprintf("  - %s: %d\n", t, c))

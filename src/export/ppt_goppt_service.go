@@ -114,7 +114,7 @@ func (s *GoPPTService) ExportDashboardToPPT(data DashboardData) ([]byte, error) 
 func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSourceName string, userRequest string) {
 	slide := p.GetActiveSlide()
 
-	// 顶部蓝色装饰�?
+	// 顶部蓝色装饰�
 	topBar := slide.CreateRichTextShape()
 	topBar.SetOffsetX(0).SetOffsetY(0)
 	topBar.SetWidth(gopptSlideWidth).SetHeight(int64(0.15 * emuPerInch))
@@ -130,7 +130,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 
 	nextY := 2.4
 
-	// 数据源名�?
+	// 数据源名�
 	if dataSourceName != "" {
 		dsShape := slide.CreateRichTextShape()
 		dsShape.SetOffsetX(int64(1.0 * emuPerInch)).SetOffsetY(int64(nextY * emuPerInch))
@@ -173,7 +173,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 	ftTr.GetFont().SetSize(gopptFontFooter).SetColor(ppt.NewColor("FF94A3B8"))
 	alignCenter(footerShape.GetActiveParagraph())
 
-	// 底部蓝色装饰�?
+	// 底部蓝色装饰�
 	bottomBar := slide.CreateRichTextShape()
 	bottomBar.SetOffsetX(0).SetOffsetY(int64(5.5 * emuPerInch))
 	bottomBar.SetWidth(gopptSlideWidth).SetHeight(int64(0.125 * emuPerInch))
@@ -182,7 +182,7 @@ func (s *GoPPTService) addTitleSlide(p *ppt.Presentation, title string, dataSour
 
 // addSlideHeader adds a consistent header to content slides
 func (s *GoPPTService) addSlideHeader(slide *ppt.Slide, title string) {
-	// 顶部蓝色装饰�?
+	// 顶部蓝色装饰�
 	topBar := slide.CreateRichTextShape()
 	topBar.SetOffsetX(0).SetOffsetY(0)
 	topBar.SetWidth(gopptSlideWidth).SetHeight(int64(0.08 * emuPerInch))
@@ -249,9 +249,9 @@ func (s *GoPPTService) addMetricsSlide(p *ppt.Presentation, metrics []MetricData
 			changeTr.GetFont().SetSize(gopptFontSmall)
 			alignCenter(metricShape.GetActiveParagraph())
 
-			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "�?) || strings.Contains(metric.Change, "�?) {
+			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "↑") || strings.Contains(metric.Change, "增") {
 				changeTr.GetFont().SetColor(ppt.NewColor("FF16A34A"))
-			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "�?) || strings.Contains(metric.Change, "�?) {
+			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "↓") || strings.Contains(metric.Change, "减") {
 				changeTr.GetFont().SetColor(ppt.NewColor("FFDC2626"))
 			} else {
 				changeTr.GetFont().SetColor(ppt.NewColor("FF64748B"))
@@ -414,7 +414,7 @@ func (s *GoPPTService) createTableSlide(p *ppt.Presentation, cols []TableColumn,
 	headerText := ""
 	for i, col := range cols {
 		if i > 0 {
-			headerText += "    �?   "
+			headerText += "    �   "
 		}
 		colTitle := col.Title
 		colRunes := []rune(colTitle)
@@ -447,7 +447,7 @@ func (s *GoPPTService) createTableSlide(p *ppt.Presentation, cols []TableColumn,
 		rowText := ""
 		for i := 0; i < len(cols) && i < len(rowData); i++ {
 			if i > 0 {
-				rowText += "    �?   "
+				rowText += "    �   "
 			}
 			cellValue := fmt.Sprintf("%v", rowData[i])
 			cellRunes := []rune(cellValue)
@@ -557,7 +557,7 @@ func (s *GoPPTService) parseMarkdown(line string) gopptLineFormat {
 	trimmed := strings.TrimLeft(line, " \t")
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 		result.isList = true
-		result.text = "�?" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
+		result.text = "�" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
 	}
 
 	result.text = s.stripMarkdownBold(result.text)
@@ -606,7 +606,7 @@ func (s *GoPPTService) wrapText(text string, maxLen int) []string {
 
 		breakPoint := maxLen
 		for i := maxLen; i > maxLen/2; i-- {
-			if runes[i] == ' ' || runes[i] == '�? || runes[i] == '�? || runes[i] == '�? || runes[i] == '�? {
+			if runes[i] == ' ' || runes[i] == '，' || runes[i] == '。' || runes[i] == '、' || runes[i] == '；' {
 				breakPoint = i + 1
 				break
 			}

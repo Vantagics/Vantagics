@@ -101,12 +101,12 @@ Must set needs_visualization = true when:
 - true when user explicitly asks to export, download, or generate reports
 
 ### Chart Type (suggested_chart_type)
-- Time trends �?"line"
-- Category comparison �?"bar"
-- Proportions �?"pie"
-- Multi-dimensional �?"grouped_bar"
-- Correlation �?"scatter"
-- Heat analysis �?"heatmap"
+- Time trends �"line"
+- Category comparison �"bar"
+- Proportions �"pie"
+- Multi-dimensional �"grouped_bar"
+- Correlation �"scatter"
+- Heat analysis �"heatmap"
 
 ## Output Format (JSON)
 {
@@ -176,8 +176,8 @@ func (c *RequestTypeClassifier) fallbackClassification(query string) *Classifica
 	}
 
 	// Only disable visualization for specific non-analysis requests
-	if containsAny(queryLower, []string{"建议", "可以做什�?, "能做什�?, "suggest", "recommend"}) &&
-		!containsAny(queryLower, []string{"分析", "统计", "查询", "销�?, "订单"}) {
+	if containsAny(queryLower, []string{"建议", "可以做什�", "能做什�", "suggest", "recommend"}) &&
+		!containsAny(queryLower, []string{"分析", "统计", "查询", "销�", "订单"}) {
 		result.RequestType = "consultation"
 		result.NeedsVisualization = false
 		result.SuggestedOutputs = []string{"text"}
@@ -187,7 +187,7 @@ func (c *RequestTypeClassifier) fallbackClassification(query string) *Classifica
 		result.NeedsDataExport = true
 		result.SuggestedOutputs = []string{"excel", "pdf"}
 	} else if containsAny(queryLower, []string{"计算", "几点", "时间", "calculate", "time"}) &&
-		!containsAny(queryLower, []string{"数据", "订单", "销�?}) {
+		!containsAny(queryLower, []string{"数据", "订单", "销�"}) {
 		result.RequestType = "calculation"
 		result.NeedsVisualization = false
 		result.SuggestedOutputs = []string{"text"}
@@ -196,11 +196,11 @@ func (c *RequestTypeClassifier) fallbackClassification(query string) *Classifica
 
 	// Suggest chart type based on keywords
 	if result.NeedsVisualization {
-		if containsAny(queryLower, []string{"趋势", "变化", "时间", "�?, "�?, "季度", "trend"}) {
+		if containsAny(queryLower, []string{"趋势", "变化", "时间", "�", "�", "季度", "trend"}) {
 			result.SuggestedChartType = "line"
-		} else if containsAny(queryLower, []string{"占比", "比例", "分布", "百分�?, "pie"}) {
+		} else if containsAny(queryLower, []string{"占比", "比例", "分布", "百分�", "pie"}) {
 			result.SuggestedChartType = "pie"
-		} else if containsAny(queryLower, []string{"对比", "比较", "排名", "top", "�?}) {
+		} else if containsAny(queryLower, []string{"对比", "比较", "排名", "top", "�"}) {
 			result.SuggestedChartType = "bar"
 		}
 	}

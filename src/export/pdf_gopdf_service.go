@@ -22,35 +22,35 @@ func NewGopdfService() *GopdfService {
 }
 
 // PDF布局常量 - A4纸张 (595.28 x 841.89 points)
-// gopdf 使用 point 作为单位�? point = 1/72 inch
+// gopdf 使用 point 作为单位� point = 1/72 inch
 const (
 	// 页面尺寸 (points)
 	pdfPageWidth  = 595.28 // A4宽度
 	pdfPageHeight = 841.89 // A4高度
 
 	// 页面边距 (points) - 窄边距最大化内容区域
-	pdfMarginLeft   = 36.0 // 左边�?(~12.7mm)
-	pdfMarginRight  = 36.0 // 右边�?
-	pdfMarginTop    = 45.0 // 上边�?(~15.9mm)
-	pdfMarginBottom = 45.0 // 下边�?
+	pdfMarginLeft   = 36.0 // 左边�(~12.7mm)
+	pdfMarginRight  = 36.0 // 右边�
+	pdfMarginTop    = 45.0 // 上边�(~15.9mm)
+	pdfMarginBottom = 45.0 // 下边�
 
 	// 内容区域 (points)
 	pdfContentWidth = 523.28 // 内容宽度 = 595.28 - 36 - 36
 
 	// 字体大小 (points)
 	pdfFontTitle     = 24.0 // 报告标题
-	pdfFontHeading1  = 16.0 // 一级标�?
+	pdfFontHeading1  = 16.0 // 一级标�
 	pdfFontHeading2  = 14.0 // 二级标题
 	pdfFontHeading3  = 12.0 // 三级标题
 	pdfFontBody      = 11.0 // 正文
 	pdfFontSmall     = 10.0 // 小字
 	pdfFontTableHead = 10.0 // 表头
-	pdfFontTableCell = 9.0  // 表格单元�?
+	pdfFontTableCell = 9.0  // 表格单元�
 	pdfFontFooter    = 9.0  // 页脚
 
 	// 行高 (points)
 	pdfLineHeightTitle   = 30.0 // 标题行高
-	pdfLineHeightHeading = 22.0 // 小标题行�?
+	pdfLineHeightHeading = 22.0 // 小标题行�
 	pdfLineHeightBody    = 16.0 // 正文行高
 	pdfLineHeightTable   = 18.0 // 表格行高
 )
@@ -198,7 +198,7 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 	// 添加分析内容
 	s.addAnalysisContent(&pdf, data.Insights, fontName)
 
-	// 添加数据表格（使用原始表格数据直接渲染，不经�?LLM�?
+	// 添加数据表格（使用原始表格数据直接渲染，不经�LLM�
 	if len(data.AllTableData) > 0 {
 		for _, namedTable := range data.AllTableData {
 			tableData := namedTable.Table
@@ -225,11 +225,11 @@ func (s *GopdfService) exportAnalysisResultToPDF(data DashboardData) ([]byte, er
 
 // addAnalysisHeader adds a simple header for analysis result export
 func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, dataSourceName string, userRequest string, reportTitle string) {
-	// 顶部装饰�?- 清新的青绿色
+	// 顶部装饰�- 清新的青绿色
 	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 16, "F")
 
-	// 标题 - 深青�?
+	// 标题 - 深青�
 	pdf.SetFont(fontName, "B", 20)
 	pdf.SetTextColor(6, 95, 70) // emerald-800
 	title := reportTitle
@@ -246,7 +246,7 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 
 	nextY := 68.0
 
-	// 数据源名�?
+	// 数据源名�
 	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontBody)
 		pdf.SetTextColor(71, 85, 105)
@@ -297,7 +297,7 @@ func (s *GopdfService) addAnalysisHeader(pdf *gopdf.GoPdf, fontName string, data
 	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
-	// 分隔�?- 清新的青绿色
+	// 分隔�- 清新的青绿色
 	pdf.SetStrokeColor(167, 243, 208) // emerald-200
 	pdf.Line(pdfMarginLeft, nextY+20, pdfPageWidth-pdfMarginRight, nextY+20)
 
@@ -312,11 +312,11 @@ func (s *GopdfService) addAnalysisContent(pdf *gopdf.GoPdf, insights []string, f
 
 // addCoverPage adds a professional cover page
 func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceName string, userRequest string, fontName string) {
-	// 顶部装饰�?- 清新的青绿色渐变效果
+	// 顶部装饰�- 清新的青绿色渐变效果
 	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(0, 0, pdfPageWidth, 24, "F")
 
-	// 主标�?- 居中显示，使用深青色
+	// 主标�- 居中显示，使用深青色
 	pdf.SetFont(fontName, "B", pdfFontTitle)
 	pdf.SetTextColor(6, 95, 70) // emerald-800
 	titleWidth, _ := pdf.MeasureTextWidth(title)
@@ -326,7 +326,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 
 	nextY := 200.0
 
-	// 数据源名�?- 标注在标题下�?
+	// 数据源名�- 标注在标题下�
 	if dataSourceName != "" {
 		pdf.SetFont(fontName, "", pdfFontHeading2)
 		pdf.SetTextColor(71, 85, 105) // slate-600
@@ -338,12 +338,12 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 		nextY += 35
 	}
 
-	// 用户请求 - 完整显示，支持多行换�?
+	// 用户请求 - 完整显示，支持多行换�
 	if userRequest != "" {
 		pdf.SetFont(fontName, "", pdfFontBody)
 		pdf.SetTextColor(100, 116, 139) // slate-500
 
-		// 先显示标�?
+		// 先显示标�
 		labelText := i18n.T("report.analysis_request_label") + ":"
 		labelWidth, _ := pdf.MeasureTextWidth(labelText)
 		pdf.SetX((pdfPageWidth - labelWidth) / 2)
@@ -351,7 +351,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 		pdf.Cell(nil, labelText)
 		nextY += 22
 
-		// 完整显示用户请求，支持自动换�?
+		// 完整显示用户请求，支持自动换�
 		pdf.SetFont(fontName, "", pdfFontBody)
 		pdf.SetTextColor(51, 65, 85)
 		maxLineLen := 55
@@ -379,7 +379,7 @@ func (s *GopdfService) addCoverPage(pdf *gopdf.GoPdf, title string, dataSourceNa
 	pdf.SetY(nextY)
 	pdf.Cell(nil, timeText)
 
-	// 分隔�?- 清新的青绿色
+	// 分隔�- 清新的青绿色
 	pdf.SetStrokeColor(167, 243, 208) // emerald-200
 	pdf.Line(pdfMarginLeft, nextY+40, pdfPageWidth-pdfMarginRight, nextY+40)
 
@@ -395,7 +395,7 @@ func (s *GopdfService) addSectionTitle(pdf *gopdf.GoPdf, title string, fontName 
 	pdf.SetFillColor(16, 185, 129) // emerald-500
 	pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, 8, 24, "F")
 
-	// 标题文字 - 深青�?
+	// 标题文字 - 深青�
 	pdf.SetFont(fontName, "B", pdfFontHeading1)
 	pdf.SetTextColor(6, 95, 70) // emerald-800
 	pdf.SetX(pdfMarginLeft + 20)
@@ -409,7 +409,7 @@ func (s *GopdfService) addSectionTitle(pdf *gopdf.GoPdf, title string, fontName 
 func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData, fontName string) {
 	y := s.addSectionTitle(pdf, "关键指标", fontName)
 
-	// 计算卡片布局 - 每行3�?
+	// 计算卡片布局 - 每行3�
 	cols := 3
 	if len(metrics) <= 2 {
 		cols = 2
@@ -426,7 +426,7 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 		x := pdfMarginLeft + float64(col)*(cardWidth+spacing)
 		cardY := y + float64(row)*(cardHeight+spacing)
 
-		// 检查分�?
+		// 检查分�
 		cardY = s.checkPageBreak(pdf, cardY, cardHeight+spacing)
 		if cardY < y {
 			y = cardY
@@ -436,7 +436,7 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 		pdf.SetFillColor(236, 253, 245) // emerald-50
 		pdf.RectFromUpperLeftWithStyle(x, cardY, cardWidth, cardHeight, "F")
 
-		// 卡片边框 - 青绿�?
+		// 卡片边框 - 青绿�
 		pdf.SetStrokeColor(167, 243, 208) // emerald-200
 		pdf.RectFromUpperLeftWithStyle(x, cardY, cardWidth, cardHeight, "D")
 
@@ -447,31 +447,31 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 		pdf.SetY(cardY + 12)
 		pdf.Cell(nil, metric.Title)
 
-		// 指标�?- 大字体突出，深青�?
+		// 指标�- 大字体突出，深青�
 		pdf.SetFont(fontName, "B", pdfFontHeading1)
 		pdf.SetTextColor(6, 95, 70) // emerald-800
 		pdf.SetX(x + 12)
 		pdf.SetY(cardY + 35)
 		pdf.Cell(nil, metric.Value)
 
-		// 变化�?- 带颜�?
+		// 变化�- 带颜�
 		if metric.Change != "" {
 			pdf.SetFont(fontName, "", pdfFontSmall)
-			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "�?) || strings.Contains(metric.Change, "�?) {
+			if strings.HasPrefix(metric.Change, "+") || strings.Contains(metric.Change, "↑") || strings.Contains(metric.Change, "增") {
 				pdf.SetTextColor(5, 150, 105) // emerald-600 更清新的绿色
-			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "�?) || strings.Contains(metric.Change, "�?) {
+			} else if strings.HasPrefix(metric.Change, "-") || strings.Contains(metric.Change, "↓") || strings.Contains(metric.Change, "减") {
 				pdf.SetTextColor(239, 68, 68) // red-500 更柔和的红色
 			} else {
 				pdf.SetTextColor(100, 116, 139) // slate-500
 			}
-			// 计算值的宽度，将变化值放在右�?
+			// 计算值的宽度，将变化值放在右�
 			pdf.SetX(x + cardWidth - 80)
 			pdf.SetY(cardY + 35)
 			pdf.Cell(nil, metric.Change)
 		}
 	}
 
-	// 计算总行�?
+	// 计算总行�
 	totalRows := (len(metrics) + cols - 1) / cols
 	pdf.SetY(y + float64(totalRows)*(cardHeight+spacing) + 20)
 }
@@ -479,7 +479,7 @@ func (s *GopdfService) addMetricsSection(pdf *gopdf.GoPdf, metrics []MetricData,
 // checkPageBreak checks if we need a new page and adds one if necessary
 // Returns the current Y position after potential page break
 func (s *GopdfService) checkPageBreak(pdf *gopdf.GoPdf, y float64, requiredSpace float64) float64 {
-	// 只有当剩余空间真的不够时才分�?
+	// 只有当剩余空间真的不够时才分�
 	if y+requiredSpace > pdfPageHeight-pdfMarginBottom {
 		pdf.AddPage()
 		return pdfMarginTop
@@ -523,7 +523,7 @@ func (s *GopdfService) parseMarkdownLine(line string) lineFormat {
 	indent := len(line) - len(trimmed)
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 		result.isList = true
-		result.text = "�?" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
+		result.text = "�" + strings.TrimPrefix(strings.TrimPrefix(trimmed, "- "), "* ")
 		result.indent = indent / 2
 	} else if len(trimmed) > 2 && trimmed[0] >= '0' && trimmed[0] <= '9' && trimmed[1] == '.' {
 		result.isList = true
@@ -532,7 +532,7 @@ func (s *GopdfService) parseMarkdownLine(line string) lineFormat {
 	}
 	
 	// Handle inline bold (**text** or __text__)
-	// Detect if line contains bold markers �?set isBold if it starts with **
+	// Detect if line contains bold markers �set isBold if it starts with **
 	if strings.Contains(result.text, "**") {
 		result.isBold = true
 	}
@@ -636,7 +636,7 @@ func containsMarkdownBold(text string) bool {
 
 func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, fontName string) {
 	y := pdf.GetY()
-	// 不再添加"智能洞察"标题，因�?LLM 生成的内容已经包含了结构化的章节标题
+	// 不再添加"智能洞察"标题，因�LLM 生成的内容已经包含了结构化的章节标题
 	pdf.SetY(y)
 
 	for _, insight := range insights {
@@ -666,7 +666,7 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 				continue
 			}
 
-			// 检�?markdown 表格（连续的 | 开头行�?
+			// 检�markdown 表格（连续的 | 开头行�
 			if strings.HasPrefix(trimmedLine, "|") && strings.Contains(trimmedLine, "|") {
 				tableLines := []string{trimmedLine}
 				j := i + 1
@@ -689,7 +689,7 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 				}
 			}
 
-			// 检�?key=value 结构化文本行，转为表格渲�?
+			// 检�key=value 结构化文本行，转为表格渲�
 			if strings.Contains(trimmedLine, "=") {
 				consumed, kvTable := s.parseKeyValueLines(lines, i)
 				if consumed > 0 && len(kvTable) > 0 {
@@ -718,7 +718,7 @@ func (s *GopdfService) addInsightsSection(pdf *gopdf.GoPdf, insights []string, f
 				fontSize = 18.0
 				lineHeight = pdfLineHeightHeading + 4
 				pdf.SetFont(fontName, "B", fontSize)
-				pdf.SetTextColor(6, 78, 59) // emerald-900 深青�?
+				pdf.SetTextColor(6, 78, 59) // emerald-900 深青�
 			} else if format.isHeading == 2 {
 				fontSize = pdfFontHeading1
 				lineHeight = pdfLineHeightHeading + 2
@@ -935,8 +935,8 @@ func (s *GopdfService) extractStandaloneJsonArrays(text string, tables *[][][]st
 // parseKeyValueLines detects consecutive lines with repeated key=value patterns
 // and converts them into table data. Returns the number of lines consumed and the table.
 // Example input lines:
-//   "<50字符：中性比�?35.8%，占�?0.7%，平均情感得�?2.85"
-//   "50-100字符：中性比�?28.5%，占�?1.5%，平均情感得�?3.42"
+//   "<50字符：中性比�35.8%，占�0.7%，平均情感得�2.85"
+//   "50-100字符：中性比�28.5%，占�1.5%，平均情感得�3.42"
 // Each line has a label prefix (before ：or :) and key=value pairs separated by ，or ,
 func (s *GopdfService) parseKeyValueLines(lines []string, startIdx int) (int, [][]string) {
 	if startIdx >= len(lines) {
@@ -1030,8 +1030,8 @@ func (s *GopdfService) extractKeyValuePairs(line string) ([]string, []string, st
 		}
 	}
 
-	// Check for label prefix (text before �?or : followed by key=value)
-	for _, sep := range []string{"�?, ": "} {
+	// Check for label prefix (text before �or : followed by key=value)
+	for _, sep := range []string{"�", ": "} {
 		idx := strings.Index(content, sep)
 		if idx > 0 && idx < 60 {
 			afterSep := content[idx+len(sep):]
@@ -1047,7 +1047,7 @@ func (s *GopdfService) extractKeyValuePairs(line string) ([]string, []string, st
 	// Split by Chinese comma or regular comma
 	var parts []string
 	// Replace Chinese commas with regular commas for uniform splitting
-	normalized := strings.ReplaceAll(content, "�?, ",")
+	normalized := strings.ReplaceAll(content, "�", ",")
 	parts = strings.Split(normalized, ",")
 
 	var keys, values []string
@@ -1348,7 +1348,7 @@ func (s *GopdfService) renderInlineTable(pdf *gopdf.GoPdf, tableData [][]string,
 			x += colWidth
 		}
 
-		// Then draw all text on top �?use InsertHTMLBox for cells with **bold**
+		// Then draw all text on top �use InsertHTMLBox for cells with **bold**
 		pdf.SetFont(fontName, "", pdfFontTableCell)
 		pdf.SetTextColor(51, 65, 85)
 		x = pdfMarginLeft
@@ -1412,7 +1412,7 @@ func (s *GopdfService) wrapText(text string, maxLen int) []string {
 		
 		// Try to break at space or punctuation
 		for i := maxLen; i > maxLen/2; i-- {
-			if runes[i] == ' ' || runes[i] == '�? || runes[i] == '�? || runes[i] == '�? || runes[i] == '�? || runes[i] == '�? {
+			if runes[i] == ' ' || runes[i] == '，' || runes[i] == '。' || runes[i] == '、' || runes[i] == '；' || runes[i] == '！' {
 				breakPoint = i + 1
 				break
 			}
@@ -1496,8 +1496,8 @@ func (s *GopdfService) wrapTextByWidth(pdf *gopdf.GoPdf, text string, maxWidth f
 		}
 		for i := searchStart; i >= minBreak; i-- {
 			ch := runes[i-1]
-			if ch == ' ' || ch == '�? || ch == '�? || ch == '�? || ch == '�? || ch == '�? ||
-				ch == '�? || ch == '�? || ch == '"' || ch == '\'' {
+			if ch == ' ' || ch == '，' || ch == '。' || ch == '、' || ch == '；' || ch == '！' ||
+				ch == '：' || ch == '）' || ch == '"' || ch == '\'' {
 				bestBreak = i
 				break
 			}
@@ -1577,10 +1577,10 @@ func (s *GopdfService) addChartsSection(pdf *gopdf.GoPdf, chartImages []string, 
 		// 图表总需空间：子标题(20) + 容器(chartHeight+12) + 间距(30)
 		totalChartSpace := 20 + chartHeight + 12 + 30
 
-		// 第一个图表添加章节标�?
+		// 第一个图表添加章节标�
 		if i == 0 {
-			y := s.addSectionTitle(pdf, "数据可视�?, fontName)
-			// 章节标题后检查剩余空间是否够放图�?
+			y := s.addSectionTitle(pdf, "数据可视�", fontName)
+			// 章节标题后检查剩余空间是否够放图�
 			y = s.checkPageBreak(pdf, y, totalChartSpace)
 			pdf.SetY(y)
 		} else {
@@ -1591,7 +1591,7 @@ func (s *GopdfService) addChartsSection(pdf *gopdf.GoPdf, chartImages []string, 
 
 		y := pdf.GetY()
 
-		// 图表子标�?
+		// 图表子标�
 		pdf.SetFont(fontName, "", pdfFontSmall)
 		pdf.SetTextColor(100, 116, 139)
 		pdf.SetX(pdfMarginLeft)
@@ -1624,7 +1624,7 @@ func (s *GopdfService) addChartsSection(pdf *gopdf.GoPdf, chartImages []string, 
 		pdf.SetFillColor(236, 253, 245) // emerald-50
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, chartHeight+12, "F")
 
-		// 图表边框 - 青绿�?
+		// 图表边框 - 青绿�
 		pdf.SetStrokeColor(167, 243, 208) // emerald-200
 		pdf.RectFromUpperLeftWithStyle(pdfMarginLeft, y, pdfContentWidth, chartHeight+12, "D")
 
@@ -1654,7 +1654,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 	}
 	y := s.addSectionTitle(pdf, title, fontName)
 
-	// 限制列数以保证可读�?
+	// 限制列数以保证可读�
 	maxCols := 8
 	cols := tableData.Columns
 	if len(cols) > maxCols {
@@ -1694,7 +1694,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 		return height, wrappedCells
 	}
 
-	// 绘制表头的辅助函�?
+	// 绘制表头的辅助函�
 	drawHeader := func(atY float64) float64 {
 		pdf.SetFont(fontName, "B", pdfFontTableHead)
 		// Compute header height with wrapping
@@ -1745,7 +1745,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 	y = s.checkPageBreak(pdf, y, 80)
 	y = drawHeader(y)
 
-	// 绘制数据�?
+	// 绘制数据�
 	totalRows := len(tableData.Data)
 
 	for rowIdx, rowData := range tableData.Data {
@@ -1753,7 +1753,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 		pdf.SetFont(fontName, "", pdfFontTableCell)
 		rowHeight, wrappedCells := computeStructuredRowHeight(rowData, pdfFontTableCell)
 
-		// 检查分�?
+		// 检查分�
 		if y+rowHeight > pdfPageHeight-pdfMarginBottom {
 			pdf.AddPage()
 			y = pdfMarginTop
@@ -1775,7 +1775,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 			x += colWidth
 		}
 
-		// Then draw all text on top �?use InsertHTMLBox for cells with **bold**
+		// Then draw all text on top �use InsertHTMLBox for cells with **bold**
 		pdf.SetFont(fontName, "", pdfFontTableCell)
 		pdf.SetTextColor(51, 65, 85)
 		x = pdfMarginLeft
@@ -1814,7 +1814,7 @@ func (s *GopdfService) addTableSection(pdf *gopdf.GoPdf, tableData *TableData, f
 	pdf.SetX(pdfMarginLeft)
 	pdf.SetY(y)
 
-	infoText := fmt.Sprintf("�?%d 行数�?, totalRows)
+	infoText := fmt.Sprintf("�%d 行数�", totalRows)
 	if len(tableData.Columns) > maxCols {
 		infoText += fmt.Sprintf("（显示前 %d 列）", maxCols)
 	}
@@ -1856,7 +1856,7 @@ func (s *GopdfService) addFooter(pdf *gopdf.GoPdf, fontName string) {
 func (s *GopdfService) formatTimestamp(t time.Time) string {
 	lang := i18n.GetLanguage()
 	if lang == i18n.Chinese {
-		return t.Format("2006�?1�?2�?15:04:05")
+		return t.Format("2006�1�2�15:04:05")
 	}
 	// English format
 	return t.Format("January 02, 2006 15:04:05")

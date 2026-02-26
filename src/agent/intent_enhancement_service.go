@@ -18,10 +18,10 @@ type IntentSuggestion struct {
 	Query       string `json:"query"`       // Actual query/analysis request to execute
 }
 
-// IsValid 检查意图建议是否有�?
-// 验证所有必需字段都非�?
+// IsValid 检查意图建议是否有�
+// 验证所有必需字段都非�
 // Returns true if all required fields (ID, Title, Description, Icon, Query) are non-empty
-// Validates: Requirements 1.2 (意图建议结构完整�?
+// Validates: Requirements 1.2 (意图建议结构完整�
 func (s *IntentSuggestion) IsValid() bool {
 	return s.ID != "" &&
 		s.Title != "" &&
@@ -104,7 +104,7 @@ func (c *ContextEnhancer) Initialize() error {
 	return nil
 }
 
-// GetHistoryContext 获取历史分析上下�?
+// GetHistoryContext 获取历史分析上下�
 // Retrieves historical analysis records for a specific data source
 // Parameters:
 //   - dataSourceID: the ID of the data source to get history for
@@ -285,7 +285,7 @@ func (c *ContextEnhancer) translateAnalysisType(analysisType string, language st
 		"trend":        "趋势分析",
 		"comparison":   "对比分析",
 		"distribution": "分布分析",
-		"correlation":  "相关性分�?,
+		"correlation":  "相关性分�",
 		"aggregation":  "聚合分析",
 		"ranking":      "排名分析",
 		"time_series":  "时间序列分析",
@@ -338,13 +338,13 @@ func (c *ContextEnhancer) formatColumns(columns []string) string {
 	return result
 }
 
-// DimensionAnalyzer 维度分析�?(placeholder - will be implemented in Task 3)
+// DimensionAnalyzer 维度分析�(placeholder - will be implemented in Task 3)
 // Responsible for dynamically adjusting analysis dimensions based on data characteristics
 type DimensionAnalyzer struct {
 	initialized bool
 }
 
-// ExampleProvider 示例提供�?(placeholder - will be implemented in Task 5)
+// ExampleProvider 示例提供�(placeholder - will be implemented in Task 5)
 // Responsible for providing domain-specific Few-shot examples
 type ExampleProvider struct {
 	initialized bool
@@ -407,7 +407,7 @@ func NewIntentEnhancementService(
 	return service
 }
 
-// Initialize 初始化所有增强组�?
+// Initialize 初始化所有增强组�
 // Initializes all enhancement components with graceful degradation
 // If a component fails to initialize, that feature is disabled and the service continues
 // Returns error only if ALL components fail to initialize
@@ -555,7 +555,7 @@ func (s *IntentEnhancementService) GetConfig() *IntentEnhancementConfig {
 	return s.config.Clone()
 }
 
-// IsAvailable 检查服务是否可�?
+// IsAvailable 检查服务是否可�
 // Returns true if at least one enhancement component is available
 func (s *IntentEnhancementService) IsAvailable() bool {
 	s.mu.RLock()
@@ -568,7 +568,7 @@ func (s *IntentEnhancementService) IsAvailable() bool {
 		s.preferenceLearnerAvailable
 }
 
-// IsAllDisabled 检查是否所有增强功能都已禁�?
+// IsAllDisabled 检查是否所有增强功能都已禁�
 // Returns true if all enhancement features are disabled
 func (s *IntentEnhancementService) IsAllDisabled() bool {
 	s.mu.RLock()
@@ -578,7 +578,7 @@ func (s *IntentEnhancementService) IsAllDisabled() bool {
 }
 
 
-// EnhancePrompt 增强意图理解提示�?
+// EnhancePrompt 增强意图理解提示�
 // Enhances the base prompt with context, dimensions, and examples
 // Parameters:
 //   - ctx: context for cancellation
@@ -689,7 +689,7 @@ func (s *IntentEnhancementService) EnhancePrompt(
 	return enhancedPrompt, nil
 }
 
-// EnhancePromptWithColumns 增强意图理解提示词（带列信息�?
+// EnhancePromptWithColumns 增强意图理解提示词（带列信息�
 // Enhanced version of EnhancePrompt that accepts column information for better dimension analysis
 // Parameters:
 //   - ctx: context for cancellation
@@ -808,7 +808,7 @@ func formatIntForLog(n int) string {
 	return string(digits)
 }
 
-// GetCachedSuggestions 获取缓存的建�?
+// GetCachedSuggestions 获取缓存的建�
 // Retrieves cached intent suggestions for a similar request
 // Parameters:
 //   - dataSourceID: the ID of the data source
@@ -991,7 +991,7 @@ func (s *IntentEnhancementService) RecordSelection(
 	s.logger("[INTENT-ENHANCEMENT] Recorded intent selection: " + selectedIntent.Title + " for data source: " + dataSourceID)
 }
 
-// GetComponentStatus 获取组件状�?
+// GetComponentStatus 获取组件状�
 // Returns the availability status of all enhancement components
 func (s *IntentEnhancementService) GetComponentStatus() map[string]bool {
 	s.mu.RLock()
@@ -1006,7 +1006,7 @@ func (s *IntentEnhancementService) GetComponentStatus() map[string]bool {
 	}
 }
 
-// AddAnalysisRecord 添加分析记录到历史存�?
+// AddAnalysisRecord 添加分析记录到历史存�
 // Records a completed analysis for future context enhancement
 // Parameters:
 //   - record: the analysis record to add

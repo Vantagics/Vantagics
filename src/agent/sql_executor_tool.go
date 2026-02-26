@@ -84,10 +84,10 @@ func (t *SQLExecutorTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
 - Self-correction: if SQL fails, the tool will attempt automatic fix (up to 2 retries)
 
 **Common Mistakes to Avoid:**
-- ‚ù?Using WRONG DIALECT ‚Ü?DuckDB is used for local data (Excel/CSV)
-- ‚ù?Using MySQL-only functions on local data ‚Ü?Most are auto-converted, but stick to standard SQL
-- ‚ù?Wrong column name case ‚Ü?Check schema first
-- ‚ù?Referencing subquery columns not in SELECT ‚Ü?Include all needed columns
+- ÔøΩUsing WRONG DIALECT ÔøΩDuckDB is used for local data (Excel/CSV)
+- ÔøΩUsing MySQL-only functions on local data ÔøΩMost are auto-converted, but stick to standard SQL
+- ÔøΩWrong column name case ÔøΩCheck schema first
+- ÔøΩReferencing subquery columns not in SELECT ÔøΩInclude all needed columns
 
 **When to use:**
 - Retrieve raw data for analysis
@@ -397,7 +397,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 
 	// Format Response
 	if len(results) == 0 {
-		return "‚ú?Query executed successfully. No rows returned.", dbType, nil
+		return "ÔøΩQuery executed successfully. No rows returned.", dbType, nil
 	}
 
 	jsonData, err := json.MarshalIndent(results, "", "  ")
@@ -405,7 +405,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 		return "", dbType, fmt.Errorf("failed to marshal results: %v", err)
 	}
 
-	response := fmt.Sprintf("‚ú?Query executed successfully. Returned %d rows.\n\n%s",
+	response := fmt.Sprintf("ÔøΩQuery executed successfully. Returned %d rows.\n\n%s",
 		len(results), string(jsonData))
 
 	maxSize := 50000
@@ -419,7 +419,7 @@ func (t *SQLExecutorTool) executeQueryInternal(ctx context.Context, dataSourceID
 // buildErrorMessage creates a detailed error message with hints
 func (t *SQLExecutorTool) buildErrorMessage(err error, query, dbType string) string {
 	var errorMsg strings.Builder
-	errorMsg.WriteString(fmt.Sprintf("‚ù?SQL Error: %v\n\n", err))
+	errorMsg.WriteString(fmt.Sprintf("ÔøΩSQL Error: %v\n\n", err))
 
 	errStr := err.Error()
 	if strings.Contains(errStr, "no such column") || strings.Contains(errStr, "Unknown column") {
@@ -467,7 +467,7 @@ func (t *SQLExecutorTool) buildErrorMessage(err error, query, dbType string) str
 func (t *SQLExecutorTool) InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error) {
 	var in sqlExecutorInput
 	if err := json.Unmarshal([]byte(input), &in); err != nil {
-		return fmt.Sprintf("‚ù?Error: Invalid input format: %v\n\nüí° Please provide valid JSON with 'data_source_id' and 'query' fields.", err), nil
+		return fmt.Sprintf("ÔøΩError: Invalid input format: %v\n\nüí° Please provide valid JSON with 'data_source_id' and 'query' fields.", err), nil
 	}
 
 	currentQuery := in.Query

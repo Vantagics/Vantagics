@@ -98,9 +98,9 @@ func (s *SemanticSimilarityCalculator) CalculateSimilarity(text1, text2 string) 
 	return cosineSimilarity(vec1, vec2)
 }
 
-// CalculateJaccardSimilarity 计算Jaccard相似�?
+// CalculateJaccardSimilarity 计算Jaccard相似�
 // Calculates the Jaccard similarity between two texts
-// Jaccard similarity = |A �?B| / |A �?B|
+// Jaccard similarity = |A �B| / |A �B|
 // Parameters:
 //   - text1: the first text to compare
 //   - text2: the second text to compare
@@ -206,7 +206,7 @@ func (s *SemanticSimilarityCalculator) GetEmbedding(text string) []float64 {
 	return normalizeVector(vec)
 }
 
-// GetEmbeddingWithVocab 获取文本嵌入向量（使用指定词汇表�?
+// GetEmbeddingWithVocab 获取文本嵌入向量（使用指定词汇表�
 // Gets the embedding vector for a text using a specified vocabulary
 // This is useful when comparing multiple texts with a consistent vocabulary
 // Parameters:
@@ -247,7 +247,7 @@ func (s *SemanticSimilarityCalculator) IsSimilar(text1, text2 string) bool {
 	return similarity >= s.threshold
 }
 
-// IsSimilarWithJaccard 使用Jaccard相似度判断两个文本是否相�?
+// IsSimilarWithJaccard 使用Jaccard相似度判断两个文本是否相�
 // Determines if two texts are similar using Jaccard similarity
 // Parameters:
 //   - text1: the first text to compare
@@ -465,12 +465,12 @@ func TokenizeText(text string) []string {
 
 // Common Chinese stopwords for more advanced filtering (optional use)
 var chineseStopwords = map[string]bool{
-	"�?: true, "�?: true, "�?: true, "�?: true, "�?: true,
-	"�?: true, "�?: true, "�?: true, "�?: true, "�?: true,
-	"�?: true, "一": true, "一�?: true, "�?: true, "�?: true,
-	"�?: true, "�?: true, "�?: true, "�?: true, "�?: true,
-	"�?: true, "�?: true, "着": true, "没有": true, "�?: true,
-	"�?: true, "自己": true, "�?: true, "�?: true, "�?: true,
+	"的": true, "了": true, "在": true, "是": true, "我": true,
+	"有": true, "和": true, "就": true, "不": true, "人": true,
+	"都": true, "一": true, "一个": true, "上": true, "也": true,
+	"很": true, "到": true, "说": true, "要": true, "去": true,
+	"你": true, "会": true, "着": true, "没有": true, "看": true,
+	"好": true, "自己": true, "这": true, "他": true, "她": true,
 }
 
 // TokenizeWithStopwords tokenizes text and optionally filters stopwords

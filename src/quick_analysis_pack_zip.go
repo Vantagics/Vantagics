@@ -87,7 +87,7 @@ func PackToZip(jsonData []byte, outputPath string, password string) error {
 		}
 	}
 
-	// Explicitly close zip writer to flush central directory â€?defer would swallow errors
+	// Explicitly close zip writer to flush central directory ï¿½defer would swallow errors
 	if err := zw.Close(); err != nil {
 		return fmt.Errorf("finalize zip: %w", err)
 	}
@@ -114,7 +114,7 @@ func UnpackFromZip(zipPath string, password string) ([]byte, error) {
 		return decrypted, nil
 	}
 
-	// Not encrypted â€?if a password was provided, that's fine, just ignore it.
+	// Not encrypted ï¿½if a password was provided, that's fine, just ignore it.
 	return data, nil
 }
 

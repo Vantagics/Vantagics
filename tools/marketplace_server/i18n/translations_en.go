@@ -951,4 +951,14 @@ var enUS = map[string]string{
 	"sm_add_banner":           "+ Add Banner",
 	"sm_save_layout":          "💾 Save Layout",
 	"sm_preview":              "👁️ Preview",
+
+	// Customer Support
+	"customer_support":        "Customer Support",
+	"loading_support":         "Connecting to support...",
+
+	// Download button (simplified)
+	"download":                "Download",
+
+	// Store link on pack detail
+	"visit_store":             "Visit Store",
 }

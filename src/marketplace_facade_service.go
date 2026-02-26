@@ -51,7 +51,7 @@ type MarketplaceManager interface {
 	ServicePortalLogin() (string, error)
 }
 
-// MarketplaceFacadeService 市场服务门面，封装所有市场相关的业务逻辑和并发状�?
+// MarketplaceFacadeService 市场服务门面，封装所有市场相关的业务逻辑和并发状�
 type MarketplaceFacadeService struct {
 	ctx             context.Context
 	configProvider  ConfigProvider
@@ -69,7 +69,7 @@ type MarketplaceFacadeService struct {
 	// Pending usage queue for offline usage report retry
 	pendingUsageQueue *PendingUsageQueue
 
-	// 并发状态（�?App 迁移过来�?
+	// 并发状态（�App 迁移过来�
 	flushUsageMu sync.Mutex
 
 	// Pack passwords from marketplace downloads (filePath -> encryption password)
@@ -96,7 +96,7 @@ func (m *MarketplaceFacadeService) Name() string {
 	return "marketplace"
 }
 
-// Initialize 初始化市场门面服�?
+// Initialize 初始化市场门面服�
 func (m *MarketplaceFacadeService) Initialize(ctx context.Context) error {
 	m.ctx = ctx
 
@@ -156,7 +156,7 @@ func (m *MarketplaceFacadeService) Shutdown() error {
 	return nil
 }
 
-// SetContext 设置 Wails 上下�?
+// SetContext 设置 Wails 上下�
 func (m *MarketplaceFacadeService) SetContext(ctx context.Context) {
 	m.ctx = ctx
 }
@@ -166,7 +166,7 @@ func (m *MarketplaceFacadeService) SetLicenseClient(lc *agent.LicenseClient) {
 	m.licenseClient = lc
 }
 
-// GetPackPasswords 返回 pack 密码映射（供外部使用�?
+// GetPackPasswords 返回 pack 密码映射（供外部使用�
 func (m *MarketplaceFacadeService) GetPackPasswords() map[string]string {
 	return m.packPasswords
 }
@@ -176,7 +176,7 @@ func (m *MarketplaceFacadeService) GetPackPasswordStore() *PackPasswordStore {
 	return m.packPasswordStore
 }
 
-// GetUsageLicenseStore 返回使用许可证存�?
+// GetUsageLicenseStore 返回使用许可证存�
 func (m *MarketplaceFacadeService) GetUsageLicenseStore() *UsageLicenseStore {
 	return m.usageLicenseStore
 }

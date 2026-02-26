@@ -137,7 +137,7 @@ func GetIPBasedLocation() (*LocationData, error) {
 // LocationToolInput defines the input parameters for the location tool
 type LocationToolInput struct {
 	// Query type: "coordinates", "city", "full" (default)
-	QueryType string `json:"query_type,omitempty" jsonschema:"description=Type of location query: coordinates (经纬�?, city (城市), full (完整信息). Default is full."`
+	QueryType string `json:"query_type,omitempty" jsonschema:"description=Type of location query: coordinates (经纬度), city (城市), full (完整信息). Default is full."`
 }
 
 // LocationToolOutput defines the output of the location tool

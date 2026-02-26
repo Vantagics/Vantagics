@@ -38,8 +38,8 @@ DomainSales: {
 "quantity", "qty", "unit", "units", "sku", "item", "items",
 "cart", "checkout", "payment", "payments", "refund", "refunds",
 "channel", "channels", "store", "stores", "shop", "shops",
-"ÏúÊÛ", "ÏúÁ¿", "ÓªÊÕ", "ÊÕÈë", "¶©µ¥", "¿Í»§", "²úÆ·", "ÉÌÆ·", "¹ºÂò", "½»Ò×",
-"¼Û¸ñ", "ÊıÁ¿", "½ğ¶î", "ÕÛ¿Û", "Ö§¸¶", "ÍË¿î", "ÇşµÀ", "ÃÅµê",
+"é”€å”®", "è®¢å•", "è¥æ”¶", "æ”¶å…¥", "é‡‘é¢", "å®¢æˆ·", "äº§å“", "å•†å“", "æ•°é‡", "ä»·æ ¼",
+"å”®ä»·", "æŠ˜æ‰£", "åº“å­˜", "é€€æ¬¾", "æ”¯ä»˜", "é€€è´§", "æ¸ é“", "é—¨åº—",
 },
 DomainFinance: {
 "finance", "financial", "budget", "budgets", "expense", "expenses",
@@ -50,8 +50,8 @@ DomainFinance: {
 "investment", "investments", "dividend", "dividends", "cash", "cashflow",
 "receivable", "receivables", "payable", "payables", "depreciation",
 "amortization", "capital", "roi", "ebitda", "gross", "net",
-"²ÆÎñ", "Ô¤Ëã", "·ÑÓÃ", "³É±¾", "ÀûÈó", "¿÷Ëğ", "×Ê²ú", "¸ºÕ®",
-"ÕË»§", "Ë°", "ÀûÏ¢", "´û¿î", "Í¶×Ê", "¹ÉÏ¢", "ÏÖ½ğ",
+"ï¿½ï¿½ï¿½ï¿½", "Ô¤ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½", "ï¿½É±ï¿½", "ï¿½ï¿½ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½", "ï¿½Ê²ï¿½", "ï¿½ï¿½Õ®",
+"ï¿½Ë»ï¿½", "Ë°", "ï¿½ï¿½Ï¢", "ï¿½ï¿½ï¿½ï¿½", "Í¶ï¿½ï¿½", "ï¿½ï¿½Ï¢", "ï¿½Ö½ï¿½",
 },
 DomainUserBehavior: {
 "user", "users", "visitor", "visitors", "session", "sessions",
@@ -63,8 +63,8 @@ DomainUserBehavior: {
 "track", "tracking", "analytics", "metric", "metrics",
 "duration", "frequency", "recency", "funnel", "funnels",
 "cohort", "cohorts", "segment", "segments", "journey", "journeys",
-"ÓÃ»§", "·Ã¿Í", "»á»°", "µã»÷", "ä¯ÀÀ", "Ò³Ãæ", "×ª»¯", "Áô´æ",
-"»îÔ¾", "µÇÂ¼", "×¢²á", "ĞĞÎª", "ÊÂ¼ş", "×·×Ù", "·ÖÎö",
+"ï¿½Ã»ï¿½", "ï¿½Ã¿ï¿½", "ï¿½á»°", "ï¿½ï¿½ï¿½", "ï¿½ï¿½ï¿½", "Ò³ï¿½ï¿½", "×ªï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½",
+"ï¿½ï¿½Ô¾", "ï¿½ï¿½Â¼", "×¢ï¿½ï¿½", "ï¿½ï¿½Îª", "ï¿½Â¼ï¿½", "×·ï¿½ï¿½", "ï¿½ï¿½ï¿½ï¿½",
 },
 }
 func NewExampleProviderImpl() *ExampleProviderImpl {
@@ -76,33 +76,33 @@ return p
 
 func (e *ExampleProviderImpl) initializeBuiltInExamples() {
 e.examples[DomainSales] = []FewShotExample{
-{Domain: DomainSales, Language: LanguageChinese, UserMessage: "·ÖÎöÏúÊÛÇé¿ö", Intent: IntentSuggestion{Title: "ÔÂ¶ÈÏúÊÛÇ÷ÊÆ", Description: "°´ÔÂ·İ·ÖÎöÏúÊÛ¶î±ä»¯Ç÷ÊÆ", Icon: "chart_line", Query: "Çë°´ÔÂ·İ»ã×ÜÏúÊÛ¶î£¬»æÖÆÇ÷ÊÆÍ¼"}},
-{Domain: DomainSales, Language: LanguageChinese, UserMessage: "¿´¿´²úÆ·±íÏÖ", Intent: IntentSuggestion{Title: "²úÆ·ÏúÁ¿ÅÅĞĞ", Description: "·ÖÎö¸÷²úÆ·µÄÏúÊÛÊıÁ¿ºÍ½ğ¶î", Icon: "trophy", Query: "ÇëÍ³¼Æ¸÷²úÆ·µÄÏúÊÛÊıÁ¿ºÍ½ğ¶î£¬°´ÏúÊÛ¶î½µĞòÅÅÁĞ"}},
-{Domain: DomainSales, Language: LanguageChinese, UserMessage: "¿Í»§·ÖÎö", Intent: IntentSuggestion{Title: "¿Í»§¼ÛÖµ·ÖÎö", Description: "·ÖÎö¿Í»§¹ºÂòĞĞÎª£¬Ê¶±ğ¸ß¼ÛÖµ¿Í»§", Icon: "users", Query: "Çë°´¿Í»§Í³¼Æ¹ºÂò´ÎÊıºÍ×Ü½ğ¶î"}},
+{Domain: DomainSales, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½Â¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½Â·İ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Û¶ï¿½ä»¯ï¿½ï¿½ï¿½ï¿½", Icon: "chart_line", Query: "ï¿½ë°´ï¿½Â·İ»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Û¶î£¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¼"}},
+{Domain: DomainSales, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ·ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½ï¿½Æ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í½ï¿½ï¿½", Icon: "trophy", Query: "ï¿½ï¿½Í³ï¿½Æ¸ï¿½ï¿½ï¿½Æ·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í½ï¿½î£¬ï¿½ï¿½ï¿½ï¿½ï¿½Û¶î½µï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"}},
+{Domain: DomainSales, Language: LanguageChinese, UserMessage: "ï¿½Í»ï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½Í»ï¿½ï¿½ï¿½Öµï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½Í»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Îªï¿½ï¿½Ê¶ï¿½ï¿½ß¼ï¿½Öµï¿½Í»ï¿½", Icon: "users", Query: "ï¿½ë°´ï¿½Í»ï¿½Í³ï¿½Æ¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü½ï¿½ï¿½"}},
 {Domain: DomainSales, Language: LanguageEnglish, UserMessage: "analyze sales", Intent: IntentSuggestion{Title: "Monthly Trend", Description: "Analyze monthly sales trends", Icon: "chart_line", Query: "Summarize sales by month, create trend chart"}},
 {Domain: DomainSales, Language: LanguageEnglish, UserMessage: "product performance", Intent: IntentSuggestion{Title: "Product Ranking", Description: "Analyze product sales volume", Icon: "trophy", Query: "Calculate sales by product, rank by revenue"}},
 {Domain: DomainSales, Language: LanguageEnglish, UserMessage: "customer analysis", Intent: IntentSuggestion{Title: "Customer Value", Description: "Analyze customer purchase behavior", Icon: "users", Query: "Calculate purchase frequency by customer"}},
 }
 e.examples[DomainFinance] = []FewShotExample{
-{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "·ÖÎö²ÆÎñ×´¿ö", Intent: IntentSuggestion{Title: "ÊÕÖ§·ÖÎö", Description: "·ÖÎöÊÕÈëºÍÖ§³öµÄ¹¹³É", Icon: "dollar", Query: "Çë°´Àà±ğ»ã×ÜÊÕÈëºÍÖ§³ö"}},
-{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "¿´¿´³É±¾Çé¿ö", Intent: IntentSuggestion{Title: "³É±¾½á¹¹·ÖÎö", Description: "·ÖÎö¸÷Ïî³É±¾µÄ¹¹³É", Icon: "chart_bar", Query: "Çë°´³É±¾ÀàĞÍ»ã×Ü½ğ¶î"}},
-{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "Ô¤ËãÖ´ĞĞ·ÖÎö", Intent: IntentSuggestion{Title: "Ô¤Ëã¶Ô±È·ÖÎö", Description: "¶Ô±ÈÊµ¼ÊÖ§³öÓëÔ¤Ëã", Icon: "clipboard", Query: "Çë¶Ô±È¸÷²¿ÃÅÊµ¼ÊÖ§³öÓëÔ¤Ëã½ğ¶î"}},
+{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×´ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö§ï¿½ï¿½ï¿½Ä¹ï¿½ï¿½ï¿½", Icon: "dollar", Query: "ï¿½ë°´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö§ï¿½ï¿½"}},
+{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½É±ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½É±ï¿½ï¿½á¹¹ï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½É±ï¿½ï¿½Ä¹ï¿½ï¿½ï¿½", Icon: "chart_bar", Query: "ï¿½ë°´ï¿½É±ï¿½ï¿½ï¿½ï¿½Í»ï¿½ï¿½Ü½ï¿½ï¿½"}},
+{Domain: DomainFinance, Language: LanguageChinese, UserMessage: "Ô¤ï¿½ï¿½Ö´ï¿½Ğ·ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "Ô¤ï¿½ï¿½Ô±È·ï¿½ï¿½ï¿½", Description: "ï¿½Ô±ï¿½Êµï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½Ô¤ï¿½ï¿½", Icon: "clipboard", Query: "ï¿½ï¿½Ô±È¸ï¿½ï¿½ï¿½ï¿½ï¿½Êµï¿½ï¿½Ö§ï¿½ï¿½ï¿½ï¿½Ô¤ï¿½ï¿½ï¿½ï¿½"}},
 {Domain: DomainFinance, Language: LanguageEnglish, UserMessage: "financial status", Intent: IntentSuggestion{Title: "Income Analysis", Description: "Analyze income and expense", Icon: "dollar", Query: "Summarize income and expenses by category"}},
 {Domain: DomainFinance, Language: LanguageEnglish, UserMessage: "cost breakdown", Intent: IntentSuggestion{Title: "Cost Structure", Description: "Analyze cost composition", Icon: "chart_bar", Query: "Summarize costs by type"}},
 {Domain: DomainFinance, Language: LanguageEnglish, UserMessage: "budget analysis", Intent: IntentSuggestion{Title: "Budget Comparison", Description: "Compare actual vs budget", Icon: "clipboard", Query: "Compare actual vs budget by department"}},
 }
 e.examples[DomainUserBehavior] = []FewShotExample{
-{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "·ÖÎöÓÃ»§ĞĞÎª", Intent: IntentSuggestion{Title: "ÓÃ»§»îÔ¾¶È·ÖÎö", Description: "·ÖÎöÓÃ»§µÄ»îÔ¾³Ì¶È", Icon: "mobile", Query: "ÇëÍ³¼ÆÈÕ»îÔ¾ÓÃ»§Êı(DAU)"}},
-{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "¿´¿´×ª»¯Çé¿ö", Intent: IntentSuggestion{Title: "×ª»¯Â©¶··ÖÎö", Description: "·ÖÎöÓÃ»§×ª»¯¸÷»·½Ú", Icon: "funnel", Query: "Çë¹¹½¨ÓÃ»§×ª»¯Â©¶·"}},
-{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "ÓÃ»§Áô´æ·ÖÎö", Intent: IntentSuggestion{Title: "Áô´æÂÊ·ÖÎö", Description: "·ÖÎöÓÃ»§µÄÁô´æÇé¿ö", Icon: "chart_bar", Query: "Çë¼ÆËã´ÎÈÕÁô´æ¡¢7ÈÕÁô´æÂÊ"}},
+{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½Îª", Intent: IntentSuggestion{Title: "ï¿½Ã»ï¿½ï¿½ï¿½Ô¾ï¿½È·ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½Ä»ï¿½Ô¾ï¿½Ì¶ï¿½", Icon: "mobile", Query: "ï¿½ï¿½Í³ï¿½ï¿½ï¿½Õ»ï¿½Ô¾ï¿½Ã»ï¿½ï¿½ï¿½(DAU)"}},
+{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½×ªï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "×ªï¿½ï¿½Â©ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½Ã»ï¿½×ªï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Icon: "funnel", Query: "ï¿½ë¹¹ï¿½ï¿½ï¿½Ã»ï¿½×ªï¿½ï¿½Â©ï¿½ï¿½"}},
+{Domain: DomainUserBehavior, Language: LanguageChinese, UserMessage: "ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½ï¿½ï¿½ï¿½ï¿½Ê·ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Icon: "chart_bar", Query: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½æ¡¢7ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"}},
 {Domain: DomainUserBehavior, Language: LanguageEnglish, UserMessage: "user behavior", Intent: IntentSuggestion{Title: "User Activity", Description: "Analyze user activity levels", Icon: "mobile", Query: "Calculate DAU and WAU"}},
 {Domain: DomainUserBehavior, Language: LanguageEnglish, UserMessage: "conversion rates", Intent: IntentSuggestion{Title: "Conversion Funnel", Description: "Analyze user conversion", Icon: "funnel", Query: "Build conversion funnel"}},
 {Domain: DomainUserBehavior, Language: LanguageEnglish, UserMessage: "retention analysis", Intent: IntentSuggestion{Title: "Retention Rate", Description: "Analyze user retention", Icon: "chart_bar", Query: "Calculate D1, D7 retention rates"}},
 }
 e.examples[DomainGeneral] = []FewShotExample{
-{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "·ÖÎöÊı¾İ", Intent: IntentSuggestion{Title: "Êı¾İ¸ÅÀÀ", Description: "¶ÔÊı¾İ½øĞĞÕûÌå¸ÅÀÀ", Icon: "chart_bar", Query: "ÇëÕ¹Ê¾Êı¾İµÄ»ù±¾Í³¼ÆĞÅÏ¢"}},
-{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "¿´¿´Ç÷ÊÆ", Intent: IntentSuggestion{Title: "Ê±¼äÇ÷ÊÆ·ÖÎö", Description: "·ÖÎöÊı¾İËæÊ±¼äµÄ±ä»¯", Icon: "chart_line", Query: "Çë°´Ê±¼äÎ¬¶È»ã×ÜÊı¾İ"}},
-{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "¶Ô±È·ÖÎö", Intent: IntentSuggestion{Title: "·Ö×é¶Ô±È·ÖÎö", Description: "°´²»Í¬Î¬¶È·Ö×é¶Ô±È", Icon: "balance", Query: "Çë°´Ö÷Òª·ÖÀàÎ¬¶È·Ö×é"}},
+{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½ï¿½ï¿½İ¸ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½İ½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Icon: "chart_bar", Query: "ï¿½ï¿½Õ¹Ê¾ï¿½ï¿½ï¿½İµÄ»ï¿½ï¿½ï¿½Í³ï¿½ï¿½ï¿½ï¿½Ï¢"}},
+{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "Ê±ï¿½ï¿½ï¿½ï¿½ï¿½Æ·ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½Ä±ä»¯", Icon: "chart_line", Query: "ï¿½ë°´Ê±ï¿½ï¿½Î¬ï¿½È»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"}},
+{Domain: DomainGeneral, Language: LanguageChinese, UserMessage: "ï¿½Ô±È·ï¿½ï¿½ï¿½", Intent: IntentSuggestion{Title: "ï¿½ï¿½ï¿½ï¿½Ô±È·ï¿½ï¿½ï¿½", Description: "ï¿½ï¿½ï¿½ï¿½Í¬Î¬ï¿½È·ï¿½ï¿½ï¿½Ô±ï¿½", Icon: "balance", Query: "ï¿½ë°´ï¿½ï¿½Òªï¿½ï¿½ï¿½ï¿½Î¬ï¿½È·ï¿½ï¿½ï¿½"}},
 {Domain: DomainGeneral, Language: LanguageEnglish, UserMessage: "analyze data", Intent: IntentSuggestion{Title: "Data Overview", Description: "Get an overview of the data", Icon: "chart_bar", Query: "Show basic statistics"}},
 {Domain: DomainGeneral, Language: LanguageEnglish, UserMessage: "show trends", Intent: IntentSuggestion{Title: "Time Trend", Description: "Analyze how data changes", Icon: "chart_line", Query: "Aggregate data by time dimension"}},
 {Domain: DomainGeneral, Language: LanguageEnglish, UserMessage: "compare groups", Intent: IntentSuggestion{Title: "Group Comparison", Description: "Compare data across groups", Icon: "balance", Query: "Group by main category dimension"}},
@@ -209,23 +209,23 @@ return ""
 normalizedLang := normalizeLanguage(language)
 var builder strings.Builder
 if normalizedLang == LanguageChinese {
-builder.WriteString("\n## ²Î¿¼Ê¾Àı\nÒÔÏÂÊÇÒ»Ğ©ÒâÍ¼Àí½âµÄÊ¾Àı£¬Çë²Î¿¼ÕâĞ©Ê¾ÀıµÄ¸ñÊ½ºÍ·ç¸ñ£º\n\n")
+builder.WriteString("\n## ï¿½Î¿ï¿½Ê¾ï¿½ï¿½\nï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»Ğ©ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î¿ï¿½ï¿½ï¿½Ğ©Ê¾ï¿½ï¿½ï¿½Ä¸ï¿½Ê½ï¿½Í·ï¿½ï¿½\n\n")
 } else {
 builder.WriteString("\n## Reference Examples\nHere are some examples of intent understanding. Please follow the format and style:\n\n")
 }
 for i, example := range examples {
 if normalizedLang == LanguageChinese {
-builder.WriteString("### Ê¾Àı ")
+builder.WriteString("### Ê¾ï¿½ï¿½ ")
 builder.WriteString(intToString(i + 1))
-builder.WriteString("\n**ÓÃ»§ÊäÈë**: ")
+builder.WriteString("\n**ï¿½Ã»ï¿½ï¿½ï¿½ï¿½ï¿½**: ")
 builder.WriteString(example.UserMessage)
-builder.WriteString("\n**ÒâÍ¼½¨Òé**:\n- ±êÌâ: ")
+builder.WriteString("\n**ï¿½ï¿½Í¼ï¿½ï¿½ï¿½ï¿½**:\n- ï¿½ï¿½ï¿½ï¿½: ")
 builder.WriteString(example.Intent.Title)
-builder.WriteString("\n- ÃèÊö: ")
+builder.WriteString("\n- ï¿½ï¿½ï¿½ï¿½: ")
 builder.WriteString(example.Intent.Description)
-builder.WriteString("\n- Í¼±ê: ")
+builder.WriteString("\n- Í¼ï¿½ï¿½: ")
 builder.WriteString(example.Intent.Icon)
-builder.WriteString("\n- ²éÑ¯: ")
+builder.WriteString("\n- ï¿½ï¿½Ñ¯: ")
 builder.WriteString(example.Intent.Query)
 builder.WriteString("\n\n")
 } else {

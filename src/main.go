@@ -47,16 +47,16 @@ type MenuTexts struct {
 
 // getMenuTexts returns localized menu texts based on language
 func getMenuTexts(language string) MenuTexts {
-	if language == "简体中�? {
+	if language == "简体中�" {
 		return MenuTexts{
 			File:           "文件",
 			Settings:       "设置",
-			Exit:           "退�?,
+			Exit:           "退�",
 			Help:           "帮助",
 			About:          "关于",
 			Market:         "市场",
-			PackManager:    "分析包管�?,
-			BrowseMarket:   "分析包市�?,
+			PackManager:    "分析包管�",
+			BrowseMarket:   "分析包市�",
 			VisitMarket:    "个人账户",
 			ProductService: "产品服务",
 		}
@@ -78,7 +78,7 @@ func getMenuTexts(language string) MenuTexts {
 
 // getWindowTitle returns localized window title based on language
 func getWindowTitle(language string) string {
-	if language == "简体中�? {
+	if language == "简体中�" {
 		return "万策"
 	}
 	return "Vantagics"
@@ -120,7 +120,7 @@ func getSystemLanguage() string {
 		strings.Contains(locale, "tw") ||
 		strings.Contains(locale, "hk") ||
 		strings.Contains(locale, "sg") {
-		return "简体中�?
+		return "简体中�"
 	}
 	
 	// Default to English for all other languages
@@ -148,8 +148,8 @@ func loadLanguageFromConfig() string {
 	}
 
 	// If language is explicitly set in config, use it
-	if cfg.Language == "简体中�? {
-		return "简体中�?
+	if cfg.Language == "简体中�" {
+		return "简体中�"
 	}
 	if cfg.Language == "English" {
 		return "English"
@@ -287,7 +287,7 @@ func main() {
 			},
 			About: &mac.AboutInfo{
 				Title:   "Vantagics (万策)",
-				Message: "See Beyond. Decide Better.\n于万千数据中，定最优之策�?,
+				Message: "See Beyond. Decide Better.\n于万千数据中，定最优之策�",
 			},
 		},
 		Windows: &windows.Options{

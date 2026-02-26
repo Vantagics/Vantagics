@@ -7,7 +7,7 @@ import (
 )
 
 // ContextProvider 上下文提供器
-// 整合数据源特征和历史分析记录，为意图生成提供上下文信�?
+// 整合数据源特征和历史分析记录，为意图生成提供上下文信息
 // Validates: Requirements 2.1, 2.7
 type ContextProvider struct {
 	dataSourceService *DataSourceService
@@ -24,7 +24,7 @@ type DataSourceContext struct {
 	TableName      string              `json:"table_name"`
 	Columns        []ContextColumnInfo `json:"columns"`
 	AnalysisHints  []string            `json:"analysis_hints"`   // 分析提示
-	RecentAnalyses []AnalysisRecord    `json:"recent_analyses"`  // 最近分析记�?
+	RecentAnalyses []AnalysisRecord    `json:"recent_analyses"`  // 最近分析记�
 }
 
 // ContextColumnInfo 上下文列信息
@@ -39,7 +39,7 @@ type ContextColumnInfo struct {
 // NewContextProvider 创建上下文提供器
 // Parameters:
 //   - dataDir: 数据目录路径
-//   - dataSourceService: 数据源服�?
+//   - dataSourceService: 数据源服�
 //
 // Returns: 新的 ContextProvider 实例
 // Validates: Requirements 2.1, 2.7
@@ -58,7 +58,7 @@ func NewContextProvider(
 // NewContextProviderWithLogger 创建带日志功能的上下文提供器
 // Parameters:
 //   - dataDir: 数据目录路径
-//   - dataSourceService: 数据源服�?
+//   - dataSourceService: 数据源服�
 //   - logger: 日志函数
 //
 // Returns: 新的 ContextProvider 实例
@@ -83,12 +83,12 @@ func (c *ContextProvider) log(msg string) {
 }
 
 // GetContext 获取数据源上下文
-// 收集表信息、列特征、历史记�?
+// 收集表信息、列特征、历史记�
 // Parameters:
 //   - dataSourceID: 数据源ID
 //   - maxHistoryRecords: 最大历史记录数
 //
-// Returns: 数据源上下文和错�?
+// Returns: 数据源上下文和错�
 // Validates: Requirements 2.1, 2.6, 2.7
 func (c *ContextProvider) GetContext(
 	dataSourceID string,
@@ -104,7 +104,7 @@ func (c *ContextProvider) GetContext(
 		RecentAnalyses: []AnalysisRecord{},
 	}
 
-	// 获取表信�?
+	// 获取表信息
 	if c.dataSourceService != nil {
 		tables, err := c.dataSourceService.GetTables(dataSourceID)
 		if err != nil {
@@ -114,7 +114,7 @@ func (c *ContextProvider) GetContext(
 			// 使用第一个表作为主表
 			context.TableName = tables[0]
 
-			// 获取列信�?
+			// 获取列信息
 			columns, err := c.dataSourceService.GetTableColumns(dataSourceID, context.TableName)
 			if err != nil {
 				c.log(fmt.Sprintf("[CONTEXT-PROVIDER] Failed to get columns: %v", err))
@@ -141,9 +141,9 @@ func (c *ContextProvider) GetContext(
 // analyzeColumns 分析列信息，确定语义类型
 // 复用 DimensionAnalyzer 的列类型识别逻辑
 // Parameters:
-//   - columns: 列结构信息列�?
+//   - columns: 列结构信息列�
 //
-// Returns: 带语义类型的列信息列�?
+// Returns: 带语义类型的列信息列�
 // Validates: Requirements 2.2, 2.3, 2.4, 2.5
 func (c *ContextProvider) analyzeColumns(columns []ColumnSchema) []ContextColumnInfo {
 	result := make([]ContextColumnInfo, 0, len(columns))
@@ -164,7 +164,7 @@ func (c *ContextProvider) analyzeColumns(columns []ColumnSchema) []ContextColumn
 // 基于列名和数据库类型判断语义类型
 // Parameters:
 //   - columnName: 列名
-//   - dbType: 数据库类�?
+//   - dbType: 数据库类�
 //
 // Returns: 语义类型 (date, geographic, numeric, categorical, text)
 // Validates: Requirements 2.2, 2.3, 2.4, 2.5
@@ -186,7 +186,7 @@ func (c *ContextProvider) identifySemanticType(columnName string, dbType string)
 		return "categorical"
 	}
 
-	// 根据数据库类型推�?
+	// 根据数据库类型推�
 	upperDBType := strings.ToUpper(dbType)
 
 	if strings.Contains(upperDBType, "DATE") || strings.Contains(upperDBType, "TIME") ||
@@ -205,9 +205,9 @@ func (c *ContextProvider) identifySemanticType(columnName string, dbType string)
 }
 
 // generateHints 生成分析提示
-// 根据列的语义类型生成适合的分析提�?
+// 根据列的语义类型生成适合的分析提�
 // Parameters:
-//   - columns: 列信息列�?
+//   - columns: 列信息列�
 //
 // Returns: 分析提示列表
 // Validates: Requirements 2.2, 2.3, 2.4, 2.5
@@ -232,25 +232,25 @@ func (c *ContextProvider) generateHints(columns []ContextColumnInfo) []string {
 		}
 	}
 
-	// 根据列类型生成分析提�?
+	// 根据列类型生成分析提�
 	// Validates: Requirements 2.2
 	if hasDate {
-		hints = append(hints, "适合时间序列分析（包含日期列�?)
+		hints = append(hints, "适合时间序列分析（包含日期列�")
 	}
 
 	// Validates: Requirements 2.3
 	if hasGeographic {
-		hints = append(hints, "适合区域分析（包含地理位置列�?)
+		hints = append(hints, "适合区域分析（包含地理位置列�")
 	}
 
 	// Validates: Requirements 2.4
 	if hasNumeric {
-		hints = append(hints, "适合统计分析（包含数值列�?)
+		hints = append(hints, "适合统计分析（包含数值列�")
 	}
 
 	// Validates: Requirements 2.5
 	if hasCategorical {
-		hints = append(hints, "适合分组对比分析（包含分类列�?)
+		hints = append(hints, "适合分组对比分析（包含分类列�")
 	}
 
 	return hints
@@ -273,7 +273,7 @@ func (c *ContextProvider) AddAnalysisRecord(record AnalysisRecord) error {
 }
 
 // BuildContextSection 构建上下文提示词片段
-// 将数据源上下文转换为LLM可理解的提示词格�?
+// 将数据源上下文转换为LLM可理解的提示词格�
 // Parameters:
 //   - context: 数据源上下文
 //   - language: 语言 ("zh" 中文, "en" 英文)
@@ -306,10 +306,10 @@ func (c *ContextProvider) BuildContextSection(
 		}
 	}
 
-	// 写入列信�?
+	// 写入列信息
 	if len(context.Columns) > 0 {
 		if language == "zh" {
-			sb.WriteString("**列信�?*:\n")
+			sb.WriteString("**列信息*:\n")
 		} else {
 			sb.WriteString("**Column Information**:\n")
 		}
@@ -333,23 +333,23 @@ func (c *ContextProvider) BuildContextSection(
 			if language == "zh" {
 				sb.WriteString(fmt.Sprintf("- %s\n", hint))
 			} else {
-				// 翻译提示为英�?
+				// 翻译提示为英�
 				sb.WriteString(fmt.Sprintf("- %s\n", c.translateHint(hint)))
 			}
 		}
 		sb.WriteString("\n")
 	}
 
-	// 写入最近分析记�?
+	// 写入最近分析记�
 	if len(context.RecentAnalyses) > 0 {
 		if language == "zh" {
-			sb.WriteString("**最近分析记�?*:\n")
+			sb.WriteString("**最近分析记�*:\n")
 		} else {
 			sb.WriteString("**Recent Analysis Records**:\n")
 		}
 
 		for i, record := range context.RecentAnalyses {
-			if i >= 5 { // 最多显�?�?
+			if i >= 5 { // 最多显��
 				break
 			}
 			if language == "zh" {
@@ -364,7 +364,7 @@ func (c *ContextProvider) BuildContextSection(
 	return sb.String()
 }
 
-// getSemanticTypeLabel 获取语义类型的显示标�?
+// getSemanticTypeLabel 获取语义类型的显示标�
 func (c *ContextProvider) getSemanticTypeLabel(semanticType string, language string) string {
 	if language == "zh" {
 		switch semanticType {
@@ -373,7 +373,7 @@ func (c *ContextProvider) getSemanticTypeLabel(semanticType string, language str
 		case "geographic":
 			return "地理位置"
 		case "numeric":
-			return "数�?
+			return "数�"
 		case "categorical":
 			return "分类"
 		case "text":
@@ -403,10 +403,10 @@ func (c *ContextProvider) getSemanticTypeLabel(semanticType string, language str
 // translateHint 将中文提示翻译为英文
 func (c *ContextProvider) translateHint(hint string) string {
 	translations := map[string]string{
-		"适合时间序列分析（包含日期列�?:   "Suitable for time series analysis (contains date columns)",
-		"适合区域分析（包含地理位置列�?:   "Suitable for regional analysis (contains geographic columns)",
-		"适合统计分析（包含数值列�?:     "Suitable for statistical analysis (contains numeric columns)",
-		"适合分组对比分析（包含分类列�?:   "Suitable for grouping and comparison analysis (contains categorical columns)",
+		"适合时间序列分析（包含日期列）":   "Suitable for time series analysis (contains date columns)",
+		"适合区域分析（包含地理位置列）":   "Suitable for regional analysis (contains geographic columns)",
+		"适合统计分析（包含数值列）":     "Suitable for statistical analysis (contains numeric columns)",
+		"适合分组对比分析（包含分类列）":   "Suitable for grouping and comparison analysis (contains categorical columns)",
 	}
 
 	if translated, ok := translations[hint]; ok {
@@ -421,7 +421,7 @@ func (c *ContextProvider) GetHistoryStore() *AnalysisHistoryStore {
 	return c.historyStore
 }
 
-// Initialize 初始化上下文提供�?
+// Initialize 初始化上下文提供�
 // 加载历史记录等初始化操作
 func (c *ContextProvider) Initialize() error {
 	if c.historyStore != nil {

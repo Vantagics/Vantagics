@@ -67,7 +67,7 @@ func (a *App) ExportQuickAnalysisPack(threadID string, packName string, author s
 
 
 // collectSessionSteps extracts all SQL and Python steps from a session.
-// It uses executions.json for SQL steps (most reliable �?only records successful executions),
+// It uses executions.json for SQL steps (most reliable �only records successful executions),
 // and supplements with Python/chart code from trajectory files (with error filtering).
 func (a *App) collectSessionSteps(threadID string) ([]PackStep, error) {
 	// Strategy 1: Get SQL steps from executions.json (only successful executions)
@@ -594,7 +594,7 @@ func isToolOutputFailed(output string) bool {
 
 // unescapeToolInput reverses the escapeForTraining transformation applied to ToolInput.
 // After JSON decoding the trajectory file, ToolInput contains the escapeForTraining output.
-// escapeForTraining does: \ �?\\, \n �?\\n, \r �?\\r, \t �?\\t, " �?\"
+// escapeForTraining does: \ �\\, \n �\\n, \r �\\r, \t �\\t, " �\"
 // The result should be valid JSON (the original tool call arguments).
 func unescapeToolInput(input string) string {
 	input = strings.TrimSpace(input)
@@ -604,23 +604,23 @@ func unescapeToolInput(input string) string {
 
 	// Strategy 1: Reverse escapeForTraining in correct order.
 	// escapeForTraining output has: \" for quotes, \\n for JSON newline escapes, \\\\ for literal backslashes.
-	// We reverse: \" �?", \\n �?\n (JSON escape, not actual newline), \\\\ �?\\, etc.
+	// We reverse: \" �", \\n �\n (JSON escape, not actual newline), \\\\ �\\, etc.
 	s1 := input
 	// Use a unique sentinel for literal backslash pairs
 	const sentinel = "\x00\x01\x02BSLASH\x02\x01\x00"
 	s1 = strings.ReplaceAll(s1, `\\\\`, sentinel)   // protect literal backslash pairs
-	s1 = strings.ReplaceAll(s1, `\\"`, `"`)          // \" after \\ protection �?just "
-	s1 = strings.ReplaceAll(s1, `\"`, `"`)            // remaining \" �?"
-	s1 = strings.ReplaceAll(s1, `\\n`, `\n`)          // \\n �?\n (JSON escape)
-	s1 = strings.ReplaceAll(s1, `\\r`, `\r`)          // \\r �?\r (JSON escape)
-	s1 = strings.ReplaceAll(s1, `\\t`, `\t`)          // \\t �?\t (JSON escape)
-	s1 = strings.ReplaceAll(s1, `\\`, `\`)            // remaining \\ �?\
+	s1 = strings.ReplaceAll(s1, `\\"`, `"`)          // \" after \\ protection �just "
+	s1 = strings.ReplaceAll(s1, `\"`, `"`)            // remaining \" �"
+	s1 = strings.ReplaceAll(s1, `\\n`, `\n`)          // \\n �\n (JSON escape)
+	s1 = strings.ReplaceAll(s1, `\\r`, `\r`)          // \\r �\r (JSON escape)
+	s1 = strings.ReplaceAll(s1, `\\t`, `\t`)          // \\t �\t (JSON escape)
+	s1 = strings.ReplaceAll(s1, `\\`, `\`)            // remaining \\ �\
 	s1 = strings.ReplaceAll(s1, sentinel, `\\`)       // restore literal backslash pairs
 	if json.Unmarshal([]byte(s1), &test) == nil {
 		return s1
 	}
 
-	// Strategy 2: Simple single-level unescape �?quotes first, then backslashes.
+	// Strategy 2: Simple single-level unescape �quotes first, then backslashes.
 	s2 := input
 	s2 = strings.ReplaceAll(s2, `\"`, `"`)
 	s2 = strings.ReplaceAll(s2, `\\`, `\`)
@@ -628,7 +628,7 @@ func unescapeToolInput(input string) string {
 		return s2
 	}
 
-	// Strategy 3: Reverse order �?backslashes first, then quotes.
+	// Strategy 3: Reverse order �backslashes first, then quotes.
 	s3 := input
 	s3 = strings.ReplaceAll(s3, `\\`, `\`)
 	s3 = strings.ReplaceAll(s3, `\"`, `"`)
@@ -640,9 +640,9 @@ func unescapeToolInput(input string) string {
 	return s1
 }
 
-// attachEChartsFromMessages 从会话的 assistant 消息中提�?ECharts JSON 配置�?
-// 并附加到对应的步骤上。原始分析中 LLM 会在文本响应中直接生�?json:echarts 块，
-// 这些图表配置需要在导出时保存，以便分析技能包重放时能重新显示图表�?
+// attachEChartsFromMessages 从会话的 assistant 消息中提�ECharts JSON 配置�
+// 并附加到对应的步骤上。原始分析中 LLM 会在文本响应中直接生�json:echarts 块，
+// 这些图表配置需要在导出时保存，以便分析技能包重放时能重新显示图表�
 func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 	if thread == nil || len(thread.Messages) == 0 || len(steps) == 0 {
 		return
@@ -651,7 +651,7 @@ func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 	reECharts := regexp.MustCompile("(?s)```\\s*json:echarts\\s*\\n?([\\s\\S]+?)\\n?\\s*```")
 	reEChartsNoBT := regexp.MustCompile("(?s)(?:^|\\n)json:echarts\\s*\\n(\\{[\\s\\S]+?\\n\\})(?:\\s*\\n(?:---|###)|\\s*$)")
 
-	// 收集所�?assistant 消息中的 ECharts 配置，按消息顺序
+	// 收集所�assistant 消息中的 ECharts 配置，按消息顺序
 	type echartsGroup struct {
 		configs []string
 	}
@@ -663,7 +663,7 @@ func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 		}
 
 		var configs []string
-		// 提取 backtick 格式�?ECharts
+		// 提取 backtick 格式�ECharts
 		for _, match := range reECharts.FindAllStringSubmatch(msg.Content, -1) {
 			if len(match) > 1 {
 				chartJSON := strings.TrimSpace(match[1])
@@ -672,7 +672,7 @@ func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 				}
 			}
 		}
-		// 提取�?backtick 格式�?ECharts
+		// 提取�backtick 格式�ECharts
 		for _, match := range reEChartsNoBT.FindAllStringSubmatch(msg.Content, -1) {
 			if len(match) > 1 {
 				chartJSON := strings.TrimSpace(match[1])
@@ -691,8 +691,8 @@ func (a *App) attachEChartsFromMessages(thread *ChatThread, steps []PackStep) {
 		return
 	}
 
-	// �?ECharts 配置分配到步骤上：按顺序一一对应
-	// 如果 ECharts 组数多于步骤数，多余的附加到最后一个步�?
+	// �ECharts 配置分配到步骤上：按顺序一一对应
+	// 如果 ECharts 组数多于步骤数，多余的附加到最后一个步�
 	for i, group := range groups {
 		stepIdx := i
 		if stepIdx >= len(steps) {

@@ -97,7 +97,7 @@ type Config struct {
 	IntentEnhancement *IntentEnhancementConfig `json:"intentEnhancement,omitempty"`
 	
 	// Location 用户位置配置
-	// 用于位置相关查询（如天气、附近地点等�?
+	// 用于位置相关查询（如天气、附近地点等�
 	Location *LocationConfig `json:"location,omitempty"`
 	
 	// Shopify OAuth configuration (for developers)

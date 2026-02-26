@@ -10,7 +10,7 @@ type Language string
 
 const (
 	English Language = "English"
-	Chinese Language = "简体中�?
+	Chinese Language = "简体中文"
 )
 
 // Translator provides translation functionality

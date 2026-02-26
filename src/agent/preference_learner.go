@@ -36,7 +36,7 @@ type BusinessRule struct {
 // Benchmark represents industry or custom benchmarks
 type Benchmark struct {
 	BenchmarkID string  `json:"benchmark_id"`
-	Metric      string  `json:"metric"`     // e.g., "毛利�?
+	Metric      string  `json:"metric"`     // e.g., "毛利�"
 	Threshold   float64 `json:"threshold"`  // e.g., 0.20 (20%)
 	Industry    string  `json:"industry"`   // e.g., "retail", "manufacturing"
 	Type        string  `json:"type"`       // "target", "warning", "critical"
@@ -220,7 +220,7 @@ func (p *PreferenceLearner) CheckBenchmark(metric string, value float64) *Benchm
 					Value:     value,
 					Threshold: b.Threshold,
 					Type:      "below_target",
-					Message:   "低于目标�?,
+					Message:   "低于目标�",
 				}
 			} else if b.Type == "warning" && value < b.Threshold {
 				return &BenchmarkAlert{
@@ -228,7 +228,7 @@ func (p *PreferenceLearner) CheckBenchmark(metric string, value float64) *Benchm
 					Value:     value,
 					Threshold: b.Threshold,
 					Type:      "warning",
-					Message:   "接近警告阈�?,
+					Message:   "接近警告阈�",
 				}
 			}
 		}

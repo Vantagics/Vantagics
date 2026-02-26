@@ -13,7 +13,7 @@ func SyncLanguageFromConfig(cfg *config.Config) {
 
 	var lang Language
 	switch cfg.Language {
-	case "简体中�?:
+	case "简体中文":
 		lang = Chinese
 	case "English":
 		lang = English
@@ -34,7 +34,7 @@ func GetLanguageString() string {
 // ParseLanguage converts a string to Language type
 func ParseLanguage(langStr string) Language {
 	switch langStr {
-	case "简体中�?:
+	case "简体中文":
 		return Chinese
 	case "English":
 		return English

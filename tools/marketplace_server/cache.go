@@ -69,6 +69,8 @@ type PackDetailPublicData struct {
 	CreditsPrice  int
 	DownloadCount int
 	CategoryName  string
+	StoreSlug     string
+	StoreName     string
 }
 
 // HomepagePublicData 首页公共数据（缓存对象，不含用户相关字段）
