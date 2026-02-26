@@ -476,8 +476,12 @@ const storefrontManageHTML = `<!DOCTYPE html>
         .section-banner-settings .field-group:last-child { margin-bottom: 0; }
         .section-banner-settings label { font-size: 12px; }
         .section-banner-settings input,
-        .section-banner-settings select {
+        .section-banner-settings select,
+        .section-banner-settings textarea {
             padding: 6px 10px; font-size: 13px;
+        }
+        .section-banner-settings textarea {
+            resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.6;
         }
         .section-banner-text-counter {
             font-size: 11px; color: #94a3b8; text-align: right; margin-top: 2px;
@@ -2144,8 +2148,9 @@ function renderSectionList() {
             var style = (sec.settings && sec.settings.style) || 'info';
             html += '<div class="section-banner-settings">';
             html += '<div class="field-group"><label>横幅文本</label>';
-            html += '<input type="text" maxlength="200" value="' + escapeAttr(text) + '" oninput="updateBannerText(' + idx + ', this.value)" placeholder="输入横幅文本（最多 200 字符）">';
-            html += '<div class="section-banner-text-counter"><span id="bannerCounter' + idx + '">' + text.length + '</span>/200</div>';
+            html += '<textarea maxlength="500" rows="4" oninput="updateBannerText(' + idx + ', this.value)" placeholder="输入横幅文本，支持 Markdown 语法（最多 500 字符）">' + escapeHTML(text) + '</textarea>';
+            html += '<div class="section-banner-text-counter"><span id="bannerCounter' + idx + '">' + text.length + '</span>/500</div>';
+            html += '<div class="field-hint" style="margin-top:2px;">支持 Markdown: <b>**粗体**</b> <i>*斜体*</i> <span style="background:#f1f5f9;padding:0 4px;border-radius:3px;font-family:monospace;">[链接](URL)</span>，换行即多行显示</div>';
             html += '</div>';
             html += '<div class="field-group"><label>样式</label>';
             html += '<select onchange="updateBannerStyle(' + idx + ', this.value)">';
@@ -2192,6 +2197,10 @@ function escapeAttr(str) {
     return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+function escapeHTML(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 function toggleSectionVisibility(idx) {
     if (idx < 0 || idx >= _layoutSections.length) return;
     var sec = _layoutSections[idx];
@@ -2216,7 +2225,7 @@ function updateHeroLayout(idx, val) {
 
 function updateBannerText(idx, val) {
     if (idx < 0 || idx >= _layoutSections.length) return;
-    if (val.length > 200) val = val.substring(0, 200);
+    if (val.length > 500) val = val.substring(0, 500);
     if (!_layoutSections[idx].settings) _layoutSections[idx].settings = {};
     _layoutSections[idx].settings.text = val;
     var counter = document.getElementById('bannerCounter' + idx);
