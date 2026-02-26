@@ -70,7 +70,8 @@ func (q *PendingUsageQueue) Load() error {
 	return nil
 }
 
-// saveLocked writes the current queue to disk. Caller must hold q.mu.
+// saveLocked writes the current queue to disk atomically. Caller must hold q.mu.
+// Uses write-to-temp-then-rename pattern to prevent corruption on crash.
 func (q *PendingUsageQueue) saveLocked() error {
 	dir := filepath.Dir(q.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -86,8 +87,14 @@ func (q *PendingUsageQueue) saveLocked() error {
 		return fmt.Errorf("failed to marshal pending usage data: %w", err)
 	}
 
-	if err := os.WriteFile(q.filePath, data, 0600); err != nil {
-		return fmt.Errorf("failed to write pending usage file: %w", err)
+	// Write to a temporary file first, then rename for atomicity
+	tmpPath := q.filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write pending usage temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, q.filePath); err != nil {
+		os.Remove(tmpPath) // clean up on rename failure
+		return fmt.Errorf("failed to rename pending usage file: %w", err)
 	}
 	return nil
 }

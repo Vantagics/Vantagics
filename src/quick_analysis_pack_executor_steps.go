@@ -322,6 +322,17 @@ func (a *App) detectAndSendPythonChartFiles(threadID, messageID, workDir string,
 		}
 
 		filePath := filepath.Join(workDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			a.Log(fmt.Sprintf("%s Failed to stat chart file %s: %v", logTagExecute, entry.Name(), err))
+			continue
+		}
+		// Skip files larger than 10MB to prevent memory exhaustion
+		const maxChartFileSize = 10 * 1024 * 1024
+		if info.Size() > maxChartFileSize {
+			a.Log(fmt.Sprintf("%s Skipping oversized chart file %s (%d bytes)", logTagExecute, entry.Name(), info.Size()))
+			continue
+		}
 		imageData, err := os.ReadFile(filePath)
 		if err != nil {
 			a.Log(fmt.Sprintf("%s Failed to read chart file %s: %v", logTagExecute, entry.Name(), err))
@@ -403,6 +414,13 @@ func (a *App) detectAndSendPythonECharts(threadID, messageID, output string, ste
 			continue
 		}
 
+		// Skip oversized ECharts JSON configs (max 1MB) to prevent DoS
+		const maxEChartsSize = 1024 * 1024
+		if len(chartData) > maxEChartsSize {
+			a.Log(fmt.Sprintf("%s Skipping oversized ECharts JSON in Python output (match #%d, %d bytes)", logTagExecute, i+1, len(chartData)))
+			continue
+		}
+
 		// Validate JSON before sending
 		if !json.Valid([]byte(chartData)) {
 			a.Log(fmt.Sprintf("%s Skipping invalid ECharts JSON in Python output (match #%d)", logTagExecute, i+1))
@@ -437,6 +455,11 @@ func (a *App) detectAndSendPythonECharts(threadID, messageID, output string, ste
 // buildDataFrameInjection wraps chart code with DataFrame loading from SQL results,
 // similar to how query_and_chart tool's buildChartPythonCode works during normal analysis.
 func (a *App) buildDataFrameInjection(sqlResult interface{}, chartCode string) string {
+	if sqlResult == nil {
+		a.Log(fmt.Sprintf("%s SQL result is nil, skipping DataFrame injection", logTagExecute))
+		return chartCode
+	}
+
 	resultJSON, err := json.Marshal(sqlResult)
 	if err != nil {
 		a.Log(fmt.Sprintf("%s Failed to marshal SQL result for DataFrame injection: %v", logTagExecute, err))

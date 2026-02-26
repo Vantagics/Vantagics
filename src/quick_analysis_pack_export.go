@@ -66,7 +66,6 @@ func (a *App) ExportQuickAnalysisPack(threadID string, packName string, author s
 	return a.buildAndSavePack(thread, steps, packName, author, password)
 }
 
-
 // collectSessionSteps extracts all SQL and Python steps from a session.
 // It uses executions.json for SQL steps (most reliable �only records successful executions),
 // and supplements with Python/chart code from trajectory files (with error filtering).
@@ -633,8 +632,6 @@ func (a *App) collectStepsFromExecutions(threadID string) []PackStep {
 
 	return steps
 }
-
-
 
 // isToolOutputFailed checks if a tool output indicates the tool call failed.
 // This is used to filter out failed attempts from trajectory when exporting.

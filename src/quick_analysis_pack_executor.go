@@ -197,7 +197,11 @@ func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, l
 	totalSteps := len(steps)
 	stepResults := make(map[int]interface{}, totalSteps) // Pre-allocate with capacity
 
-	cfg, _ := a.GetConfig()
+	cfg, err := a.GetConfig()
+	if err != nil {
+		a.Log(fmt.Sprintf("%s Failed to get config: %v", logTag, err))
+		return StepExecutionSummary{Total: totalSteps, Failed: totalSteps}
+	}
 	sessionDir := filepath.Join(cfg.DataCacheDir, "sessions", threadID)
 	if err := os.MkdirAll(sessionDir, 0755); err != nil {
 		a.Log(fmt.Sprintf("%s Failed to create session directory: %v", logTag, err))
@@ -266,6 +270,7 @@ func (a *App) executeStepLoop(threadID, dataSourceID string, steps []PackStep, l
 
 	return summary
 }
+
 // hasDependencyFailure checks if any dependency step failed (result not in stepResults).
 func (a *App) hasDependencyFailure(step PackStep, stepResults map[int]interface{}, logTag string) bool {
 	for _, depID := range step.DependsOn {

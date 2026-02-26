@@ -60,6 +60,11 @@ var globalCache *Cache
 // requests that hang indefinitely.
 var externalHTTPClient = &http.Client{
 	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     90 * time.Second,
+	},
 }
 
 // Session store (in-memory)
