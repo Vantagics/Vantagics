@@ -465,7 +465,7 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 	// 计算相对路径
 	relDBPath, err := filepath.Rel(cfg.DataCacheDir, newDBFullPath)
 	if err != nil {
-		// 如果无法计算相对路径，尝试从路径中提�sources/{id}/data.db 部分
+		// 如果无法计算相对路径，尝试从路径中提取 sources/{id}/data.db 部分
 		parts := strings.Split(filepath.ToSlash(newDBFullPath), "/")
 		for i, part := range parts {
 			if part == "sources" && i+2 < len(parts) {
@@ -475,6 +475,19 @@ func (a *App) createOptimizedDataSource(originalSource *agent.DataSource, optimi
 		}
 		if relDBPath == "" {
 			relDBPath = filepath.Base(newDBFullPath)
+		}
+	}
+
+	// Validate: relDBPath should start with "sources/", not "sessions/" or other prefix
+	normalizedRel := filepath.ToSlash(relDBPath)
+	if !strings.HasPrefix(normalizedRel, "sources/") {
+		parts := strings.Split(normalizedRel, "/")
+		for i, part := range parts {
+			if part == "sources" && i+2 < len(parts) {
+				relDBPath = filepath.Join("sources", parts[i+1], parts[i+2])
+				a.Log(fmt.Sprintf("[SEMANTIC] Corrected relative path: %s -> %s", normalizedRel, relDBPath))
+				break
+			}
 		}
 	}
 

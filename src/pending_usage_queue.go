@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // PendingUsageRecord 待上报的使用记录
 type PendingUsageRecord struct {
 	ListingID int64  `json:"listing_id"`
-	UsedAt    string `json:"used_at"` // RFC3339 时间�?
+	UsedAt    string `json:"used_at"` // RFC3339 时间戳
 }
 
 // pendingUsageFileData is the JSON file structure for persisting pending usage records.
@@ -19,7 +20,7 @@ type pendingUsageFileData struct {
 	Records []PendingUsageRecord `json:"records"`
 }
 
-// PendingUsageQueue 管理待上报使用记录的持久化队�?
+// PendingUsageQueue 管理待上报使用记录的持久化队列
 type PendingUsageQueue struct {
 	mu       sync.Mutex
 	filePath string

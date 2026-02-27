@@ -33,15 +33,20 @@ const DataSourceAnalysisInsight: React.FC<DataSourceAnalysisInsightProps> = ({
     const startAnalysis = async (dataSourceId: string) => {
         try {
             setAnalyzing(true);
+            console.log('[DataSourceAnalysisInsight] 🚀 Starting analysis for dataSourceId:', dataSourceId);
+            
             const threadId = await StartDataSourceAnalysis(dataSourceId);
             
-            console.log('[DataSourceAnalysisInsight] Analysis started:', { dataSourceId, threadId });
+            console.log('[DataSourceAnalysisInsight] ✅ Analysis started successfully:', { dataSourceId, threadId });
+            console.log('[DataSourceAnalysisInsight] Backend should emit: analysis-session-created event');
             
             // Ensure chat panel is visible (session switching handled by AnalysisResultBridge)
+            console.log('[DataSourceAnalysisInsight] Emitting ensure-chat-open event');
             EventsEmit('ensure-chat-open', {});
             
             // Notify parent or navigate to analysis view
             if (onAnalyzeClick) {
+                console.log('[DataSourceAnalysisInsight] Calling onAnalyzeClick callback');
                 onAnalyzeClick(dataSourceId);
             }
             
@@ -49,7 +54,7 @@ const DataSourceAnalysisInsight: React.FC<DataSourceAnalysisInsightProps> = ({
             // navigate(`/chat/${threadId}`);
             
         } catch (err) {
-            console.error('[DataSourceAnalysisInsight] Failed to start analysis:', err);
+            console.error('[DataSourceAnalysisInsight] ❌ Failed to start analysis:', err);
             alert('分析启动失败: ' + (err instanceof Error ? err.message : '未知错误'));
         } finally {
             setAnalyzing(false);

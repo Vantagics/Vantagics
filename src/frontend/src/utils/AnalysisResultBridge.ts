@@ -180,13 +180,21 @@ export function initAnalysisResultBridge(
   // 2. 设置加载状态，避免 isUserMessageCancelled 误判
   // 3. 通知 ChatSidebar 切换到新线程并刷新线程列表
   const unsubscribeSessionCreated = EventsOn('analysis-session-created', (payload: { threadId: string; dataSourceId: string }) => {
-    logger.debug(`[EventReceived] analysis-session-created: threadId=${payload.threadId}, dataSourceId=${payload.dataSourceId}`);
+    logger.info(`[EventReceived] analysis-session-created: threadId=${payload.threadId}, dataSourceId=${payload.dataSourceId}`);
+    logger.info(`[analysis-session-created] Step 1: Calling manager.switchSession(${payload.threadId})`);
     
     manager.switchSession(payload.threadId);
+    
+    logger.info(`[analysis-session-created] Step 2: Calling manager.setLoading(true)`);
     manager.setLoading(true);
     
+    logger.info(`[analysis-session-created] Step 3: Emitting switch-to-session event`);
     EventsEmit('switch-to-session', { threadId: payload.threadId, openChat: true });
+    
+    logger.info(`[analysis-session-created] Step 4: Emitting thread-updated event`);
     EventsEmit('thread-updated', {});
+    
+    logger.info(`[analysis-session-created] ✅ All steps completed successfully for threadId=${payload.threadId}`);
   });
   unsubscribers.push(unsubscribeSessionCreated);
   

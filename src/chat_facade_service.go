@@ -650,6 +650,16 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 		maxConcurrent = 10
 	}
 
+	// Reset cancel flag at the start of new analysis to prevent stale cancel state
+	// from previous cancelled analyses affecting this new request
+	c.cancelAnalysisMutex.Lock()
+	wasCancelled := c.cancelAnalysis
+	c.cancelAnalysis = false
+	c.cancelAnalysisMutex.Unlock()
+	if wasCancelled {
+		c.log(fmt.Sprintf("[DEBUG-CANCEL] Cleared stale cancelAnalysis flag (was true) for thread: %s", threadID))
+	}
+
 	waitStartTime := time.Now()
 	maxWaitTime := 5 * time.Minute
 	checkInterval := 500 * time.Millisecond
@@ -885,7 +895,17 @@ func (c *ChatFacadeService) SendMessage(threadID, message, userMessageID, reques
 }
 
 // runEinoAnalysis 执行 Eino 分析引擎的分析流�
-func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, requestID, dataSourceID string, cfg config.Config) (string, error) {
+func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, requestID, dataSourceID string, cfg config.Config) (resp string, retErr error) {
+	// Recover from panics to ensure errors are always saved to the chat thread
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr := fmt.Errorf("analysis panic: %v", r)
+			c.log(fmt.Sprintf("[PANIC] runEinoAnalysis panicked: %v", r))
+			c.handleEinoError(threadID, userMessageID, requestID, panicErr, cfg, 0)
+			resp = ""
+			retErr = panicErr
+		}
+	}()
 	// Load history
 	startHist := time.Now()
 	var history []*schema.Message
@@ -965,11 +985,12 @@ func (c *ChatFacadeService) runEinoAnalysis(threadID, message, userMessageID, re
 	seconds := int(analysisDuration.Seconds()) % 60
 
 	if err != nil {
+		c.log(fmt.Sprintf("[DEBUG-CANCEL] Analysis failed after %v, error: %s, cancelFlag: %v", analysisDuration, err.Error(), c.IsCancelRequested()))
 		c.handleEinoError(threadID, userMessageID, requestID, err, cfg, analysisDuration)
 		return "", err
 	}
 
-	resp := respMsg.Content
+	resp = respMsg.Content
 
 	if !strings.Contains(resp, i18n.T("analysis.timing_check")) {
 		timingInfo := fmt.Sprintf(i18n.T("analysis.timing"), minutes, seconds)
@@ -1174,15 +1195,23 @@ func (c *ChatFacadeService) handleEinoError(threadID, userMessageID, requestID s
 		}
 		if addErr := c.chatService.AddMessage(threadID, errChatMsg); addErr != nil {
 			c.log(fmt.Sprintf("[ERROR] Failed to save error message to chat: %v", addErr))
+		} else {
+			// Notify frontend that thread data changed so it reloads from DB
+			// This prevents the frontend's stale SaveChatHistory from overwriting our error message
+			runtime.EventsEmit(c.ctx, "thread-updated", threadID)
 		}
 	}
 
 	// Emit progress complete event
+	progressMessage := "progress.analysis_cancelled"
+	if errorCode != "CANCELLED" {
+		progressMessage = "progress.analysis_error"
+	}
 	runtime.EventsEmit(c.ctx, "analysis-progress", map[string]interface{}{
 		"threadId": threadID,
 		"stage":    "complete",
 		"progress": 100,
-		"message":  "progress.analysis_cancelled",
+		"message":  progressMessage,
 		"step":     0,
 		"total":    0,
 	})

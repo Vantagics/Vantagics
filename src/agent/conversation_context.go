@@ -197,7 +197,7 @@ func (m *ConversationContextManager) GetContextForPrompt(threadID string) string
 	}
 
 	sb.WriteString("=== End of Context ===\n")
-	sb.WriteString("⚠️ Important: If the user's question involves the known information above (e.g., city, location), use it directly �do not ask the user again!\n")
+	sb.WriteString("⚠️ Important: If the user's question involves the known information above (e.g., city, location), use it directly - do not ask the user again!\n")
 	sb.WriteString("Example: If the known city is 'Sanya' and the user asks 'how is the weather', query the weather for Sanya directly.\n")
 
 	return sb.String()
@@ -255,12 +255,12 @@ func extractEntities(text string) map[string]string {
 	// Extract cities - use a more comprehensive approach
 	// First try known cities
 	knownCities := map[string]string{
-		// 一线城�
+		// 一线城市
 		"北京": "北京", "Beijing": "北京",
 		"上海": "上海", "Shanghai": "上海",
 		"广州": "广州", "Guangzhou": "广州",
 		"深圳": "深圳", "Shenzhen": "深圳",
-		// 新一线城�
+		// 新一线城市
 		"杭州": "杭州", "Hangzhou": "杭州",
 		"成都": "成都", "Chengdu": "成都",
 		"武汉": "武汉", "Wuhan": "武汉",
@@ -326,14 +326,17 @@ func extractEntities(text string) map[string]string {
 	}
 
 	// If no known city found, try to extract Chinese city names dynamically
-	// Pattern: X� X� X� X� X� X�etc. (common Chinese city name suffixes)
+	// Pattern: X市 X县 X区 X镇 etc. (common Chinese city name suffixes)
 	if _, hasCity := entities["city"]; !hasCity {
 		cityPatterns := []string{
-			`([一-龥]{1,3}(?:市|县|区|�)`,  // ����
-			`([一-龥]{2,4}(?:亚|州|京|海|山|口|岛|江|河|湖|港|门|关|城|原|川|�)`, // Common suffixes
+			`([一-龥]{1,3}(?:市|县|区|镇))`,
+			`([一-龥]{2,4}(?:亚|州|京|海|山|口|岛|江|河|湖|港|门|关|城|原|川|镇))`,
 		}
 		for _, pattern := range cityPatterns {
-			re := regexp.MustCompile(pattern)
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				continue
+			}
 			if match := re.FindString(text); match != "" {
 				// Filter out common non-city words
 				nonCities := []string{"分析", "统计", "查询", "数据", "天气", "温度", "预报"}
@@ -369,23 +372,28 @@ func extractEntities(text string) map[string]string {
 	}
 
 	// Extract numbers/amounts
-	amountPattern := regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(元|美元|万|亿|%|度|�`)
-	if matches := amountPattern.FindStringSubmatch(text); len(matches) > 0 {
-		entities["amount"] = matches[0]
+	amountPattern, err := regexp.Compile(`(\d+(?:\.\d+)?)\s*(元|美元|万|亿|%|度|℃)`)
+	if err == nil {
+		if matches := amountPattern.FindStringSubmatch(text); len(matches) > 0 {
+			entities["amount"] = matches[0]
+		}
 	}
 
 	// Extract location/place mentions (for travel context)
 	placePatterns := []string{
-		`�[一-龥]{2,4})`,      // 去三�
-		`�[一-龥]{2,4})`,      // 到三�
-		`�[一-龥]{2,4})`,      // 在三�
+		`去([一-龥]{2,4})`,      // 去三亚
+		`到([一-龥]{2,4})`,      // 到三亚
+		`在([一-龥]{2,4})`,      // 在三亚
 		`([一-龥]{2,4})好玩`,    // 三亚好玩
-		`([一-龥]{2,4})怎么样`,  // 三亚怎么�
-		`([一-龥]{2,4})的天气`,  // 三亚的天�
+		`([一-龥]{2,4})怎么样`,  // 三亚怎么样
+		`([一-龥]{2,4})的天气`,  // 三亚的天气
 	}
 	if _, hasCity := entities["city"]; !hasCity {
 		for _, pattern := range placePatterns {
-			re := regexp.MustCompile(pattern)
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				continue
+			}
 			if matches := re.FindStringSubmatch(text); len(matches) > 1 {
 				place := matches[1]
 				// Validate it looks like a place name
@@ -408,7 +416,7 @@ func detectIntent(text string) string {
 	// Weather intent
 	if strings.Contains(textLower, "天气") || strings.Contains(textLower, "weather") ||
 		strings.Contains(textLower, "温度") || strings.Contains(textLower, "气温") ||
-		strings.Contains(textLower, "下雨") || strings.Contains(textLower, "�") {
+		strings.Contains(textLower, "下雨") || strings.Contains(textLower, "晴") {
 		return "weather_query"
 	}
 
@@ -436,7 +444,7 @@ func detectIntent(text string) string {
 // isWeatherQuery checks if the message is about weather
 func isWeatherQuery(text string) bool {
 	textLower := strings.ToLower(text)
-	weatherKeywords := []string{"天气", "weather", "温度", "气温", "下雨", "�", "�", "多云", "预报"}
+	weatherKeywords := []string{"天气", "weather", "温度", "气温", "下雨", "晴", "阴", "多云", "预报"}
 	for _, kw := range weatherKeywords {
 		if strings.Contains(textLower, kw) {
 			return true
@@ -449,10 +457,10 @@ func isWeatherQuery(text string) bool {
 func hasExplicitCity(text string) bool {
 	// Must match all cities in extractEntities knownCities map
 	cityPatterns := []string{
-		// 一线城�
+		// 一线城市
 		`北京|上海|广州|深圳`,
 		`Beijing|Shanghai|Guangzhou|Shenzhen`,
-		// 新一线城�
+		// 新一线城市
 		`杭州|成都|武汉|西安|南京|重庆|天津|苏州|郑州|长沙|东莞|沈阳|青岛|宁波|昆明`,
 		`Hangzhou|Chengdu|Wuhan|Xian|Xi'an|Nanjing|Chongqing|Tianjin|Suzhou|Zhengzhou|Changsha|Dongguan|Shenyang|Qingdao|Ningbo|Kunming`,
 		// 旅游城市

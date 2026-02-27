@@ -499,16 +499,24 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
 
         // Listen for switch-to-session event (from data source insight click)
         const unsubscribeSwitchToSession = EventsOn('switch-to-session', async (data: any) => {
-            console.log('[ChatSidebar] switch-to-session event received:', data);
+            console.log('[ChatSidebar] 📨 switch-to-session event received:', data);
             const { threadId, openChat } = data;
             if (threadId) {
+                console.log('[ChatSidebar] Step 1: Setting loading state for threadId:', threadId);
                 // 设置加载状态，避免 isUserMessageCancelled 误判为"分析中止"
                 setIsLoading(true);
                 setLoadingThreadId(threadId);
+                
+                console.log('[ChatSidebar] Step 2: Reloading thread list to include new session');
                 // 重新加载线程列表以包含新创建的会话
                 await loadThreads();
+                
+                console.log('[ChatSidebar] Step 3: Setting active thread to:', threadId);
                 setActiveThreadId(threadId);
-                console.log('[ChatSidebar] Switched to new session:', threadId);
+                
+                console.log('[ChatSidebar] ✅ Successfully switched to new session:', threadId);
+            } else {
+                console.warn('[ChatSidebar] ⚠️ switch-to-session event received without threadId');
             }
         });
 
@@ -2935,6 +2943,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             systemLog.info(`[ResumeCancelled] Analysis completed for message: ${message.id}`);
         } catch (err) {
             systemLog.error(`[ResumeCancelled] Failed to resume analysis: ${err}`);
+            // Reload thread from DB so the backend error message is visible in frontend state,
+            // preventing the user message from remaining the "last message" which would
+            // re-show "Analysis cancelled - Click to continue" instead of the actual error.
+            try {
+                await loadThreads();
+            } catch (reloadErr) {
+                systemLog.error(`[ResumeCancelled] Failed to reload threads after error: ${reloadErr}`);
+            }
         } finally {
             setIsLoading(false);
             setLoadingThreadId(null);

@@ -478,16 +478,18 @@ func (d *DataSourceFacadeService) StartDataSourceAnalysis(dataSourceID string) (
 
 	userMessageID := fmt.Sprintf("ds-msg-%d", time.Now().UnixNano())
 
-	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Starting analysis for %s (thread: %s, msgId: %s)",
+	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] 🚀 Starting analysis for %s (thread: %s, msgId: %s)",
 		dataSourceID, threadID, userMessageID))
 
 	// Emit event to notify frontend that analysis is starting
+	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Step 1: Emitting chat-loading event (threadId: %s, loading: true)", threadID))
 	runtime.EventsEmit(d.ctx, "chat-loading", map[string]interface{}{
 		"loading":  true,
 		"threadId": threadID,
 	})
 
 	// Notify frontend that a new analysis thread was created
+	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Step 2: Emitting analysis-session-created event (threadId: %s, dataSourceId: %s)", threadID, dataSourceID))
 	runtime.EventsEmit(d.ctx, "analysis-session-created", map[string]interface{}{
 		"threadId":       threadID,
 		"dataSourceId":   dataSourceID,
@@ -495,6 +497,8 @@ func (d *DataSourceFacadeService) StartDataSourceAnalysis(dataSourceID string) (
 		"title":          sessionTitle,
 	})
 
+	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Step 3: Starting async SendMessage goroutine for threadId: %s", threadID))
+	
 	// Call SendMessage asynchronously so we can return the threadID immediately
 	go func() {
 		defer func() {
@@ -503,18 +507,22 @@ func (d *DataSourceFacadeService) StartDataSourceAnalysis(dataSourceID string) (
 			}
 		}()
 		if d.sendMessageFn != nil {
+			d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Calling SendMessage for threadId: %s", threadID))
 			_, err := d.sendMessageFn(threadID, prompt, userMessageID, "")
 			if err != nil {
-				d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] Error: %v", err))
+				d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] ❌ Error in SendMessage: %v", err))
 				runtime.EventsEmit(d.ctx, "analysis-error", map[string]interface{}{
 					"threadId": threadID,
 					"message":  err.Error(),
 					"code":     "ANALYSIS_ERROR",
 				})
+			} else {
+				d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] ✅ SendMessage completed successfully for threadId: %s", threadID))
 			}
 		}
 	}()
 
+	d.log(fmt.Sprintf("[DATASOURCE-ANALYSIS] ✅ Returning threadId to frontend: %s", threadID))
 	return threadID, nil
 }
 

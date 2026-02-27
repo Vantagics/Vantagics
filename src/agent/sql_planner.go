@@ -131,13 +131,13 @@ func (p *SQLPlanner) GetEnhancedSchema(ctx context.Context, dataSourceID string)
 			Columns: make([]ColumnInfo, 0),
 		}
 
-		// Get columns
-		cols, err := p.dsService.GetDataSourceTableColumns(dataSourceID, tableName)
+		// Get columns with types
+		colsWithTypes, err := p.dsService.GetDataSourceTableColumnsWithTypes(dataSourceID, tableName)
 		if err == nil {
-			for _, col := range cols {
-				colInfo := ColumnInfo{Name: col}
+			for _, col := range colsWithTypes {
+				colInfo := ColumnInfo{Name: col.Name, Type: col.Type}
 				// Detect potential foreign keys by naming convention
-				lowerCol := strings.ToLower(col)
+				lowerCol := strings.ToLower(col.Name)
 				if strings.HasSuffix(lowerCol, "_id") && lowerCol != "id" {
 					colInfo.IsFK = true
 					// Try to infer reference table
@@ -147,7 +147,7 @@ func (p *SQLPlanner) GetEnhancedSchema(ctx context.Context, dataSourceID string)
 							colInfo.FKRef = t + ".id"
 							schemaInfo.Relationships = append(schemaInfo.Relationships, RelationshipInfo{
 								FromTable:  tableName,
-								FromColumn: col,
+								FromColumn: col.Name,
 								ToTable:    t,
 								ToColumn:   "id",
 								Type:       "many-to-one",
@@ -218,7 +218,11 @@ func (p *SQLPlanner) FormatSchemaForLLM(schema *SchemaInfo) string {
 			} else if col.IsFK {
 				marker = "FK"
 			}
-			sb.WriteString(fmt.Sprintf("  [%s] %s", marker, col.Name))
+			colType := col.Type
+			if colType == "" {
+				colType = "unknown"
+			}
+			sb.WriteString(fmt.Sprintf("  [%s] %s %s", marker, col.Name, colType))
 			if col.FKRef != "" {
 				sb.WriteString(fmt.Sprintf(" -> %s", col.FKRef))
 			}
@@ -273,6 +277,7 @@ Analyze the user's query and identify which tables and columns are needed.
 2. For each table, list ONLY the columns that will be used
 3. Identify any JOIN relationships needed
 4. Do NOT write SQL yet - just identify the schema elements
+5. CRITICAL: Use EXACT column names from the schema above. Do NOT guess or invent column names. If unsure, refer back to the schema.
 
 ## Output Format (JSON)
 {

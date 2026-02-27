@@ -724,7 +724,22 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 				if sources, err := s.dsService.LoadDataSources(); err == nil {
 					for _, ds := range sources {
 						if ds.ID == dataSourceID {
-							dbPath = ds.Config.DBPath
+							dbPath = filepath.Join(s.dsService.dataCacheDir, ds.Config.DBPath)
+							// Auto-correct DBPath if file doesn't exist (e.g. sessions/ prefix bug)
+							if _, statErr := os.Stat(dbPath); os.IsNotExist(statErr) {
+								corrected := s.dsService.tryCorrectDBPath(ds.Config.DBPath)
+								if corrected != "" {
+									correctedFull := filepath.Join(s.dsService.dataCacheDir, corrected)
+									if _, statErr2 := os.Stat(correctedFull); statErr2 == nil {
+										if s.Logger != nil {
+											s.Logger(fmt.Sprintf("[EINO] Corrected DBPath: %s -> %s", ds.Config.DBPath, corrected))
+										}
+										dbPath = correctedFull
+										ds.Config.DBPath = corrected
+										_ = s.dsService.SaveDataSource(&ds)
+									}
+								}
+							}
 							tables, _ := s.dsService.GetDataSourceTables(dataSourceID)
 							dataSourceInfo = fmt.Sprintf("Data source: %s, Tables: %s", ds.Name, strings.Join(tables, ", "))
 							break
@@ -1180,9 +1195,12 @@ func (s *EinoService) RunAnalysisWithProgress(ctx context.Context, history []*sc
 		// Check for cancellation
 		if cancelCheck != nil && cancelCheck() {
 			if s.Logger != nil {
-				s.Logger(fmt.Sprintf("[CANCEL] Analysis cancelled at step %d", iterationCount))
+				s.Logger(fmt.Sprintf("[CANCEL] Analysis cancelled at step %d (this should NOT happen on step 1 unless user explicitly cancelled)", iterationCount))
 			}
 			return nil, fmt.Errorf("analysis cancelled by user")
+		}
+		if iterationCount == 1 && s.Logger != nil {
+			s.Logger("[DEBUG-CANCEL] Step 1: cancelCheck passed (not cancelled), proceeding with LLM call")
 		}
 
 		// 🔴 CRITICAL: Remove duplicate messages before processing

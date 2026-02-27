@@ -236,11 +236,13 @@ class LoadingStateManager {
      * 只有最后一个会生效，防止进度条闪烁
      */
     setLoading(threadId: string, loading: boolean): void {
-        logger.info(`[LoadingStateManager] setLoading: threadId=${threadId}, loading=${loading}`);
+        logger.info(`[LoadingStateManager] ⚙️ setLoading called: threadId=${threadId}, loading=${loading}`);
         
         if (loading) {
             // 开始加载
             const existingSession = this.loadingSessions.get(threadId);
+            logger.info(`[LoadingStateManager] 🟢 Setting loading=true for threadId=${threadId}, existingSession=${existingSession ? 'exists' : 'new'}`);
+            
             this.loadingSessions.set(threadId, {
                 threadId,
                 isLoading: true,
@@ -252,10 +254,12 @@ class LoadingStateManager {
             // 设置超时自动清理
             this.clearTimeout(threadId);
             const timeoutId = window.setTimeout(() => {
-                logger.warn(`[LoadingStateManager] Timeout for threadId=${threadId}, auto-clearing`);
+                logger.warn(`[LoadingStateManager] ⏰ Timeout for threadId=${threadId}, auto-clearing`);
                 this.doSetLoadingFalse(threadId);
             }, this.TIMEOUT_MS);
             this.timeoutIds.set(threadId, timeoutId);
+            
+            logger.info(`[LoadingStateManager] ✅ Loading state set successfully, notifying ${this.listeners.size} listeners`);
             
             // 通知监听器
             this.notifyListeners();

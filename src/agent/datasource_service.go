@@ -3594,6 +3594,27 @@ func (s *DataSourceService) GetConnection(id string) (*sql.DB, error) {
 		// Use full path by joining with dataCacheDir, and use "duckdb" driver
 		fullDBPath := filepath.Join(s.dataCacheDir, ds.Config.DBPath)
 		s.log(fmt.Sprintf("[GetConnection] Opening DuckDB database: %s", fullDBPath))
+
+		// Check if file exists; if not, try correcting path by stripping sessions/{id}/ prefix
+		if _, statErr := os.Stat(fullDBPath); os.IsNotExist(statErr) {
+			corrected := s.tryCorrectDBPath(ds.Config.DBPath)
+			if corrected != "" {
+				correctedFull := filepath.Join(s.dataCacheDir, corrected)
+				if _, statErr2 := os.Stat(correctedFull); statErr2 == nil {
+					s.log(fmt.Sprintf("[GetConnection] Corrected DBPath: %s -> %s", ds.Config.DBPath, corrected))
+					fullDBPath = correctedFull
+					// Update stored path to prevent future misses
+					ds.Config.DBPath = corrected
+					_ = s.SaveDataSource(ds)
+				}
+			}
+		}
+
+		// Ensure parent directory exists
+		if mkErr := os.MkdirAll(filepath.Dir(fullDBPath), 0755); mkErr != nil {
+			s.log(fmt.Sprintf("[GetConnection] Warning: failed to create parent dir: %v", mkErr))
+		}
+
 		db, err = s.openDuckDBWritable(fullDBPath)
 	} else {
 		return nil, fmt.Errorf("unsupported data source type: %s (no DBPath configured)", ds.Type)
@@ -3657,6 +3678,19 @@ func (s *DataSourceService) SaveDataSource(ds *DataSource) error {
 	}
 
 	return s.SaveDataSources(sources)
+}
+
+// tryCorrectDBPath attempts to fix a DBPath that incorrectly contains a sessions/{id}/ prefix.
+// Returns the corrected path, or empty string if no correction is possible.
+func (s *DataSourceService) tryCorrectDBPath(dbPath string) string {
+	normalized := filepath.ToSlash(dbPath)
+	parts := strings.Split(normalized, "/")
+	for i, part := range parts {
+		if part == "sources" && i+2 < len(parts) {
+			return filepath.Join("sources", parts[i+1], parts[i+2])
+		}
+	}
+	return ""
 }
 
 // sanitizeFilename 清理文件�

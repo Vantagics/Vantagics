@@ -590,7 +590,7 @@ func (a *App) startup(ctx context.Context) {
 		// 3. Create and register DataSourceFacadeService (critical)
 		a.dataSourceFacadeService = NewDataSourceFacadeService(
 			a.dataSourceService,
-			a.configService,
+			a, // Use App as ConfigProvider so GetEffectiveConfig() includes license LLM config
 			a.chatService,
 			a.einoService,
 			a.eventAggregator,

@@ -1,492 +1,285 @@
 /**
  * Performance Optimization Utilities
  * 
- * Collection of utilities and hooks for optimizing dashboard performance
- * including memoization, lazy loading, and efficient rendering.
+ * 提供性能优化相关的工具函数和Hook
  */
 
-import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
-import { ComponentType } from './ComponentManager';
+import { useCallback, useRef, useEffect } from 'react';
 
-// Define LayoutItem interface locally since it's not exported from ComponentManager
-export interface LayoutItem {
-  i: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  minW?: number;
-  minH?: number;
-  maxW?: number;
-  maxH?: number;
-  type: ComponentType;
-  instanceIdx: number;
-  static?: boolean;
+/**
+ * 防抖Hook - 延迟执行函数直到停止调用一段时间后
+ * 
+ * @param callback - 要防抖的函数
+ * @param delay - 延迟时间（毫秒）
+ * @returns 防抖后的函数
+ * 
+ * @example
+ * const debouncedSearch = useDebounce((query: string) => {
+ *   performSearch(query);
+ * }, 300);
+ */
+export function useDebounce<T extends (...args: any[]) => any>(
+  callback: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  const timeoutRef = useRef<number>();
+  const callbackRef = useRef(callback);
+
+  // 更新回调引用
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  // 清理定时器
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  return useCallback(
+    (...args: Parameters<T>) => {
+      if (timeoutRef.current) {
+        window.clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        callbackRef.current(...args);
+      }, delay);
+    },
+    [delay]
+  );
 }
 
-// ============================================================================
-// MEMOIZATION UTILITIES
-// ============================================================================
-
 /**
- * Memoized layout item comparison for React.memo
+ * 节流Hook - 限制函数在指定时间内只能执行一次
+ * 
+ * @param callback - 要节流的函数
+ * @param delay - 节流时间（毫秒）
+ * @returns 节流后的函数
+ * 
+ * @example
+ * const throttledScroll = useThrottle((event: Event) => {
+ *   handleScroll(event);
+ * }, 100);
  */
-export const layoutItemsEqual = (
-  prevItems: LayoutItem[],
-  nextItems: LayoutItem[]
-): boolean => {
-  if (prevItems.length !== nextItems.length) return false;
-  
-  return prevItems.every((prevItem, index) => {
-    const nextItem = nextItems[index];
-    return (
-      prevItem.i === nextItem.i &&
-      prevItem.x === nextItem.x &&
-      prevItem.y === nextItem.y &&
-      prevItem.w === nextItem.w &&
-      prevItem.h === nextItem.h &&
-      prevItem.type === nextItem.type &&
-      prevItem.instanceIdx === nextItem.instanceIdx &&
-      prevItem.static === nextItem.static
-    );
-  });
-};
-
-/**
- * Memoized component props comparison
- */
-export const componentPropsEqual = (
-  prevProps: any,
-  nextProps: any
-): boolean => {
-  // Compare layout item
-  if (!layoutItemsEqual([prevProps.layoutItem], [nextProps.layoutItem])) {
-    return false;
-  }
-  
-  // Compare other props
-  return (
-    prevProps.isEditMode === nextProps.isEditMode &&
-    prevProps.isLocked === nextProps.isLocked &&
-    prevProps.gridConfig === nextProps.gridConfig
-  );
-};
-
-// ============================================================================
-// LAZY LOADING UTILITIES
-// ============================================================================
-
-/**
- * Lazy component loader with error boundary
- */
-export const createLazyComponent = <T extends React.ComponentType<any>>(
-  importFn: () => Promise<{ default: T }>,
-  fallback?: React.ComponentType
-) => {
-  const LazyComponent = React.lazy(importFn);
-  
-  return React.forwardRef<any, any>((props, ref) => 
-    React.createElement(React.Suspense, {
-      fallback: fallback ? 
-        React.createElement(fallback) : 
-        React.createElement('div', { 
-          className: 'animate-pulse bg-gray-200 rounded h-32 w-full' 
-        })
-    }, React.createElement(LazyComponent, props))
-  );
-};
-
-/**
- * Intersection Observer hook for lazy loading
- */
-export const useIntersectionObserver = (
-  options: IntersectionObserverInit = {}
-) => {
-  const [isIntersecting, setIsIntersecting] = useState(false);
-  const [hasIntersected, setHasIntersected] = useState(false);
-  const targetRef = useRef<HTMLElement>(null);
+export function useThrottle<T extends (...args: any[]) => any>(
+  callback: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  const lastRunRef = useRef<number>(0);
+  const timeoutRef = useRef<number>();
+  const callbackRef = useRef(callback);
 
   useEffect(() => {
-    const target = targetRef.current;
-    if (!target) return;
+    callbackRef.current = callback;
+  }, [callback]);
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsIntersecting(entry.isIntersecting);
-        if (entry.isIntersecting && !hasIntersected) {
-          setHasIntersected(true);
-        }
-      },
-      {
-        threshold: 0.1,
-        rootMargin: '50px',
-        ...options
-      }
-    );
-
-    observer.observe(target);
-
+  useEffect(() => {
     return () => {
-      observer.unobserve(target);
-    };
-  }, [hasIntersected, options]);
-
-  return { targetRef, isIntersecting, hasIntersected };
-};
-
-/**
- * Lazy component wrapper with intersection observer
- */
-export const LazyComponentWrapper: React.FC<{
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
-  className?: string;
-}> = ({ children, fallback, className = '' }) => {
-  const { targetRef, hasIntersected } = useIntersectionObserver();
-
-  return React.createElement('div', {
-    ref: targetRef,
-    className
-  }, hasIntersected ? children : (
-    fallback || React.createElement('div', {
-      className: 'animate-pulse bg-gray-200 rounded h-32 w-full'
-    })
-  ));
-};
-
-// ============================================================================
-// DEBOUNCING AND THROTTLING
-// ============================================================================
-
-/**
- * Debounced callback hook
- */
-export const useDebouncedCallback = <T extends (...args: any[]) => any>(
-  callback: T,
-  delay: number
-): T => {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
-
-  return useCallback(
-    ((...args: Parameters<T>) => {
       if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
+        window.clearTimeout(timeoutRef.current);
       }
-      
-      timeoutRef.current = setTimeout(() => {
-        callback(...args);
-      }, delay);
-    }) as T,
-    [callback, delay]
-  );
-};
-
-/**
- * Throttled callback hook
- */
-export const useThrottledCallback = <T extends (...args: any[]) => any>(
-  callback: T,
-  delay: number
-): T => {
-  const lastCallRef = useRef<number>(0);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+    };
+  }, []);
 
   return useCallback(
-    ((...args: Parameters<T>) => {
+    (...args: Parameters<T>) => {
       const now = Date.now();
-      const timeSinceLastCall = now - lastCallRef.current;
+      const timeSinceLastRun = now - lastRunRef.current;
 
-      if (timeSinceLastCall >= delay) {
-        lastCallRef.current = now;
-        callback(...args);
+      if (timeSinceLastRun >= delay) {
+        callbackRef.current(...args);
+        lastRunRef.current = now;
       } else {
         if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
+          window.clearTimeout(timeoutRef.current);
         }
-        
-        timeoutRef.current = setTimeout(() => {
-          lastCallRef.current = Date.now();
-          callback(...args);
-        }, delay - timeSinceLastCall);
+        timeoutRef.current = window.setTimeout(() => {
+          callbackRef.current(...args);
+          lastRunRef.current = Date.now();
+        }, delay - timeSinceLastRun);
       }
-    }) as T,
-    [callback, delay]
+    },
+    [delay]
   );
-};
-
-// ============================================================================
-// VIRTUAL SCROLLING
-// ============================================================================
+}
 
 /**
- * Virtual scrolling hook for large lists
+ * 深度比较Hook - 用于useMemo/useCallback的依赖比较
+ * 
+ * @param value - 要比较的值
+ * @returns 如果值深度相等则返回之前的引用
+ * 
+ * @example
+ * const memoizedValue = useMemo(() => {
+ *   return expensiveCalculation(data);
+ * }, [useDeepCompare(data)]);
  */
-export const useVirtualScrolling = <T>(
+export function useDeepCompare<T>(value: T): T {
+  const ref = useRef<T>(value);
+  const signalRef = useRef<number>(0);
+
+  if (!deepEqual(value, ref.current)) {
+    ref.current = value;
+    signalRef.current += 1;
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useCallback(() => ref.current, [signalRef.current])();
+}
+
+/**
+ * 深度相等比较
+ */
+function deepEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+
+  if (keysA.length !== keysB.length) return false;
+
+  for (const key of keysA) {
+    if (!keysB.includes(key)) return false;
+    if (!deepEqual(a[key], b[key])) return false;
+  }
+
+  return true;
+}
+
+/**
+ * 虚拟滚动Hook - 用于大列表优化
+ * 
+ * @param items - 完整的项目列表
+ * @param itemHeight - 每个项目的高度
+ * @param containerHeight - 容器高度
+ * @param overscan - 预渲染的额外项目数
+ * @returns 可见项目和滚动处理函数
+ * 
+ * @example
+ * const { visibleItems, onScroll, totalHeight } = useVirtualScroll(
+ *   allItems,
+ *   50,
+ *   500,
+ *   5
+ * );
+ */
+export function useVirtualScroll<T>(
   items: T[],
   itemHeight: number,
   containerHeight: number,
-  overscan: number = 5
-) => {
-  const [scrollTop, setScrollTop] = useState(0);
-
-  const visibleRange = useMemo(() => {
-    const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
-    const endIndex = Math.min(
-      items.length - 1,
-      Math.ceil((scrollTop + containerHeight) / itemHeight) + overscan
-    );
-    
-    return { startIndex, endIndex };
-  }, [scrollTop, itemHeight, containerHeight, items.length, overscan]);
-
-  const visibleItems = useMemo(() => {
-    return items.slice(visibleRange.startIndex, visibleRange.endIndex + 1);
-  }, [items, visibleRange]);
+  overscan: number = 3
+) {
+  const scrollTopRef = useRef(0);
 
   const totalHeight = items.length * itemHeight;
-  const offsetY = visibleRange.startIndex * itemHeight;
+  const startIndex = Math.max(0, Math.floor(scrollTopRef.current / itemHeight) - overscan);
+  const endIndex = Math.min(
+    items.length,
+    Math.ceil((scrollTopRef.current + containerHeight) / itemHeight) + overscan
+  );
 
-  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(event.currentTarget.scrollTop);
+  const visibleItems = items.slice(startIndex, endIndex).map((item, index) => ({
+    item,
+    index: startIndex + index,
+    offsetTop: (startIndex + index) * itemHeight,
+  }));
+
+  const onScroll = useCallback((event: React.UIEvent<HTMLElement>) => {
+    scrollTopRef.current = event.currentTarget.scrollTop;
   }, []);
 
   return {
     visibleItems,
+    onScroll,
     totalHeight,
-    offsetY,
-    handleScroll,
-    visibleRange
+    startIndex,
+    endIndex,
   };
-};
-
-// ============================================================================
-// COMPONENT OPTIMIZATION HOOKS
-// ============================================================================
-
-/**
- * Optimized layout state hook with memoization
- */
-export const useOptimizedLayoutState = (initialItems: LayoutItem[]) => {
-  const [items, setItems] = useState(initialItems);
-  
-  const memoizedItems = useMemo(() => items, [items]);
-  
-  const updateItems = useCallback((newItems: LayoutItem[]) => {
-    setItems(prevItems => {
-      if (layoutItemsEqual(prevItems, newItems)) {
-        return prevItems; // Prevent unnecessary re-renders
-      }
-      return newItems;
-    });
-  }, []);
-
-  const updateItem = useCallback((itemId: string, updates: Partial<LayoutItem>) => {
-    setItems(prevItems => 
-      prevItems.map(item => 
-        item.i === itemId ? { ...item, ...updates } : item
-      )
-    );
-  }, []);
-
-  return {
-    items: memoizedItems,
-    updateItems,
-    updateItem
-  };
-};
-
-/**
- * Optimized component visibility hook
- */
-export const useOptimizedVisibility = (
-  items: LayoutItem[],
-  isEditMode: boolean,
-  dataAvailability: Record<string, boolean>
-) => {
-  return useMemo(() => {
-    const visibilityMap = new Map<string, boolean>();
-    
-    items.forEach(item => {
-      const hasData = dataAvailability[item.i] ?? true;
-      const isVisible = isEditMode || hasData;
-      visibilityMap.set(item.i, isVisible);
-    });
-    
-    return visibilityMap;
-  }, [items, isEditMode, dataAvailability]);
-};
-
-/**
- * Optimized drag state hook
- */
-export const useOptimizedDragState = () => {
-  const [dragState, setDragState] = useState<{
-    isDragging: boolean;
-    draggedItem: string | null;
-    dragOffset: { x: number; y: number } | null;
-  }>({
-    isDragging: false,
-    draggedItem: null,
-    dragOffset: null
-  });
-
-  const startDrag = useCallback((itemId: string, offset: { x: number; y: number }) => {
-    setDragState({
-      isDragging: true,
-      draggedItem: itemId,
-      dragOffset: offset
-    });
-  }, []);
-
-  const updateDrag = useCallback((offset: { x: number; y: number }) => {
-    setDragState(prev => ({
-      ...prev,
-      dragOffset: offset
-    }));
-  }, []);
-
-  const endDrag = useCallback(() => {
-    setDragState({
-      isDragging: false,
-      draggedItem: null,
-      dragOffset: null
-    });
-  }, []);
-
-  return {
-    dragState,
-    startDrag,
-    updateDrag,
-    endDrag
-  };
-};
-
-// ============================================================================
-// PERFORMANCE MONITORING
-// ============================================================================
-
-/**
- * Performance monitoring hook
- */
-export const usePerformanceMonitor = (componentName: string) => {
-  const renderCountRef = useRef(0);
-  const lastRenderTimeRef = useRef(Date.now());
-
-  useEffect(() => {
-    renderCountRef.current += 1;
-    const now = Date.now();
-    const timeSinceLastRender = now - lastRenderTimeRef.current;
-    lastRenderTimeRef.current = now;
-
-    if (import.meta.env?.DEV) {
-      console.log(`[Performance] ${componentName} render #${renderCountRef.current}, time since last: ${timeSinceLastRender}ms`);
-    }
-  });
-
-  return {
-    renderCount: renderCountRef.current,
-    logPerformance: (operation: string, duration: number) => {
-      if (import.meta.env?.DEV) {
-        console.log(`[Performance] ${componentName} ${operation}: ${duration}ms`);
-      }
-    }
-  };
-};
-
-/**
- * Measure component render time
- */
-export const withPerformanceMeasurement = <P extends object>(
-  Component: React.ComponentType<P>,
-  componentName: string
-) => {
-  return React.memo((props: P) => {
-    const startTime = performance.now();
-    
-    useEffect(() => {
-      const endTime = performance.now();
-      const renderTime = endTime - startTime;
-      
-      if (import.meta.env?.DEV && renderTime > 16) {
-        console.warn(`[Performance] ${componentName} slow render: ${renderTime.toFixed(2)}ms`);
-      }
-    });
-
-    return React.createElement(Component, props);
-  });
-};
-
-// ============================================================================
-// MEMORY OPTIMIZATION
-// ============================================================================
-
-/**
- * Cleanup effect hook for preventing memory leaks
- */
-export const useCleanupEffect = (cleanup: () => void, deps: React.DependencyList) => {
-  useEffect(() => {
-    return cleanup;
-  }, deps);
-};
-
-/**
- * Weak map cache for component instances
- */
-export class ComponentCache {
-  private cache = new WeakMap<object, any>();
-
-  get<T>(key: object): T | undefined {
-    return this.cache.get(key);
-  }
-
-  set<T>(key: object, value: T): void {
-    this.cache.set(key, value);
-  }
-
-  has(key: object): boolean {
-    return this.cache.has(key);
-  }
-
-  delete(key: object): boolean {
-    return this.cache.delete(key);
-  }
 }
 
-// Global component cache instance
-export const globalComponentCache = new ComponentCache();
+/**
+ * 懒加载Hook - 延迟加载组件或数据
+ * 
+ * @param loader - 加载函数
+ * @param deps - 依赖数组
+ * @returns 加载状态和数据
+ * 
+ * @example
+ * const { data, loading, error } = useLazyLoad(
+ *   () => import('./HeavyComponent'),
+ *   []
+ * );
+ */
+export function useLazyLoad<T>(
+  loader: () => Promise<T>,
+  deps: React.DependencyList = []
+) {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-// ============================================================================
-// EXPORTS
-// ============================================================================
+  useEffect(() => {
+    let cancelled = false;
 
-export default {
-  // Memoization
-  layoutItemsEqual,
-  componentPropsEqual,
-  
-  // Lazy loading
-  createLazyComponent,
-  useIntersectionObserver,
-  LazyComponentWrapper,
-  
-  // Debouncing/Throttling
-  useDebouncedCallback,
-  useThrottledCallback,
-  
-  // Virtual scrolling
-  useVirtualScrolling,
-  
-  // Component optimization
-  useOptimizedLayoutState,
-  useOptimizedVisibility,
-  useOptimizedDragState,
-  
-  // Performance monitoring
-  usePerformanceMonitor,
-  withPerformanceMeasurement,
-  
-  // Memory optimization
-  useCleanupEffect,
-  ComponentCache,
-  globalComponentCache
-};
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await loader();
+        if (!cancelled) {
+          setData(result);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+
+  return { data, loading, error };
+}
+
+/**
+ * 内存清理Hook - 自动清理大对象
+ * 
+ * @param cleanup - 清理函数
+ * @param deps - 依赖数组
+ * 
+ * @example
+ * useMemoryCleanup(() => {
+ *   // 清理大对象
+ *   largeDataCache.clear();
+ * }, []);
+ */
+export function useMemoryCleanup(
+  cleanup: () => void,
+  deps: React.DependencyList = []
+) {
+  useEffect(() => {
+    return () => {
+      cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
+// 导入useState
+import { useState } from 'react';
