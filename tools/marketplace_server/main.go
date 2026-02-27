@@ -175,6 +175,7 @@ type WithdrawalRequest struct {
 type StorefrontInfo struct {
 	ID              int64  `json:"id"`
 	UserID          int64  `json:"user_id"`
+	PublicID        string `json:"public_id"`
 	StoreName       string `json:"store_name"`
 	StoreSlug       string `json:"store_slug"`
 	Description     string `json:"description"`
@@ -207,6 +208,7 @@ type StorefrontPackInfo struct {
 // HomepageStoreInfo 首页店铺卡片数据
 type HomepageStoreInfo struct {
 	StorefrontID int64
+	PublicID     string
 	StoreName    string
 	StoreSlug    string
 	Description  string
@@ -251,7 +253,7 @@ type HomepageData struct {
 
 // queryFeaturedStorefronts 查询管理员设置的明星店铺，按 sort_order 升序排列，最多 16 个。
 func queryFeaturedStorefronts() ([]HomepageStoreInfo, error) {
-	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+	rows, err := db.Query(`SELECT s.id, COALESCE(s.public_id, ''), s.store_name, s.store_slug, s.description,
 		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo
 		FROM featured_storefronts fs
 		JOIN author_storefronts s ON s.id = fs.storefront_id
@@ -266,7 +268,7 @@ func queryFeaturedStorefronts() ([]HomepageStoreInfo, error) {
 	for rows.Next() {
 		var s HomepageStoreInfo
 		var hasLogo int
-		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo); err != nil {
+		if err := rows.Scan(&s.StorefrontID, &s.PublicID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo); err != nil {
 			return nil, fmt.Errorf("queryFeaturedStorefronts scan: %w", err)
 		}
 		s.HasLogo = hasLogo == 1
@@ -281,7 +283,7 @@ func queryFeaturedStorefronts() ([]HomepageStoreInfo, error) {
 // queryTopSalesStorefronts 查询销售额最高的店铺，最多返回 limit 个。
 // 通过聚合 credits_transactions 中每个店铺所有已发布产品的购买类交易金额绝对值计算总销售额。
 func queryTopSalesStorefronts(limit int) ([]HomepageStoreInfo, error) {
-	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+	rows, err := db.Query(`SELECT s.id, COALESCE(s.public_id, ''), s.store_name, s.store_slug, s.description,
 		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo,
 		COALESCE(SUM(ABS(ct.amount)), 0) as total_sales
 		FROM author_storefronts s
@@ -302,7 +304,7 @@ func queryTopSalesStorefronts(limit int) ([]HomepageStoreInfo, error) {
 		var s HomepageStoreInfo
 		var hasLogo int
 		var totalSales float64
-		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalSales); err != nil {
+		if err := rows.Scan(&s.StorefrontID, &s.PublicID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalSales); err != nil {
 			return nil, fmt.Errorf("queryTopSalesStorefronts scan: %w", err)
 		}
 		s.HasLogo = hasLogo == 1
@@ -315,7 +317,7 @@ func queryTopSalesStorefronts(limit int) ([]HomepageStoreInfo, error) {
 }
 
 func queryTopDownloadsStorefronts(limit int) ([]HomepageStoreInfo, error) {
-	rows, err := db.Query(`SELECT s.id, s.store_name, s.store_slug, s.description,
+	rows, err := db.Query(`SELECT s.id, COALESCE(s.public_id, ''), s.store_name, s.store_slug, s.description,
 		CASE WHEN s.logo_data IS NOT NULL AND length(s.logo_data) > 0 THEN 1 ELSE 0 END as has_logo,
 		COALESCE(SUM(pl.download_count), 0) as total_downloads
 		FROM author_storefronts s
@@ -334,7 +336,7 @@ func queryTopDownloadsStorefronts(limit int) ([]HomepageStoreInfo, error) {
 		var s HomepageStoreInfo
 		var hasLogo int
 		var totalDownloads float64
-		if err := rows.Scan(&s.StorefrontID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalDownloads); err != nil {
+		if err := rows.Scan(&s.StorefrontID, &s.PublicID, &s.StoreName, &s.StoreSlug, &s.Description, &hasLogo, &totalDownloads); err != nil {
 			return nil, fmt.Errorf("queryTopDownloadsStorefronts scan: %w", err)
 		}
 		s.HasLogo = hasLogo == 1
@@ -3589,6 +3591,10 @@ func initDB(dbPath string) (*sql.DB, error) {
 	// Add store_layout column to author_storefronts (ignore error if already exists)
 	database.Exec("ALTER TABLE author_storefronts ADD COLUMN store_layout TEXT DEFAULT 'default'")
 
+	// Add public_id column to author_storefronts for non-enumerable URLs (ignore error if already exists)
+	database.Exec("ALTER TABLE author_storefronts ADD COLUMN public_id TEXT")
+	database.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_storefronts_public_id ON author_storefronts(public_id)")
+
 	// Add layout_config and theme columns to author_storefronts for storefront customization (ignore error if already exists)
 	database.Exec("ALTER TABLE author_storefronts ADD COLUMN layout_config TEXT")
 	database.Exec("ALTER TABLE author_storefronts ADD COLUMN theme TEXT DEFAULT 'default'")
@@ -5506,6 +5512,22 @@ func generateShareToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// generateStorefrontPublicID creates a short random ID for storefront URLs (12 chars, ~72 bits of entropy).
+// Uses base62 encoding (alphanumeric) for cleaner URLs.
+func generateStorefrontPublicID() string {
+	const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	b := make([]byte, 12)
+	for i := range b {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			// Fallback: use timestamp-based ID (should never happen)
+			return fmt.Sprintf("s%d", time.Now().UnixNano()%1000000000000)
+		}
+		b[i] = charset[n.Int64()]
+	}
+	return string(b)
+}
+
 // backfillShareTokens assigns share_token to any existing pack_listings rows that lack one.
 func backfillShareTokens(database *sql.DB) {
 	rows, err := database.Query("SELECT id FROM pack_listings WHERE share_token IS NULL OR share_token = ''")
@@ -5535,6 +5557,39 @@ func backfillShareTokens(database *sql.DB) {
 	}
 }
 
+// backfillStorefrontPublicIDs assigns public_id to any existing author_storefronts rows that lack one.
+func backfillStorefrontPublicIDs(database *sql.DB) {
+	rows, err := database.Query("SELECT id FROM author_storefronts WHERE public_id IS NULL OR public_id = ''")
+	if err != nil {
+		log.Printf("[BACKFILL] failed to query storefronts without public_id: %v", err)
+		return
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[BACKFILL] rows iteration error: %v", err)
+	}
+	for _, id := range ids {
+		publicID := generateStorefrontPublicID()
+		// Retry if collision (very unlikely)
+		for i := 0; i < 5; i++ {
+			if _, err := database.Exec("UPDATE author_storefronts SET public_id = ? WHERE id = ?", publicID, id); err == nil {
+				break
+			}
+			publicID = generateStorefrontPublicID()
+		}
+	}
+	if len(ids) > 0 {
+		log.Printf("[BACKFILL] assigned public_id to %d existing storefronts", len(ids))
+	}
+}
+
 // resolveShareToken looks up the listing_id for a given share_token.
 func resolveShareToken(token string) (int64, error) {
 	var listingID int64
@@ -5556,8 +5611,36 @@ func notImplementedHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// resolveStorefrontID resolves a public_id or numeric ID to the internal storefront ID.
+// Returns the internal ID and public_id, or error if not found.
+func resolveStorefrontID(identifier string) (int64, string, error) {
+	// Try parsing as numeric ID first (for backward compatibility during migration)
+	if id, err := strconv.ParseInt(identifier, 10, 64); err == nil {
+		var publicID string
+		err := db.QueryRow("SELECT COALESCE(public_id, '') FROM author_storefronts WHERE id = ?", id).Scan(&publicID)
+		if err == sql.ErrNoRows {
+			return 0, "", fmt.Errorf("storefront not found")
+		}
+		if err != nil {
+			return 0, "", err
+		}
+		return id, publicID, nil
+	}
+
+	// Try as public_id
+	var id int64
+	err := db.QueryRow("SELECT id FROM author_storefronts WHERE public_id = ?", identifier).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, "", fmt.Errorf("storefront not found")
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	return id, identifier, nil
+}
+
 // handleStorefrontRoutes dispatches public storefront routes.
-// Path format: /store/{slug} or /store/{slug}/logo
+// Path format: /store/{public_id} or /store/{public_id}/logo
 func handleStorefrontRoutes(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/store/")
 	path = strings.TrimSuffix(path, "/")
@@ -5567,14 +5650,14 @@ func handleStorefrontRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.SplitN(path, "/", 2)
-	slug := parts[0]
-	if slug == "" {
+	storeID := parts[0]
+	if storeID == "" {
 		http.NotFound(w, r)
 		return
 	}
 
 	if len(parts) == 2 && parts[1] == "logo" {
-		handleStorefrontLogo(w, r, slug)
+		handleStorefrontLogo(w, r, storeID)
 		return
 	}
 
@@ -5583,13 +5666,13 @@ func handleStorefrontRoutes(w http.ResponseWriter, r *http.Request) {
 		middle := strings.TrimPrefix(parts[1], "featured/")
 		listingID := strings.TrimSuffix(middle, "/logo")
 		if listingID != "" {
-			handleStorefrontFeaturedLogo(w, r, slug, listingID)
+			handleStorefrontFeaturedLogo(w, r, storeID, listingID)
 			return
 		}
 	}
 
 	if len(parts) == 1 {
-		handleStorefrontPage(w, r, slug)
+		handleStorefrontPage(w, r, storeID)
 		return
 	}
 
@@ -5658,19 +5741,19 @@ func handleStorefrontManagement(w http.ResponseWriter, r *http.Request) {
 // queryStorefrontPublicData queries all public data for a storefront page from the database.
 // This includes storefront info, featured packs, packs list, categories, custom products,
 // layout config, theme CSS, pack grid columns, and banner data.
-func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*StorefrontPublicData, error) {
-	// 1. Query storefront by store_slug
+func queryStorefrontPublicData(storeID, filter, sortBy, search, category string) (*StorefrontPublicData, error) {
+	// 1. Query storefront by store ID
 	var storefront StorefrontInfo
 	var logoContentType sql.NullString
 	var storeLayout sql.NullString
 	var layoutConfigRaw sql.NullString
 	var themeRaw sql.NullString
-	err := db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+	err := db.QueryRow(`SELECT id, user_id, COALESCE(public_id, ''), store_name, store_slug, description,
 		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
 		COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
 		layout_config, theme
-		FROM author_storefronts WHERE store_slug = ?`, slug).Scan(
-		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+		FROM author_storefronts WHERE id = ?`, storeID).Scan(
+		&storefront.ID, &storefront.UserID, &storefront.PublicID, &storefront.StoreName, &storefront.StoreSlug,
 		&storefront.Description, &storefront.HasLogo, &logoContentType,
 		&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
 		&layoutConfigRaw, &themeRaw,
@@ -5693,7 +5776,7 @@ func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*
 		var parseErr error
 		layoutConfig, parseErr = ParseLayoutConfig(layoutConfigRaw.String)
 		if parseErr != nil {
-			log.Printf("[STOREFRONT-PAGE] failed to parse layout_config for slug %q, falling back to default: %v", slug, parseErr)
+			log.Printf("[STOREFRONT-PAGE] failed to parse layout_config for store ID %q, falling back to default: %v", storeID, parseErr)
 			layoutConfig = DefaultLayoutConfig()
 		}
 	} else {
@@ -5899,10 +5982,23 @@ func queryStorefrontPublicData(slug, filter, sortBy, search, category string) (*
 	}, nil
 }
 
-func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
+func handleStorefrontPage(w http.ResponseWriter, r *http.Request, storeIdentifier string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
+	}
+
+	// Resolve identifier to internal ID
+	internalID, publicID, err := resolveStorefrontID(storeIdentifier)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Use public_id for cache key (or internal ID if public_id not set yet)
+	cacheIdentifier := publicID
+	if cacheIdentifier == "" {
+		cacheIdentifier = fmt.Sprintf("%d", internalID)
 	}
 
 	// Read query params for filter, sort, search, category
@@ -5920,20 +6016,20 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 	}
 
 	// 1. Try cache first
-	cacheKey := buildStorefrontCacheKey(slug, filter, sortBy, searchQuery, categoryFilter)
+	cacheKey := buildStorefrontCacheKey(cacheIdentifier, filter, sortBy, searchQuery, categoryFilter)
 	publicData, hit := globalCache.GetStorefrontData(cacheKey)
 	if !hit {
 		// 2. Cache miss — use singleflight to query database
 		var err error
 		publicData, err = globalCache.DoStorefrontQuery(cacheKey, func() (*StorefrontPublicData, error) {
-			return queryStorefrontPublicData(slug, filter, sortBy, searchQuery, categoryFilter)
+			return queryStorefrontPublicData(strconv.FormatInt(internalID, 10), filter, sortBy, searchQuery, categoryFilter)
 		})
 		if err != nil {
 			if err == sql.ErrNoRows {
 				http.NotFound(w, r)
 				return
 			}
-			log.Printf("[STOREFRONT-PAGE] cache miss, db query failed for slug %q: %v", slug, err)
+			log.Printf("[STOREFRONT-PAGE] cache miss, db query failed for store ID %d: %v", internalID, err)
 			http.Error(w, "服务器内部错误", http.StatusInternalServerError)
 			return
 		}
@@ -6028,16 +6124,23 @@ func handleStorefrontPage(w http.ResponseWriter, r *http.Request, slug string) {
 }
 
 
-func handleStorefrontLogo(w http.ResponseWriter, r *http.Request, slug string) {
+func handleStorefrontLogo(w http.ResponseWriter, r *http.Request, storeIdentifier string) {
+	// Resolve store identifier (public_id or numeric ID) to numeric ID
+	storefrontID, _, err := resolveStorefrontID(storeIdentifier)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
 	var logoData []byte
 	var logoContentType string
-	err := db.QueryRow(`SELECT logo_data, COALESCE(logo_content_type, '') FROM author_storefronts WHERE store_slug = ?`, slug).Scan(&logoData, &logoContentType)
+	err = db.QueryRow(`SELECT logo_data, COALESCE(logo_content_type, '') FROM author_storefronts WHERE id = ?`, storefrontID).Scan(&logoData, &logoContentType)
 	if err == sql.ErrNoRows {
 		http.NotFound(w, r)
 		return
 	}
 	if err != nil {
-		log.Printf("[STOREFRONT-LOGO] failed to query logo for slug %q: %v", slug, err)
+		log.Printf("[STOREFRONT-LOGO] failed to query logo for store ID %d: %v", storefrontID, err)
 		http.Error(w, "服务器内部错误", http.StatusInternalServerError)
 		return
 	}
@@ -6098,20 +6201,21 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 			displayName = fmt.Sprintf("user-%d", userID)
 		}
 		slug := generateStoreSlug(displayName)
-		_, err = db.Exec(`INSERT INTO author_storefronts (user_id, store_name, store_slug, description)
-			VALUES (?, '', ?, '')`, userID, slug)
+		publicID := generateStorefrontPublicID()
+		_, err = db.Exec(`INSERT INTO author_storefronts (user_id, store_name, store_slug, description, public_id)
+			VALUES (?, '', ?, '', ?)`, userID, slug, publicID)
 		if err != nil {
 			log.Printf("[STOREFRONT-SETTINGS] failed to create storefront for user %d: %v", userID, err)
 			http.Error(w, "创建小铺失败", http.StatusInternalServerError)
 			return
 		}
 		// Re-query the newly created record
-		err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+		err = db.QueryRow(`SELECT id, user_id, COALESCE(public_id, ''), store_name, store_slug, description,
 			CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
 			COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
 			layout_config, COALESCE(theme, 'default')
 			FROM author_storefronts WHERE user_id = ?`, userID).Scan(
-			&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+			&storefront.ID, &storefront.UserID, &storefront.PublicID, &storefront.StoreName, &storefront.StoreSlug,
 			&storefront.Description, &storefront.HasLogo, &logoContentType,
 			&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
 			&layoutConfigRaw, &themeRaw,
@@ -6808,7 +6912,7 @@ func handleStorefrontFeaturedLogoDelete(w http.ResponseWriter, r *http.Request) 
 }
 
 
-func handleStorefrontFeaturedLogo(w http.ResponseWriter, r *http.Request, slug string, listingID string) {
+func handleStorefrontFeaturedLogo(w http.ResponseWriter, r *http.Request, storeIdentifier string, listingID string) {
 	// Parse listing ID
 	packListingID, err := strconv.ParseInt(listingID, 10, 64)
 	if err != nil {
@@ -6816,9 +6920,8 @@ func handleStorefrontFeaturedLogo(w http.ResponseWriter, r *http.Request, slug s
 		return
 	}
 
-	// Look up storefront ID by slug
-	var storefrontID int64
-	err = db.QueryRow(`SELECT id FROM author_storefronts WHERE store_slug = ?`, slug).Scan(&storefrontID)
+	// Resolve store identifier (public_id or numeric ID) to numeric ID
+	storefrontID, _, err := resolveStorefrontID(storeIdentifier)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -11348,13 +11451,13 @@ func queryPackDetailPublicData(shareToken string, listingID int64) (*PackDetailP
 		SELECT pl.pack_name, COALESCE(pl.pack_description, ''), COALESCE(pl.source_name, ''),
 		       COALESCE(pl.author_name, ''), pl.share_mode, pl.credits_price, pl.download_count,
 		       COALESCE(c.name, ''),
-		       COALESCE(s.store_slug, ''), COALESCE(s.store_name, '')
+		       COALESCE(s.store_slug, ''), COALESCE(s.store_name, ''), COALESCE(s.public_id, '')
 		FROM pack_listings pl
 		LEFT JOIN categories c ON pl.category_id = c.id
 		LEFT JOIN author_storefronts s ON s.user_id = pl.user_id
 		WHERE pl.id = ? AND pl.status = 'published'`,
 		listingID,
-	).Scan(&pd.PackName, &pd.PackDesc, &pd.SourceName, &pd.AuthorName, &pd.ShareMode, &pd.CreditsPrice, &pd.DownloadCount, &pd.CategoryName, &pd.StoreSlug, &pd.StoreName)
+	).Scan(&pd.PackName, &pd.PackDesc, &pd.SourceName, &pd.AuthorName, &pd.ShareMode, &pd.CreditsPrice, &pd.DownloadCount, &pd.CategoryName, &pd.StoreSlug, &pd.StoreName, &pd.StorefrontPublicID)
 	if err != nil {
 		return nil, err
 	}
@@ -11385,24 +11488,25 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 			lang := i18n.DetectLang(r)
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-				"ListingID":    int64(0),
-				"ShareToken":   "",
-				"PackName":     "",
-				"PackDescription": "",
-				"SourceName":   "",
-				"AuthorName":   "",
-				"ShareMode":    "",
-				"CreditsPrice": 0,
-				"DownloadCount": 0,
-				"CategoryName": "",
-				"IsLoggedIn":   false,
-				"HasPurchased": false,
-				"Error":        i18n.T(lang, "invalid_pack_link"),
-				"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-				"DownloadURLWindows": getSetting("download_url_windows"),
-				"DownloadURLMacOS":   getSetting("download_url_macos"),
-				"StoreSlug":    "",
-				"StoreName":    "",
+				"ListingID":           int64(0),
+				"ShareToken":          "",
+				"PackName":            "",
+				"PackDescription":     "",
+				"SourceName":          "",
+				"AuthorName":          "",
+				"ShareMode":           "",
+				"CreditsPrice":        0,
+				"DownloadCount":       0,
+				"CategoryName":        "",
+				"IsLoggedIn":          false,
+				"HasPurchased":        false,
+				"Error":               i18n.T(lang, "invalid_pack_link"),
+				"MonthOptions":        []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+				"DownloadURLWindows":  getSetting("download_url_windows"),
+				"DownloadURLMacOS":    getSetting("download_url_macos"),
+				"StoreSlug":           "",
+				"StoreName":           "",
+				"StorefrontPublicID":  "",
 			}); err != nil {
 				log.Printf("[PACK-DETAIL] template execute error: %v", err)
 			}
@@ -11423,24 +11527,25 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 				lang := i18n.DetectLang(r)
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-					"ListingID":    listingID,
-					"ShareToken":   shareToken,
-					"PackName":     "",
-					"PackDescription": "",
-					"SourceName":   "",
-					"AuthorName":   "",
-					"ShareMode":    "",
-					"CreditsPrice": 0,
-					"DownloadCount": 0,
-					"CategoryName": "",
-					"IsLoggedIn":   false,
-					"HasPurchased": false,
-					"Error":        i18n.T(lang, "pack_not_found"),
-					"MonthOptions": []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-					"DownloadURLWindows": getSetting("download_url_windows"),
-					"DownloadURLMacOS":   getSetting("download_url_macos"),
-					"StoreSlug":    "",
-					"StoreName":    "",
+					"ListingID":           listingID,
+					"ShareToken":          shareToken,
+					"PackName":            "",
+					"PackDescription":     "",
+					"SourceName":          "",
+					"AuthorName":          "",
+					"ShareMode":           "",
+					"CreditsPrice":        0,
+					"DownloadCount":       0,
+					"CategoryName":        "",
+					"IsLoggedIn":          false,
+					"HasPurchased":        false,
+					"Error":               i18n.T(lang, "pack_not_found"),
+					"MonthOptions":        []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+					"DownloadURLWindows":  getSetting("download_url_windows"),
+					"DownloadURLMacOS":    getSetting("download_url_macos"),
+					"StoreSlug":           "",
+					"StoreName":           "",
+					"StorefrontPublicID":  "",
 				}); err != nil {
 					log.Printf("[PACK-DETAIL] template execute error: %v", err)
 				}
@@ -11476,24 +11581,25 @@ func handlePackDetailPage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := templates.PackDetailTmpl.Execute(w, map[string]interface{}{
-		"ListingID":       packDetail.ListingID,
-		"ShareToken":      packDetail.ShareToken,
-		"PackName":        packDetail.PackName,
-		"PackDescription": packDetail.PackDesc,
-		"SourceName":      packDetail.SourceName,
-		"AuthorName":      packDetail.AuthorName,
-		"ShareMode":       packDetail.ShareMode,
-		"CreditsPrice":    packDetail.CreditsPrice,
-		"DownloadCount":   packDetail.DownloadCount,
-		"CategoryName":    packDetail.CategoryName,
-		"IsLoggedIn":      isLoggedIn,
-		"HasPurchased":    hasPurchased,
-		"Error":           "",
-		"MonthOptions":    []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
-		"DownloadURLWindows": getSetting("download_url_windows"),
-		"DownloadURLMacOS":   getSetting("download_url_macos"),
-		"StoreSlug":       packDetail.StoreSlug,
-		"StoreName":       packDetail.StoreName,
+		"ListingID":           packDetail.ListingID,
+		"ShareToken":          packDetail.ShareToken,
+		"PackName":            packDetail.PackName,
+		"PackDescription":     packDetail.PackDesc,
+		"SourceName":          packDetail.SourceName,
+		"AuthorName":          packDetail.AuthorName,
+		"ShareMode":           packDetail.ShareMode,
+		"CreditsPrice":        packDetail.CreditsPrice,
+		"DownloadCount":       packDetail.DownloadCount,
+		"CategoryName":        packDetail.CategoryName,
+		"IsLoggedIn":          isLoggedIn,
+		"HasPurchased":        hasPurchased,
+		"Error":               "",
+		"MonthOptions":        []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+		"DownloadURLWindows":  getSetting("download_url_windows"),
+		"DownloadURLMacOS":    getSetting("download_url_macos"),
+		"StoreSlug":           packDetail.StoreSlug,
+		"StoreName":           packDetail.StoreName,
+		"StorefrontPublicID":  packDetail.StorefrontPublicID,
 	}); err != nil {
 		log.Printf("[PACK-DETAIL] template execute error: %v", err)
 	}
@@ -17940,7 +18046,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
 		// Build CSP: allow frame-src for the configured service portal URL
-		csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+		csp := "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:"
 		spURL := getSetting("service_portal_url")
 		if spURL == "" {
 			spURL = servicePortalURL
@@ -17992,6 +18098,9 @@ func main() {
 	globalCache.startCleanupTicker(context.Background())
 	log.Printf("[CACHE] initialized: MaxEntries=%d, StorefrontTTL=%v, PackDetailTTL=%v, ShareTokenTTL=%v, UserPurchasedTTL=%v, HomepageTTL=%v",
 		cacheConfig.MaxEntries, cacheConfig.StorefrontTTL, cacheConfig.PackDetailTTL, cacheConfig.ShareTokenTTL, cacheConfig.UserPurchasedTTL, cacheConfig.HomepageTTL)
+
+	// Backfill public_id for existing storefronts
+	backfillStorefrontPublicIDs(db)
 
 	// Start background goroutine to clean up expired sessions and captchas
 	go func() {

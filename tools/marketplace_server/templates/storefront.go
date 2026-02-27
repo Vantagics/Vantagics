@@ -87,23 +87,20 @@ const storefrontHTML = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
-    <title>{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}} - 分析技能包市场</title>
+    <title>{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}</title>
     <meta property="og:type" content="website" />
     <meta property="og:title" content="{{if .Storefront.StoreName}}{{.Storefront.StoreName}}的小铺{{else}}小铺{{end}}" />
     <meta property="og:description" content="{{if .Storefront.Description}}{{truncateDesc .Storefront.Description 200}}{{else}}该作者暂未设置小铺描述{{end}}" />
-    {{if .Storefront.HasLogo}}<meta property="og:image" content="/store/{{.Storefront.StoreSlug}}/logo" />{{end}}
+    {{if .Storefront.HasLogo}}<meta property="og:image" content="/store/{{.Storefront.ID}}/logo" />{{end}}
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="{{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}" />
     <meta name="twitter:description" content="{{if .Storefront.Description}}{{truncateDesc .Storefront.Description 200}}{{else}}该作者暂未设置小铺描述{{end}}" />
-    {{if .Storefront.HasLogo}}<meta name="twitter:image" content="/store/{{.Storefront.StoreSlug}}/logo" />{{end}}
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    {{if .Storefront.HasLogo}}<meta name="twitter:image" content="/store/{{.Storefront.ID}}/logo" />{{end}}
     <style>:root { {{.ThemeCSS}} }</style>
     <style>
         *,*::before,*::after { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
             background: #f8f9fc;
             min-height: 100vh;
             color: #1e293b;
@@ -132,6 +129,39 @@ const storefrontHTML = `<!DOCTYPE html>
         }
         .logo-mark img { width: 100%; height: 100%; object-fit: cover; }
         .logo-text { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px; }
+        
+        /* ── Store Name in Nav ── */
+        .store-name-nav {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 0 20px;
+            gap: 4px;
+        }
+        .store-name-nav .store-name-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+            margin: 0;
+            line-height: 1.2;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+        .store-name-nav .powered-by-link {
+            font-size: 11px;
+            color: #94a3b8;
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .store-name-nav .powered-by-link:hover {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+        
         .nav-actions { display: flex; align-items: center; gap: 12px; }
         .nav-link {
             padding: 8px 18px; font-size: 13px; font-weight: 600; color: #fff;
@@ -438,7 +468,7 @@ const storefrontHTML = `<!DOCTYPE html>
             font-size: 13px; font-weight: 600; cursor: pointer;
             display: inline-flex; align-items: center; gap: 6px;
             text-decoration: none; transition: all 0.25s cubic-bezier(.4,0,.2,1);
-            font-family: inherit;
+            font-family: inherit; white-space: nowrap;
         }
         .btn-green {
             background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff;
@@ -458,6 +488,7 @@ const storefrontHTML = `<!DOCTYPE html>
             padding: 8px 16px; background: #ecfdf5; color: #059669;
             border: 1px solid #a7f3d0; border-radius: 10px;
             font-size: 12px; font-weight: 700; letter-spacing: 0.2px;
+            white-space: nowrap;
         }
         .badge-owned svg { width: 14px; height: 14px; }
         .btn-ghost {
@@ -553,6 +584,19 @@ const storefrontHTML = `<!DOCTYPE html>
 
         @media (max-width: 640px) {
             .page { padding: 16px 16px 36px; }
+            .nav { flex-wrap: wrap; padding: 10px 12px; }
+            .logo-text { font-size: 13px; }
+            .store-name-nav {
+                flex-basis: 100%;
+                order: 3;
+                padding: 12px 0 0 0;
+                border-top: 1px solid #e2e8f0;
+                margin-top: 10px;
+            }
+            .store-name-nav .store-name-title {
+                font-size: 16px;
+                letter-spacing: -0.3px;
+            }
             .store-hero { padding: 24px; border-radius: 16px; }
             .store-hero-inner { flex-direction: column; gap: 24px; }
             .store-profile { min-width: auto; }
@@ -577,8 +621,15 @@ const storefrontHTML = `<!DOCTYPE html>
             <span class="logo-mark">
                 <img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
             </span>
-            <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
         </a>
+        <div class="store-name-nav">
+            <h1 class="store-name-title">
+                {{if .Storefront.StoreName}}{{.Storefront.StoreName}}{{else}}小铺{{end}}
+            </h1>
+            <a href="https://market.vantagics.com" target="_blank" rel="noopener" class="powered-by-link">
+                Powered by Vantagics Skills market
+            </a>
+        </div>
         <div class="nav-actions">
             {{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="sfDlBtn"></span>{{end}}
             {{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}
@@ -598,12 +649,11 @@ const storefrontHTML = `<!DOCTYPE html>
             <div class="store-profile">
                 <div class="store-avatar">
                     {{if $.Storefront.HasLogo}}
-                    <img src="/store/{{$.Storefront.StoreSlug}}/logo" alt="{{$.Storefront.StoreName}}">
+                    <img src="/store/{{$.Storefront.ID}}/logo" alt="{{$.Storefront.StoreName}}">
                     {{else}}
                     <div class="store-avatar-letter">{{firstChar $.Storefront.StoreName}}</div>
                     {{end}}
                 </div>
-                <h1 class="store-name">{{if $.Storefront.StoreName}}{{$.Storefront.StoreName}}{{else}}小铺{{end}}</h1>
                 <p class="store-desc">{{if $.Storefront.Description}}{{$.Storefront.Description}}{{else}}该作者暂未设置小铺描述{{end}}</p>
                 <div class="store-stats">
                     <div class="store-stat">
@@ -632,7 +682,7 @@ const storefrontHTML = `<!DOCTYPE html>
                         <div class="featured-card-top">
                             {{if .HasLogo}}
                             <span class="featured-icon-wrap">
-                                <img class="featured-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.featured-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
+                                <img class="featured-icon-img" src="/store/{{$.Storefront.ID}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.featured-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
                                 <div class="featured-icon">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                                 </div>
@@ -717,7 +767,7 @@ const storefrontHTML = `<!DOCTYPE html>
                 <div class="pack-item-header">
                     {{if .HasLogo}}
                     <span class="pack-item-icon-wrap">
-                        <img class="pack-item-icon-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.pack-item-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
+                        <img class="pack-item-icon-img" src="/store/{{$.Storefront.ID}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}" onload="if(this.naturalWidth>0){this.parentNode.querySelector('.pack-item-icon').style.display='none';this.style.display='block';}" onerror="this.style.display='none';">
                         <div class="pack-item-icon">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
                         </div>
@@ -764,9 +814,9 @@ const storefrontHTML = `<!DOCTYPE html>
                         {{end}}
                     {{else}}
                         {{if eq .ShareMode "free"}}
-                        <a class="btn btn-green" href="/user/login?redirect=/store/{{$.Storefront.StoreSlug}}" data-i18n="login_to_claim">登录后领取</a>
+                        <a class="btn btn-green" href="/user/login?redirect=/store/{{$.Storefront.ID}}" data-i18n="login_to_claim">登录后领取</a>
                         {{else}}
-                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.StoreSlug}}" data-i18n="login_to_buy">登录后购买</a>
+                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.ID}}" data-i18n="login_to_buy">登录后购买</a>
                         {{end}}
                     {{end}}
                 </div>
@@ -816,7 +866,7 @@ const storefrontHTML = `<!DOCTYPE html>
                         {{if $.IsLoggedIn}}
                         <button class="btn btn-indigo" onclick="showCustomProductPurchaseDialog({{.ID}}, '{{.ProductName}}', {{.PriceUSD}})" data-i18n="purchase">购买</button>
                         {{else}}
-                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.StoreSlug}}" data-i18n="login_to_buy">登录后购买</a>
+                        <a class="btn btn-indigo" href="/user/login?redirect=/store/{{$.Storefront.ID}}" data-i18n="login_to_buy">登录后购买</a>
                         {{end}}
                     </div>
                 </div>
@@ -918,7 +968,7 @@ const storefrontHTML = `<!DOCTYPE html>
 var _currentShareToken = '';
 var _currentShareMode = '';
 var _currentCreditsPrice = 0;
-var _storeSlug = '{{.Storefront.StoreSlug}}';
+var _storeID = '{{.Storefront.ID}}';
 var _dlURLWindows = "{{.DownloadURLWindows}}";
 var _dlURLMacOS = "{{.DownloadURLMacOS}}";
 
@@ -1241,9 +1291,9 @@ var _supportLoginUrl = '';
 function enterCustomerSupport() {
     var isLoggedIn = {{if .IsLoggedIn}}true{{else}}false{{end}};
     var storefrontID = {{.Storefront.ID}};
-    var storeSlug = '{{.Storefront.StoreSlug}}';
+    var storeID = '{{.Storefront.ID}}';
     if (!isLoggedIn) {
-        window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
+        window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeID + '?support=1');
         return;
     }
     var overlay = document.getElementById('supportOverlay');
@@ -1264,7 +1314,7 @@ function enterCustomerSupport() {
             iframe.src = d.login_url;
         } else if (d.need_login) {
             closeSupportDialog();
-            window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeSlug + '?support=1');
+            window.location.href = '/user/login?redirect=' + encodeURIComponent('/store/' + storeID + '?support=1');
         } else {
             closeSupportDialog();
             alert(d.error || (window._i18n ? window._i18n('support_login_failed', '进入客服系统失败') : '进入客服系统失败'));

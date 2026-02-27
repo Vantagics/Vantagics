@@ -18,9 +18,8 @@ const packDetailHTML = `<!DOCTYPE html>
     <meta name="twitter:title" content="{{.PackName}}" />
     <meta name="twitter:description" content="{{.PackDescription}}" />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f8f9fc;min-height:100vh;color:#1e293b;-webkit-font-smoothing:antialiased}
+        body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Microsoft YaHei",sans-serif;background:#f8f9fc;min-height:100vh;color:#1e293b;-webkit-font-smoothing:antialiased}
         .page{max-width:720px;margin:0 auto;padding:24px 20px 36px}
         .nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
         .nav>div{display:flex;align-items:center;gap:8px}
@@ -59,13 +58,13 @@ const packDetailHTML = `<!DOCTYPE html>
         .price-free{color:#16a34a}
         .price-unit{font-size:14px;font-weight:600}
         .price-sub{font-size:12px;color:#94a3b8;margin-top:2px}
-        .btn{padding:11px 24px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;text-decoration:none;transition:all .25s cubic-bezier(.4,0,.2,1);font-family:inherit}
+        .btn{padding:11px 24px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;text-decoration:none;transition:all .25s cubic-bezier(.4,0,.2,1);font-family:inherit;white-space:nowrap}
         .btn-green{background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;box-shadow:0 2px 8px rgba(34,197,94,0.25)}
         .btn-green:hover{box-shadow:0 4px 16px rgba(34,197,94,0.3);transform:translateY(-1px)}
         .btn-indigo{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;box-shadow:0 2px 8px rgba(99,102,241,0.25)}
         .btn-indigo:hover{box-shadow:0 4px 16px rgba(99,102,241,0.3);transform:translateY(-1px)}
         .btn:disabled{opacity:.6;cursor:not-allowed;transform:none!important}
-        .badge-owned{display:inline-flex;align-items:center;gap:7px;padding:10px 22px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:12px;font-size:14px;font-weight:600}
+        .badge-owned{display:inline-flex;align-items:center;gap:7px;padding:10px 22px;background:#dcfce7;color:#16a34a;border:1px solid #bbf7d0;border-radius:12px;font-size:14px;font-weight:600;white-space:nowrap}
         .share-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(226,232,240,0.6);background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;color:#94a3b8;text-decoration:none}
         .share-btn:hover{background:#f8fafc;color:#475569;border-color:#cbd5e1;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
         .share-btn svg{width:16px;height:16px}
@@ -101,7 +100,7 @@ const packDetailHTML = `<!DOCTYPE html>
 <div class="page">
     <nav class="nav">
         <a class="logo" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
-        <div>{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="dlButtons"></span>{{end}}{{if .StoreSlug}}<a class="nav-store" href="/store/{{.StoreSlug}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> <span data-i18n="visit_store">{{if .StoreName}}{{.StoreName}}{{else}}访问店铺{{end}}</span></a>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
+        <div>{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="dlButtons"></span>{{end}}{{if .StorefrontPublicID}}<a class="nav-store" href="/store/{{.StorefrontPublicID}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> <span data-i18n="visit_store">{{if .StoreName}}{{.StoreName}}{{else}}访问店铺{{end}}</span></a>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
     {{if .Error}}
     <div class="err-card"><div class="err-icon">😔</div><p class="err-text">{{.Error}}</p><a class="nav-link" href="/" style="margin-top:16px;display:inline-block" data-i18n="back_to_home">返回首页</a></div>

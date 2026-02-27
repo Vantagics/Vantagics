@@ -127,6 +127,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
             font-size: 13px; font-weight: 600; cursor: pointer;
             display: inline-flex; align-items: center; gap: 5px;
             text-decoration: none; transition: all 0.2s; font-family: inherit;
+            white-space: nowrap;
         }
         .btn-indigo {
             background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff;
@@ -521,7 +522,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
     <nav class="nav">
         <a class="logo-link" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div style="display:flex;gap:8px;">
-            <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank" data-i18n="sm_view_store">🔗 查看小铺</a>
+            <a class="nav-link" href="/store/{{.Storefront.PublicID}}" target="_blank" data-i18n="sm_view_store">🔗 查看小铺</a>
             <a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>
         </div>
     </nav>
@@ -563,7 +564,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
             <div class="logo-upload-area">
                 <div class="logo-preview" id="logoPreview">
                     {{if .Storefront.HasLogo}}
-                    <img src="/store/{{.Storefront.StoreSlug}}/logo" alt="Logo" id="logoImg">
+                    <img src="/store/{{.Storefront.PublicID}}/logo" alt="Logo" id="logoImg">
                     {{else}}
                     <span id="logoLetter">{{if .Storefront.StoreName}}{{slice .Storefront.StoreName 0 1}}{{else}}?{{end}}</span>
                     {{end}}
@@ -583,10 +584,10 @@ const storefrontManageHTML = `<!DOCTYPE html>
                 <label for="storeSlug" data-i18n="sm_store_slug">小铺标识（Store Slug）</label>
                 <div class="slug-row">
                     <span class="slug-prefix">/store/</span>
-                    <input type="text" id="storeSlug" value="{{.Storefront.StoreSlug}}" maxlength="50" placeholder="my-store">
-                    <button class="btn btn-indigo btn-sm" onclick="updateSlug()" data-i18n="save">保存</button>
+                    <input type="text" id="storeSlug" value="{{.Storefront.PublicID}}" maxlength="50" placeholder="my-store" disabled>
+                    <button class="btn btn-indigo btn-sm" onclick="updateSlug()" data-i18n="save" style="display:none;">保存</button>
                 </div>
-                <div class="field-hint" data-i18n="sm_slug_hint">仅允许小写字母、数字和连字符，长度 3-50 字符</div>
+                <div class="field-hint" data-i18n="sm_slug_hint">店铺公开ID由系统自动生成，不可修改</div>
             </div>
             <div class="url-display" id="fullUrlDisplay">{{.FullURL}}</div>
             <div style="margin-top:10px;">
@@ -654,7 +655,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
             <div class="layout-actions">
                 <button class="btn btn-green btn-sm" id="addBannerBtn" onclick="addCustomBanner()" data-i18n="sm_add_banner">+ 添加横幅</button>
                 <button class="btn btn-indigo" onclick="savePageLayout()" data-i18n="sm_save_layout">💾 保存布局</button>
-                <a class="btn btn-ghost btn-sm" href="/store/{{.Storefront.StoreSlug}}?preview=1" target="_blank" data-i18n="sm_preview">👁️ 预览</a>
+                <a class="btn btn-ghost btn-sm" href="/store/{{.Storefront.PublicID}}?preview=1" target="_blank" data-i18n="sm_preview">👁️ 预览</a>
             </div>
             <div id="layoutSaveMsg" class="msg" style="margin-top:12px;"></div>
         </div>
@@ -835,7 +836,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
                     <span class="drag-handle">⠿</span>
                     <div class="featured-logo-preview" id="featured-logo-preview-{{.ListingID}}">
                         {{if .HasLogo}}
-                        <img class="featured-logo-img" src="/store/{{$.Storefront.StoreSlug}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
+                        <img class="featured-logo-img" src="/store/{{$.Storefront.PublicID}}/featured/{{.ListingID}}/logo" alt="{{.PackName}}">
                         {{else}}
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                         {{end}}
@@ -1223,7 +1224,7 @@ function doUploadLogo(file) {
         if (d.success) {
             showMsg('ok', 'Logo 已更新');
             var preview = document.getElementById('logoPreview');
-            preview.innerHTML = '<img src="/store/{{.Storefront.StoreSlug}}/logo?t=' + Date.now() + '" alt="Logo">';
+            preview.innerHTML = '<img src="/store/{{.Storefront.PublicID}}/logo?t=' + Date.now() + '" alt="Logo">';
         } else {
             showMsg('err', d.error || '上传失败');
         }
@@ -1709,7 +1710,7 @@ function uploadFeaturedLogo(listingId) {
             if (d.success) {
                 var preview = document.getElementById('featured-logo-preview-' + listingId);
                 if (preview) {
-                    preview.innerHTML = '<img class="featured-logo-img" src="/store/{{.Storefront.StoreSlug}}/featured/' + listingId + '/logo?t=' + Date.now() + '" alt="Logo">';
+                    preview.innerHTML = '<img class="featured-logo-img" src="/store/{{.Storefront.PublicID}}/featured/' + listingId + '/logo?t=' + Date.now() + '" alt="Logo">';
                 }
                 var delBtn = document.getElementById('featured-logo-delete-' + listingId);
                 if (!delBtn) {
@@ -1782,7 +1783,7 @@ document.addEventListener('paste', function(e) {
                 if (d.success) {
                     var preview = document.getElementById('featured-logo-preview-' + targetListingId);
                     if (preview) {
-                        preview.innerHTML = '<img class="featured-logo-img" src="/store/{{.Storefront.StoreSlug}}/featured/' + targetListingId + '/logo?t=' + Date.now() + '" alt="Logo">';
+                        preview.innerHTML = '<img class="featured-logo-img" src="/store/{{.Storefront.PublicID}}/featured/' + targetListingId + '/logo?t=' + Date.now() + '" alt="Logo">';
                     }
                     var delBtn = document.getElementById('featured-logo-delete-' + targetListingId);
                     if (!delBtn) {
@@ -2600,6 +2601,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
             font-size: 13px; font-weight: 600; cursor: pointer;
             display: inline-flex; align-items: center; gap: 5px;
             text-decoration: none; transition: all 0.2s; font-family: inherit;
+            white-space: nowrap;
         }
         .btn-indigo {
             background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff;
