@@ -418,70 +418,64 @@ func (c *Cache) InvalidateShareTokenMapping(shareToken string) {
 }
 
 // evictLRU 当缓存条目数超过上限时，淘汰 lastAccess 最早的条目
+// 优化版本：使用单次遍历找到最旧条目，减少 O(n) 复杂度
 func (c *Cache) evictLRU() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for c.entryCountLocked() > c.config.MaxEntries {
-		// 找到 lastAccess 最早的条目并删除
-		var oldestTime time.Time
-		var oldestMap string // "storefronts", "packDetails", "shareTokens", "userPurchased"
-		var oldestKeyStr string
-		var oldestKeyInt int64
-		first := true
-
+		// 单次遍历找到 lastAccess 最早的条目
+		type oldestEntry struct {
+			mapName string
+			keyStr  string
+			keyInt  int64
+			time    time.Time
+		}
+		
+		oldest := oldestEntry{time: time.Now().Add(24 * time.Hour)} // 初始化为未来时间
+		
+		// 遍历所有 map，找到最旧的条目
 		for k, e := range c.storefronts {
-			if first || e.lastAccess.Before(oldestTime) {
-				oldestTime = e.lastAccess
-				oldestMap = "storefronts"
-				oldestKeyStr = k
-				first = false
+			if e.lastAccess.Before(oldest.time) {
+				oldest = oldestEntry{mapName: "storefronts", keyStr: k, time: e.lastAccess}
 			}
 		}
 		for k, e := range c.packDetails {
-			if first || e.lastAccess.Before(oldestTime) {
-				oldestTime = e.lastAccess
-				oldestMap = "packDetails"
-				oldestKeyStr = k
-				first = false
+			if e.lastAccess.Before(oldest.time) {
+				oldest = oldestEntry{mapName: "packDetails", keyStr: k, time: e.lastAccess}
 			}
 		}
 		for k, e := range c.shareTokens {
-			if first || e.lastAccess.Before(oldestTime) {
-				oldestTime = e.lastAccess
-				oldestMap = "shareTokens"
-				oldestKeyStr = k
-				first = false
+			if e.lastAccess.Before(oldest.time) {
+				oldest = oldestEntry{mapName: "shareTokens", keyStr: k, time: e.lastAccess}
 			}
 		}
 		for k, e := range c.userPurchased {
-			if first || e.lastAccess.Before(oldestTime) {
-				oldestTime = e.lastAccess
-				oldestMap = "userPurchased"
-				oldestKeyInt = k
-				first = false
+			if e.lastAccess.Before(oldest.time) {
+				oldest = oldestEntry{mapName: "userPurchased", keyInt: k, time: e.lastAccess}
 			}
 		}
 		for k, e := range c.homepage {
-			if first || e.lastAccess.Before(oldestTime) {
-				oldestTime = e.lastAccess
-				oldestMap = "homepage"
-				oldestKeyStr = k
-				first = false
+			if e.lastAccess.Before(oldest.time) {
+				oldest = oldestEntry{mapName: "homepage", keyStr: k, time: e.lastAccess}
 			}
 		}
 
-		switch oldestMap {
+		// 删除最旧的条目
+		switch oldest.mapName {
 		case "storefronts":
-			delete(c.storefronts, oldestKeyStr)
+			delete(c.storefronts, oldest.keyStr)
 		case "packDetails":
-			delete(c.packDetails, oldestKeyStr)
+			delete(c.packDetails, oldest.keyStr)
 		case "shareTokens":
-			delete(c.shareTokens, oldestKeyStr)
+			delete(c.shareTokens, oldest.keyStr)
 		case "userPurchased":
-			delete(c.userPurchased, oldestKeyInt)
+			delete(c.userPurchased, oldest.keyInt)
 		case "homepage":
-			delete(c.homepage, oldestKeyStr)
+			delete(c.homepage, oldest.keyStr)
+		default:
+			// 如果没有找到任何条目，退出循环防止死循环
+			return
 		}
 	}
 }
