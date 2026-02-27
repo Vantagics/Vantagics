@@ -15,7 +15,7 @@ interface StartupModeModalProps {
 }
 
 type Mode = 'select' | 'commercial' | 'opensource' | 'free';
-type CommercialStep = 'check' | 'request' | 'activating';
+type CommercialStep = 'check' | 'activating';
 
 const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete, onOpenSettings, initialMode }) => {
     const { t } = useLanguage();
@@ -40,7 +40,6 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     const serverURL = 'https://license.vantagics.com';
     const [sn, setSN] = useState('');
     const [activationEmail, setActivationEmail] = useState('');
-    const [email, setEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isNotInvitedError, setIsNotInvitedError] = useState(false);
@@ -253,20 +252,19 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
     };
 
     const handleActivate = async (snToUse?: string) => {
-        const activateSN = snToUse || sn;
-        if (!activateSN) {
-            setError(t('please_fill_server_and_sn'));
-            return;
-        }
+        const activateSN = snToUse;
 
-        if (!activationEmail) {
-            setError(t('activation_email_required'));
-            return;
-        }
-        const atIndex = activationEmail.indexOf('@');
-        if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
-            setError(t('please_enter_valid_email'));
-            return;
+        // If no saved SN provided, we need to request one via email
+        if (!activateSN) {
+            if (!activationEmail) {
+                setError(t('activation_email_required'));
+                return;
+            }
+            const atIndex = activationEmail.indexOf('@');
+            if (atIndex < 1 || atIndex >= activationEmail.length - 1 || !activationEmail.substring(atIndex + 1).includes('.')) {
+                setError(t('please_enter_valid_email'));
+                return;
+            }
         }
 
         if (!serverURL) {
@@ -276,24 +274,49 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
         setIsLoading(true);
         setError(null);
+        setIsNotInvitedError(false);
         setCommercialStep('activating');
 
         try {
-            const result = await ActivateLicense(serverURL, activateSN);
+            let finalSN = activateSN;
+
+            // Step 1: If no SN provided, request one via email
+            if (!finalSN) {
+                const snResult = await RequestSN(serverURL, activationEmail);
+                if (!snResult.success) {
+                    // Handle not_invited error with invite link
+                    if (snResult.code === 'not_invited' || snResult.message?.includes('not invited') || snResult.message?.includes('未被邀请')) {
+                        setError(t('email_not_invited_text'));
+                        setIsNotInvitedError(true);
+                    } else if (snResult.code) {
+                        const localizedError = t(`license_error_${snResult.code}`);
+                        setError(localizedError || snResult.message);
+                    } else {
+                        setError(snResult.message);
+                    }
+                    setCommercialStep('check');
+                    setIsLoading(false);
+                    return;
+                }
+                finalSN = snResult.sn;
+            }
+
+            // Step 2: Activate with the SN
+            const result = await ActivateLicense(serverURL, finalSN);
             if (result.success) {
-                // Save SN and email to config
+                // Step 3: Save SN and email to config
                 const config = await GetConfig() as any;
-                config.licenseSN = activateSN;
+                config.licenseSN = finalSN;
                 config.licenseServerURL = serverURL;
                 config.licenseEmail = activationEmail;
                 await SaveConfig(config);
                 
                 setSuccessMessage(t('activation_success'));
                 
-                // Emit event to notify AboutModal to refresh activation status
+                // Step 4: Emit event to notify AboutModal to refresh activation status
                 EventsEmit('activation-status-changed');
                 
-                // Verify LLM connection (verifyAndComplete handles its own loading state)
+                // Step 5: Verify LLM connection (verifyAndComplete handles its own loading state)
                 await verifyAndComplete();
             } else {
                 setError(result.message);
@@ -307,56 +330,8 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
         }
     };
 
-    const handleRequestSN = async () => {
-        if (!email || !email.includes('@')) {
-            setError(t('please_enter_valid_email'));
-            setIsNotInvitedError(false);
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-        setIsNotInvitedError(false);
-
-        try {
-            // Use Go backend to request SN (avoids CORS issues)
-            const result = await RequestSN(serverURL, email);
-            
-            if (result.success) {
-                setSN(result.sn);
-                setActivationEmail(email);
-                setSuccessMessage(t('sn_request_success'));
-                // Auto-switch to activation step with the new SN
-                setCommercialStep('check');
-            } else {
-                // Check if it's an "not invited" error
-                if (result.code === 'not_invited' || result.message?.includes('not invited') || result.message?.includes('未被邀请')) {
-                    setError(t('email_not_invited_text'));
-                    setIsNotInvitedError(true);
-                } else if (result.code) {
-                    // Use localized error message based on error code
-                    const localizedError = t(`license_error_${result.code}`);
-                    setError(localizedError || result.message);
-                    setIsNotInvitedError(false);
-                } else {
-                    setError(result.message);
-                    setIsNotInvitedError(false);
-                }
-            }
-        } catch (err: any) {
-            setError(t('server_connection_failed'));
-            setIsNotInvitedError(false);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
     const handleBack = () => {
-        if (mode === 'commercial' && commercialStep === 'request') {
-            setCommercialStep('check');
-        } else {
-            setMode('select');
-        }
+        setMode('select');
         setError(null);
         setIsNotInvitedError(false);
         setSuccessMessage(null);
@@ -517,27 +492,6 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                             {commercialStep === 'check' && (
                                 <>
                                     <div>
-                                        <div className="flex items-center justify-between mb-1">
-                                            <label className="block text-sm font-medium text-slate-700">
-                                                {t('serial_number')}
-                                            </label>
-                                            <button
-                                                onClick={() => setCommercialStep('request')}
-                                                className="text-xs text-blue-600 hover:text-blue-800"
-                                            >
-                                                {t('no_sn_request_trial')}
-                                            </button>
-                                        </div>
-                                        <input
-                                            type="text"
-                                            value={sn}
-                                            onChange={(e) => setSN(e.target.value.toUpperCase())}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm font-mono"
-                                            placeholder="XXXX-XXXX-XXXX-XXXX"
-                                        />
-                                    </div>
-
-                                    <div>
                                         <label className="block text-sm font-medium text-slate-700 mb-1">
                                             {t('activation_email_label')}
                                         </label>
@@ -552,7 +506,7 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
 
                                     <button
                                         onClick={() => handleActivate()}
-                                        disabled={isLoading || !sn}
+                                        disabled={isLoading || !activationEmail}
                                         className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
                                     >
                                         {isLoading ? (
@@ -567,49 +521,6 @@ const StartupModeModal: React.FC<StartupModeModalProps> = ({ isOpen, onComplete,
                                             </>
                                         )}
                                     </button>
-                                </>
-                            )}
-
-                            {commercialStep === 'request' && (
-                                <>
-                                    <p className="text-sm text-slate-600">
-                                        {t('request_trial_desc')}
-                                    </p>
-                                    
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">
-                                            {t('email_address')}
-                                        </label>
-                                        <input
-                                            type="email"
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-                                            placeholder="your@email.com"
-                                        />
-                                    </div>
-
-                                    <button
-                                        onClick={handleRequestSN}
-                                        disabled={isLoading || !email}
-                                        className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
-                                    >
-                                        {isLoading ? (
-                                            <>
-                                                <Loader2 className="w-4 h-4 animate-spin" />
-                                                {t('requesting')}
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Mail className="w-4 h-4" />
-                                                {t('request_trial_sn')}
-                                            </>
-                                        )}
-                                    </button>
-
-                                    <p className="text-xs text-slate-400 text-center">
-                                        {t('trial_limit_note')}
-                                    </p>
                                 </>
                             )}
 

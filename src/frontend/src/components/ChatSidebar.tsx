@@ -300,6 +300,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                                 // 设置加载状态
                                 setIsLoading(true);
                                 setLoadingThreadId(thread.id);
+                                loadingStateManager.setLoading(thread.id, true);
 
                                 // 调用后端发送消息
                                 await SendMessage(thread.id, data.initialMessage, userMessageId, requestId);
@@ -501,6 +502,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
             console.log('[ChatSidebar] switch-to-session event received:', data);
             const { threadId, openChat } = data;
             if (threadId) {
+                // 设置加载状态，避免 isUserMessageCancelled 误判为"分析中止"
+                setIsLoading(true);
+                setLoadingThreadId(threadId);
                 // 重新加载线程列表以包含新创建的会话
                 await loadThreads();
                 setActiveThreadId(threadId);
@@ -517,17 +521,17 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
         const unsubscribeLoading = EventsOn('chat-loading', (data: any) => {
             if (typeof data === 'boolean') {
                 // 向后兼容：如果是布尔值，应用到当前活动会话
-                if (activeThreadId) {
+                if (activeThreadIdRef.current) {
                     setIsLoading(data);
                     if (data) {
-                        setLoadingThreadId(activeThreadId);
+                        setLoadingThreadId(activeThreadIdRef.current);
                     } else {
                         setLoadingThreadId(null);
                     }
                 }
             } else if (data && typeof data === 'object') {
                 // 新格式：包含threadId的对象
-                if (data.threadId === activeThreadId) {
+                if (data.threadId === activeThreadIdRef.current) {
                     setIsLoading(data.loading);
                     if (data.loading) {
                         setLoadingThreadId(data.threadId);

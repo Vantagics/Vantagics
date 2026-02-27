@@ -27,7 +27,10 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 		return err
 	}
 	if result == nil {
-		return fmt.Errorf("failed to load pack")
+		return fmt.Errorf("failed to load pack: result is nil")
+	}
+	if result.Pack == nil {
+		return fmt.Errorf("failed to load pack: pack data is nil")
 	}
 	if !result.Validation.Compatible {
 		return fmt.Errorf("%s", i18n.T("qap.missing_required_tables", strings.Join(result.Validation.MissingTables, ", ")))
@@ -61,6 +64,8 @@ func (a *App) ExecuteQuickAnalysisPack(filePath string, dataSourceID string, pas
 	thread.QapFilePath = filePath
 	if err := a.chatService.saveThreadInternal(thread); err != nil {
 		a.Log(fmt.Sprintf("%s Error saving thread metadata: %v", logTagExecute, err))
+		// Clean up the created thread on save failure
+		_ = a.chatService.DeleteThread(thread.ID)
 		return fmt.Errorf("failed to save replay session: %w", err)
 	}
 

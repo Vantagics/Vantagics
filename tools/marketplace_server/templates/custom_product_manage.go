@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // CustomProductManageTmpl is the parsed custom product management page template.
-var CustomProductManageTmpl = template.Must(template.New("custom_product_manage").Parse(customProductManageHTML))
+var CustomProductManageTmpl = template.Must(template.New("custom_product_manage").Funcs(BaseFuncMap).Parse(customProductManageHTML))
 
 const customProductManageHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -93,7 +93,7 @@ const customProductManageHTML = `<!DOCTYPE html>
 <div class="page">
     <div class="nav">
         <a href="/" class="logo-link">
-            <div class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
+            <div class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></div>
             <span class="logo-text">分析技能包市场</span>
         </a>
         <a href="/user/storefront/" class="nav-link">← 返回小铺管理</a>

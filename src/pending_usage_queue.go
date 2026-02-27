@@ -58,8 +58,14 @@ func (q *PendingUsageQueue) Load() error {
 
 	var fileData pendingUsageFileData
 	if err := json.Unmarshal(data, &fileData); err != nil {
-		fmt.Printf("[PendingUsageQueue] warning: corrupted pending usage file %s, resetting: %v\n", q.filePath, err)
+		// Log detailed error for debugging, but don't fail - reset queue instead
+		fmt.Printf("[PendingUsageQueue] ERROR: corrupted pending usage file %s (size: %d bytes), resetting queue: %v\n", q.filePath, len(data), err)
 		q.records = []PendingUsageRecord{}
+		// Backup corrupted file for investigation
+		backupPath := q.filePath + ".corrupted." + fmt.Sprintf("%d", time.Now().Unix())
+		if backupErr := os.WriteFile(backupPath, data, 0600); backupErr == nil {
+			fmt.Printf("[PendingUsageQueue] Backed up corrupted file to: %s\n", backupPath)
+		}
 		return nil
 	}
 
@@ -72,6 +78,7 @@ func (q *PendingUsageQueue) Load() error {
 
 // saveLocked writes the current queue to disk atomically. Caller must hold q.mu.
 // Uses write-to-temp-then-rename pattern to prevent corruption on crash.
+// File permissions set to 0600 (owner read/write only) for security.
 func (q *PendingUsageQueue) saveLocked() error {
 	dir := filepath.Dir(q.filePath)
 	if err := os.MkdirAll(dir, 0700); err != nil {

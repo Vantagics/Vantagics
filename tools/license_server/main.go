@@ -1526,7 +1526,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未登录或会话已过期"})
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": "未登录或会话已过期", "error": "未登录或会话已过期"})
 				return
 			}
 			http.Redirect(w, r, "/", http.StatusSeeOther)

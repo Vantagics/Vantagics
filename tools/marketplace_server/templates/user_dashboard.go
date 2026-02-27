@@ -3,10 +3,10 @@ package templates
 import "html/template"
 
 // UserDashboardTmpl is the parsed user dashboard page template.
-var UserDashboardTmpl = template.Must(template.New("user_dashboard").Parse(userDashboardHTML))
+var UserDashboardTmpl = template.Must(template.New("user_dashboard").Funcs(BaseFuncMap).Parse(userDashboardHTML))
 
 // UserCustomProductOrdersTmpl is the parsed user custom product orders page template.
-var UserCustomProductOrdersTmpl = template.Must(template.New("user_custom_product_orders").Parse(userCustomProductOrdersHTML))
+var UserCustomProductOrdersTmpl = template.Must(template.New("user_custom_product_orders").Funcs(BaseFuncMap).Parse(userCustomProductOrdersHTML))
 
 const userDashboardHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -770,7 +770,7 @@ const userDashboardHTML = `<!DOCTYPE html>
     {{end}}
     <div class="header">
         <div class="header-title">
-            <span class="logo"><img src="/marketplace-logo.png" alt="" style="width:28px;height:28px;border-radius:6px;"></span>
+            <span class="logo"><img src="{{logoURL}}" alt="" style="width:28px;height:28px;border-radius:6px;"></span>
             <h1 data-i18n="personal_center">个人中心</h1>
         </div>
         <div class="header-lang" id="headerLangSwitcher">
@@ -2177,7 +2177,7 @@ const userCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <a class="nav-link" href="/user/" data-i18n="back_to_center_link">← 返回个人中心</a>
     </nav>
 

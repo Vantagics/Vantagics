@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // PackDetailTmpl is the parsed pack detail page template.
-var PackDetailTmpl = template.Must(template.New("pack_detail").Parse(packDetailHTML))
+var PackDetailTmpl = template.Must(template.New("pack_detail").Funcs(BaseFuncMap).Parse(packDetailHTML))
 
 const packDetailHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -100,7 +100,7 @@ const packDetailHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="logo" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div>{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="dlButtons"></span>{{end}}{{if .StoreSlug}}<a class="nav-store" href="/store/{{.StoreSlug}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg> <span data-i18n="visit_store">{{if .StoreName}}{{.StoreName}}{{else}}访问店铺{{end}}</span></a>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div>
     </nav>
     {{if .Error}}

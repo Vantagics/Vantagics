@@ -13,7 +13,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -50,6 +50,10 @@ var db *sql.DB
 
 //go:embed logo.png
 var marketplaceLogo []byte
+
+// marketplaceLogoHash is a short hash of the embedded logo for cache busting.
+// Computed once at startup in main().
+var marketplaceLogoHash string
 
 // Global cache instance
 var globalCache *Cache
@@ -6450,6 +6454,8 @@ func handleStorefrontSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
 		globalCache.InvalidateStorefront(slug)
 	}
+	// Also invalidate homepage cache so store cards reflect updated name/description
+	globalCache.InvalidateHomepage()
 
 	// Sync welcome message to support system when description is updated
 	var storefrontID int64
@@ -6643,6 +6649,8 @@ func handleStorefrontUploadLogo(w http.ResponseWriter, r *http.Request) {
 	if err := db.QueryRow("SELECT store_slug FROM author_storefronts WHERE user_id = ?", userID).Scan(&slug); err == nil {
 		globalCache.InvalidateStorefront(slug)
 	}
+	// Also invalidate homepage cache so store cards reflect the new logo
+	globalCache.InvalidateHomepage()
 
 	jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
@@ -13949,7 +13957,7 @@ func handleReviewRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // adminTmpl is the parsed admin panel HTML template.
-var adminTmpl = template.Must(template.New("admin").Parse(templates.AdminHTML))
+var adminTmpl = template.Must(template.New("admin").Funcs(templates.BaseFuncMap).Parse(templates.AdminHTML))
 
 // handleAdminDashboard renders the admin panel HTML page.
 // GET /admin/
@@ -17958,6 +17966,12 @@ func main() {
 	dbPath := flag.String("db", "marketplace.db", "SQLite database path")
 	flag.Parse()
 
+	// Compute logo hash for cache busting (short hex prefix of SHA-256)
+	h := sha256.Sum256(marketplaceLogo)
+	marketplaceLogoHash = fmt.Sprintf("%x", h[:4])
+	// Set versioned logo URL for all templates
+	templates.LogoURL = "/marketplace-logo-" + marketplaceLogoHash + ".png"
+
 	var err error
 	db, err = initDB(*dbPath)
 	if err != nil {
@@ -18033,11 +18047,23 @@ func main() {
 	http.HandleFunc("/api/translations", handleTranslationsAPI)
 	http.HandleFunc("/set-lang", handleSetLang)
 
-	// Marketplace logo
-	http.HandleFunc("/marketplace-logo.png", func(w http.ResponseWriter, r *http.Request) {
+	// Marketplace logo (versioned URL for cache busting + ETag)
+	logoETag := `"` + marketplaceLogoHash + `"`
+	serveLogo := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", logoETag)
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		if r.Header.Get("If-None-Match") == logoETag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Set("Content-Length", strconv.Itoa(len(marketplaceLogo)))
 		w.Write(marketplaceLogo)
+	}
+	http.HandleFunc("/marketplace-logo-"+marketplaceLogoHash+".png", serveLogo)
+	// Old URL redirects to versioned URL (302 so browsers re-check on next deploy)
+	http.HandleFunc("/marketplace-logo.png", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/marketplace-logo-"+marketplaceLogoHash+".png", http.StatusFound)
 	})
 
 	// Auth routes

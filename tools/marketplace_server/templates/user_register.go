@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // UserRegisterTmpl is the parsed user registration page template.
-var UserRegisterTmpl = template.Must(template.New("user_register").Parse(userRegisterHTML))
+var UserRegisterTmpl = template.Must(template.New("user_register").Funcs(BaseFuncMap).Parse(userRegisterHTML))
 const userRegisterHTML = `<!DOCTYPE html>
 <html lang="{{.HtmlLang}}">
 <head>
@@ -148,7 +148,7 @@ const userRegisterHTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="auth-card">
-    <div class="logo"><img src="/marketplace-logo.png" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
+    <div class="logo"><img src="{{logoURL}}" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
     <h1>{{index .T "bind_register"}}</h1>
     <p class="subtitle">{{index .T "register_subtitle"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}

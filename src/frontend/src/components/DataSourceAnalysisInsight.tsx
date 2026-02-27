@@ -3,6 +3,7 @@ import SmartInsight from './SmartInsight';
 import DataSourceSelectionModal from './DataSourceSelectionModal';
 import { StartDataSourceAnalysis } from '../../wailsjs/go/main/App';
 import { agent } from '../../wailsjs/go/models';
+import { EventsEmit } from '../../wailsjs/runtime/runtime';
 
 interface DataSourceAnalysisInsightProps {
     statistics: agent.DataSourceStatistics;
@@ -35,6 +36,9 @@ const DataSourceAnalysisInsight: React.FC<DataSourceAnalysisInsightProps> = ({
             const threadId = await StartDataSourceAnalysis(dataSourceId);
             
             console.log('[DataSourceAnalysisInsight] Analysis started:', { dataSourceId, threadId });
+            
+            // Ensure chat panel is visible (session switching handled by AnalysisResultBridge)
+            EventsEmit('ensure-chat-open', {});
             
             // Notify parent or navigate to analysis view
             if (onAnalyzeClick) {

@@ -2057,12 +2057,22 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 onClick={onDashboardClick}
             >
                 {getDisplayLayout().length === 0 ? (
-                    <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-slate-400 dark:text-[#808080]">
-                            <p className="text-lg">{t('no_data_available')}</p>
-                            <p className="text-sm mt-2">{t('start_analysis_to_see_results')}</p>
+                    dashboardData.isLoading ? (
+                        <div className="flex items-center justify-center h-full">
+                            <div className="text-center text-slate-400 dark:text-[#808080]">
+                                <div className="animate-pulse">
+                                    <p className="text-lg">{t('analyzing')}</p>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="flex items-center justify-center h-full">
+                            <div className="text-center text-slate-400 dark:text-[#808080]">
+                                <p className="text-lg">{t('no_data_available')}</p>
+                                <p className="text-sm mt-2">{t('start_analysis_to_see_results')}</p>
+                            </div>
+                        </div>
+                    )
                 ) : isEditMode ? (
                     // 编辑模式：使用绝对定位，显示所有组件
                     <div className="relative" style={{ minHeight: '100vh' }}>

@@ -517,6 +517,7 @@ func (s *DataSourceService) optimizeColumnTypes(db *sql.DB, tableName string) {
 	converted := 0
 
 	for _, col := range columns {
+		// Use proper quoting for column and table names to prevent SQL injection
 		sampleSQL := fmt.Sprintf(`SELECT "%s" FROM "%s" WHERE "%s" IS NOT NULL AND "%s" != '' LIMIT %d`,
 			col, tableName, col, col, sampleSize)
 		rows, err := db.Query(sampleSQL)

@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { X, Key, CheckCircle, AlertCircle, Loader2, Mail, ExternalLink } from 'lucide-react';
-import { ActivateLicense, GetActivationStatus, DeactivateLicense, GetConfig, SaveConfig } from '../../wailsjs/go/main/App';
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { X, Key, CheckCircle, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { ActivateLicense, GetActivationStatus, DeactivateLicense, GetConfig, SaveConfig, RequestSN } from '../../wailsjs/go/main/App';
+import { BrowserOpenURL, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { useLanguage } from '../i18n';
 
 interface ActivationModalProps {
@@ -16,17 +16,11 @@ const INVITE_URL = 'https://vantagics.com/invite';
 const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onActivated, hideServerURL = false }) => {
     const { t } = useLanguage();
     const [serverURL, setServerURL] = useState('https://license.vantagics.com');
-    const [sn, setSN] = useState('');
     const [activationEmail, setActivationEmail] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isNotInvitedError, setIsNotInvitedError] = useState(false);
     const [status, setStatus] = useState<any>(null);
-    
-    // Request SN state
-    const [showRequestForm, setShowRequestForm] = useState(false);
-    const [email, setEmail] = useState('');
-    const [isRequesting, setIsRequesting] = useState(false);
-    const [requestMessage, setRequestMessage] = useState<{ type: 'success' | 'error', text: string, isNotInvited?: boolean } | null>(null);
 
     // Helper function to get localized error message from server response code
     const getLocalizedError = (code: string | undefined, fallbackMessage: string): string => {
@@ -48,8 +42,6 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
     useEffect(() => {
         if (isOpen) {
             loadStatus();
-            setShowRequestForm(false);
-            setRequestMessage(null);
         }
     }, [isOpen]);
 
@@ -72,25 +64,51 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
             setError(t('please_enter_valid_email'));
             return;
         }
-        if (!serverURL || !sn) {
+
+        if (!serverURL) {
             setError(t('please_fill_server_and_sn'));
             return;
         }
 
         setIsLoading(true);
         setError(null);
+        setIsNotInvitedError(false);
 
         try {
-            const result = await ActivateLicense(serverURL, sn);
+            // Step 1: Request SN via email
+            const snResult = await RequestSN(serverURL, activationEmail);
+            if (!snResult.success) {
+                // Handle not_invited error with invite link
+                if (snResult.code === 'not_invited' || snResult.message?.includes('not invited') || snResult.message?.includes('未被邀请')) {
+                    setError(t('email_not_invited_text'));
+                    setIsNotInvitedError(true);
+                } else if (snResult.code) {
+                    setError(getLocalizedError(snResult.code, snResult.message));
+                } else {
+                    setError(snResult.message);
+                }
+                setIsLoading(false);
+                return;
+            }
+            const finalSN = snResult.sn;
+
+            // Step 2: Activate with the SN
+            const result = await ActivateLicense(serverURL, finalSN);
             if (result.success) {
-                // Save email to config
+                // Step 3: Save SN and email to config
                 try {
                     const cfg = await GetConfig();
-                    cfg.licenseEmail = activationEmail;
+                    (cfg as any).licenseSN = finalSN;
+                    (cfg as any).licenseServerURL = serverURL;
+                    (cfg as any).licenseEmail = activationEmail;
                     await SaveConfig(cfg);
                 } catch (e) {
-                    console.warn('Failed to save license email:', e);
+                    console.warn('Failed to save license config:', e);
                 }
+
+                // Step 4: Emit event to notify other components
+                EventsEmit('activation-status-changed');
+
                 await loadStatus();
                 onActivated?.();
             } else {
@@ -108,51 +126,8 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
         try {
             await DeactivateLicense();
             await loadStatus();
-            setSN('');
         } catch (err) {
             console.error('Failed to deactivate:', err);
-        }
-    };
-
-    const handleRequestSN = async () => {
-        if (!serverURL) {
-            setRequestMessage({ type: 'error', text: t('please_fill_server') });
-            return;
-        }
-        if (!email || !email.includes('@')) {
-            setRequestMessage({ type: 'error', text: t('please_enter_valid_email') });
-            return;
-        }
-
-        setIsRequesting(true);
-        setRequestMessage(null);
-
-        try {
-            const response = await fetch(`${serverURL}/request-sn`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email }),
-            });
-            const result = await response.json();
-            
-            if (result.success) {
-                setSN(result.sn);
-                setActivationEmail(email);
-                setShowRequestForm(false);
-                setRequestMessage({ type: 'success', text: t('sn_request_success') });
-            } else {
-                // Check if it's an "not invited" error
-                if (result.code === 'EMAIL_NOT_WHITELISTED' || result.code === 'not_invited' || result.message?.includes('not invited') || result.message?.includes('未被邀请')) {
-                    setRequestMessage({ type: 'error', text: t('email_not_invited_text'), isNotInvited: true });
-                } else {
-                    // Use code for localization if available
-                    setRequestMessage({ type: 'error', text: getLocalizedError(result.code, result.message) });
-                }
-            }
-        } catch (err: any) {
-            setRequestMessage({ type: 'error', text: (t('server_connection_failed')) + ': ' + err.toString() });
-        } finally {
-            setIsRequesting(false);
         }
     };
 
@@ -205,6 +180,15 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                                     <span className="text-sm text-red-700">{error}</span>
                                 </div>
                             )}
+                            {isNotInvitedError && (
+                                <button
+                                    onClick={handleOpenInviteLink}
+                                    className="mt-2 ml-6 flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                                >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    {INVITE_URL}
+                                </button>
+                            )}
 
                             {!hideServerURL && (
                                 <div>
@@ -222,100 +206,21 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                             )}
 
                             <div>
-                                <div className="flex items-center justify-between mb-1">
-                                    <label className="block text-sm font-medium text-slate-700">
-                                        序列号 (SN)
-                                    </label>
-                                    <button
-                                        onClick={() => setShowRequestForm(!showRequestForm)}
-                                        className="text-xs text-indigo-600 hover:text-indigo-800"
-                                    >
-                                        {showRequestForm ? '返回' : '没有序列号？申请试用'}
-                                    </button>
-                                </div>
-                                
-                                {showRequestForm ? (
-                                    <div className="space-y-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                        <div>
-                                            <label className="block text-xs text-slate-600 mb-1">
-                                                输入邮箱申请试用序列号
-                                            </label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="email"
-                                                    value={email}
-                                                    onChange={(e) => setEmail(e.target.value)}
-                                                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                    placeholder="your@email.com"
-                                                />
-                                                <button
-                                                    onClick={handleRequestSN}
-                                                    disabled={isRequesting}
-                                                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 flex items-center gap-1 text-sm whitespace-nowrap"
-                                                >
-                                                    {isRequesting ? (
-                                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                        <Mail className="w-4 h-4" />
-                                                    )}
-                                                    申请
-                                                </button>
-                                            </div>
-                                            <p className="mt-1 text-xs text-amber-600">
-                                                ⚠️ 请输入真实邮箱，以便日后找回序列号
-                                            </p>
-                                        </div>
-                                        {requestMessage && (
-                                            <div className={`text-xs ${requestMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                                                {requestMessage.text}
-                                                {requestMessage.isNotInvited && (
-                                                    <button
-                                                        onClick={handleOpenInviteLink}
-                                                        className="mt-1 flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
-                                                    >
-                                                        <ExternalLink className="w-3 h-3" />
-                                                        {INVITE_URL}
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-                                        <p className="text-xs text-slate-400">
-                                            * 每个邮箱仅可申请一次，每日限5次申请
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        value={sn}
-                                        onChange={(e) => setSN(e.target.value.toUpperCase())}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono"
-                                        placeholder="XXXX-XXXX-XXXX-XXXX"
-                                    />
-                                )}
-                                
-                                {requestMessage && !showRequestForm && requestMessage.type === 'success' && (
-                                    <p className="mt-1 text-xs text-green-600">{requestMessage.text}</p>
-                                )}
+                                <label className="block text-sm font-medium text-slate-700 mb-1">
+                                    {t('activation_email_label')}
+                                </label>
+                                <input
+                                    type="email"
+                                    value={activationEmail}
+                                    onChange={(e) => setActivationEmail(e.target.value)}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    placeholder={t('activation_email_placeholder')}
+                                />
                             </div>
-
-                            {!showRequestForm && (
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">
-                                        {t('activation_email_label')}
-                                    </label>
-                                    <input
-                                        type="email"
-                                        value={activationEmail}
-                                        onChange={(e) => setActivationEmail(e.target.value)}
-                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                        placeholder={t('activation_email_placeholder')}
-                                    />
-                                </div>
-                            )}
 
                             <button
                                 onClick={handleActivate}
-                                disabled={isLoading}
+                                disabled={isLoading || !activationEmail}
                                 className="w-full py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-300 flex items-center justify-center gap-2"
                             >
                                 {isLoading ? (
@@ -329,7 +234,7 @@ const ActivationModal: React.FC<ActivationModalProps> = ({ isOpen, onClose, onAc
                             </button>
 
                             <p className="text-xs text-slate-500 text-center">
-                                输入序列号激活，或点击上方"申请试用"获取
+                                {t('activation_email_hint') !== 'activation_email_hint' ? t('activation_email_hint') : '输入邮箱即可自动激活商业授权'}
                             </p>
                         </>
                     )}

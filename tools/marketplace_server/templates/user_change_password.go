@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // UserChangePasswordTmpl is the parsed change-password page template.
-var UserChangePasswordTmpl = template.Must(template.New("user_change_password").Parse(userChangePasswordHTML))
+var UserChangePasswordTmpl = template.Must(template.New("user_change_password").Funcs(BaseFuncMap).Parse(userChangePasswordHTML))
 const userChangePasswordHTML = `<!DOCTYPE html>
 <html lang="{{.HtmlLang}}">
 <head>
@@ -119,7 +119,7 @@ const userChangePasswordHTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="auth-card">
-    <div class="logo"><img src="/marketplace-logo.png" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
+    <div class="logo"><img src="{{logoURL}}" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
     <h1>{{index .T "change_password_title"}}</h1>
     <p class="subtitle">{{index .T "change_password_subtitle"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}

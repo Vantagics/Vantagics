@@ -42,6 +42,7 @@ var storefrontFuncMap = template.FuncMap{
 	"renderBannerMarkdown": func(s string) template.HTML {
 		return template.HTML(bannerMarkdownToHTML(s))
 	},
+	"logoURL": func() string { return LogoURL },
 }
 
 // bannerMarkdownToHTML converts a subset of markdown to safe HTML for banner text.
@@ -574,7 +575,7 @@ const storefrontHTML = `<!DOCTYPE html>
     <nav class="nav">
         <a class="logo-link" href="/">
             <span class="logo-mark">
-                <img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
+                <img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
             </span>
             <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
         </a>
@@ -1282,11 +1283,38 @@ function closeSupportDialog() {
     _supportLoginUrl = '';
 }
 function openSupportExternal() {
-    if (_supportLoginUrl) {
+    var iframe = document.getElementById('supportIframe');
+    if (iframe && iframe.contentWindow) {
+        var _expandHandled = false;
+        var _prevHandler = window._expandMsgHandler;
+        if (_prevHandler) window.removeEventListener('message', _prevHandler);
+        window._expandMsgHandler = function(event) {
+            if (event.data && event.data.type === 'askflow-expand-url' && event.data.url) {
+                _expandHandled = true;
+                window.open(event.data.url, '_blank');
+                closeSupportDialog();
+            }
+        };
+        window.addEventListener('message', window._expandMsgHandler);
+        iframe.contentWindow.postMessage({ type: 'askflow-request-expand-url' }, '*');
+        setTimeout(function() {
+            if (!_expandHandled && _supportLoginUrl) {
+                window.open(_supportLoginUrl, '_blank');
+                closeSupportDialog();
+            }
+        }, 500);
+    } else if (_supportLoginUrl) {
         window.open(_supportLoginUrl, '_blank');
         closeSupportDialog();
     }
 }
+window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'askflow-expand-url') {
+        if (!event.data.url) {
+            console.error('expand failed:', event.data.error);
+        }
+    }
+});
 document.getElementById('supportOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeSupportDialog();
 });

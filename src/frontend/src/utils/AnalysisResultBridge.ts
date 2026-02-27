@@ -13,7 +13,7 @@ import {
   ErrorCodes,
 } from '../types/AnalysisResult';
 import { getAnalysisResultManager } from '../managers/AnalysisResultManager';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsEmit } from '../../wailsjs/runtime/runtime';
 import { createLogger } from './systemLog';
 
 const logger = createLogger('AnalysisResultBridge');
@@ -172,6 +172,23 @@ export function initAnalysisResultBridge(
     }
   });
   unsubscribers.push(unsubscribeRestore);
+  
+  // 监听 analysis-session-created 事件（后端创建分析线程后发出）
+  // 
+  // Bug Fix (Requirements 2.1, 2.2, 2.3, 2.4):
+  // 1. 设置 currentSessionId 使后续分析结果能正确关联到会话
+  // 2. 设置加载状态，避免 isUserMessageCancelled 误判
+  // 3. 通知 ChatSidebar 切换到新线程并刷新线程列表
+  const unsubscribeSessionCreated = EventsOn('analysis-session-created', (payload: { threadId: string; dataSourceId: string }) => {
+    logger.debug(`[EventReceived] analysis-session-created: threadId=${payload.threadId}, dataSourceId=${payload.dataSourceId}`);
+    
+    manager.switchSession(payload.threadId);
+    manager.setLoading(true);
+    
+    EventsEmit('switch-to-session', { threadId: payload.threadId, openChat: true });
+    EventsEmit('thread-updated', {});
+  });
+  unsubscribers.push(unsubscribeSessionCreated);
   
   bridgeInitialized = true;
   logger.info('Analysis result bridge initialized successfully');

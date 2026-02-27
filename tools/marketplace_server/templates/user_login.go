@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // UserLoginTmpl is the parsed user login page template.
-var UserLoginTmpl = template.Must(template.New("user_login").Parse(userLoginHTML))
+var UserLoginTmpl = template.Must(template.New("user_login").Funcs(BaseFuncMap).Parse(userLoginHTML))
 
 const userLoginHTML = `<!DOCTYPE html>
 <html lang="{{.HtmlLang}}">
@@ -138,7 +138,7 @@ const userLoginHTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="auth-card">
-    <div class="logo"><img src="/marketplace-logo.png" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
+    <div class="logo"><img src="{{logoURL}}" alt="" style="width:48px;height:48px;border-radius:12px;"></div>
     <h1>{{index .T "site_name"}}</h1>
     <p class="subtitle">{{index .T "enter_credentials"}}</p>
     {{if .Error}}<div class="error-msg">{{.Error}}</div>{{end}}

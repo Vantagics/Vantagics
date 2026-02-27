@@ -125,7 +125,7 @@ const novP2 = `.store-featured{flex:1;min-width:0;display:flex;flex-direction:co
 </style></head><body>
 `
 const novP3 = `<div class="page">
-<nav class="nav"><a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+<nav class="nav"><a class="logo-link" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
 <div class="nav-actions">{{if or .DownloadURLWindows .DownloadURLMacOS}}<span id="sfDlBtn"></span>{{end}}{{if .IsLoggedIn}}<a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>{{else}}<a class="nav-link" href="/user/login" data-i18n="login">登录</a>{{end}}</div></nav>
 <div class="store-hero"><div class="hero-glow"></div><div class="store-hero-inner{{if eq .HeroLayout "reversed"}} hero-reversed{{end}}">
 <div class="store-profile"><div class="store-avatar-ring"><div class="store-avatar">{{if .Storefront.HasLogo}}<img src="/store/{{.Storefront.StoreSlug}}/logo" alt="{{.Storefront.StoreName}}">{{else}}<div class="store-avatar-letter">{{firstChar .Storefront.StoreName}}</div>{{end}}</div></div>
@@ -335,11 +335,38 @@ function closeSupportDialog() {
     _supportLoginUrl = '';
 }
 function openSupportExternal() {
-    if (_supportLoginUrl) {
+    var iframe = document.getElementById('supportIframe');
+    if (iframe && iframe.contentWindow) {
+        var _expandHandled = false;
+        var _prevHandler = window._expandMsgHandler;
+        if (_prevHandler) window.removeEventListener('message', _prevHandler);
+        window._expandMsgHandler = function(event) {
+            if (event.data && event.data.type === 'askflow-expand-url' && event.data.url) {
+                _expandHandled = true;
+                window.open(event.data.url, '_blank');
+                closeSupportDialog();
+            }
+        };
+        window.addEventListener('message', window._expandMsgHandler);
+        iframe.contentWindow.postMessage({ type: 'askflow-request-expand-url' }, '*');
+        setTimeout(function() {
+            if (!_expandHandled && _supportLoginUrl) {
+                window.open(_supportLoginUrl, '_blank');
+                closeSupportDialog();
+            }
+        }, 500);
+    } else if (_supportLoginUrl) {
         window.open(_supportLoginUrl, '_blank');
         closeSupportDialog();
     }
 }
+window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'askflow-expand-url') {
+        if (!event.data.url) {
+            console.error('expand failed:', event.data.error);
+        }
+    }
+});
 document.getElementById('supportOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeSupportDialog();
 });

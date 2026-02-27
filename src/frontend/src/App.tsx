@@ -110,6 +110,28 @@ function AppContent() {
     // Sound notification setting ref
     const soundEnabledRef = useRef<boolean>(true);
 
+    // Listen for askflow-request-expand-url from parent iframe host (Marketplace storefront)
+    useEffect(() => {
+        const handleExpandRequest = (event: MessageEvent) => {
+            if (event.data && event.data.type === 'askflow-request-expand-url') {
+                try {
+                    const currentUrl = window.location.href;
+                    (event.source as Window)?.postMessage(
+                        { type: 'askflow-expand-url', url: currentUrl },
+                        '*'
+                    );
+                } catch (err) {
+                    (event.source as Window)?.postMessage(
+                        { type: 'askflow-expand-url', url: null, error: String(err) },
+                        '*'
+                    );
+                }
+            }
+        };
+        window.addEventListener('message', handleExpandRequest);
+        return () => window.removeEventListener('message', handleExpandRequest);
+    }, []);
+
     // Keyboard shortcuts: Ctrl+1/2/3 (panel focus), Ctrl+B (data browser toggle), Escape (close data browser)
     // Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6
     useEffect(() => {

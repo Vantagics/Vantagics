@@ -21,6 +21,7 @@ var homepageFuncMap = template.FuncMap{
 		}
 		return string(runes[0])
 	},
+	"logoURL": func() string { return LogoURL },
 }
 
 // HomepageTmpl is the parsed template for the marketplace homepage.
@@ -299,7 +300,7 @@ const homepageHTML = `<!DOCTYPE html>
         <nav class="nav">
             <a class="logo-link" href="/">
                 <span class="logo-mark">
-                    <img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
+                    <img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
                 </span>
                 <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
             </a>

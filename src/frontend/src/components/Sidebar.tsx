@@ -412,6 +412,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
     const handleStartChatAnalysis = () => {
         if (!selectedId) {
+            // 如果只有一个数据源，自动选中它并打开新会话对话框
+            if (sources && sources.length === 1) {
+                const source = sources[0];
+                setSelectedId(source.id);
+                EventsEmit('data-source-selected', source);
+                setIsNewChatModalOpen(true);
+                return;
+            }
             // 显示确认对话框，让用户选择是否进入系统助手模式
             setShowNoDataSourcePrompt(true);
             return;
@@ -441,6 +449,16 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     // 免费模式下"开始分析"按钮点击处理
     const handleFreeStartAnalysis = () => {
         if (!selectedId) {
+            // 如果只有一个数据源，自动选中它
+            if (sources && sources.length === 1) {
+                const source = sources[0];
+                setSelectedId(source.id);
+                EventsEmit('data-source-selected', source);
+                if (onOpenPackManager) {
+                    onOpenPackManager(source.id);
+                }
+                return;
+            }
             setShowFreeNoDataSourcePrompt(true);
             return;
         }
@@ -459,7 +477,9 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
     };
 
     const handleNewChatSubmit = (sessionName: string) => {
-        const source = sources?.find(s => s.id === selectedId);
+        // 优先用 selectedId 查找，如果为空且只有一个数据源则自动使用
+        const source = sources?.find(s => s.id === selectedId)
+            || (sources && sources.length === 1 ? sources[0] : undefined);
         if (source) {
             // Trigger chat open with new session details
             // We need to pass data to ChatSidebar.
@@ -715,7 +735,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, onToggleChat, width, 
 
             <NewChatModal
                 isOpen={isNewChatModalOpen}
-                dataSourceId={selectedId || ''}
+                dataSourceId={selectedId || (sources && sources.length === 1 ? sources[0].id : '') || ''}
                 onClose={() => setIsNewChatModalOpen(false)}
                 onSubmit={handleNewChatSubmit}
                 onStartFreeChat={() => {

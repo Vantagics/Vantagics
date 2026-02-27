@@ -54,12 +54,12 @@ type ChatFacadeService struct {
 	logger          func(string)
 
 	// 并发状态（�App 迁移过来�
-	activeThreads      map[string]bool
-	activeThreadsMutex sync.RWMutex
-	cancelAnalysis     bool
-	cancelAnalysisMutex sync.Mutex
-	activeThreadID     string
-	isChatOpen         bool
+	activeThreads       map[string]bool
+	activeThreadsMutex  sync.RWMutex
+	cancelAnalysisMutex sync.Mutex // Protects both cancelAnalysis and activeThreadID
+	cancelAnalysis      bool
+	activeThreadID      string
+	isChatOpen          bool
 
 	// Dependencies for SendMessage/SendFreeChatMessage
 	licenseClient         *agent.LicenseClient

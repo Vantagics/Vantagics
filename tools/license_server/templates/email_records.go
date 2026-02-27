@@ -390,7 +390,7 @@ function doManualBind() {
             document.getElementById('email-product-filter').value = '-1';
             loadEmailRecords(1, email); 
         } else { 
-            alert('绑定失败: ' + result.message); 
+            alert('绑定失败: ' + (result.message || result.error || '未知错误')); 
         } 
     })
     .catch(function(err) {
@@ -423,7 +423,7 @@ function doManualRequest() {
             document.getElementById('email-product-filter').value = '-1';
             loadEmailRecords(1, email); 
         } else { 
-            alert('申请失败: ' + result.message); 
+            alert('申请失败: ' + (result.message || result.error || '未知错误')); 
         } 
     })
     .catch(function(err) {

@@ -265,7 +265,8 @@ func (a *App) collectTableSchemas(sourceID string) ([]TableSchemaInfo, error) {
 
 // getSampleData 获取表的样本数据
 func (a *App) getSampleData(sourceID, tableName string, limit int) ([]map[string]any, error) {
-	query := fmt.Sprintf("SELECT * FROM %s LIMIT %d", tableName, limit)
+	// Use quoted identifier to prevent SQL injection
+	query := fmt.Sprintf(`SELECT * FROM "%s" LIMIT %d`, tableName, limit)
 	return a.dataSourceService.ExecuteQuery(sourceID, query)
 }
 

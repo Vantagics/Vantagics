@@ -3,7 +3,7 @@ package templates
 import "html/template"
 
 // StorefrontManageTmpl is the parsed storefront management page template.
-var StorefrontManageTmpl = template.Must(template.New("storefront_manage").Parse(storefrontManageHTML))
+var StorefrontManageTmpl = template.Must(template.New("storefront_manage").Funcs(BaseFuncMap).Parse(storefrontManageHTML))
 
 const storefrontManageHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -519,7 +519,7 @@ const storefrontManageHTML = `<!DOCTYPE html>
 <div class="page">
     <!-- Navigation -->
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text" data-i18n="site_name">分析技能包市场</span></a>
         <div style="display:flex;gap:8px;">
             <a class="nav-link" href="/store/{{.Storefront.StoreSlug}}" target="_blank" data-i18n="sm_view_store">🔗 查看小铺</a>
             <a class="nav-link" href="/user/dashboard" data-i18n="personal_center">个人中心</a>
@@ -2543,7 +2543,7 @@ function cancelSupportSystem() {
 </html>`
 
 // StorefrontCustomProductOrdersTmpl is the parsed custom product orders page template.
-var StorefrontCustomProductOrdersTmpl = template.Must(template.New("storefront_custom_product_orders").Parse(storefrontCustomProductOrdersHTML))
+var StorefrontCustomProductOrdersTmpl = template.Must(template.New("storefront_custom_product_orders").Funcs(BaseFuncMap).Parse(storefrontCustomProductOrdersHTML))
 
 const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -2646,7 +2646,7 @@ const storefrontCustomProductOrdersHTML = `<!DOCTYPE html>
 <body>
 <div class="page">
     <nav class="nav">
-        <a class="logo-link" href="/"><span class="logo-mark"><img src="/marketplace-logo.png" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text">分析技能包市场</span></a>
+        <a class="logo-link" href="/"><span class="logo-mark"><img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"></span><span class="logo-text">分析技能包市场</span></a>
         <a class="nav-link" href="/user/storefront/">← 返回小铺管理</a>
     </nav>
 
