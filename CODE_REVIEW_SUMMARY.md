@@ -164,7 +164,10 @@ return WrapOperationErrorf("load user %s", err, userID)
 ## 提交记录
 
 ```
-3ed583a refactor: 添加错误处理辅助函数
+2fc9e65 refactor: 添加通用数据库辅助函数库
+bd2c6cd test: 添加 StartupModeModal 商业激活测试
+72b7caa docs: 添加代码审查和优化总结文档
+3ed583a perf: 优化缓存 LRU 淘汰算法和错误处理
 68a41ad fix: 修复关键安全和并发问题
 ```
 
