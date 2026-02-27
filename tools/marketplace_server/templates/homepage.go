@@ -36,13 +36,10 @@ const homepageHTML = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="default-lang" content="{{.DefaultLang}}">
     <title data-i18n="homepage.title">分析技能包市场</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
         *,*::before,*::after { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Microsoft YaHei", sans-serif;
             background: #f8f9fc;
             min-height: 100vh;
             color: #1e293b;
@@ -302,7 +299,7 @@ const homepageHTML = `<!DOCTYPE html>
                 <span class="logo-mark">
                     <img src="{{logoURL}}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">
                 </span>
-                <span class="logo-text" data-i18n="site_name">分析技能包市场</span>
+                <span class="logo-text" data-i18n="site_name">万策分析技能包市场</span>
             </a>
             <div class="nav-center">
                 {{if or .DownloadURLWindows .DownloadURLMacOS}}
@@ -346,10 +343,10 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .FeaturedStores}}
-            <a class="store-card" href="/store/{{.StoreSlug}}">
+            <a class="store-card" href="/store/{{.PublicID}}">
                 <div class="store-card-avatar">
                     {{if .HasLogo}}
-                    <img src="/store/{{.StoreSlug}}/logo" alt="{{.StoreName}}">
+                    <img src="/store/{{.PublicID}}/logo" alt="{{.StoreName}}">
                     {{else}}
                     <div class="store-card-avatar-letter">{{firstChar .StoreName}}</div>
                     {{end}}
@@ -371,10 +368,10 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .TopSalesStores}}
-            <a class="store-card" href="/store/{{.StoreSlug}}">
+            <a class="store-card" href="/store/{{.PublicID}}">
                 <div class="store-card-avatar">
                     {{if .HasLogo}}
-                    <img src="/store/{{.StoreSlug}}/logo" alt="{{.StoreName}}">
+                    <img src="/store/{{.PublicID}}/logo" alt="{{.StoreName}}">
                     {{else}}
                     <div class="store-card-avatar-letter">{{firstChar .StoreName}}</div>
                     {{end}}
@@ -396,10 +393,10 @@ const homepageHTML = `<!DOCTYPE html>
         </h2>
         <div class="card-grid">
             {{range .TopDownloadsStores}}
-            <a class="store-card" href="/store/{{.StoreSlug}}">
+            <a class="store-card" href="/store/{{.PublicID}}">
                 <div class="store-card-avatar">
                     {{if .HasLogo}}
-                    <img src="/store/{{.StoreSlug}}/logo" alt="{{.StoreName}}">
+                    <img src="/store/{{.PublicID}}/logo" alt="{{.StoreName}}">
                     {{else}}
                     <div class="store-card-avatar-letter">{{firstChar .StoreName}}</div>
                     {{end}}
@@ -706,7 +703,7 @@ const homepageHTML = `<!DOCTYPE html>
 
     <!-- Footer (7.7) -->
     <footer class="footer">
-        <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> <span data-i18n="site_name">分析技能包市场</span></p>
+        <p class="footer-text">&copy; 2026 <a href="https://vantagics.com" target="_blank" rel="noopener" style="color:#6366f1;text-decoration:none;font-weight:600;">Vantagics</a> <span data-i18n="site_name">万策分析技能包市场</span></p>
     </footer>
 
 </div>

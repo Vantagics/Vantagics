@@ -59,18 +59,19 @@ type StorefrontPublicData struct {
 
 // PackDetailPublicData 分析包详情页公共数据（缓存对象）
 type PackDetailPublicData struct {
-	ListingID     int64
-	ShareToken    string
-	PackName      string
-	PackDesc      string
-	SourceName    string
-	AuthorName    string
-	ShareMode     string
-	CreditsPrice  int
-	DownloadCount int
-	CategoryName  string
-	StoreSlug     string
-	StoreName     string
+	ListingID          int64
+	ShareToken         string
+	PackName           string
+	PackDesc           string
+	SourceName         string
+	AuthorName         string
+	ShareMode          string
+	CreditsPrice       int
+	DownloadCount      int
+	CategoryName       string
+	StoreSlug          string
+	StoreName          string
+	StorefrontPublicID string
 }
 
 // HomepagePublicData 首页公共数据（缓存对象，不含用户相关字段）
