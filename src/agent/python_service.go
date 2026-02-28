@@ -118,7 +118,7 @@ func (s *PythonService) SetupUvEnvironment() (string, error) {
 	}
 
 	// Install required packages using uv pip
-	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb", "openpyxl", "seaborn"}
 	for _, pkg := range requiredPackages {
 		installCmd := exec.Command("uv", "pip", "install", pkg, "--python", pythonPath)
 		if runtime.GOOS == "windows" {
@@ -176,7 +176,7 @@ func (s *PythonService) GetUvEnvironmentStatus() UvEnvironmentStatus {
 		status.PythonVersion = s.getPythonVersion(status.PythonPath)
 
 		// Check packages
-		requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+		requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb", "openpyxl", "seaborn"}
 		for _, pkg := range requiredPackages {
 			if !s.checkPackage(status.PythonPath, pkg) {
 				status.MissingPackages = append(status.MissingPackages, pkg)
@@ -341,7 +341,7 @@ func (s *PythonService) ValidatePythonEnvironment(path string) PythonValidationR
 	}
 
 	// 2. Check for required packages
-	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb", "openpyxl", "seaborn"}
 	for _, pkg := range requiredPackages {
 		if !s.checkPackage(path, pkg) {
 			result.MissingPackages = append(result.MissingPackages, pkg)
@@ -570,7 +570,7 @@ func (s *PythonService) CreateVantagicsEnvironment() (string, error) {
 	}
 
 	// Install required packages
-	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb"}
+	requiredPackages := []string{"matplotlib", "numpy", "pandas", "mlxtend", "duckdb", "openpyxl", "seaborn"}
 	err = s.InstallMissingPackages(pythonPath, requiredPackages)
 	if err != nil {
 		// Clean up the created environment on failure

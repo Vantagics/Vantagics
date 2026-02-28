@@ -929,7 +929,7 @@ function AppContent() {
                     }
                     
                     // 合并到现有的charts数组中
-                    const existingCharts = prevChart.chartData.charts || [];
+                    const existingCharts = Array.isArray(prevChart.chartData.charts) ? prevChart.chartData.charts : [];
                     // 检查是否已存在相同类型的数据，如果存在则更新，否则添加
                     const existingIndex = existingCharts.findIndex((c: any) => c.type === payload.type);
                     let updatedCharts;
@@ -1491,7 +1491,7 @@ function AppContent() {
             logger.debug(`Metrics extracted: ${payload?.metrics?.length || 0} metrics for message ${payload?.messageId}`);
             logger.debug(`Current activeChart state: ${activeChart ? activeChart.type : 'null'}`);
 
-            if (payload && payload.messageId && payload.metrics) {
+            if (payload && payload.messageId && payload.metrics && Array.isArray(payload.metrics)) {
                 // 转换为Dashboard格式
                 const formattedMetrics = payload.metrics.map((metric: any, index: number) => {
                     const cleanName = String(metric.name || '').trim();
@@ -1594,6 +1594,11 @@ function AppContent() {
                     }
 
                     const metricsData = JSON.parse(cleanedJson);
+
+                    if (!Array.isArray(metricsData)) {
+                        logger.warn(`Metrics JSON is not an array: ${typeof metricsData}`);
+                        return;
+                    }
 
                     logger.debug(`Metrics JSON loaded successfully: ${metricsData.length} metrics`);
 

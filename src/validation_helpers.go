@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/mail"
 	"regexp"
@@ -238,6 +239,3 @@ func ValidateJSONField(field, value string) error {
 	
 	return nil
 }
-
-// Import json package
-import "encoding/json"

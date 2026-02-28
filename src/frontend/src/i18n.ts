@@ -1067,6 +1067,7 @@ export const translations: Record<Language, Record<string, string>> = {
         // Settings/Preferences
         'settings_saved_successfully': 'Settings saved successfully!',
         'settings_save_failed': 'Failed to save settings',
+        'language_change_restart_hint': 'Please restart the application to see menu and title changes.',
         // System Startup
         'system_startup': 'System Startup',
         'initializing': 'Initializing...',
@@ -2510,6 +2511,7 @@ export const translations: Record<Language, Record<string, string>> = {
         // Settings/Preferences
         'settings_saved_successfully': '设置保存成功！',
         'settings_save_failed': '设置保存失败',
+        'language_change_restart_hint': '请重启应用以查看菜单和标题的语言变化。',
         // System Startup
         'system_startup': '系统启动',
         'initializing': '初始化中...',

@@ -98,56 +98,82 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     const dashboardData = useDashboardData();
     
     // 创建兼容变量，从新系统获取数据 - memoized to prevent unnecessary re-renders
-    const data = React.useMemo(() => ({
-        metrics: dashboardData.metrics.map(m => ({
-            title: m.title,
-            value: m.value,
-            change: m.change || ''
-        })),
-        insights: dashboardData.insights.map(i => ({
-            text: i.text,
-            icon: i.icon || 'lightbulb',
-            dataSourceId: i.dataSourceId,
-            sourceName: i.sourceName
-        }))
-    }), [dashboardData.metrics, dashboardData.insights]);
+    const data = React.useMemo(() => {
+        // 确保 metrics 和 insights 是数组，并且过滤掉任何无效元素
+        const safeMetrics = Array.isArray(dashboardData.metrics) ? dashboardData.metrics.filter(m => m && typeof m === 'object') : [];
+        const safeInsights = Array.isArray(dashboardData.insights) ? dashboardData.insights.filter(i => i && typeof i === 'object') : [];
+        
+        try {
+            return {
+                metrics: safeMetrics.map(m => ({
+                    title: m.title || '',
+                    value: m.value || '',
+                    change: m.change || ''
+                })),
+                insights: safeInsights.map(i => ({
+                    text: i.text || '',
+                    icon: i.icon || 'lightbulb',
+                    dataSourceId: i.dataSourceId,
+                    sourceName: i.sourceName
+                }))
+            };
+        } catch (e) {
+            logger.error(`[data useMemo] Error creating data object: ${e}`);
+            return {
+                metrics: [],
+                insights: []
+            };
+        }
+    }, [dashboardData.metrics, dashboardData.insights]);
     
     // 构建兼容的 activeChart 对象 - memoized to avoid expensive JSON.stringify on every render
     const activeChart = React.useMemo<{ type: 'echarts' | 'image' | 'table' | 'csv', data: any, chartData?: any } | null>(() => {
-        if (dashboardData.hasECharts) {
-            return {
-                type: 'echarts' as const,
-                data: typeof dashboardData.echartsData === 'string' 
-                    ? dashboardData.echartsData 
-                    : JSON.stringify(dashboardData.echartsData),
-                chartData: {
-                    charts: [
-                        ...dashboardData.allEChartsData.map(d => ({ type: 'echarts', data: typeof d === 'string' ? d : JSON.stringify(d) })),
-                        ...dashboardData.images.map(img => ({ type: 'image', data: img })),
-                        ...dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
-                    ]
-                }
-            };
+        try {
+            if (dashboardData.hasECharts) {
+                // 确保所有数组字段都是真正的数组
+                const safeAllEChartsData = Array.isArray(dashboardData.allEChartsData) ? dashboardData.allEChartsData : [];
+                const safeImages = Array.isArray(dashboardData.images) ? dashboardData.images : [];
+                const safeAllTableData = Array.isArray(dashboardData.allTableData) ? dashboardData.allTableData : [];
+                
+                return {
+                    type: 'echarts' as const,
+                    data: typeof dashboardData.echartsData === 'string' 
+                        ? dashboardData.echartsData 
+                        : JSON.stringify(dashboardData.echartsData),
+                    chartData: {
+                        charts: [
+                            ...safeAllEChartsData.map(d => ({ type: 'echarts', data: typeof d === 'string' ? d : JSON.stringify(d) })),
+                            ...safeImages.map(img => ({ type: 'image', data: img })),
+                            ...safeAllTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
+                        ]
+                    }
+                };
+            }
+            if (dashboardData.hasImages) {
+                const safeImages = Array.isArray(dashboardData.images) ? dashboardData.images : [];
+                return {
+                    type: 'image' as const,
+                    data: safeImages[0],
+                    chartData: {
+                        charts: safeImages.map(img => ({ type: 'image', data: img }))
+                    }
+                };
+            }
+            if (dashboardData.hasTables && dashboardData.tableData) {
+                const safeAllTableData = Array.isArray(dashboardData.allTableData) ? dashboardData.allTableData : [];
+                return {
+                    type: 'table' as const,
+                    data: dashboardData.tableData.rows,
+                    chartData: {
+                        charts: safeAllTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
+                    }
+                };
+            }
+            return null;
+        } catch (e) {
+            logger.error(`[activeChart useMemo] Error creating activeChart: ${e}`);
+            return null;
         }
-        if (dashboardData.hasImages) {
-            return {
-                type: 'image' as const,
-                data: dashboardData.images[0],
-                chartData: {
-                    charts: dashboardData.images.map(img => ({ type: 'image', data: img }))
-                }
-            };
-        }
-        if (dashboardData.hasTables && dashboardData.tableData) {
-            return {
-                type: 'table' as const,
-                data: dashboardData.tableData.rows,
-                chartData: {
-                    charts: dashboardData.allTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
-                }
-            };
-        }
-        return null;
     }, [dashboardData.hasECharts, dashboardData.echartsData, dashboardData.allEChartsData, 
         dashboardData.hasImages, dashboardData.images, 
         dashboardData.hasTables, dashboardData.tableData, dashboardData.allTableData]);
@@ -159,23 +185,29 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     
     // Memoize parsed ECharts configs to avoid re-parsing JSON on every render
     const parsedEChartsConfigs = React.useMemo(() => {
-        if (!dashboardData.allEChartsData || dashboardData.allEChartsData.length === 0) return [];
-        return dashboardData.allEChartsData.map((chartData) => {
-            try {
-                if (typeof chartData === 'string') {
-                    try {
-                        return JSON.parse(chartData);
-                    } catch {
-                        const cleanedData = cleanEChartsJsonString(chartData);
-                        return JSON.parse(cleanedData);
+        try {
+            // 确保 allEChartsData 是数组
+            if (!dashboardData.allEChartsData || !Array.isArray(dashboardData.allEChartsData) || dashboardData.allEChartsData.length === 0) return [];
+            return dashboardData.allEChartsData.map((chartData) => {
+                try {
+                    if (typeof chartData === 'string') {
+                        try {
+                            return JSON.parse(chartData);
+                        } catch {
+                            const cleanedData = cleanEChartsJsonString(chartData);
+                            return JSON.parse(cleanedData);
+                        }
                     }
+                    return chartData;
+                } catch (e) {
+                    logger.error(`[parsedEChartsConfigs] Failed to parse: ${e}`);
+                    return null;
                 }
-                return chartData;
-            } catch (e) {
-                logger.error(`[parsedEChartsConfigs] Failed to parse: ${e}`);
-                return null;
-            }
-        });
+            });
+        } catch (e) {
+            logger.error(`[parsedEChartsConfigs] Fatal error in useMemo: ${e}`);
+            return [];
+        }
     }, [dashboardData.allEChartsData]);
     
     // 图表/图片放大模态框状态
@@ -259,7 +291,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             };
 
             // 收集指标数据
-            if (dashboardData.hasMetrics) {
+            if (dashboardData.hasMetrics && dashboardData.metrics && Array.isArray(dashboardData.metrics)) {
                 reportData.metrics = dashboardData.metrics.map((metric) => ({
                     title: metric.title || '',
                     value: metric.value || '',
@@ -268,7 +300,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             }
 
             // 收集洞察数据
-            if (dashboardData.hasInsights) {
+            if (dashboardData.hasInsights && dashboardData.insights && Array.isArray(dashboardData.insights)) {
                 reportData.insights = dashboardData.insights.map((insight) =>
                     insight.text || ''
                 );
@@ -339,13 +371,13 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             }
 
             // 收集所有表格
-            if (dashboardData.hasTables && dashboardData.allTableData.length > 0) {
+            if (dashboardData.hasTables && dashboardData.allTableData && Array.isArray(dashboardData.allTableData) && dashboardData.allTableData.length > 0) {
                 reportData.allTableData = dashboardData.allTableData.map((table, index) => ({
                     name: table.title || `表格${index + 1}`,
                     table: {
-                        columns: table.columns.map(col => ({ title: col, dataType: 'string' })),
-                        data: table.rows.map((row: Record<string, any>) =>
-                            table.columns.map(col => row[col] === null || row[col] === undefined ? '' : row[col])
+                        columns: (table.columns || []).map(col => ({ title: col, dataType: 'string' })),
+                        data: (table.rows || []).map((row: Record<string, any>) =>
+                            (table.columns || []).map(col => row[col] === null || row[col] === undefined ? '' : row[col])
                         )
                     }
                 }));
@@ -613,36 +645,26 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
     // 获取用于显示的布局（非编辑模式下过滤没有数据的组件）
     const getDisplayLayout = (): LayoutItem[] => {
         if (isEditMode) {
-            // 编辑模式：显示所有组件
             return layout;
         }
-        // 非编辑模式：只显示有数据的组件
-        const displayItems = layout.filter(item => hasDataForType(item.type));
-        
-        // 诊断日志：记录布局中的所有类型和过滤结果
-        const allTypes = layout.map(item => item.type).join(',');
-        const displayTypes = displayItems.map(item => item.type).join(',');
-        logger.warn(`[getDisplayLayout] layout types=[${allTypes}], display types=[${displayTypes}], hasECharts=${dashboardData.hasECharts}`);
-        
-        return displayItems;
+        return layout.filter(item => hasDataForType(item.type));
     };
 
     // 初始化时使用默认布局（包含所有组件类型）
     // 不再根据数据自动生成布局，而是保持用户编辑的布局
     // 数据变化时不改变布局，只影响非编辑模式下的显示过滤
 
-    // 加载保存的布局（保留所有组件类型，不过滤）
+    // 加载保存的布局
     useEffect(() => {
         const loadSavedLayout = async () => {
             try {
                 const savedLayout = await LoadLayout('default-user');
                 if (savedLayout && savedLayout.items && savedLayout.items.length > 0) {
-                    // 转换保存的布局到我们的格式，并去重同类型控件
-                    // 不过滤没有数据的组件，保留完整布局供编辑模式使用
                     const seenTypes = new Set<string>();
                     const convertedLayout: LayoutItem[] = [];
                     
                     for (const item of savedLayout.items) {
+                        // 直接使用 ID 的第一部分作为类型（统一为单数形式）
                         const type = item.i.split('-')[0] as LayoutItem['type'];
                         
                         // 每种类型只保留第一个
@@ -651,18 +673,18 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         
                         const minH = MIN_HEIGHTS[type] || 56;
                         convertedLayout.push({
-                            id: `${type}-area`, // 统一使用 type-area 格式
+                            id: `${type}-area`,
                             type: type,
                             x: item.x,
                             y: item.y,
                             w: item.w,
                             h: Math.max(item.h, minH),
-                            data: null // 数据从全局获取
+                            data: null
                         });
                     }
                     
                     if (convertedLayout.length > 0) {
-                        // 确保所有默认类型都存在，补充缺失的类型
+                        // 确保所有必需类型都存在
                         const requiredTypes: LayoutItem['type'][] = ['metric', 'chart', 'insight', 'table', 'image', 'file_download'];
                         let maxY = Math.max(...convertedLayout.map(i => i.y + i.h), 0);
                         
@@ -679,11 +701,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                                     data: null
                                 });
                                 maxY += minH + 10;
-                                logger.warn(`[loadSavedLayout] Added missing type: ${reqType}`);
                             }
                         }
                         
-                        logger.warn(`[loadSavedLayout] Final ${convertedLayout.length} items: ${convertedLayout.map(i => i.type).join(',')}`);
                         setLayout(convertedLayout);
                     } else {
                         logger.warn(`[loadSavedLayout] No items in saved layout, using default`);
@@ -1352,7 +1372,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
         // 渲染多个指标（4列自动排布）
         const renderMetricsGrid = () => {
-            if (!dashboardData.hasMetrics || dashboardData.metrics.length === 0) {
+            if (!dashboardData.hasMetrics || !dashboardData.metrics || !Array.isArray(dashboardData.metrics) || dashboardData.metrics.length === 0) {
                 return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无指标数据</div>;
             }
             const metrics = dashboardData.metrics;
@@ -1373,7 +1393,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
 
         // 渲染多个洞察（3列自动排布）- 可点击发起分析
         const renderInsightsGrid = () => {
-            if (!dashboardData.hasInsights || dashboardData.insights.length === 0) {
+            if (!dashboardData.hasInsights || !dashboardData.insights || !Array.isArray(dashboardData.insights) || dashboardData.insights.length === 0) {
                 return <div className="p-4 text-center text-slate-400 dark:text-[#808080] text-sm">暂无洞察数据</div>;
             }
             const insights = dashboardData.insights;
@@ -1426,7 +1446,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                             return <div key={index} className="text-red-500 p-4">{t('chart_error')}</div>;
                         }
                         try {
-                            const chartStepDescription = dashboardData.allEChartsMetadata?.[index]?.step_description;
+                            const chartStepDescription = Array.isArray(dashboardData.allEChartsMetadata)
+                                ? dashboardData.allEChartsMetadata[index]?.step_description
+                                : undefined;
                             
                             return (
                                 <div key={index}>
@@ -1461,7 +1483,7 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
         // 渲染表格
         const renderTable = () => {
             // 直接使用 dashboardData 中的表格数据
-            if (!dashboardData.hasTables || !dashboardData.allTableData || dashboardData.allTableData.length === 0) {
+            if (!dashboardData.hasTables || !dashboardData.allTableData || !Array.isArray(dashboardData.allTableData) || dashboardData.allTableData.length === 0) {
                 return <div className="p-4 text-center text-slate-400 text-sm">{t('no_data_available')}</div>;
             }
 
@@ -1476,7 +1498,10 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 <div className="space-y-4">
                     {validTables.map(({ data: tableData, originalIndex }, index) => {
                         // 优先使用后端提供的标题，否则从列名生成
-                        const cols = tableData.columns || Object.keys(tableData.rows[0] || {});
+                        // 确保 cols 始终是数组
+                        const cols = Array.isArray(tableData.columns) 
+                            ? tableData.columns 
+                            : Object.keys(tableData.rows[0] || {});
                         const titleHint = cols.slice(0, 3).join(' / ') + (cols.length > 3 ? ' ...' : '');
                         
                         // 使用后端提供的 title，如果没有则生成默认标题
@@ -1497,7 +1522,9 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                         }
                         
                         // 从 metadata 中读取 step_description
-                        const stepDescription = dashboardData.allTableMetadata?.[originalIndex]?.step_description;
+                        const stepDescription = Array.isArray(dashboardData.allTableMetadata) 
+                            ? dashboardData.allTableMetadata[originalIndex]?.step_description
+                            : undefined;
                         
                         // 显示标题栏的条件：多表格时总是显示，单表格时如果有后端提供的标题或 step_description 也显示
                         const showTitleBar = totalTables > 1 || hasBackendTitle || !!stepDescription;

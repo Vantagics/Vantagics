@@ -231,15 +231,28 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
 
     const handleSave = async () => {
         try {
+            // Check if language has changed
+            const originalConfig = await GetConfig();
+            const languageChanged = originalConfig.language !== config.language;
+            
             console.log('[Config] Saving config:', config);
             console.log('[Config] MCP Services:', config.mcpServices);
             await SaveConfig(config);
-            // Show success toast
-            setToast({ message: t('settings_save_success'), type: 'success' });
+            
+            // Show appropriate success message
+            if (languageChanged) {
+                setToast({ 
+                    message: t('settings_saved_successfully') + ' ' + t('language_change_restart_hint'), 
+                    type: 'success' 
+                });
+            } else {
+                setToast({ message: t('settings_saved_successfully'), type: 'success' });
+            }
+            
             // Close modal after a short delay to allow toast to be visible
             setTimeout(() => {
                 onClose();
-            }, 500);
+            }, languageChanged ? 2000 : 500); // Longer delay if language changed to show the hint
         } catch (err) {
             console.error('Failed to save config:', err);
             setToast({ message: t('settings_save_failed') + ': ' + err, type: 'error' });
@@ -805,7 +818,7 @@ const PreferenceModal: React.FC<PreferenceModalProps> = ({ isOpen, onClose, onOp
                                                     <option value="">{t('select_city')}</option>
                                                     {config.location?.country && countries
                                                         .find(c => c.nameEn === config.location?.country)
-                                                        ?.cities.map(city => (
+                                                        ?.cities?.map(city => (
                                                             <option key={city.nameEn} value={city.nameEn}>
                                                                 {getCityDisplayName(city, config.language === '简体中文' ? 'zh' : 'en')}
                                                             </option>

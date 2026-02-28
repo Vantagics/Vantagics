@@ -692,7 +692,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 } else {
                     // Fallback to legacy chart_data format
                     const chartDataToUse = analysisData?.chartData;
-                    if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
+                    if (chartDataToUse && chartDataToUse.charts && Array.isArray(chartDataToUse.charts) && chartDataToUse.charts.length > 0) {
                         const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
                             id: `legacy_${messageId}_${index}`,
                             type: chart.type || 'echarts',
@@ -3051,7 +3051,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                 // Fallback to legacy chart_data format (loaded from backend)
                 const chartDataToUse = analysisData?.chartData;
 
-                if (chartDataToUse && chartDataToUse.charts && chartDataToUse.charts.length > 0) {
+                if (chartDataToUse && chartDataToUse.charts && Array.isArray(chartDataToUse.charts) && chartDataToUse.charts.length > 0) {
                     const convertedItems = chartDataToUse.charts.map((chart: any, index: number) => ({
                         id: `legacy_${messageId}_${index}`,
                         type: chart.type || 'echarts',
@@ -3612,7 +3612,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({ isOpen, onClose }) => {
                     )}
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/10 dark:bg-transparent scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-[#424242] scrollbar-track-transparent">
-                        {activeThread?.messages.map((msg, index) => {
+                        {activeThread?.messages?.map((msg, index) => {
                             // 如果是空的助手消息，跳过渲染（避免显示空气泡）
                             if (msg.role === 'assistant' && !msg.content) {
                                 return null;

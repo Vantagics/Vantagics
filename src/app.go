@@ -1768,6 +1768,8 @@ func (a *App) updateWindowTitle(language string) {
 // UpdateApplicationMenu updates the application menu based on language
 // This is called from SaveConfig when language changes
 func (a *App) UpdateApplicationMenu(language string) {
+	a.Log(fmt.Sprintf("[UpdateApplicationMenu] Starting menu update for language: %s", language))
+	
 	// Rebuild the menu with new language
 	newMenu := createApplicationMenu(a, language)
 	
@@ -1778,7 +1780,8 @@ func (a *App) UpdateApplicationMenu(language string) {
 	runtime.MenuSetApplicationMenu(a.ctx, newMenu)
 	runtime.MenuUpdateApplicationMenu(a.ctx)
 	
-	a.Log(fmt.Sprintf("Application menu updated to language: %s", language))
+	a.Log(fmt.Sprintf("[UpdateApplicationMenu] Application menu updated to language: %s", language))
+	a.Log("[UpdateApplicationMenu] Note: On some platforms, menu changes may require application restart to fully take effect")
 }
 
 // reinitializeServices reinitializes services that depend on configuration.

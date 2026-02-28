@@ -197,8 +197,16 @@ export function useDashboardData(): DashboardDataSource {
     hasAttemptedLoadRef.current = true;
     try {
       const stats = await GetDataSourceStatistics();
-      setDataSourceStatistics(stats);
-      logger.info(`[DataSourceStats] Loaded successfully: total=${stats?.total_count || 0}, types=${Object.keys(stats?.breakdown_by_type || {}).length}`);
+      
+      // 规范化数据结构，确保所有字段都是正确的类型
+      const normalizedStats = {
+        total_count: stats?.total_count || 0,
+        breakdown_by_type: (stats?.breakdown_by_type && typeof stats.breakdown_by_type === 'object') ? stats.breakdown_by_type : {},
+        data_sources: Array.isArray(stats?.data_sources) ? stats.data_sources : []
+      };
+      
+      setDataSourceStatistics(normalizedStats as any);
+      logger.info(`[DataSourceStats] Loaded successfully: total=${normalizedStats.total_count}, types=${Object.keys(normalizedStats.breakdown_by_type).length}, sources=${normalizedStats.data_sources.length}`);
     } catch (err) {
       logger.error(`[DataSourceStats] Failed to load: ${err}`);
       setDataSourceStatistics(null);
@@ -400,22 +408,28 @@ export function useDashboardData(): DashboardDataSource {
   }, [clearDataSourceStatistics]);
   
   const result = useMemo(() => {
-    logger.warn(`[DataTransform] Starting data transformation: charts=${analysisResults.charts.length}, tables=${analysisResults.tables.length}, insights=${analysisResults.insights.length}, metrics=${analysisResults.metrics.length}, images=${analysisResults.images.length}, files=${analysisResults.files.length}, isLoading=${analysisResults.isLoading}, currentSession=${analysisResults.currentSessionId}, currentMessage=${analysisResults.currentMessageId}`);
-    
-    // ECharts
-    const echartsItems = analysisResults.charts;
+    // 安全地获取数组长度，处理 undefined/null 情况
+    const safeLength = (arr: any[] | null | undefined): number => {
+      if (!arr || !Array.isArray(arr)) return 0;
+      return arr.length;
+    };
+
+    logger.warn(`[DataTransform] Starting data transformation: charts=${safeLength(analysisResults.charts)}, tables=${safeLength(analysisResults.tables)}, insights=${safeLength(analysisResults.insights)}, metrics=${safeLength(analysisResults.metrics)}, images=${safeLength(analysisResults.images)}, files=${safeLength(analysisResults.files)}, isLoading=${analysisResults.isLoading}, currentSession=${analysisResults.currentSessionId}, currentMessage=${analysisResults.currentMessageId}`);
+
+    // ECharts - 添加空数组保护
+    const echartsItems = analysisResults.charts || [];
     const hasECharts = echartsItems.length > 0;
     const echartsData = hasECharts ? echartsItems[0].data : null;
     const allEChartsData = echartsItems.map(item => item.data);
     const allEChartsMetadata = echartsItems.map(item => item.metadata);
-    
-    // Images
-    const imageItems = analysisResults.images;
+
+    // Images - 添加空数组保护
+    const imageItems = analysisResults.images || [];
     const hasImages = imageItems.length > 0;
     const images = imageItems.map(item => item.data as string);
-    
-    // Tables
-    const tableItems = analysisResults.tables;
+
+    // Tables - 添加空数组保护
+    const tableItems = analysisResults.tables || [];
     const hasTables = tableItems.length > 0;
     const tableData = hasTables ? (tableItems[0].data as NormalizedTableData) : null;
     const allTableData = tableItems.map(item => item.data as NormalizedTableData);
@@ -445,7 +459,7 @@ export function useDashboardData(): DashboardDataSource {
     const shouldShowEmptyState = isViewingHistoricalEmptyResult && !hasAnyAnalysisResults && !analysisResults.isLoading;
     
     // Metrics - 只有在没有分析结果且不是历史空结果时才显示数据源指标
-    const analysisMetrics = analysisResults.metrics;
+    const analysisMetrics = analysisResults.metrics || [];
     const dataSourceMetrics: NormalizedMetricData[] = [];
     
     // 只有在应该显示数据源统计时才添加数据源统计信息
@@ -458,17 +472,19 @@ export function useDashboardData(): DashboardDataSource {
       });
       
       // Breakdown by type - show top 3 types
-      const sortedTypes = Object.entries(dataSourceStatistics.breakdown_by_type)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 3);
-      
-      sortedTypes.forEach(([type, count]) => {
-        dataSourceMetrics.push({
-          title: t('type_data_sources', type.toUpperCase()),
-          value: String(count),
-          change: ''
+      if (dataSourceStatistics.breakdown_by_type && typeof dataSourceStatistics.breakdown_by_type === 'object') {
+        const sortedTypes = Object.entries(dataSourceStatistics.breakdown_by_type)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 3);
+        
+        sortedTypes.forEach(([type, count]) => {
+          dataSourceMetrics.push({
+            title: t('type_data_sources', type.toUpperCase()),
+            value: String(count),
+            change: ''
+          });
         });
-      });
+      }
     } else if (shouldShowEmptyState) {
       // Empty state active - not adding data source metrics
     }
@@ -478,11 +494,11 @@ export function useDashboardData(): DashboardDataSource {
     const hasMetrics = allMetrics.length > 0;
     
     // Insights - 只有在没有分析结果且不是历史空结果时才显示数据源洞察
-    const analysisInsights = analysisResults.insights;
+    const analysisInsights = analysisResults.insights || [];
     const dataSourceInsights: NormalizedInsightData[] = [];
     
     // 只有在应该显示数据源统计时才添加数据源洞察
-    if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.data_sources && dataSourceStatistics.data_sources.length > 0) {
+    if (shouldShowDataSourceStats && dataSourceStatistics && dataSourceStatistics.data_sources && Array.isArray(dataSourceStatistics.data_sources) && dataSourceStatistics.data_sources.length > 0) {
       dataSourceStatistics.data_sources.forEach((ds: any) => {
         const insight = {
           text: `${ds.name} (${ds.type.toUpperCase()}) - ${t('click_to_start_analysis')}`,
@@ -501,26 +517,26 @@ export function useDashboardData(): DashboardDataSource {
     const hasInsights = allInsights.length > 0;
     
     // Files
-    const hasFiles = analysisResults.files.length > 0;
-    const files = analysisResults.files;
+    const files = analysisResults.files || [];
+    const hasFiles = files.length > 0;
     
     return {
       hasECharts,
       echartsData,
-      allEChartsData,
-      allEChartsMetadata,
+      allEChartsData: Array.isArray(allEChartsData) ? allEChartsData : [],
+      allEChartsMetadata: Array.isArray(allEChartsMetadata) ? allEChartsMetadata : [],
       hasImages,
-      images,
+      images: Array.isArray(images) ? images : [],
       hasTables,
       tableData,
-      allTableData,
-      allTableMetadata,
+      allTableData: Array.isArray(allTableData) ? allTableData : [],
+      allTableMetadata: Array.isArray(allTableMetadata) ? allTableMetadata : [],
       hasMetrics,
-      metrics: allMetrics,
+      metrics: Array.isArray(allMetrics) ? allMetrics : [],
       hasInsights,
-      insights: allInsights,
+      insights: Array.isArray(allInsights) ? allInsights : [],
       hasFiles,
-      files,
+      files: Array.isArray(files) ? files : [],
       dataSourceStatistics,
       isDataSourceStatsLoading,
       isLoading: analysisResults.isLoading,

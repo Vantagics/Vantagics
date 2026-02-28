@@ -94,28 +94,30 @@ const DataSourceOverview: React.FC<DataSourceOverviewProps> = ({ onAnalyzeClick 
             </div>
 
             {/* Breakdown by type */}
-            <div className="breakdown">
-                <h4 className="text-sm font-medium text-slate-700 mb-3">按类型统计</h4>
-                <div className="breakdown-list grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {Object.entries(statistics.breakdown_by_type)
-                        .sort(([, a], [, b]) => b - a) // Sort by count descending
-                        .map(([type, count]) => (
-                            <div
-                                key={type}
-                                className="breakdown-item bg-slate-50 rounded-lg p-3 border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
-                            >
-                                <div className="flex items-center justify-between">
-                                    <span className="type-name text-sm font-medium text-slate-700 uppercase">
-                                        {type}
-                                    </span>
-                                    <span className="type-count text-lg font-bold text-blue-600">
-                                        {count}
-                                    </span>
+            {statistics.breakdown_by_type && typeof statistics.breakdown_by_type === 'object' && (
+                <div className="breakdown">
+                    <h4 className="text-sm font-medium text-slate-700 mb-3">按类型统计</h4>
+                    <div className="breakdown-list grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {Object.entries(statistics.breakdown_by_type)
+                            .sort(([, a], [, b]) => b - a) // Sort by count descending
+                            .map(([type, count]) => (
+                                <div
+                                    key={type}
+                                    className="breakdown-item bg-slate-50 rounded-lg p-3 border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="type-name text-sm font-medium text-slate-700 uppercase">
+                                            {type}
+                                        </span>
+                                        <span className="type-count text-lg font-bold text-blue-600">
+                                            {count}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Smart Insight for One-Click Analysis */}
             <div className="mt-4">
