@@ -6178,12 +6178,12 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 	var storeLayout sql.NullString
 	var layoutConfigRaw sql.NullString
 	var themeRaw sql.NullString
-	err = db.QueryRow(`SELECT id, user_id, store_name, store_slug, description,
+	err = db.QueryRow(`SELECT id, user_id, COALESCE(public_id, ''), store_name, store_slug, description,
 		CASE WHEN logo_data IS NOT NULL AND LENGTH(logo_data) > 0 THEN 1 ELSE 0 END,
 		COALESCE(logo_content_type, ''), auto_add_enabled, COALESCE(store_layout, 'default'), created_at, updated_at,
 		layout_config, COALESCE(theme, 'default')
 		FROM author_storefronts WHERE user_id = ?`, userID).Scan(
-		&storefront.ID, &storefront.UserID, &storefront.StoreName, &storefront.StoreSlug,
+		&storefront.ID, &storefront.UserID, &storefront.PublicID, &storefront.StoreName, &storefront.StoreSlug,
 		&storefront.Description, &storefront.HasLogo, &logoContentType,
 		&storefront.AutoAddEnabled, &storeLayout, &storefront.CreatedAt, &storefront.UpdatedAt,
 		&layoutConfigRaw, &themeRaw,
@@ -6374,7 +6374,14 @@ func handleStorefrontSettingsPage(w http.ResponseWriter, r *http.Request) {
 	if r.TLS == nil {
 		scheme = "http"
 	}
-	fullURL := fmt.Sprintf("%s://%s/store/%s", scheme, r.Host, storefront.StoreSlug)
+	storefrontURLID := storefront.PublicID
+	if storefrontURLID == "" {
+		storefrontURLID = storefront.StoreSlug
+	}
+	if storefrontURLID == "" {
+		storefrontURLID = strconv.FormatInt(storefront.ID, 10)
+	}
+	fullURL := fmt.Sprintf("%s://%s/store/%s", scheme, r.Host, storefrontURLID)
 
 	defaultLang := getSetting("default_language")
 	if defaultLang == "" {

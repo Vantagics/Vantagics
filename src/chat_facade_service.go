@@ -1522,6 +1522,9 @@ func (c *ChatFacadeService) detectAndEmitImages(response, threadID, userMessageI
 	if c.chatService == nil || threadID == "" {
 		return
 	}
+	if strings.Contains(response, "json:echarts") {
+		return
+	}
 
 	// Check for saved image files in session directory
 	sessionFiles, err := c.chatService.GetSessionFiles(threadID)
@@ -1545,16 +1548,54 @@ func (c *ChatFacadeService) detectAndEmitImages(response, threadID, userMessageI
 
 // filterFalseFileClaimsIfECharts 过滤 ECharts 响应中的虚假文件声明
 func (c *ChatFacadeService) filterFalseFileClaimsIfECharts(response string) string {
-	// Check if response contains ECharts data
-	if !strings.Contains(response, "json:echarts") {
+	// Check if response contains display artifacts that should not remain in chat.
+	hasECharts := strings.Contains(response, "json:echarts")
+	hasArtifacts := strings.Contains(response, "Generated charts:") ||
+		strings.Contains(response, "Exported files:") ||
+		strings.Contains(response, "图表已保存至") ||
+		strings.Contains(response, "saved to")
+	if !hasECharts && !hasArtifacts {
 		return response
 	}
 
 	// Filter out false file generation claims
 	lines := strings.Split(response, "\n")
 	var filtered []string
+	skipGeneratedCharts := false
+	skipExportedFiles := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		if trimmed == "Generated charts:" {
+			skipGeneratedCharts = true
+			skipExportedFiles = false
+			continue
+		}
+		if trimmed == "Exported files:" {
+			skipGeneratedCharts = false
+			skipExportedFiles = true
+			continue
+		}
+		if skipGeneratedCharts {
+			if trimmed == "" || strings.HasPrefix(trimmed, "===") {
+				skipGeneratedCharts = false
+			} else {
+				continue
+			}
+		}
+		if skipExportedFiles {
+			if trimmed == "" || strings.HasPrefix(trimmed, "===") {
+				skipExportedFiles = false
+			} else {
+				continue
+			}
+		}
+		if hasECharts && strings.Contains(trimmed, "chart.png") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "C:/") || strings.HasPrefix(trimmed, "C:\\") ||
+			strings.HasPrefix(trimmed, "/Users/") || strings.HasPrefix(trimmed, "/home/") {
+			continue
+		}
 		// Skip lines that claim file generation but are likely false
 		if strings.Contains(trimmed, "已保�") && strings.Contains(trimmed, ".png") && strings.Contains(response, "json:echarts") {
 			continue

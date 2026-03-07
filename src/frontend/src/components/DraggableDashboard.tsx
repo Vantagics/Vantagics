@@ -132,7 +132,6 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
             if (dashboardData.hasECharts) {
                 // 确保所有数组字段都是真正的数组
                 const safeAllEChartsData = Array.isArray(dashboardData.allEChartsData) ? dashboardData.allEChartsData : [];
-                const safeImages = Array.isArray(dashboardData.images) ? dashboardData.images : [];
                 const safeAllTableData = Array.isArray(dashboardData.allTableData) ? dashboardData.allTableData : [];
                 
                 return {
@@ -143,7 +142,6 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                     chartData: {
                         charts: [
                             ...safeAllEChartsData.map(d => ({ type: 'echarts', data: typeof d === 'string' ? d : JSON.stringify(d) })),
-                            ...safeImages.map(img => ({ type: 'image', data: img })),
                             ...safeAllTableData.map(t => ({ type: 'table', data: t.rows, columns: t.columns }))
                         ]
                     }
@@ -631,8 +629,8 @@ const DraggableDashboard: React.FC<DraggableDashboardProps> = ({
                 // 表格数据：直接使用 dashboardData.hasTables
                 return dashboardData.hasTables;
             case 'image':
-                // 图片组件：直接使用 dashboardData.hasImages
-                return dashboardData.hasImages;
+                // 有 ECharts 时，图表统一走 ECharts 渲染，避免再显示图片图表
+                return dashboardData.hasImages && !dashboardData.hasECharts;
             case 'file_download':
                 // 文件下载：只显示与当前选中消息关联的文件
                 if (!sessionFiles || sessionFiles.length === 0 || !selectedMessageId) return false;

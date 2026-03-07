@@ -1,9 +1,19 @@
 @echo off
 REM Vantagics Build Script (Optimized for Multi-core)
 
-REM Proxy settings (SOCKS5)
-set "HTTP_PROXY=socks5://127.0.0.1:10808"
-set "HTTPS_PROXY=socks5://127.0.0.1:10808"
+REM Optional proxy settings.
+REM Set CUSTOM_HTTP_PROXY / CUSTOM_HTTPS_PROXY before running this script if needed.
+if defined CUSTOM_HTTP_PROXY (
+    set "HTTP_PROXY=%CUSTOM_HTTP_PROXY%"
+) else (
+    set "HTTP_PROXY="
+)
+if defined CUSTOM_HTTPS_PROXY (
+    set "HTTPS_PROXY=%CUSTOM_HTTPS_PROXY%"
+) else (
+    set "HTTPS_PROXY="
+)
+set "ALL_PROXY="
 
 REM Ensure GOPATH\bin is in PATH for wails, makefat, etc.
 for /f "delims=" %%i in ('go env GOPATH') do set "GOPATH_DIR=%%i"
@@ -29,6 +39,7 @@ if "%COMMAND%"=="" set "COMMAND=build"
 set "SKIP_NSIS="
 set "SKIP_FRONTEND="
 set "SKIP_TOOLS="
+set "VERBOSE="
 
 REM Parse optional flags
 :parse_args
@@ -37,6 +48,7 @@ if "%~1"=="" goto :done_args
 if /i "%~1"=="--skip-nsis" set "SKIP_NSIS=1"
 if /i "%~1"=="--skip-frontend" set "SKIP_FRONTEND=1"
 if /i "%~1"=="--skip-tools" set "SKIP_TOOLS=1"
+if /i "%~1"=="--verbose" set "VERBOSE=1"
 if /i "%~1"=="--fast" (
     set "SKIP_NSIS=1"
 )
@@ -53,7 +65,7 @@ if /i "%COMMAND%"=="fast" (
 )
 
 echo Error: Unknown command "%COMMAND%"
-echo Usage: build.bat [build^|windows^|tools^|fast^|clean] [--skip-nsis] [--skip-frontend] [--skip-tools] [--fast]
+echo Usage: build.bat [build^|windows^|tools^|fast^|clean] [--skip-nsis] [--skip-frontend] [--skip-tools] [--verbose] [--fast]
 exit /b 1
 
 :build_all
@@ -75,14 +87,14 @@ set "CC=%~dp0bin\zcc.bat"
 set "CXX=%~dp0bin\zxx.bat"
 
 set "CGO_LDFLAGS=-L%DUCKDB_LIB_DIR% -lduckdb -lws2_32 -lbcrypt -lcrypt32 -lole32 -luser32 -lshell32 -ladvapi32 -lrstrtmgr -lpsapi -lstdc++ -Wl,--subsystem,windows"
-set "CGO_CFLAGS=-I%DUCKDB_LIB_DIR%"
+set "CGO_CFLAGS=-I%DUCKDB_LIB_DIR% -Wno-dll-attribute-on-redeclaration"
 set "CGO_LDFLAGS_ALLOW=.*"
 
 REM Add DLL directory to PATH so wails can run the binary to generate bindings
 set "PATH=%DUCKDB_LIB_DIR%;%PATH%"
 
 REM Build wails command with options
-set WAILS_CMD=wails build -platform windows/amd64
+set "WAILS_CMD=wails build -platform windows/amd64 -nocolour -m"
 
 REM Skip -clean to leverage incremental builds (much faster)
 REM Use -clean only when you need a full rebuild
@@ -97,9 +109,11 @@ if defined SKIP_FRONTEND (
     set "WAILS_CMD=%WAILS_CMD% -s"
 )
 
-REM Enable verbose output to see parallel compilation
+REM Default to quiet output; opt in to verbose build logs.
 if defined VERBOSE (
     set "WAILS_CMD=%WAILS_CMD% -v 2"
+) else (
+    set "WAILS_CMD=%WAILS_CMD% -v 0"
 )
 
 REM -ldflags "-H windowsgui" ensures no console window is shown at runtime
@@ -115,8 +129,8 @@ if errorlevel 1 (
 cd /d ..
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
-    copy /y "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\" >nul
-    copy /y "libduckDB\windows\duckdb.dll" "%DIST_DIR%\" >nul
+    call :copy_file_quiet "%BUILD_DIR%\%OUTPUT_NAME%.exe" "%DIST_DIR%\%OUTPUT_NAME%.exe"
+    call :copy_file_quiet "libduckDB\windows\duckdb.dll" "%DIST_DIR%\duckdb.dll"
     echo Windows build and duckdb.dll copied to %DIST_DIR%\
 ) else (
     echo Warning: %BUILD_DIR%\%OUTPUT_NAME%.exe not found
@@ -124,7 +138,7 @@ if exist "%BUILD_DIR%\%OUTPUT_NAME%.exe" (
 REM Copy NSIS installer
 if not defined SKIP_NSIS (
     if exist "%BUILD_DIR%\Vantagics-amd64-installer.exe" (
-        copy /y "%BUILD_DIR%\Vantagics-amd64-installer.exe" "%DIST_DIR%\" >nul
+        call :copy_file_quiet "%BUILD_DIR%\Vantagics-amd64-installer.exe" "%DIST_DIR%\Vantagics-amd64-installer.exe"
         echo NSIS installer copied to %DIST_DIR%\Vantagics-amd64-installer.exe
     ) else (
         echo Warning: NSIS installer not found
@@ -190,6 +204,13 @@ popd
 echo.
 echo   All tools built successfully!
 echo   Tools directory: %DIST_DIR%\tools
+exit /b 0
+
+:copy_file_quiet
+copy /y "%~1" "%~2" >nul 2>nul
+if errorlevel 1 (
+    echo Warning: could not overwrite %~2 because it is in use
+)
 exit /b 0
 
 :clean

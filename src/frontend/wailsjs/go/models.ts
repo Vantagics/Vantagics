@@ -172,8 +172,7 @@ export namespace agent {
 	    analysis_type: string;
 	    target_columns: string[];
 	    key_findings: string;
-	    // Go type: time
-	    timestamp: any;
+	    timestamp: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AnalysisRecord(source);
@@ -186,26 +185,8 @@ export namespace agent {
 	        this.analysis_type = source["analysis_type"];
 	        this.target_columns = source["target_columns"];
 	        this.key_findings = source["key_findings"];
-	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.timestamp = source["timestamp"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class ConversationTurn {
 	    role: string;
@@ -792,8 +773,7 @@ export namespace agent {
 	    description: string;
 	    content: string;
 	    path: string;
-	    // Go type: time
-	    installed_at: any;
+	    installed_at: number;
 	    enabled: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -806,27 +786,9 @@ export namespace agent {
 	        this.description = source["description"];
 	        this.content = source["content"];
 	        this.path = source["path"];
-	        this.installed_at = this.convertValues(source["installed_at"], null);
+	        this.installed_at = source["installed_at"];
 	        this.enabled = source["enabled"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	
 	export class StoreCredentials {

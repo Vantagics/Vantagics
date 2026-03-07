@@ -722,19 +722,5 @@ func (p *ResultParser) FormatAsText(result *ExecutionResult) string {
 
 	sb.WriteString(result.TextOutput)
 
-	if len(result.ChartFiles) > 0 {
-		sb.WriteString("\n\nGenerated charts:\n")
-		for _, f := range result.ChartFiles {
-			sb.WriteString("- " + f.Name + "\n")
-		}
-	}
-
-	if len(result.ExportFiles) > 0 {
-		sb.WriteString("\nExported files:\n")
-		for _, f := range result.ExportFiles {
-			sb.WriteString("- " + f.Name + "\n")
-		}
-	}
-
 	return sb.String()
 }

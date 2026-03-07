@@ -16,6 +16,16 @@ set -e
 SERVER_IP="107.172.86.131"
 USER="root"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+SSH_KEY="${VANTAGICS_SSH_KEY:-}"
+if [ -z "$SSH_KEY" ] && [ -f "$HOME/.ssh/id_rsa" ]; then
+    SSH_KEY="$HOME/.ssh/id_rsa"
+fi
+if [ -z "$SSH_KEY" ] && [ -f "$HOME/.ssh/vantagics_rsa" ]; then
+    SSH_KEY="$HOME/.ssh/vantagics_rsa"
+fi
+if [ -n "$SSH_KEY" ]; then
+    SSH_OPTS="$SSH_OPTS -i $SSH_KEY"
+fi
 
 TARGET="${1:-all}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,6 +34,13 @@ echo "=========================================="
 echo "Vantagics 一键部署"
 echo "Target: $TARGET"
 echo "=========================================="
+echo ""
+echo "Remote server: $USER@$SERVER_IP"
+if [ -n "$SSH_KEY" ]; then
+    echo "SSH Key: $SSH_KEY"
+else
+    echo "SSH Key: [not found, using default SSH agent/config]"
+fi
 echo ""
 
 # ==========================================

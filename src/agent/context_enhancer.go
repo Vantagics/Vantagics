@@ -14,12 +14,46 @@ import (
 // Represents a single analysis record for historical context
 // Validates: Requirements 1.1
 type AnalysisRecord struct {
-	ID            string    `json:"id"`              // Unique identifier (format: ah_timestamp)
-	DataSourceID  string    `json:"data_source_id"`  // ID of the data source analyzed
-	AnalysisType  string    `json:"analysis_type"`   // Type: trend, comparison, distribution, etc.
-	TargetColumns []string  `json:"target_columns"`  // Columns involved in the analysis
-	KeyFindings   string    `json:"key_findings"`    // Summary of key findings
-	Timestamp     time.Time `json:"timestamp"`       // When the analysis was performed
+	ID            string   `json:"id"`              // Unique identifier (format: ah_timestamp)
+	DataSourceID  string   `json:"data_source_id"`  // ID of the data source analyzed
+	AnalysisType  string   `json:"analysis_type"`   // Type: trend, comparison, distribution, etc.
+	TargetColumns []string `json:"target_columns"`  // Columns involved in the analysis
+	KeyFindings   string   `json:"key_findings"`    // Summary of key findings
+	Timestamp     int64    `json:"timestamp"`       // Unix timestamp in milliseconds
+}
+
+// UnmarshalJSON keeps backward compatibility with older persisted time.Time strings.
+func (ar *AnalysisRecord) UnmarshalJSON(data []byte) error {
+	type alias AnalysisRecord
+	var aux struct {
+		alias
+		Timestamp interface{} `json:"timestamp"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	*ar = AnalysisRecord(aux.alias)
+	switch v := aux.Timestamp.(type) {
+	case nil:
+		ar.Timestamp = time.Now().UnixMilli()
+	case float64:
+		ar.Timestamp = int64(v)
+	case int64:
+		ar.Timestamp = v
+	case string:
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339Nano, v)
+		}
+		if err != nil {
+			ar.Timestamp = time.Now().UnixMilli()
+		} else {
+			ar.Timestamp = t.UnixMilli()
+		}
+	default:
+		ar.Timestamp = time.Now().UnixMilli()
+	}
+	return nil
 }
 
 // AnalysisHistoryFile represents the JSON file structure for analysis history
@@ -157,8 +191,8 @@ func (s *AnalysisHistoryStore) AddRecord(record AnalysisRecord) error {
 	}
 
 	// Set timestamp if not provided
-	if record.Timestamp.IsZero() {
-		record.Timestamp = time.Now()
+	if record.Timestamp == 0 {
+		record.Timestamp = time.Now().UnixMilli()
 	}
 
 	// Add record to the beginning (newest first)
@@ -197,7 +231,7 @@ func (s *AnalysisHistoryStore) GetRecordsByDataSource(dataSourceID string, maxRe
 	// Sort by timestamp descending (newest first)
 	// Validates: Requirements 1.4
 	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Timestamp.After(filtered[j].Timestamp)
+		return filtered[i].Timestamp > filtered[j].Timestamp
 	})
 
 	// Limit to maxRecords if specified
@@ -227,7 +261,7 @@ func (s *AnalysisHistoryStore) GetAllRecords() ([]AnalysisRecord, error) {
 
 	// Sort by timestamp descending (newest first)
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].Timestamp.After(result[j].Timestamp)
+		return result[i].Timestamp > result[j].Timestamp
 	})
 
 	return result, nil

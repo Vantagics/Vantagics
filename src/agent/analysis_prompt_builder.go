@@ -76,17 +76,17 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 		sb.WriteString("## Analysis Requirements\n")
 		if hints.NeedsVisualization {
 			sb.WriteString("- ⭐⭐�**[MUST] Generate visualization chart** - core requirement!\n")
-			sb.WriteString("  - Use matplotlib/seaborn to create charts\n")
-			sb.WriteString("  - Must call plt.savefig() to save chart to FILES_DIR\n")
-			sb.WriteString("  - Chart filename: chart.png\n")
+			sb.WriteString("  - Use ECharts only\n")
+			sb.WriteString("  - Print a valid json:echarts block directly in stdout\n")
+			sb.WriteString("  - Do NOT save chart images such as chart.png\n")
 			if hints.SuggestedChartType != "" {
 				chartTypeDesc := map[string]string{
-					"line":        "Line chart (plt.plot) - for trends",
-					"bar":         "Bar chart (plt.bar) - for category comparison",
-					"pie":         "Pie chart (plt.pie) - for proportions",
+					"line":        "Line chart - for trends",
+					"bar":         "Bar chart - for category comparison",
+					"pie":         "Pie chart - for proportions",
 					"grouped_bar": "Grouped bar chart - for multi-dimensional comparison",
-					"scatter":     "Scatter plot (plt.scatter) - for correlation analysis",
-					"heatmap":     "Heatmap (sns.heatmap) - for matrix data",
+					"scatter":     "Scatter plot - for correlation analysis",
+					"heatmap":     "Heatmap - for matrix data",
 				}
 				if desc, ok := chartTypeDesc[hints.SuggestedChartType]; ok {
 					sb.WriteString(fmt.Sprintf("  - Recommended chart type: %s\n", desc))
@@ -106,7 +106,7 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	} else {
 		sb.WriteString("## Analysis Requirements\n")
 		sb.WriteString("- �**Recommend generating visualization charts**\n")
-		sb.WriteString("- Use plt.savefig() to save chart to FILES_DIR/chart.png\n\n")
+		sb.WriteString("- Use ECharts only and print a json:echarts block\n\n")
 	}
 
 	// Database info section
@@ -124,18 +124,20 @@ func (b *AnalysisPromptBuilder) BuildPromptWithHints(userRequest string, schemaC
 	sb.WriteString("## Code Requirements (strict)\n")
 	sb.WriteString("1. Code must be complete and executable without modifications\n")
 	sb.WriteString("2. Use duckdb for database, pandas for data processing\n")
-	sb.WriteString("3. **⭐⭐�Charts must be saved**:\n")
+	sb.WriteString("3. **Visualization must use ECharts only**:\n")
 	sb.WriteString("   ```python\n")
-	sb.WriteString("   chart_path = os.path.join(FILES_DIR, 'chart.png')\n")
-	sb.WriteString("   plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')\n")
-	sb.WriteString("   plt.close()\n")
+	sb.WriteString("   import json\n")
+	sb.WriteString("   print('```json:echarts')\n")
+	sb.WriteString("   print(json.dumps(echarts_option, ensure_ascii=False))\n")
+	sb.WriteString("   print('```')\n")
 	sb.WriteString("   ```\n")
+	sb.WriteString("   - Do NOT use matplotlib/seaborn and do NOT save chart images\n")
 	sb.WriteString("4. **LANGUAGE**: All user-facing output (chart titles, labels, print statements, insights) MUST be in the SAME language as the user's request above\n")
 	sb.WriteString("5. Include complete error handling (try-except-finally)\n")
 	sb.WriteString("6. Close database connection in finally block\n")
 	sb.WriteString("7. Use print to output analysis results and key insights\n")
 	sb.WriteString("8. Use DB_PATH for database path, FILES_DIR for file save directory\n")
-	sb.WriteString("9. Font config: plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']\n")
+	sb.WriteString("9. ECharts options must be valid JSON, no JavaScript functions\n")
 	sb.WriteString("10. **Chart styling**: Use appropriate colors, titles, labels\n")
 
 	// Data export requirement
@@ -242,11 +244,6 @@ func (b *AnalysisPromptBuilder) AddTemplate(name string, template *CodeTemplate)
 // Code templates
 const standardCodeTemplate = `import duckdb
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
 import os
 
 # 数据库路径和文件保存目录（运行时注入�
@@ -290,12 +287,7 @@ if __name__ == "__main__":
 
 const visualizationCodeTemplate = `import duckdb
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
-import seaborn as sns
+import json
 import os
 
 # 数据库路径和文件保存目录（运行时注入�
@@ -325,7 +317,16 @@ def main():
         # ... 数据清洗、转换、计�...
         
         # 4. 【必须】创建可视化图表
-        fig, ax = plt.subplots(figsize=(10, 6))
+        echarts_option = {
+            "title": {"text": "图表标题"},
+            "tooltip": {"trigger": "axis"},
+            "xAxis": {"type": "category", "data": df.iloc[:, 0].astype(str).tolist()},
+            "yAxis": {"type": "value"},
+            "series": [{
+                "type": "bar",
+                "data": df.iloc[:, 1].tolist()
+            }]
+        }
         
         # 选择合适的图表类型�
         # - 时间趋势: plt.plot() 折线�
@@ -334,25 +335,21 @@ def main():
         # - 多维对比: 分组柱状�
         
         # 示例：柱状图
-        # ax.bar(df['category'], df['value'], color='steelblue')
+        # 例如：根据数据选择 bar / line / pie 等 ECharts series 类型
         
         # 示例：折线图
-        # ax.plot(df['date'], df['value'], marker='o', linewidth=2, color='steelblue')
+        # 例如：series = [{"type": "line", "data": ...}]
         
         # 示例：饼�
-        # ax.pie(df['value'], labels=df['category'], autopct='%1.1f%%')
+        # 例如：series = [{"type": "pie", "data": ...}]
         
         # 图表美化
-        ax.set_title('图表标题', fontsize=14, fontweight='bold')
-        ax.set_xlabel('X轴标�, fontsize=12)
-        ax.set_ylabel('Y轴标�, fontsize=12)
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
+        # 可继续补充 title / legend / axisLabel / color 等 ECharts 配置
+        print("json:echarts")
+        print(json.dumps(echarts_option, ensure_ascii=False))
         
         # 5. 【必须】保存图表到FILES_DIR
-        chart_path = os.path.join(FILES_DIR, 'chart.png')
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
+        # 不要保存 chart.png，直接输出 json:echarts
         print(f"�图表已保�" {chart_path}")
         
         # 6. 【可选】导出数据到Excel
@@ -384,11 +381,6 @@ if __name__ == "__main__":
 
 const aggregationCodeTemplate = `import duckdb
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
-plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
 import os
 
 # 数据库路径和文件保存目录（运行时注入�

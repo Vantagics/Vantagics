@@ -44,6 +44,102 @@ function parseJsonTableContent(codeContent: string): { headers: string[]; rows: 
     return null;
 }
 
+function sanitizeAnalysisDisplayContent(rawContent: string, isUser: boolean): { content: string; collapsedToDashboard: boolean } {
+    if (isUser || !rawContent) {
+        return { content: rawContent, collapsedToDashboard: false };
+    }
+
+    const looksLikeAnalysisDump =
+        rawContent.includes('Generated charts:') ||
+        rawContent.includes('Exported files:') ||
+        rawContent.includes('图表已保存至') ||
+        rawContent.includes('chart.png') ||
+        rawContent.includes('=== 关键洞察 ===') ||
+        rawContent.includes('=== Key Findings ===');
+
+    if (!looksLikeAnalysisDump) {
+        return { content: rawContent, collapsedToDashboard: false };
+    }
+
+    const lines = rawContent.split('\n');
+    const kept: string[] = [];
+    const insightLines: string[] = [];
+    let captureInsights = false;
+    let skipGeneratedCharts = false;
+    let skipExportedFiles = false;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (trimmed === 'Generated charts:') {
+            skipGeneratedCharts = true;
+            skipExportedFiles = false;
+            captureInsights = false;
+            continue;
+        }
+        if (trimmed === 'Exported files:') {
+            skipGeneratedCharts = false;
+            skipExportedFiles = true;
+            captureInsights = false;
+            continue;
+        }
+        if (trimmed === '=== 关键洞察 ===' || trimmed === '=== Key Findings ===') {
+            captureInsights = true;
+            skipGeneratedCharts = false;
+            skipExportedFiles = false;
+            continue;
+        }
+
+        if (skipGeneratedCharts || skipExportedFiles) {
+            if (!trimmed || trimmed.startsWith('===')) {
+                skipGeneratedCharts = false;
+                skipExportedFiles = false;
+            } else {
+                continue;
+            }
+        }
+
+        if (trimmed.startsWith('C:/') || trimmed.startsWith('C:\\') || trimmed.startsWith('/Users/') || trimmed.startsWith('/home/')) {
+            continue;
+        }
+        if ((trimmed.includes('保存至') || trimmed.includes('saved to')) && /\.(png|jpg|jpeg|svg)/i.test(trimmed)) {
+            continue;
+        }
+        if (trimmed === 'chart.png') {
+            continue;
+        }
+
+        if (captureInsights) {
+            if (!trimmed || trimmed.startsWith('===')) {
+                captureInsights = false;
+                continue;
+            }
+            insightLines.push(line);
+            continue;
+        }
+
+        kept.push(line);
+    }
+
+    const normalizedInsights = insightLines.join('\n').trim();
+    if (normalizedInsights) {
+        return {
+            content: `分析结果已同步到右侧仪表盘。\n\n**关键洞察**\n\n${normalizedInsights}`,
+            collapsedToDashboard: true
+        };
+    }
+
+    const compact = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (!compact || compact.length > 500) {
+        return {
+            content: '分析结果已同步到右侧仪表盘，请在仪表盘查看图表、指标和表格。',
+            collapsedToDashboard: true
+        };
+    }
+
+    return { content: compact, collapsedToDashboard: true };
+}
+
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
@@ -75,6 +171,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     const [timingModalOpen, setTimingModalOpen] = useState(false);
     const [showResultClicked, setShowResultClicked] = useState(false);
     const messageContentRef = useRef<HTMLDivElement>(null);
+    const { content: displayContent, collapsedToDashboard } = React.useMemo(
+        () => sanitizeAnalysisDisplayContent(content, isUser),
+        [content, isUser]
+    );
 
     // Image component that loads base64 data for file:// URLs
     const MessageImage: React.FC<{ src?: string; alt?: string; threadId?: string; [key: string]: any }> = ({ src, alt, threadId, ...rest }) => {
@@ -304,11 +404,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         if (isUser) return { extractedActions: actions, extractedInsights: insights };
 
-        const lines = content.split('\n');
+        const lines = displayContent.split('\n');
         let inSuggestionSection = false;
         let suggestionCount = 0;
 
-        const hasSuggestionContext = isSuggestionContext(content);
+        const hasSuggestionContext = isSuggestionContext(displayContent);
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -366,7 +466,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
 
         // Fallback: If no actions extracted but content suggests analysis, extract from sentences
         if (actions.length === 0 && hasSuggestionContext) {
-            const sentences = content.split(/[。.！!？?]/);
+            const sentences = displayContent.split(/[。.！!？?]/);
             for (const sentence of sentences) {
                 const trimmed = sentence.trim();
                 if (trimmed.length > 10 && trimmed.length < 150 &&
@@ -386,7 +486,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
         }
 
         return { extractedActions: actions, extractedInsights: insights };
-    }, [content, isUser]);
+    }, [displayContent, isUser]);
 
     // 注意：关键指标现在通过后端自动提取，不再需要在这里解析json:metrics代码块
 
@@ -655,7 +755,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
     // - any other path format
     const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
     const preservedImages: string[] = [];
-    let contentWithPlaceholders = content.replace(imageRegex, (match) => {
+    let contentWithPlaceholders = displayContent.replace(imageRegex, (match) => {
         preservedImages.push(match);
         return `__IMAGE_PLACEHOLDER_${preservedImages.length - 1}__`;
     });
@@ -736,6 +836,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ role, content, payload, o
                                 <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
                             </svg>
                             <span>{t('has_visualization')}</span>
+                        </div>
+                    )}
+                    {!isUser && collapsedToDashboard && (
+                        <div className="mb-3 inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700">
+                            <BarChart3 className="w-3.5 h-3.5" />
+                            结果已整理到仪表盘
                         </div>
                     )}
                     <div

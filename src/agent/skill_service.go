@@ -13,12 +13,12 @@ import (
 
 // Skill represents a skill with its metadata
 type Skill struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Content     string    `json:"content"`
-	Path        string    `json:"path"`
-	InstalledAt time.Time `json:"installed_at"`
-	Enabled     bool      `json:"enabled"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Content     string `json:"content"`
+	Path        string `json:"path"`
+	InstalledAt int64  `json:"installed_at"` // Unix timestamp in milliseconds
+	Enabled     bool   `json:"enabled"`
 }
 
 // SkillConfig stores the enabled/disabled state of skills
@@ -143,7 +143,7 @@ func (s *SkillService) ListSkills() ([]Skill, error) {
 			Description: description,
 			Content:     string(content),
 			Path:        skillPath,
-			InstalledAt: installedAt,
+			InstalledAt: installedAt.UnixMilli(),
 			Enabled:     enabled,
 		})
 	}
